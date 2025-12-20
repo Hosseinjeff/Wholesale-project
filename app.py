@@ -16,6 +16,14 @@ WEB_APP_URL = os.getenv('GOOGLE_WEB_APP_URL')
 setup_logger(logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Log startup info
+logger.info("Starting Flask app for Railway")
+logger.info(f"GOOGLE_WEB_APP_URL: {'SET' if WEB_APP_URL else 'NOT SET'}")
+if WEB_APP_URL:
+    logger.info(f"Web app URL: {WEB_APP_URL[:50]}...")
+else:
+    logger.error("GOOGLE_WEB_APP_URL environment variable not found!")
+
 def extract_forward_data(message):
     """Extract data from forwarded Telegram message."""
     forward_origin = message.get('forward_origin', {})
@@ -130,4 +138,6 @@ def health_check():
     })
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=8080)
+    # Production mode for Railway
+    port = int(os.environ.get('PORT', 8080))
+    app.run(host='0.0.0.0', port=port, debug=False)
