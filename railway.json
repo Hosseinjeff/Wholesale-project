@@ -3,6 +3,6 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "python webhook_bot.py"
+    "startCommand": "python app.py"
   }
 }
