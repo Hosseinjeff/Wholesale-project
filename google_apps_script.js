@@ -1,6 +1,17 @@
 // Google Apps Script code for automatic Telegram import
 // Deploy as Web App to create a webhook endpoint
 
+// Test function for GET requests
+function doGet(e) {
+  return ContentService
+    .createTextOutput(JSON.stringify({
+      status: 'success',
+      message: 'Google Apps Script is working!',
+      test: e.parameter.test || 'no test param'
+    }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
 function doPost(e) {
   try {
     const data = JSON.parse(e.postData.contents);

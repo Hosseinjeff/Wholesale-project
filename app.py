@@ -85,12 +85,19 @@ def send_to_google_apps_script(data):
         return False
 
     try:
+        logger.info(f"Sending data to Google Apps Script: {WEB_APP_URL}")
+        logger.info(f"Data: {data}")
+
         response = requests.post(
             WEB_APP_URL,
             json=data,
             timeout=10,
             headers={'Content-Type': 'application/json'}
         )
+
+        logger.info(f"Response status: {response.status_code}")
+        logger.info(f"Response content: {response.text[:200]}")
+
         return response.status_code == 200
     except Exception as e:
         logger.error(f"Error sending to Google Apps Script: {str(e)}")
