@@ -6,14 +6,13 @@ Flask app for Railway/Render deployment with Telegram webhooks.
 from flask import Flask, request, jsonify
 import logging
 import requests
-from utils.config import load_config
+import os
 from utils.logger import setup_logger
 
 app = Flask(__name__)
 
-# Global variables
-config = load_config()
-WEB_APP_URL = config.get('GOOGLE_WEB_APP_URL')
+# Global variables - read from Railway environment variables
+WEB_APP_URL = os.getenv('GOOGLE_WEB_APP_URL')
 setup_logger(logging.INFO)
 logger = logging.getLogger(__name__)
 
