@@ -1,0 +1,44 @@
+2025-12-20 19:16:55,979 - channels.telegram_bot_reader - INFO - Bot authenticated: @molavisale_bot
+2025-12-20 19:16:56,657 - channels.telegram_bot_reader - INFO - Bot authenticated: @molavisale_bot
+2025-12-20 19:16:58,419 - channels.telegram_bot_reader - INFO - Retrieved 0 forwarded messages
+2025-12-20 19:36:28,001 - __main__ - INFO - Starting Channel to Sheets import
+2025-12-20 19:36:28,038 - __main__ - INFO - Reading posts from telegram channel...
+2025-12-20 19:36:28,536 - channels.telegram_bot_reader - INFO - Bot authenticated: @molavisale_bot
+2025-12-20 19:36:29,045 - channels.telegram_bot_reader - INFO - Retrieved 5 forwarded messages
+2025-12-20 19:36:29,047 - __main__ - INFO - Found 5 posts to import
+2025-12-20 19:36:29,059 - __main__ - INFO - Using quick mode (manual copy-paste)...
+2025-12-20 19:36:29,059 - __main__ - INFO - Writing to Google Sheets (ID: 1u5LGXqiEfcPTsopvHOwkh-qvJO5zDK98pVmFhL-xWDs)...
+2025-12-20 19:36:29,082 - sheets.quick_sheets_writer - ERROR - Error preparing data: 'charmap' codec can't encode characters in position 2669-2671: character maps to <undefined>
+2025-12-20 19:36:29,082 - __main__ - INFO - Import completed successfully!
+2025-12-20 19:36:47,194 - __main__ - INFO - Starting Channel to Sheets import
+2025-12-20 19:36:47,197 - __main__ - INFO - Reading posts from telegram channel...
+2025-12-20 19:36:47,898 - channels.telegram_bot_reader - INFO - Bot authenticated: @molavisale_bot
+2025-12-20 19:36:49,416 - channels.telegram_bot_reader - INFO - Retrieved 5 forwarded messages
+2025-12-20 19:36:49,417 - __main__ - INFO - Found 5 posts to import
+2025-12-20 19:36:49,420 - __main__ - INFO - Using quick mode (manual copy-paste)...
+2025-12-20 19:36:49,421 - __main__ - INFO - Writing to Google Sheets (ID: 1u5LGXqiEfcPTsopvHOwkh-qvJO5zDK98pVmFhL-xWDs)...
+2025-12-20 19:36:49,424 - sheets.quick_sheets_writer - ERROR - Error preparing data: 'charmap' codec can't encode characters in position 10-12: character maps to <undefined>
+2025-12-20 19:36:49,425 - __main__ - INFO - Import completed successfully!
+2025-12-20 19:37:03,913 - __main__ - INFO - Starting Channel to Sheets import
+2025-12-20 19:37:03,915 - __main__ - INFO - Reading posts from telegram channel...
+2025-12-20 19:37:04,474 - channels.telegram_bot_reader - INFO - Bot authenticated: @molavisale_bot
+2025-12-20 19:37:05,003 - channels.telegram_bot_reader - INFO - Retrieved 5 forwarded messages
+2025-12-20 19:37:05,004 - __main__ - INFO - Found 5 posts to import
+2025-12-20 19:37:05,008 - __main__ - INFO - Using quick mode (manual copy-paste)...
+2025-12-20 19:37:05,008 - __main__ - INFO - Writing to Google Sheets (ID: 1u5LGXqiEfcPTsopvHOwkh-qvJO5zDK98pVmFhL-xWDs)...
+2025-12-20 19:37:05,011 - sheets.quick_sheets_writer - INFO - Prepared data for Google Sheet 1u5LGXqiEfcPTsopvHOwkh-qvJO5zDK98pVmFhL-xWDs
+2025-12-20 19:37:05,011 - __main__ - INFO - Import completed successfully!
+2025-12-20 19:39:14,059 - __main__ - INFO - Starting Channel to Sheets import
+2025-12-20 19:39:14,061 - __main__ - INFO - Reading posts from telegram channel...
+2025-12-20 19:39:14,617 - channels.telegram_bot_reader - INFO - Bot authenticated: @molavisale_bot
+2025-12-20 19:39:15,144 - channels.telegram_bot_reader - INFO - Retrieved 5 forwarded messages
+2025-12-20 19:39:15,144 - __main__ - INFO - Found 5 posts to import
+2025-12-20 19:39:15,146 - __main__ - INFO - Using quick mode (manual copy-paste)...
+2025-12-20 19:39:15,146 - __main__ - INFO - Writing to Google Sheets (ID: 1u5LGXqiEfcPTsopvHOwkh-qvJO5zDK98pVmFhL-xWDs)...
+2025-12-20 19:39:15,196 - sheets.quick_sheets_writer - INFO - Prepared data for Google Sheet 1u5LGXqiEfcPTsopvHOwkh-qvJO5zDK98pVmFhL-xWDs
+2025-12-20 19:39:15,197 - __main__ - INFO - Import completed successfully!
+2025-12-20 19:41:45,995 - channels.telegram_bot_reader - INFO - Bot authenticated: @molavisale_bot
+2025-12-20 19:41:52,057 - channels.telegram_bot_reader - INFO - Retrieved 5 forwarded messages
+2025-12-20 19:41:52,063 - __main__ - ERROR - Export failed: 'charmap' codec can't encode character '\u2705' in position 0: character maps to <undefined>
+2025-12-20 19:42:34,126 - channels.telegram_bot_reader - INFO - Bot authenticated: @molavisale_bot
+2025-12-20 19:42:39,978 - channels.telegram_bot_reader - INFO - Retrieved 5 forwarded messages

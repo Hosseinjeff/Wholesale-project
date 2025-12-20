@@ -1,0 +1,33 @@
+# Configuration template for Channel to Sheets importer
+# Copy this file to .env and fill in your actual values
+#
+# To create your .env file:
+# 1. Copy this file: copy env_example.txt .env
+# 2. Fill in your actual credentials below
+
+# === TELEGRAM CONFIGURATION ===
+# Get bot token from @BotFather on Telegram
+# Forward messages from channels to your bot
+TELEGRAM_BOT_TOKEN=your_bot_token_from_botfather
+
+# === DISCORD CONFIGURATION ===
+# Create a bot at https://discord.com/developers/applications
+DISCORD_BOT_TOKEN=your_discord_bot_token
+DISCORD_CHANNEL_ID=your_discord_channel_id
+
+# === SLACK CONFIGURATION ===
+# Create an app at https://api.slack.com/apps
+SLACK_BOT_TOKEN=xoxb-your-slack-bot-token
+SLACK_CHANNEL_ID=C1234567890
+
+# === GOOGLE SHEETS CONFIGURATION ===
+# Download credentials from Google Cloud Console
+# https://console.cloud.google.com/apis/credentials
+GOOGLE_SHEETS_CREDENTIALS_PATH=credentials.json
+GOOGLE_SHEET_ID=your_google_sheet_id_here
+
+# === GENERAL CONFIGURATION ===
+LOG_LEVEL=INFO
+REQUEST_TIMEOUT=30
+MAX_RETRIES=3
+CHECK_INTERVAL=30

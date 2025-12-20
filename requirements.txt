@@ -1,0 +1,25 @@
+# Core dependencies
+google-api-python-client
+google-auth-oauthlib
+google-auth-httplib2
+python-dotenv
+flask
+
+# HTTP requests
+requests
+aiohttp  # For async operations
+
+# Data processing
+pandas
+openpyxl
+
+# Logging and utilities
+schedule  # For periodic execution
+
+# Channel-specific libraries (add based on channel type)
+# For Telegram: python-telegram-bot for webhooks
+python-telegram-bot
+# For Discord: discord.py
+discord.py
+# For Slack: slack-sdk
+slack-sdk
