@@ -7,6 +7,7 @@ from flask import Flask, request, jsonify
 import logging
 import requests
 import os
+import time
 from utils.logger import setup_logger
 
 app = Flask(__name__)
@@ -137,14 +138,68 @@ def telegram_webhook():
 
 @app.route('/', methods=['GET'])
 def health_check():
-    """Health check endpoint."""
+    """Health check endpoint for Railway."""
     return jsonify({
-        'status': 'running',
+        'status': 'healthy',
+        'service': 'telegram-webhook',
         'web_app_url': bool(WEB_APP_URL),
-        'version': '1.0'
+        'version': '1.0',
+        'timestamp': int(time.time())
     })
 
+@app.route('/health', methods=['GET'])
+def detailed_health_check():
+    """Detailed health check endpoint."""
+    try:
+        # Test Google Apps Script connectivity
+        gas_status = 'unknown'
+        if WEB_APP_URL:
+            try:
+                test_response = requests.get(f'{WEB_APP_URL}?action=health', timeout=5)
+                gas_status = 'connected' if test_response.status_code == 200 else 'error'
+            except:
+                gas_status = 'unreachable'
+
+        return jsonify({
+            'status': 'healthy',
+            'service': 'telegram-webhook',
+            'google_apps_script': gas_status,
+            'web_app_url': bool(WEB_APP_URL),
+            'version': '1.0',
+            'timestamp': int(time.time())
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'unhealthy',
+            'error': str(e),
+            'timestamp': int(time.time())
+        }), 500
+
 if __name__ == '__main__':
-    # Production mode for Railway
+    # Production mode for Railway/Render
     port = int(os.environ.get('PORT', 8080))
-    app.run(host='0.0.0.0', port=port, debug=False)
+
+    # Railway specific configuration
+    is_production = os.environ.get('RAILWAY_ENVIRONMENT') == 'production'
+    is_development = not is_production
+
+    logger.info(f"Starting Flask app in {'production' if is_production else 'development'} mode")
+    logger.info(f"Listening on port {port}")
+
+    if is_production:
+        # Production configuration for Railway
+        app.run(
+            host='0.0.0.0',
+            port=port,
+            debug=False,
+            threaded=True,
+            use_reloader=False
+        )
+    else:
+        # Development configuration
+        app.run(
+            host='0.0.0.0',
+            port=port,
+            debug=True,
+            threaded=True
+        )

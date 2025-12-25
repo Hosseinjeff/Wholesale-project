@@ -1,8 +1,9 @@
 {
   "build": {
-    "builder": "NIXPACKS"
+    "builder": "DOCKERFILE"
   },
   "deploy": {
-    "startCommand": "python app.py"
+    "startCommand": "python app.py",
+    "healthcheckPath": "/health"
   }
 }
