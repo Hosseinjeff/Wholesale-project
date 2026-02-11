@@ -4,22 +4,20 @@ google-auth-oauthlib
 google-auth-httplib2
 python-dotenv
 flask
+gunicorn
 
 # HTTP requests
 requests
-aiohttp  # For async operations
+aiohttp
 
 # Data processing
 pandas
 openpyxl
 
 # Logging and utilities
-schedule  # For periodic execution
+schedule
 
-# Channel-specific libraries (add based on channel type)
-# For Telegram: python-telegram-bot for webhooks
-python-telegram-bot
-# For Discord: discord.py
+# Channel-specific libraries
+python-telegram-bot>=20.0
 discord.py
-# For Slack: slack-sdk
 slack-sdk

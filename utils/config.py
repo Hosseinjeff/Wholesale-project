@@ -34,6 +34,7 @@ def load_config(config_path: str = '.env') -> Dict[str, Any]:
 
         # Google Sheets configuration
         'GOOGLE_SHEETS_CREDENTIALS_PATH': os.getenv('GOOGLE_SHEETS_CREDENTIALS_PATH', 'credentials.json'),
+        'GOOGLE_WEB_APP_URL': os.getenv('GOOGLE_WEB_APP_URL'),
 
         # General configuration
         'LOG_LEVEL': os.getenv('LOG_LEVEL', 'INFO'),

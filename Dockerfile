@@ -47,6 +47,9 @@ COPY --from=base /usr/local/bin /usr/local/bin
 # Copy application code (only necessary files)
 COPY --chown=app:app app.py .
 COPY --chown=app:app utils/ ./utils/
+COPY --chown=app:app channels/ ./channels/
+COPY --chown=app:app sheets/ ./sheets/
+COPY --chown=app:app .env .env
 
 # Expose port
 EXPOSE 8080

@@ -84,3 +84,4 @@ curl "https://api.telegram.org/bot8266854184:AAEvZqs0tbjctOeQsh3JGpYr84r272tbxd8
 Your wholesale channel import system now runs **completely independently** of your desktop! 🎉
 
 **Forward messages anytime → Automatic Google Sheets updates**
+

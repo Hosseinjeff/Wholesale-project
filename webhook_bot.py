@@ -31,74 +31,80 @@ class WebhookBot:
         # Initialize bot
         self.application = Application.builder().token(self.bot_token).build()
 
-        # Add message handler for forwarded messages
+        # Add message handler for ALL messages (not just forwarded)
         self.application.add_handler(MessageHandler(
-            filters.FORWARDED,  # Only forwarded messages
+            filters.TEXT & (~filters.COMMAND),
             self.handle_forwarded_message
         ))
 
         self.logger.info("Webhook bot initialized")
 
     async def handle_forwarded_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle forwarded messages and send to Google Apps Script."""
+        """Handle messages and send to Google Apps Script."""
         try:
             message = update.message
-            if not message or not message.forward_origin:
+            if not message:
                 return
 
-            # Extract forwarded message data
-            forward_data = self.extract_forward_data(message)
+            # Extract message data (handles both forwarded and direct)
+            message_data = self.extract_message_data(message)
 
             # Send to Google Apps Script
-            success = self.send_to_google_apps_script(forward_data)
+            success = self.send_to_google_apps_script(message_data)
 
             if success:
-                await message.reply_text("✅ Message imported to Google Sheets!")
-                self.logger.info(f"Imported message from {forward_data['channel']}")
+                await message.reply_text(f"✅ Message imported! (ID: {message_data['id']})")
+                self.logger.info(f"Imported message from {message_data['channel_username']}")
             else:
                 await message.reply_text("❌ Failed to import message")
                 self.logger.error("Failed to import message")
 
         except Exception as e:
-            self.logger.error(f"Error handling forwarded message: {str(e)}")
+            self.logger.error(f"Error handling message: {str(e)}")
             try:
-                await message.reply_text("❌ Error processing message")
+                await message.reply_text(f"❌ Error: {str(e)}")
             except:
                 pass
 
-    def extract_forward_data(self, message):
-        """Extract data from forwarded message."""
-        forward_origin = message.forward_origin
-
+    def extract_message_data(self, message):
+        """Extract data from message (forwarded or direct)."""
+        import time
+        
+        # Create a stable ID using message_id
+        # Note: message_id is unique within a chat. For global uniqueness, we use it directly.
+        # If forwarded, the message_id is from the current bot chat, not the source channel.
+        unique_id = str(message.message_id)
+        
         # Base data
         data = {
-            'id': str(message.message_id),
+            'id': unique_id,
             'content': message.text or message.caption or '',
             'has_media': bool(message.photo or message.document or message.video),
             'media_type': self.get_media_type(message),
             'forwarded_by': message.from_user.username if message.from_user else 'Unknown',
             'forwarded_at': message.date.isoformat() if message.date else None,
             'channel': 'telegram',
-            'channel_username': 'Unknown',
-            'author': 'Unknown',
-            'timestamp': None,
+            'channel_username': 'DirectMessage',
+            'author': message.from_user.full_name if message.from_user else 'Unknown',
+            'timestamp': message.date.isoformat() if message.date else None,
             'url': ''
         }
 
-        # Extract origin information
-        if forward_origin.type == 'channel':
-            chat = forward_origin.chat
-            data['channel_username'] = f"@{chat.username}" if chat.username else chat.title
-            data['author'] = chat.title or 'Channel'
-            data['timestamp'] = forward_origin.date.isoformat() if forward_origin.date else None
-            if chat.username:
-                data['url'] = f"https://t.me/{chat.username}/{forward_origin.message_id}"
-
-        elif forward_origin.type == 'user':
-            user = forward_origin.sender_user
-            if user:
-                data['author'] = f"{user.first_name or ''} {user.last_name or ''}".strip() or user.username or 'User'
+        # Extract origin information if forwarded
+        if message.forward_origin:
+            forward_origin = message.forward_origin
+            if forward_origin.type == 'channel':
+                chat = forward_origin.chat
+                data['channel_username'] = f"@{chat.username}" if chat.username else chat.title
+                data['author'] = chat.title or 'Channel'
                 data['timestamp'] = forward_origin.date.isoformat() if forward_origin.date else None
+                if chat.username:
+                    data['url'] = f"https://t.me/{chat.username}/{forward_origin.message_id}"
+            elif forward_origin.type == 'user':
+                user = forward_origin.sender_user
+                if user:
+                    data['author'] = user.full_name
+                    data['timestamp'] = forward_origin.date.isoformat() if forward_origin.date else None
 
         return data
 

@@ -5,12 +5,13 @@
 const CONFIG = {
   SPREADSHEET_ID: '1u5LGXqiEfcPTsopvHOwkh-qvJO5zDK98pVmFhL-xWDs',
   MAX_RETRIES: 3,
-  DUPLICATE_CHECK: false, // TEMPORARILY DISABLED FOR TESTING Persian extraction
+  DUPLICATE_CHECK: true, // Re-enabled for production stability
   CONTENT_CHANGE_CHECK: true // Check for content changes even on duplicate IDs
 };
 
 // Persian number conversion helper
 function persianToEnglishNumbers(text) {
+  if (!text) return '';
   const persianNumbers = ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹'];
   const englishNumbers = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
 
@@ -554,129 +555,147 @@ function doGet(e) {
 function doPost(e) {
   Logger.log(`DO_POST_START`);
   Logger.log(`=== DEPLOYMENT TEST 3.9 - REDEPLOYMENT WORKING ===`);
-  let retryCount = 0;
-
-  while (retryCount < CONFIG.MAX_RETRIES) {
+  
+  // Use LockService to prevent concurrent writes to the spreadsheet
+  const lock = LockService.getScriptLock();
   try {
-    const data = JSON.parse(e.postData.contents);
-    Logger.log(`JSON parsed successfully for message ${data.id}`);
+    // Wait for up to 30 seconds for the lock
+    lock.waitLock(30000);
+  } catch (e) {
+    Logger.log('Could not obtain lock after 30 seconds');
+    return ContentService
+      .createTextOutput(JSON.stringify({
+        status: 'error',
+        message: 'Server busy, please try again later (Lock timeout)'
+      }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
 
-    // Log webhook reception to spreadsheet
-    try {
-      const spreadsheet = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
-      const logSheet = getOrCreateSheet(spreadsheet, 'ExecutionLogs', [
-        'Timestamp', 'Function', 'Level', 'Channel', 'ContentLength', 'Message', 'ProductsFound', 'Details'
-      ]);
+  let retryCount = 0;
+  let resultResponse;
 
-      logSheet.appendRow([
-        new Date().toISOString(),
-        'doPost',
-        'INFO',
-        data.channel_username || 'Unknown',
-        (data.content || '').length,
-        'Webhook received',
-        0,
-        `Content preview: ${(data.content || '').substring(0, 100)}`
-      ]);
-    } catch (logError) {
-      Logger.log(`Logging error: ${logError}`);
-    }
+  try {
+    while (retryCount < CONFIG.MAX_RETRIES) {
+      try {
+        const data = JSON.parse(e.postData.contents);
+        Logger.log(`JSON parsed successfully for message ${data.id}`);
 
-    Logger.log(`=== WEBHOOK RECEIVED ===`);
-    Logger.log(`Channel: ${data.channel_username}`);
-    Logger.log(`Content length: ${data.content ? data.content.length : 0}`);
-    Logger.log(`Content preview: ${data.content ? data.content.substring(0, 100) : 'No content'}`);
+        // Log webhook reception to spreadsheet (ONLY ONCE PER MESSAGE)
+        if (retryCount === 0) {
+          try {
+            const spreadsheet = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+            const logSheet = getOrCreateSheet(spreadsheet, 'ExecutionLogs', [
+              'Timestamp', 'Function', 'Level', 'Channel', 'ContentLength', 'Message', 'ProductsFound', 'Details'
+            ]);
 
-      // Validate data
-      const validation = validateData(data);
-      if (!validation.valid) {
-        return ContentService
-          .createTextOutput(JSON.stringify({
-            status: 'error',
-            message: `Validation failed: ${validation.errors.join(', ')}`,
-            received: data
-          }))
-          .setMimeType(ContentService.MimeType.JSON);
-      }
+            logSheet.appendRow([
+              new Date().toISOString(),
+              'doPost',
+              'INFO',
+              data.channel_username || 'Unknown',
+              (data.content || '').length,
+              'Webhook received',
+              0,
+              `ID: ${data.id} - Content preview: ${(data.content || '').substring(0, 50)}`
+            ]);
+          } catch (logError) {
+            Logger.log(`Logging error: ${logError}`);
+          }
+        }
 
-      // Check for duplicates if enabled (TEMPORARILY DISABLED FOR TESTING)
-      // const duplicateCheck = checkForDuplicates(data);
-      // if (CONFIG.DUPLICATE_CHECK && duplicateCheck.isDuplicate && !duplicateCheck.contentChanged) {
-      //   return ContentService
-      //     .createTextOutput(JSON.stringify({
-      //       status: 'duplicate',
-      //       message: 'Message already exists with same content',
-      //       id: data.id
-      //     }))
-      //     .setMimeType(ContentService.MimeType.JSON);
-      // }
+        // Validate data
+        const validation = validateData(data);
+        if (!validation.valid) {
+          resultResponse = ContentService
+            .createTextOutput(JSON.stringify({
+              status: 'error',
+              message: `Validation failed: ${validation.errors.join(', ')}`,
+              received: data
+            }))
+            .setMimeType(ContentService.MimeType.JSON);
+          break; // Exit retry loop
+        }
 
-      // TEMPORARY: Skip duplicate checking for testing Persian extraction
-      Logger.log('DUPLICATE CHECKING DISABLED FOR TESTING');
+        // Check for duplicates if enabled
+        const duplicateCheck = checkForDuplicates(data);
+        if (CONFIG.DUPLICATE_CHECK && duplicateCheck.isDuplicate && !duplicateCheck.contentChanged) {
+          Logger.log(`Duplicate found for message ${data.id}`);
+          resultResponse = ContentService
+            .createTextOutput(JSON.stringify({
+              status: 'duplicate',
+              message: 'Message already exists with same content',
+              id: data.id
+            }))
+            .setMimeType(ContentService.MimeType.JSON);
+          break; // Exit retry loop
+        }
 
-      // Process both message data and product data
-      const messageResult = importMessageData(data);
-      const productResult = importProductData(data);
+        Logger.log('Processing message');
 
-      if (messageResult.success && productResult.success) {
-        // Success logging - removed problematic debug code that referenced undefined 'products' variable
+        // Process both message data and product data
+        const messageResult = importMessageData(data, duplicateCheck.existingRow);
+        const productResult = importProductData(data);
 
-        // Add debug info for testing
-        const debugInfo = {
-          channel: data.channel_username,
-          content_length: data.content ? data.content.length : 0,
-          has_persian: data.content ? (data.content.includes('تومان') || data.content.includes('قیمت') || data.content.includes('تومن')) : false,
-          products_found: productResult.products_found
-        };
-
-        Logger.log(`DO_POST_END - Returning success for message ${data.id}`);
-        return ContentService
-          .createTextOutput(JSON.stringify({
-            status: 'success',
-            message: 'Data imported successfully',
-            message_row: messageResult.row,
-            product_row: productResult.row,
-            products_found: productResult.products_found,
+        if (messageResult.success && productResult.success) {
+          const debugInfo = {
             channel: data.channel_username,
-            debug_channel: data.channel_username,
-            debug_is_bonakdarjavan: data.channel_username === '@bonakdarjavan',
-            debug_products_returned: productResult.products_found,
-            debug_content_length: (data.content || '').length,
-            id: data.id
-          }))
-          .setMimeType(ContentService.MimeType.JSON);
-      } else {
+            content_length: data.content ? data.content.length : 0,
+            products_found: productResult.products_found
+          };
+
+          Logger.log(`DO_POST_END - Returning success for message ${data.id}`);
+          resultResponse = ContentService
+            .createTextOutput(JSON.stringify({
+              status: 'success',
+              message: 'Data imported successfully',
+              message_row: messageResult.row,
+              product_row: productResult.row,
+              products_found: productResult.products_found,
+              id: data.id,
+              debug_info: debugInfo
+            }))
+            .setMimeType(ContentService.MimeType.JSON);
+          break; // Success, exit retry loop
+        } else {
+          if (retryCount < CONFIG.MAX_RETRIES - 1) {
+            retryCount++;
+            Utilities.sleep(1000 * retryCount);
+            continue;
+          }
+
+          resultResponse = ContentService
+            .createTextOutput(JSON.stringify({
+              status: 'error',
+              message: `Message: ${messageResult.error || 'OK'}, Product: ${productResult.error || 'OK'}`,
+              retry_count: retryCount
+            }))
+            .setMimeType(ContentService.MimeType.JSON);
+          break;
+        }
+
+      } catch (error) {
         if (retryCount < CONFIG.MAX_RETRIES - 1) {
           retryCount++;
-          Utilities.sleep(1000 * retryCount); // Exponential backoff
+          Utilities.sleep(1000 * retryCount);
           continue;
         }
 
-        return ContentService
+        resultResponse = ContentService
           .createTextOutput(JSON.stringify({
             status: 'error',
-            message: `Message: ${messageResult.error || 'OK'}, Product: ${productResult.error || 'OK'}`,
+            message: error.toString(),
             retry_count: retryCount
           }))
           .setMimeType(ContentService.MimeType.JSON);
+        break;
       }
-
-    } catch (error) {
-      if (retryCount < CONFIG.MAX_RETRIES - 1) {
-        retryCount++;
-        Utilities.sleep(1000 * retryCount);
-        continue;
-      }
-
-      return ContentService
-        .createTextOutput(JSON.stringify({
-          status: 'error',
-          message: error.toString(),
-          retry_count: retryCount
-        }))
-        .setMimeType(ContentService.MimeType.JSON);
     }
+  } finally {
+    // Release the lock
+    lock.releaseLock();
   }
+
+  return resultResponse || ContentService.createTextOutput(JSON.stringify({status: 'error', message: 'Unknown error'})).setMimeType(ContentService.MimeType.JSON);
 }
 
 function validateData(data) {
@@ -748,7 +767,7 @@ function isDuplicate(data) {
   return checkForDuplicates(data).isDuplicate;
 }
 
-function importMessageData(data) {
+function importMessageData(data, existingRow) {
   try {
     const spreadsheet = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
     const sheet = getOrCreateSheet(spreadsheet, 'MessageData');
@@ -767,18 +786,25 @@ function importMessageData(data) {
       data.has_media || false,
       data.media_type || '',
       new Date().toISOString(),
-      'imported'
+      existingRow ? 'updated' : 'imported'
     ];
 
-    // Append to sheet
-    sheet.appendRow(rowData);
-    const lastRow = sheet.getLastRow();
-
-    Logger.log(`Imported message ${data.id} to MessageData row ${lastRow}`);
+    let row;
+    if (existingRow) {
+      // Update existing row
+      sheet.getRange(existingRow, 1, 1, rowData.length).setValues([rowData]);
+      row = existingRow;
+      Logger.log(`Updated message ${data.id} in MessageData row ${row}`);
+    } else {
+      // Append to sheet
+      sheet.appendRow(rowData);
+      row = sheet.getLastRow();
+      Logger.log(`Imported message ${data.id} to MessageData row ${row}`);
+    }
 
     return {
       success: true,
-      row: lastRow
+      row: row
     };
 
   } catch (error) {
@@ -791,35 +817,13 @@ function importMessageData(data) {
 }
 
 function importProductData(data) {
-  Logger.log(`=== IMPORT_PRODUCT_DATA START - VERSION 3.8 DEBUG ===`);
-
-  // DIRECT SPREADSHEET LOGGING - works regardless of redeployment
-  try {
-    const spreadsheet = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
-    const logSheet = getOrCreateSheet(spreadsheet, 'ExecutionLogs', [
-      'Timestamp', 'Function', 'Level', 'Channel', 'ContentLength', 'Message', 'ProductsFound', 'Details'
-    ]);
-
-    logSheet.appendRow([
-      new Date().toISOString(),
-      'importProductData',
-      'START',
-      data.channel_username || 'Unknown',
-      (data.content || '').length,
-      'Function called - DIRECT LOG',
-      0,
-      `Message ID: ${data.id} - Testing direct logging`
-    ]);
-  } catch (logError) {
-    Logger.log(`Direct logging error: ${logError}`);
-  }
+  Logger.log(`=== IMPORT_PRODUCT_DATA START ===`);
 
   try {
     const spreadsheet = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
 
     // FIX: Read channel information from MessageData sheet if not in webhook data
     if (!data.channel_username && !data.channel) {
-      Logger.log(`No channel info in webhook data, reading from MessageData sheet for message ${data.id}`);
       try {
         const messageSheet = getOrCreateSheet(spreadsheet, 'MessageData', MESSAGE_HEADERS);
         const messageData = messageSheet.getDataRange().getValues();
@@ -829,7 +833,6 @@ function importProductData(data) {
           if (messageData[i][0] == data.id) { // ID column
             data.channel = messageData[i][1] || ''; // Channel column
             data.channel_username = messageData[i][2] || ''; // Channel Username column
-            Logger.log(`Found channel info from sheet: channel="${data.channel}", username="${data.channel_username}"`);
             break;
           }
         }
@@ -841,127 +844,11 @@ function importProductData(data) {
     // Use single Products sheet for all channels
     const sheet = getOrCreateSheet(spreadsheet, 'Products', PRODUCT_HEADERS);
 
-    // Extract products from message content using channel-specific patterns
-    Logger.log(`IMPORT: Calling extractProducts for channel ${data.channel_username} with content length ${(data.content || '').length}`);
-
-    // Log to spreadsheet
-    try {
-      const spreadsheet = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
-      const logSheet = getOrCreateSheet(spreadsheet, 'ExecutionLogs', [
-        'Timestamp', 'Function', 'Level', 'Channel', 'ContentLength', 'Message', 'ProductsFound', 'Details'
-      ]);
-
-      logSheet.appendRow([
-        new Date().toISOString(),
-        'importProductData',
-        'INFO',
-        data.channel_username || 'Unknown',
-        (data.content || '').length,
-        'Starting product import',
-        0,
-        `Message ID: ${data.id}`
-      ]);
-    } catch (logError) {
-      Logger.log(`Import logging error: ${logError}`);
-    }
-
+    // Extract products
     const products = extractProducts(data.content || '', data.channel_username);
     Logger.log(`IMPORT: extractProducts returned ${products.length} products for message ${data.id}`);
 
-    // LOG MESSAGE PREVIEW IF NO PRODUCTS FOUND
     if (products.length === 0) {
-      const contentPreview = (data.content || '').substring(0, 500).replace(/\n/g, ' | ').replace(/\r/g, '');
-      Logger.log(`IMPORT: NO PRODUCTS FOUND - Message preview: "${contentPreview}"`);
-
-      // Direct log with message preview - ALWAYS LOG FOR DEBUGGING
-      try {
-        const spreadsheet = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
-        const logSheet = getOrCreateSheet(spreadsheet, 'ExecutionLogs', [
-          'Timestamp', 'Function', 'Level', 'Channel', 'ContentLength', 'Message', 'ProductsFound', 'Details'
-        ]);
-
-        logSheet.appendRow([
-          new Date().toISOString(),
-          'importProductData',
-          'NO_PRODUCTS',
-          data.channel_username || 'Unknown',
-          (data.content || '').length,
-          'No products extracted - FULL MESSAGE BELOW',
-          0,
-          `FULL MESSAGE: ${contentPreview} - MESSAGE_ID: ${data.id} - CHANNEL: ${data.channel_username}`
-        ]);
-
-        // Also log just the raw content for analysis
-        logSheet.appendRow([
-          new Date().toISOString(),
-          'RAW_CONTENT',
-          'DEBUG',
-          data.channel_username || 'Unknown',
-          (data.content || '').length,
-          data.content || 'EMPTY_CONTENT',
-          0,
-          `RAW MESSAGE CONTENT FOR PATTERN ANALYSIS`
-        ]);
-      } catch (logError) {
-        Logger.log(`Direct logging error: ${logError}`);
-      }
-    }
-
-    // DIRECT LOG: Products extracted
-    try {
-      const spreadsheet = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
-      const logSheet = getOrCreateSheet(spreadsheet, 'ExecutionLogs', [
-        'Timestamp', 'Function', 'Level', 'Channel', 'ContentLength', 'Message', 'ProductsFound', 'Details'
-      ]);
-
-      logSheet.appendRow([
-        new Date().toISOString(),
-        'importProductData',
-        'EXTRACTED',
-        data.channel_username || 'Unknown',
-        (data.content || '').length,
-        'Products extracted from message',
-        products.length,
-        `Extracted ${products.length} products - DIRECT LOG`
-      ]);
-    } catch (logError) {
-      Logger.log(`Direct logging error: ${logError}`);
-    }
-
-    // Log extraction results
-    try {
-      const spreadsheet = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
-      const logSheet = getOrCreateSheet(spreadsheet, 'ExecutionLogs', [
-        'Timestamp', 'Function', 'Level', 'Channel', 'ContentLength', 'Message', 'ProductsFound', 'Details'
-      ]);
-
-      logSheet.appendRow([
-        new Date().toISOString(),
-        'importProductData',
-        'RESULT',
-        data.channel_username || 'Unknown',
-        (data.content || '').length,
-        'Products extracted',
-        products.length,
-        `Extracted ${products.length} products from ${data.id}`
-      ]);
-    } catch (logError) {
-      Logger.log(`Import result logging error: ${logError}`);
-    }
-
-    // DEBUG: Add channel info to response for testing
-    const debugInfo = {
-      channel_received: data.channel_username,
-      channel_type: typeof data.channel_username,
-      is_bonakdarjavan: data.channel_username === '@bonakdarjavan',
-      products_attempted: products.length,
-      content_preview: (data.content || '').substring(0, 50)
-    };
-
-    Logger.log(`IMPORT: About to process ${products.length} products`);
-
-    if (products.length === 0) {
-      Logger.log(`IMPORT: No products found in message ${data.id}`);
       return {
         success: true,
         products_found: 0,
@@ -969,106 +856,28 @@ function importProductData(data) {
       };
     }
 
-    Logger.log(`IMPORT: Starting to save ${products.length} products to Products sheet`);
-
-    Logger.log(`IMPORT: Processing ${products.length} products for message ${data.id}`);
-
     let lastRow = sheet.getLastRow();
 
     // Process each product
-    Logger.log(`IMPORT: Entering product processing loop for ${products.length} products`);
-
-    // DIRECT LOG: Starting product processing
-    try {
-      const spreadsheet = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
-      const logSheet = getOrCreateSheet(spreadsheet, 'ExecutionLogs', [
-        'Timestamp', 'Function', 'Level', 'Channel', 'ContentLength', 'Message', 'ProductsFound', 'Details'
-      ]);
-
-      logSheet.appendRow([
-        new Date().toISOString(),
-        'importProductData',
-        'PROCESSING',
-        data.channel_username || 'Unknown',
-        (data.content || '').length,
-        'Starting product processing loop',
-        products.length,
-        `Processing ${products.length} products - DIRECT LOG`
-      ]);
-    } catch (logError) {
-      Logger.log(`Direct logging error: ${logError}`);
-    }
-
     for (let i = 0; i < products.length; i++) {
       const product = products[i];
-      Logger.log(`IMPORT: Processing product ${i + 1}: "${product.name}" with price ${product.price}`);
-
-      // Log product details for debugging
-      Logger.log(`IMPORT: Product details - Name: "${product.name}", Price: ${product.price}, Currency: ${product.currency}, Packaging: "${product.packaging}"`);
-
+      
       try {
         // Check if product already exists (by name AND channel)
         const existingRow = findExistingProduct(sheet, product.name, data.channel_username);
-        Logger.log(`IMPORT: Existing product check result: ${existingRow ? 'Found at row ' + existingRow : 'Not found'}`);
 
         if (existingRow) {
           // Update existing product
           updateProduct(sheet, existingRow, product, data);
-          Logger.log(`Updated product "${product.name}" from ${data.channel_username} in unified Products sheet row ${existingRow}`);
-
-          // DIRECT LOG: Product updated
-          try {
-            const spreadsheet = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
-            const logSheet = getOrCreateSheet(spreadsheet, 'ExecutionLogs', [
-              'Timestamp', 'Function', 'Level', 'Channel', 'ContentLength', 'Message', 'ProductsFound', 'Details'
-            ]);
-
-            logSheet.appendRow([
-              new Date().toISOString(),
-              'importProductData',
-              'UPDATED',
-              data.channel_username || 'Unknown',
-              (data.content || '').length,
-              'Product updated in Products sheet',
-              1,
-              `Updated "${product.name}" in row ${existingRow} - DIRECT LOG`
-            ]);
-          } catch (logError) {
-            Logger.log(`Direct logging error: ${logError}`);
-          }
         } else {
           // Add new product
           const productRow = createProductRow(product, data);
-          Logger.log(`IMPORT: Created product row data: ${productRow.slice(0, 3).join(', ')}...`);
-          Logger.log(`IMPORT: About to call sheet.appendRow for product "${product.name}"`);
-
           sheet.appendRow(productRow);
           lastRow = sheet.getLastRow();
-          Logger.log(`Added new product "${product.name}" from ${data.channel_username} to unified Products sheet row ${lastRow}`);
-
-          // DIRECT LOG: Product saved successfully
-          try {
-            const spreadsheet = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
-            const logSheet = getOrCreateSheet(spreadsheet, 'ExecutionLogs', [
-              'Timestamp', 'Function', 'Level', 'Channel', 'ContentLength', 'Message', 'ProductsFound', 'Details'
-            ]);
-
-            logSheet.appendRow([
-              new Date().toISOString(),
-              'importProductData',
-              'SAVED',
-              data.channel_username || 'Unknown',
-              (data.content || '').length,
-              'Product saved to Products sheet',
-              1,
-              `Saved "${product.name}" to row ${lastRow} - DIRECT LOG`
-            ]);
-          } catch (logError) {
-            Logger.log(`Direct logging error: ${logError}`);
-          }
         }
-      } catch (productError) {
-        Logger.log(`ERROR processing product ${i + 1}: ${productError}`);
+      } catch (prodError) {
+        Logger.log(`Error processing individual product: ${prodError}`);
+        // Continue with next product
       }
     }
 
@@ -1089,16 +898,29 @@ function importProductData(data) {
 
 function extractProducts(content, channelUsername) {
   const products = [];
-  Logger.log(`=== EXTRACTING PRODUCTS for ${channelUsername} ===`);
-  Logger.log(`Content length: ${content.length}`);
+  const originalContent = content;
+  
+  // 1. Convert Persian numbers to English numbers immediately for easier regex matching
+  const processedContent = persianToEnglishNumbers(content || '');
+  
+  Logger.log(`=== EXTRACTING PRODUCTS for ${channelUsername || 'Unknown'} ===`);
+  Logger.log(`Content length: ${(content || '').length}`);
+  Logger.log(`Processed content preview: ${processedContent.substring(0, 100)}`);
+
+  // Normalize channel username for matching
+  const normalizedChannel = (channelUsername || '').toLowerCase().trim();
+
+  if (!normalizedChannel) {
+    Logger.log('WARNING: No channel username provided. Falling through to general extraction.');
+  }
 
   // CHANNEL-SPECIFIC EXTRACTION LOGIC
 
   // 1. @nobelshop118 - Price list format (: 75/000)
-  if (channelUsername === '@nobelshop118') {
+  if (normalizedChannel.includes('nobelshop118')) {
     Logger.log('Processing @nobelshop118 - Price List Format');
 
-    const lines = content.split('\n').map(line => line.trim()).filter(line => line);
+    const lines = processedContent.split('\n').map(line => line.trim()).filter(line => line);
     const priceLines = lines.filter(line => /^:\s*\d+\/\d+$/.test(line));
 
     Logger.log(`Found ${priceLines.length} price lines`);
@@ -1126,7 +948,7 @@ function extractProducts(content, channelUsername) {
           consumer_price: null,
           double_pack_price: null,
           double_pack_consumer_price: null,
-          description: `Price information from @nobelshop118`,
+          description: `Price information from ${channelUsername}`,
           category: 'price_list',
           stock_status: '',
           location: '',
@@ -1135,18 +957,20 @@ function extractProducts(content, channelUsername) {
       }
     }
 
-    Logger.log(`@nobelshop118: Created ${products.length} products`);
+    Logger.log(`${channelUsername}: Created ${products.length} products`);
     return products;
   }
 
   // 2. @bonakdarjavan - Structured product format
-  if (channelUsername === '@bonakdarjavan') {
+  if (normalizedChannel.includes('bonakdarjavan')) {
     Logger.log('Processing @bonakdarjavan - Structured Format');
 
-    const patterns = CHANNEL_PATTERNS[channelUsername] || CHANNEL_PATTERNS['default'];
+    // Use normalized channel for pattern lookup if exists, otherwise default to @bonakdarjavan
+    const patternKey = CHANNEL_PATTERNS[normalizedChannel] ? normalizedChannel : '@bonakdarjavan';
+    const patterns = CHANNEL_PATTERNS[patternKey] || CHANNEL_PATTERNS['default'];
 
     try {
-      const result = extractBonakdarjavanProducts(content, content, patterns);
+      const result = extractBonakdarjavanProducts(processedContent, originalContent, patterns);
       Logger.log(`Bonakdarjavan: ${result.length} products`);
       return result;
     } catch (error) {
@@ -1156,14 +980,15 @@ function extractProducts(content, channelUsername) {
   }
 
   // 3. @top_shop_rahimi - Similar to bonakdarjavan but may need different patterns
-  if (channelUsername === '@top_shop_rahimi') {
+  if (normalizedChannel.includes('top_shop_rahimi')) {
     Logger.log('Processing @top_shop_rahimi - Similar to bonakdarjavan');
 
-    // Try bonakdarjavan patterns first
-    const patterns = CHANNEL_PATTERNS['@bonakdarjavan'] || CHANNEL_PATTERNS['default'];
+    // Try specific patterns if they exist, otherwise use @bonakdarjavan as a base
+    const patternKey = CHANNEL_PATTERNS[normalizedChannel] ? normalizedChannel : '@bonakdarjavan';
+    const patterns = CHANNEL_PATTERNS[patternKey] || CHANNEL_PATTERNS['@bonakdarjavan'] || CHANNEL_PATTERNS['default'];
 
     try {
-      const result = extractBonakdarjavanProducts(content, content, patterns);
+      const result = extractBonakdarjavanProducts(processedContent, originalContent, patterns);
       if (result.length > 0) {
         Logger.log(`@top_shop_rahimi (bonakdarjavan patterns): ${result.length} products`);
         return result;
@@ -1176,21 +1001,17 @@ function extractProducts(content, channelUsername) {
   }
 
   // 4. GENERAL EXTRACTION - For any channel with pricing information
-  Logger.log(`Processing ${channelUsername} with general extraction`);
+  Logger.log(`Processing ${normalizedChannel} with general extraction`);
 
   // Quick check if message contains any pricing
-  const hasPricing = /\d+[\.,]?\d*\s*(?:تومان|toman|ریال|rial|\$|USD|EUR)/i.test(content) ||
-                    /:\s*\d+[\.,]?\d*/.test(content) ||
-                    /\d+\/\d+/.test(content);
+  const hasPricing = /\d+[\.,]?\d*\s*(?:تومان|toman|ریال|rial|\$|USD|EUR)/i.test(processedContent) ||
+                    /:\s*\d+[\.,]?\d*/.test(processedContent) ||
+                    /\d+\/\d+/.test(processedContent);
 
   if (!hasPricing) {
     Logger.log('No pricing information found - skipping message');
     return [];
   }
-
-  // Persian number conversion for processing
-  const processedContent = persianToEnglishNumbers(content);
-  Logger.log('Converted Persian numbers for processing');
 
   // MULTI-PATTERN EXTRACTION APPROACH
 
@@ -1318,31 +1139,36 @@ function extractProducts(content, channelUsername) {
 }
 
 function extractBonakdarjavanProducts(content, originalContent, patterns) {
-  Logger.log(`=== extractBonakdarjavanProducts START v3.6 ===`);
+  Logger.log(`=== extractBonakdarjavanProducts START v3.7 ===`);
   Logger.log(`Content length: ${content.length}`);
   Logger.log(`Content preview: ${content.substring(0, 100)}`);
-  Logger.log(`VERSION: v3.6 - All cleanPrice calls removed`);
+  Logger.log(`VERSION: v3.7 - Enhanced name extraction and flexible price detection`);
 
   const products = [];
 
   // Extract main product name (first line or until pricing starts)
-  const nameMatch = content.match(/^([^\n]+?)(?=\n|\s*(?:✅)?(?:قیمت|تعداد|باکس|کارتن))/im);
-  let productName = nameMatch ? nameMatch[1].trim() : 'Unknown Product';
-
-  // Clean up the product name
-  productName = productName.replace(/✅$/, '').trim();
+  // Enhanced: Look for the first non-empty line that doesn't start with pricing keywords
+  const lines = content.split('\n').map(l => l.trim()).filter(l => l);
+  let productName = 'Unknown Product';
+  
+  if (lines.length > 0) {
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line.match(/^(?:✅)?(?:قیمت|تعداد|باکس|کارتن|دونه|مصرف|خرید|فروش)/i)) {
+        productName = line.replace(/✅$/, '').trim();
+        break;
+      }
+    }
+  }
 
   Logger.log(`Extracted product name: "${productName}"`);
 
   // Extract all pricing information
   const prices = [];
 
-  Logger.log(`Analyzing content for @bonakdarjavan: ${content.substring(0, 200)}`);
-
   // Pattern 1: قیمت هر یک باکس:1,872,000تومن
-  const boxPriceMatch = content.match(/قیمت\s+هر\s+یک\s+باکس:?\s*([\d,]+)(?:تومان|تومن|ت)/i);
+  const boxPriceMatch = content.match(/قیمت\s+هر\s+(?:یک\s+)?باکس:?\s*([\d,]+)(?:تومان|تومن|ت)/i);
   if (boxPriceMatch) {
-    Logger.log(`Found box price: ${boxPriceMatch[1]}`);
     prices.push({
       type: 'wholesale_box_price',
       value: boxPriceMatch[1],
@@ -1351,7 +1177,7 @@ function extractBonakdarjavanProducts(content, originalContent, patterns) {
   }
 
   // Pattern 2: دونه ای : 78,000تومن
-  const individualPriceMatch = content.match(/دونه\s+ای\s*:?\s*([\d,]+)(?:تومان|تومن|ت)/i);
+  const individualPriceMatch = content.match(/(?:دونه\s+ای|هر\s+عدد)\s*:?\s*([\d,]+)(?:تومان|تومن|ت)/i);
   if (individualPriceMatch) {
     prices.push({
       type: 'individual_price',
@@ -1361,7 +1187,7 @@ function extractBonakdarjavanProducts(content, originalContent, patterns) {
   }
 
   // Pattern 3: قیمت مصرف: 120,000ت
-  const consumerPriceMatch = content.match(/قیمت\s+مصرف:?\s*([\d,]+)(?:تومان|تومن|ت)/i);
+  const consumerPriceMatch = content.match(/قیمت\s+(?:مصرف|مصرف\s+کننده):?\s*([\d,]+)(?:تومان|تومن|ت)/i);
   if (consumerPriceMatch) {
     prices.push({
       type: 'consumer_price',
@@ -1371,7 +1197,7 @@ function extractBonakdarjavanProducts(content, originalContent, patterns) {
   }
 
   // Pattern 4: قیمت فروش ما ۱۶/۰۰۰ تومان
-  const salesPriceMatch = content.match(/قیمت\s+فروش\s+ما\s+([\d\/]+)(?:تومان|تومن|ت)/i);
+  const salesPriceMatch = content.match(/قیمت\s+فروش\s+(?:ما\s+)?([\d\/,]+)(?:تومان|تومن|ت)/i);
   if (salesPriceMatch) {
     prices.push({
       type: 'wholesale_price',
@@ -1380,34 +1206,12 @@ function extractBonakdarjavanProducts(content, originalContent, patterns) {
     });
   }
 
-  // Pattern 5: قیمت مصرف کننده ۳۸/۵۰۰ تومان
-  const consumerPrice2Match = content.match(/قیمت\s+مصرف\s+کننده\s+([\d\/]+)(?:تومان|تومن|ت)/i);
-  if (consumerPrice2Match) {
-    prices.push({
-      type: 'consumer_price',
-      value: consumerPrice2Match[1],
-      description: 'قیمت مصرف کننده'
-    });
-  }
-
-  // Pattern 6: قیمت مصرف کننده: 677/700 (tissue format)
-  const tissueConsumerMatch = content.match(/قیمت\s+مصرف\s+کننده:?\s*([\d\/]+)(?:\s*(?:تومان|تومن|ت))?/i);
-  if (tissueConsumerMatch) {
-    Logger.log(`Found tissue consumer price: ${tissueConsumerMatch[1]}`);
-    prices.push({
-      type: 'consumer_price',
-      value: tissueConsumerMatch[1],
-      description: 'قیمت مصرف کننده'
-    });
-  }
-
-  // Pattern 7: قیمت خرید : 574/000 (tissue format - with or without تومان)
-  const tissuePurchaseMatch = content.match(/قیمت\s+خرید\s*:?\s*([\d\/]+)(?:\s*(?:تومان|تومن|ت))?/i);
-  if (tissuePurchaseMatch) {
-    Logger.log(`Found tissue purchase price: ${tissuePurchaseMatch[1]}`);
+  // Pattern 5: قیمت خرید : 574/000 (tissue format)
+  const purchasePriceMatch = content.match(/قیمت\s+خرید\s*:?\s*([\d\/,]+)(?:\s*(?:تومان|تومن|ت))?/i);
+  if (purchasePriceMatch) {
     prices.push({
       type: 'purchase_price',
-      value: tissuePurchaseMatch[1],
+      value: purchasePriceMatch[1],
       description: 'قیمت خرید'
     });
   }
@@ -1454,44 +1258,76 @@ function extractBonakdarjavanProducts(content, originalContent, patterns) {
     });
   }
 
+  // Generic price detection fallback
+  const genericPriceMatch = content.match(/([\d,]+)\s*(?:تومان|تومن|ت)/gi);
+  if (genericPriceMatch && prices.length === 0) {
+    genericPriceMatch.forEach(m => {
+      const valMatch = m.match(/([\d,]+)/);
+      if (valMatch) {
+        prices.push({
+          type: 'general_price',
+          value: valMatch[1],
+          description: 'قیمت استخراج شده'
+        });
+      }
+    });
+  }
+
   // Extract packaging info
   const packagingMatch = content.match(/(?:✅)?(?:در\s+|تعداد\s+در\s+)?(?:باکس|کارتن)\s+([\d]+)\s*عددی/i);
   const packaging = packagingMatch ? `${packagingMatch[1]} عددی` : '';
 
   Logger.log(`Found ${prices.length} price points for "${productName}"`);
 
-  // DEBUG: Always return a product for now to confirm function is working
-  Logger.log(`Creating product for "${productName}" with ${prices.length} prices found`);
+  if (prices.length === 0) {
+    Logger.log(`No prices found for "${productName}" - skipping`);
+    return [];
+  }
+
+  // Find the primary price (wholesale or purchase price)
+  let primaryPrice = 0;
+  const wholesalePrice = prices.find(p => p.type === 'wholesale_price' || p.type === 'wholesale_box_price');
+  const individualPrice = prices.find(p => p.type === 'individual_price');
+  const purchasePrice = prices.find(p => p.type === 'purchase_price');
+  const consumerPrice = prices.find(p => p.type === 'consumer_price');
+
+  if (wholesalePrice) {
+    primaryPrice = parseFloat(wholesalePrice.value.toString().replace(/[\/,]/g, '')) || 0;
+  } else if (individualPrice) {
+    primaryPrice = parseFloat(individualPrice.value.toString().replace(/[\/,]/g, '')) || 0;
+  } else if (purchasePrice) {
+    primaryPrice = parseFloat(purchasePrice.value.toString().replace(/[\/,]/g, '')) || 0;
+  }
 
   const product = {
     name: productName,
-    price: 1000, // Fixed price for testing
+    price: primaryPrice,
     currency: 'IRT',
     packaging: packaging,
     volume: '',
-    consumer_price: null,
+    consumer_price: consumerPrice ? consumerPrice.value : null,
     double_pack_price: null,
     double_pack_consumer_price: null,
-    description: `${packaging} - ${prices.length} prices found`,
-    category: 'test_debug',
-    stock_status: '',
+    description: `${packaging} - ${prices.map(p => p.description + ': ' + p.value).join(' | ')}`,
+    category: extractCategory(productName, '', '@bonakdarjavan'),
+    stock_status: extractStockStatus(originalContent),
     location: '',
     contact_info: ''
   };
 
-  Logger.log(`Returning debug product: ${product.name} - ${product.price} IRT`);
+  Logger.log(`Returning extracted product: ${product.name} - ${product.price} IRT`);
   return [product];
 }
 
 function extractStockStatus(content) {
   const stockIndicators = {
-    'Out of Stock': ['sold out', 'out of stock', 'unavailable', 'discontinued'],
-    'Limited': ['limited', 'few left', 'last pieces', 'running low'],
-    'Pre-order': ['pre-order', 'coming soon', 'available soon'],
-    'Available': ['available', 'in stock', 'ready to ship']
+    'Out of Stock': ['sold out', 'out of stock', 'unavailable', 'discontinued', 'ناموجود', 'اتمام', 'تمام شد', 'تمام'],
+    'Limited': ['limited', 'few left', 'last pieces', 'running low', 'محدود', 'تعداد محدود'],
+    'Pre-order': ['pre-order', 'coming soon', 'available soon', 'به زودی', 'پیش خرید'],
+    'Available': ['available', 'in stock', 'ready to ship', 'موجود', 'در انبار']
   };
 
-  const lowerContent = content.toLowerCase();
+  const lowerContent = (content || '').toLowerCase();
 
   for (const [status, keywords] of Object.entries(stockIndicators)) {
     if (keywords.some(keyword => lowerContent.includes(keyword))) {

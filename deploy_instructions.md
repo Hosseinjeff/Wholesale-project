@@ -1,130 +1,42 @@
-# Desktop-Independent Deployment
+# 🚀 Railway Deployment Instructions
 
-## 🎯 Goal: Bot runs 24/7 without your desktop
+This project is optimized for deployment on [Railway.app](https://railway.app). Follow these steps to deploy the Telegram-to-Google-Sheets bridge.
 
-## Method 1: Railway (Easiest - FREE)
+## 1. Prerequisites
+- A [Railway.app](https://railway.app) account (GitHub login recommended).
+- A Telegram Bot Token from [@BotFather](https://t.me/BotFather).
+- A Google Apps Script Web App URL (deployed as "Anyone" with access).
 
-### Step 1: Create Railway Account
-- Go to: https://railway.app
-- Sign up with GitHub
-- Connect your GitHub repo
+## 2. Deployment Steps
+1. **Connect Repository**:
+   - Go to Railway Dashboard -> **New Project** -> **Deploy from GitHub repo**.
+   - Select your `Wholesale-project` repository.
 
-### Step 2: Deploy
-```bash
-# Railway will auto-detect Python
-# Add environment variables in Railway dashboard:
+2. **Configure Environment Variables**:
+   In the Railway project settings, go to the **Variables** tab and add:
+   - `TELEGRAM_BOT_TOKEN`: Your bot token from BotFather.
+   - `GOOGLE_WEB_APP_URL`: Your deployed Google Apps Script URL.
+   - `PORT`: `8080` (Railway usually sets this automatically).
+   - `RAILWAY_ENVIRONMENT`: `production`.
 
-TELEGRAM_BOT_TOKEN=8266854184:AAEvZqs0tbjctOeQsh3JGpYr84r272tbxd8
-GOOGLE_WEB_APP_URL=https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec
-LOG_LEVEL=INFO
-```
+3. **Wait for Build**:
+   Railway will automatically detect the `Dockerfile` and `railway.json`. It will install dependencies from `requirements.txt` and start the Flask app using `python app.py`.
 
-### Step 3: Set Webhook
-```bash
-# After deployment, Railway gives you a URL like:
-# https://your-project.up.railway.app
+## 3. Set Telegram Webhook
+Once the app is "Active" on Railway:
+1. Copy your **Public Networking URL** from the Railway "Settings" tab (e.g., `https://wholesale-project-production.up.railway.app`).
+2. Run this command in your local terminal (replace `YOUR_BOT_TOKEN` and `YOUR_RAILWAY_URL`):
+   ```bash
+   curl "https://api.telegram.org/botYOUR_BOT_TOKEN/setWebhook?url=YOUR_RAILWAY_URL/webhook"
+   ```
 
-# Set the webhook:
-curl "https://api.telegram.org/bot8266854184:AAEvZqs0tbjctOeQsh3JGpYr84r272tbxd8/setWebhook?url=https://your-project.up.railway.app/webhook"
-```
+## 4. Verification
+- Send/Forward a message to your Telegram bot.
+- Check the Railway "Logs" tab to see the incoming webhook and processing.
+- Check your Google Sheet to see the data appearing in `MessageData` and `Products` tabs.
 
-## Method 2: Render (Also FREE)
-
-### Step 1: Create Render Account
-- Go to: https://render.com
-- Connect GitHub
-
-### Step 2: Create Web Service
-- New → Web Service
-- Connect repo
-- Runtime: Python 3
-- Build Command: `pip install -r requirements.txt`
-- Start Command: `python webhook_bot.py`
-
-### Step 3: Environment Variables
-```
-TELEGRAM_BOT_TOKEN=8266854184:AAEvZqs0tbjctOeQsh3JGpYr84r272tbxd8
-GOOGLE_WEB_APP_URL=https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec
-LOG_LEVEL=INFO
-```
-
-### Step 4: Set Webhook
-```bash
-# Render URL will be: https://your-service.onrender.com
-curl "https://api.telegram.org/bot8266854184:AAEvZqs0tbjctOeQsh3JGpYr84r272tbxd8/setWebhook?url=https://your-service.onrender.com/webhook"
-```
-
-## Method 3: Vercel (FREE)
-
-### Step 1: Install Vercel CLI
-```bash
-npm install -g vercel
-```
-
-### Step 2: Deploy
-```bash
-cd your-project
-vercel --prod
-
-# Add environment variables:
-vercel env add TELEGRAM_BOT_TOKEN
-vercel env add GOOGLE_WEB_APP_URL
-```
-
-### Step 3: Set Webhook
-```bash
-# Vercel URL will be shown after deployment
-curl "https://api.telegram.org/bot8266854184:AAEvZqs0tbjctOeQsh3JGpYr84r272tbxd8/setWebhook?url=https://your-vercel-url.vercel.app/api/webhook"
-```
-
-## Method 4: Heroku (Requires Credit Card)
-
-### Step 1: Create Heroku App
-```bash
-heroku create your-bot-name
-```
-
-### Step 2: Set Environment Variables
-```bash
-heroku config:set TELEGRAM_BOT_TOKEN=8266854184:AAEvZqs0tbjctOeQsh3JGpYr84r272tbxd8
-heroku config:set GOOGLE_WEB_APP_URL=https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec
-```
-
-### Step 3: Deploy
-```bash
-git push heroku main
-```
-
-### Step 4: Set Webhook
-```bash
-# Get Heroku URL:
-heroku info -s | grep web_url
-
-# Set webhook with the Heroku URL
-```
-
-## 🧪 Testing
-
-After deployment:
-
-1. **Forward a message** to `@molavisale_bot`
-2. **Check your Google Sheet** - data should appear automatically!
-3. **Bot responds** with confirmation message
-
-## 📱 How It Works (Desktop-Independent)
-
-1. **Telegram sends webhook** to your cloud server when messages arrive
-2. **Your bot processes** the forwarded message instantly
-3. **Data is sent** to Google Apps Script
-4. **Google Sheet updates** automatically
-5. **No desktop required!**
-
-## 🚀 Recommended: Start with Railway
-
-Railway is the easiest:
-- FREE tier available
-- Automatic deployments
-- Built-in database if needed later
-- Excellent Python support
-
-**Want me to help you deploy to Railway specifically?** I can guide you through each step!
+## 5. Troubleshooting
+- **403 Error**: Ensure Google Apps Script is deployed as "Anyone" (even anonymous).
+- **Webhook Not Working**: Check the webhook status:
+  `https://api.telegram.org/botYOUR_BOT_TOKEN/getWebhookInfo`
+- **Missing Data**: Check the `ExecutionLogs` tab in your Google Sheet for error details from the Apps Script side.

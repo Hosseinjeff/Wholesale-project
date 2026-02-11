@@ -4,6 +4,7 @@
   },
   "deploy": {
     "startCommand": "python app.py",
-    "healthcheckPath": "/health"
+    "healthcheckPath": "/health",
+    "restartPolicyType": "ON_FAILURE"
   }
 }

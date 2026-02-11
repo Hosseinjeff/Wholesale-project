@@ -8,18 +8,30 @@ import logging
 import requests
 import os
 import time
+import json
+import asyncio
 from utils.logger import setup_logger
+from telegram import Update
+from telegram.ext import Application
 
 app = Flask(__name__)
 
 # Global variables - read from Railway environment variables
 WEB_APP_URL = os.getenv('GOOGLE_WEB_APP_URL')
+BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 setup_logger(logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Initialize Telegram Application for data extraction helpers if needed
+# But we'll mostly use raw JSON from webhook for efficiency
+tg_application = None
+if BOT_TOKEN:
+    tg_application = Application.builder().token(BOT_TOKEN).build()
 
 # Log startup info
 logger.info("Starting Flask app for Railway")
 logger.info(f"GOOGLE_WEB_APP_URL: {'SET' if WEB_APP_URL else 'NOT SET'}")
+logger.info(f"TELEGRAM_BOT_TOKEN: {'SET' if BOT_TOKEN else 'NOT SET'}")
 if WEB_APP_URL:
     logger.info(f"Web app URL: {WEB_APP_URL[:50]}...")
 else:
@@ -108,33 +120,42 @@ def send_to_google_apps_script(data):
 def telegram_webhook():
     """Handle Telegram webhook."""
     try:
-        update = request.get_json()
+        update_json = request.get_json()
+        
+        if not update_json:
+            return jsonify({'status': 'error', 'message': 'No JSON data'}), 400
 
-        if not update or 'message' not in update:
-            return jsonify({'status': 'ignored'})
+        # Handle Telegram Update object
+        if 'message' in update_json:
+            message = update_json['message']
+            
+            # 1. Process as forwarded message (original logic)
+            if 'forward_origin' in message:
+                forward_data = extract_forward_data(message)
+                success = send_to_google_apps_script(forward_data)
+                if success:
+                    return jsonify({'status': 'success', 'source': 'forward'})
+            
+            # 2. Process as direct message (if text exists but not forwarded)
+            elif 'text' in message:
+                # Minimal data for direct messages
+                direct_data = {
+                    'id': str(message.get('message_id')),
+                    'content': message.get('text'),
+                    'channel_username': 'DirectMessage',
+                    'author': message.get('from', {}).get('username', 'User'),
+                    'timestamp': message.get('date'),
+                    'channel': 'telegram'
+                }
+                success = send_to_google_apps_script(direct_data)
+                if success:
+                    return jsonify({'status': 'success', 'source': 'direct'})
 
-        message = update['message']
-
-        # Check if it's a forwarded message
-        if 'forward_origin' not in message:
-            return jsonify({'status': 'ignored'})
-
-        # Extract data
-        forward_data = extract_forward_data(message)
-
-        # Send to Google Apps Script
-        success = send_to_google_apps_script(forward_data)
-
-        if success:
-            logger.info(f"Imported message from {forward_data['channel_username']}")
-            return jsonify({'status': 'success'})
-        else:
-            logger.error("Failed to import to Google Apps Script")
-            return jsonify({'status': 'error'}), 500
+        return jsonify({'status': 'ignored'})
 
     except Exception as e:
         logger.error(f"Webhook error: {str(e)}")
-        return jsonify({'status': 'error'}), 500
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @app.route('/', methods=['GET'])
 def health_check():

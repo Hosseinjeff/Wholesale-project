@@ -4,8 +4,11 @@ Automated Telegram to Google Sheets importer.
 Continuously monitors for new forwarded messages and adds them to Google Sheets.
 """
 
+import os
 import time
 import logging
+import json
+import requests
 from datetime import datetime
 from channels.telegram_bot_reader import TelegramBotReader
 from sheets.google_sheets_writer import GoogleSheetsWriter
@@ -19,13 +22,36 @@ class AutoImporter:
         self.config = load_config()
         self.bot_reader = TelegramBotReader(self.config)
         self.sheets_writer = None
-        self.last_message_id = 0
+        self.state_file = 'importer_state.json'
+        self.last_message_id = self.load_state()
         self.sheet_id = self.config.get('GOOGLE_SHEET_ID', '')
         self.check_interval = int(self.config.get('CHECK_INTERVAL', '60'))  # seconds
+        self.web_app_url = self.config.get('GOOGLE_WEB_APP_URL', '')
 
         # Setup logging
         setup_logger(logging.INFO)
         self.logger = logging.getLogger(__name__)
+
+    def load_state(self):
+        """Load the last processed message ID from state file."""
+        if os.path.exists(self.state_file):
+            try:
+                with open(self.state_file, 'r') as f:
+                    state = json.load(f)
+                    last_id = state.get('last_message_id', 0)
+                    print(f"🔄 Loaded last_message_id: {last_id}")
+                    return int(last_id)
+            except Exception as e:
+                print(f"⚠️ Error loading state file: {e}")
+        return 0
+
+    def save_state(self):
+        """Save the last processed message ID to state file."""
+        try:
+            with open(self.state_file, 'w') as f:
+                json.dump({'last_message_id': self.last_message_id, 'last_update': datetime.now().isoformat()}, f)
+        except Exception as e:
+            self.logger.error(f"Failed to save state: {e}")
 
     def setup_google_sheets(self):
         """Setup Google Sheets writer."""
@@ -97,14 +123,15 @@ class AutoImporter:
             for msg in new_messages:
                 self.import_message_to_sheets(msg)
                 self.last_message_id = max(self.last_message_id, int(msg.get('id', 0)))
+                self.save_state()
 
         except Exception as e:
             self.logger.error(f"Error checking messages: {str(e)}")
 
     def import_message_to_sheets(self, message):
-        """Import a single message to Google Sheets."""
+        """Import a single message to Google Sheets and Web App."""
         try:
-            # Prepare data for sheets (single row)
+            # Prepare data for sheets (single row) - Matches MessageData headers in GAS
             row_data = [[
                 message.get('id', ''),
                 message.get('channel', ''),
@@ -113,22 +140,50 @@ class AutoImporter:
                 message.get('content', ''),
                 message.get('timestamp', ''),
                 message.get('url', ''),
-                message.get('has_media', False),
-                message.get('media_type', ''),
                 message.get('forwarded_by', ''),
                 message.get('forwarded_at', ''),
-                message.get('edited', False)
+                message.get('has_media', False),
+                message.get('media_type', ''),
+                datetime.now().isoformat(),
+                'imported (direct)'
             ]]
 
-            # Append to Google Sheets
-            success = self.sheets_writer.append_data(self.sheet_id, row_data)
+            # 1. Append to Google Sheets directly (legacy/backup)
+            success = False
+            if self.sheets_writer and self.sheet_id:
+                success = self.sheets_writer.append_data(self.sheet_id, row_data)
+                if success:
+                    print(f"✅ Appended to Google Sheets directly: {message.get('id')}")
+
+            # 2. Send to Google Apps Script Web App (Primary for processing)
+            if self.web_app_url:
+                try:
+                    response = requests.post(
+                        self.web_app_url,
+                        json=message,
+                        timeout=30
+                    )
+                    if response.status_code == 200:
+                        res_json = response.json()
+                        if res_json.get('status') == 'success':
+                            print(f"🚀 Web App Import Success: {message.get('id')} - Found {res_json.get('products_found', 0)} products")
+                            success = True
+                        elif res_json.get('status') == 'duplicate':
+                            print(f"ℹ️ Web App Duplicate: {message.get('id')}")
+                            success = True # Consider success as it's already there
+                        else:
+                            print(f"⚠️ Web App Import Warning: {res_json.get('message')}")
+                    else:
+                        print(f"❌ Web App HTTP Error: {response.status_code}")
+                except Exception as web_err:
+                    print(f"❌ Web App Connection Error: {web_err}")
 
             if success:
                 channel = message.get('channel_username', 'Unknown')
                 author = message.get('author', 'Unknown')
-                print(f"✅ Imported message from {channel} by {author}")
+                print(f"✨ Successfully processed message from {channel}")
             else:
-                print("❌ Failed to import message to Google Sheets")
+                print("❌ Failed to import message through any method")
 
         except Exception as e:
             self.logger.error(f"Error importing message: {str(e)}")
@@ -141,3 +196,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
