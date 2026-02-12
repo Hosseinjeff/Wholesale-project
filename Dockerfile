@@ -1,5 +1,5 @@
 # Use Python 3.11 slim as base image for smaller size
-FROM python:3.11-slim as base
+FROM python:3.11-slim AS base
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
@@ -22,7 +22,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Production stage
-FROM python:3.11-slim as production
+FROM python:3.11-slim AS production
 
 # Copy environment variables
 ENV PYTHONUNBUFFERED=1 \
@@ -49,7 +49,6 @@ COPY --chown=app:app app.py .
 COPY --chown=app:app utils/ ./utils/
 COPY --chown=app:app channels/ ./channels/
 COPY --chown=app:app sheets/ ./sheets/
-COPY --chown=app:app .env .env
 
 # Expose port
 EXPOSE 8080
