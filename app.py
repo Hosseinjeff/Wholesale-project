@@ -22,11 +22,16 @@ BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 setup_logger(logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Initialize Telegram Application for data extraction helpers if needed
-# But we'll mostly use raw JSON from webhook for efficiency
+# Initialize Telegram Application (Optional - only if needed for advanced extraction)
 tg_application = None
 if BOT_TOKEN:
-    tg_application = Application.builder().token(BOT_TOKEN).build()
+    try:
+        tg_application = Application.builder().token(BOT_TOKEN).build()
+        logger.info("Telegram Application initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize Telegram Application: {e}")
+        # Don't crash the whole app if TG init fails
+        tg_application = None
 
 # Log startup info
 logger.info("Starting Flask app for Railway")
@@ -157,26 +162,25 @@ def telegram_webhook():
         logger.error(f"Webhook error: {str(e)}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
-@app.route('/', methods=['GET'])
+@app.route('/health', methods=['GET'])
 def health_check():
-    """Health check endpoint for Railway."""
+    """Simple health check endpoint for Railway."""
     return jsonify({
         'status': 'healthy',
         'service': 'telegram-webhook',
-        'web_app_url': bool(WEB_APP_URL),
-        'version': '1.0',
         'timestamp': int(time.time())
     })
 
-@app.route('/health', methods=['GET'])
+@app.route('/health/detailed', methods=['GET'])
 def detailed_health_check():
-    """Detailed health check endpoint."""
+    """Detailed health check for debugging."""
     try:
         # Test Google Apps Script connectivity
         gas_status = 'unknown'
         if WEB_APP_URL:
             try:
-                test_response = requests.get(f'{WEB_APP_URL}?action=health', timeout=5)
+                # Use a very short timeout for the detailed check
+                test_response = requests.get(f'{WEB_APP_URL}?action=health', timeout=2)
                 gas_status = 'connected' if test_response.status_code == 200 else 'error'
             except:
                 gas_status = 'unreachable'
@@ -186,7 +190,7 @@ def detailed_health_check():
             'service': 'telegram-webhook',
             'google_apps_script': gas_status,
             'web_app_url': bool(WEB_APP_URL),
-            'version': '1.0',
+            'version': '1.1',
             'timestamp': int(time.time())
         })
     except Exception as e:
