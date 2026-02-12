@@ -35,5 +35,6 @@ USER app
 EXPOSE 8080
 
 # Start application using gunicorn
-# We use the shell form to allow environment variable expansion
-CMD gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 8 --timeout 0
+# Use brackets for exec form which is preferred in Docker, but we need shell for $PORT
+# Alternatively, Railway handles the start command from railway.json
+CMD gunicorn app:app --bind 0.0.0.0:${PORT:-8080} --workers 1 --threads 8 --timeout 0
