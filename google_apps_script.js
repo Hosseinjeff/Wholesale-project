@@ -158,6 +158,7 @@ const PRODUCT_HEADERS = [
   'Forwarded By',
   'Import Timestamp',
   'Last Updated',
+  'Confidence',
   'Status'
 ];
 
@@ -633,14 +634,18 @@ function doPost(e) {
         Logger.log('Processing message');
 
         // Process both message data and product data
-        const messageResult = importMessageData(data, duplicateCheck.existingRow);
+        const classification = MessageClassifier.classify(data.content || '', data.channel_username);
         const productResult = importProductData(data);
+        const messageStatus = classification.type; // Use classification type (listing, non-product, etc.)
+        const messageResult = importMessageData(data, duplicateCheck.existingRow, messageStatus);
 
         if (messageResult.success && productResult.success) {
           const debugInfo = {
             channel: data.channel_username,
             content_length: data.content ? data.content.length : 0,
-            products_found: productResult.products_found
+            products_found: productResult.products_found,
+            classification: classification.type,
+            confidence: classification.confidence
           };
 
           Logger.log(`DO_POST_END - Returning success for message ${data.id}`);
@@ -767,7 +772,7 @@ function isDuplicate(data) {
   return checkForDuplicates(data).isDuplicate;
 }
 
-function importMessageData(data, existingRow) {
+function importMessageData(data, existingRow, status) {
   try {
     const spreadsheet = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
     const sheet = getOrCreateSheet(spreadsheet, 'MessageData');
@@ -786,7 +791,7 @@ function importMessageData(data, existingRow) {
       data.has_media || false,
       data.media_type || '',
       new Date().toISOString(),
-      existingRow ? 'updated' : 'imported'
+      status || (existingRow ? 'updated' : 'imported')
     ];
 
     let row;
@@ -896,69 +901,93 @@ function importProductData(data) {
   }
 }
 
+// --- RECOGNITION SYSTEM ---
+
+const MessageClassifier = {
+  types: {
+    PRODUCT_LISTING: 'product_listing',
+    PRICE_UPDATE: 'price_update',
+    OUT_OF_STOCK: 'out_of_stock',
+    NON_PRODUCT: 'non_product'
+  },
+
+  classify: function(content, channelUsername) {
+    const processed = NormalizationEngine.normalize(content);
+    
+    // Check for Out of Stock intent
+    const isOOS = /(?:تمام شد|ناموجود|🚫)/i.test(content);
+    if (isOOS && !/(?:قیمت|تومان)/i.test(content)) {
+      return { type: this.types.OUT_OF_STOCK, confidence: 0.9 };
+    }
+
+    // Check for Pricing keywords
+    const hasPricing = /(?:قیمت|تومان|تومن|ت|ریال|rial|:|[\d]+\/[\d]+)/i.test(processed);
+    const hasNumbers = /\d+/.test(processed);
+    
+    if (hasPricing && hasNumbers) {
+      // High confidence if it has specific channel patterns
+      const normalizedChannel = (channelUsername || '').toLowerCase();
+      if (normalizedChannel.includes('bonakdarjavan') || 
+          normalizedChannel.includes('nobelshop118') || 
+          normalizedChannel.includes('top_shop_rahimi')) {
+        return { type: this.types.PRODUCT_LISTING, confidence: 0.95 };
+      }
+      return { type: this.types.PRODUCT_LISTING, confidence: 0.7 };
+    }
+
+    return { type: this.types.NON_PRODUCT, confidence: 0.8 };
+  }
+};
+
+const NormalizationEngine = {
+  normalize: function(text) {
+    if (!text) return '';
+    let result = persianToEnglishNumbers(text);
+    // Remove zero-width spaces and normalize other whitespace
+    result = result.replace(/[\u200B-\u200D\uFEFF]/g, '');
+    result = result.replace(/\s+/g, ' ');
+    return result.trim();
+  },
+
+  parsePrice: function(priceStr) {
+    if (!priceStr) return 0;
+    // Handle formats like 75/000 or 1,200,000 or 1.200.000
+    let clean = priceStr.toString().replace(/[\/,]/g, '');
+    return parseFloat(clean) || 0;
+  }
+};
+
 function extractProducts(content, channelUsername) {
   const products = [];
   const originalContent = content;
   
-  // 1. Convert Persian numbers to English numbers immediately for easier regex matching
-  const processedContent = persianToEnglishNumbers(content || '');
+  if (!content || content.trim().length === 0) {
+    return [];
+  }
+
+  // 1. Classify the message first
+  const classification = MessageClassifier.classify(content, channelUsername);
+  Logger.log(`=== CLASSIFICATION: ${classification.type} (Confidence: ${classification.confidence}) ===`);
+
+  if (classification.type === MessageClassifier.types.NON_PRODUCT) {
+    Logger.log('Message classified as NON_PRODUCT - skipping extraction');
+    return [];
+  }
+
+  // 2. Normalize content
+  const processedContent = NormalizationEngine.normalize(content);
   
   Logger.log(`=== EXTRACTING PRODUCTS for ${channelUsername || 'Unknown'} ===`);
-  Logger.log(`Content length: ${(content || '').length}`);
-  Logger.log(`Processed content preview: ${processedContent.substring(0, 100)}`);
 
   // Normalize channel username for matching
   const normalizedChannel = (channelUsername || '').toLowerCase().trim();
-
-  if (!normalizedChannel) {
-    Logger.log('WARNING: No channel username provided. Falling through to general extraction.');
-  }
 
   // CHANNEL-SPECIFIC EXTRACTION LOGIC
 
   // 1. @nobelshop118 - Price list format (: 75/000)
   if (normalizedChannel.includes('nobelshop118')) {
-    Logger.log('Processing @nobelshop118 - Price List Format');
-
-    const lines = processedContent.split('\n').map(line => line.trim()).filter(line => line);
-    const priceLines = lines.filter(line => /^:\s*\d+\/\d+$/.test(line));
-
-    Logger.log(`Found ${priceLines.length} price lines`);
-
-    if (priceLines.length === 0) {
-      Logger.log('No price patterns - skipping');
-      return [];
-    }
-
-    // Process price lines
-    for (let i = 0; i < priceLines.length; i++) {
-      const priceMatch = priceLines[i].match(/^:\s*(\d+)\/(\d+)$/);
-      if (priceMatch) {
-        const priceStr = priceMatch[1] + priceMatch[2];
-        const price = parseFloat(priceStr);
-
-        products.push({
-          name: priceLines.length === 1 ?
-            `Product with price ${priceMatch[1]}/${priceMatch[2]}` :
-            `Price option ${i+1}: ${priceMatch[1]}/${priceMatch[2]}`,
-          price: price,
-          currency: 'IRT',
-          packaging: 'Price List',
-          volume: `${priceMatch[1]}/${priceMatch[2]}`,
-          consumer_price: null,
-          double_pack_price: null,
-          double_pack_consumer_price: null,
-          description: `Price information from ${channelUsername}`,
-          category: 'price_list',
-          stock_status: '',
-          location: '',
-          contact_info: ''
-        });
-      }
-    }
-
-    Logger.log(`${channelUsername}: Created ${products.length} products`);
-    return products;
+    const results = extractNobelShopProducts(processedContent, originalContent, channelUsername);
+    return results.map(p => ({ ...p, confidence: classification.confidence }));
   }
 
   // 2. @bonakdarjavan - Structured product format
@@ -970,9 +999,9 @@ function extractProducts(content, channelUsername) {
     const patterns = CHANNEL_PATTERNS[patternKey] || CHANNEL_PATTERNS['default'];
 
     try {
-      const result = extractBonakdarjavanProducts(processedContent, originalContent, patterns);
-      Logger.log(`Bonakdarjavan: ${result.length} products`);
-      return result;
+      const results = extractBonakdarjavanProducts(processedContent, originalContent, patterns);
+      Logger.log(`Bonakdarjavan: ${results.length} products`);
+      return results.map(p => ({ ...p, confidence: classification.confidence }));
     } catch (error) {
       Logger.log(`Bonakdarjavan error: ${error}`);
       // Fall through to general extraction
@@ -988,10 +1017,10 @@ function extractProducts(content, channelUsername) {
     const patterns = CHANNEL_PATTERNS[patternKey] || CHANNEL_PATTERNS['@bonakdarjavan'] || CHANNEL_PATTERNS['default'];
 
     try {
-      const result = extractBonakdarjavanProducts(processedContent, originalContent, patterns);
-      if (result.length > 0) {
-        Logger.log(`@top_shop_rahimi (bonakdarjavan patterns): ${result.length} products`);
-        return result;
+      const results = extractBonakdarjavanProducts(processedContent, originalContent, patterns);
+      if (results.length > 0) {
+        Logger.log(`@top_shop_rahimi (bonakdarjavan patterns): ${results.length} products`);
+        return results.map(p => ({ ...p, confidence: classification.confidence }));
       }
     } catch (error) {
       Logger.log(`@top_shop_rahimi bonakdarjavan patterns failed: ${error}`);
@@ -1041,7 +1070,8 @@ function extractProducts(content, channelUsername) {
           category: extractCategory(name, '', channelUsername),
           stock_status: extractStockStatus(content),
           location: extractLocation(content, []),
-          contact_info: extractContactInfo(content, [])
+          contact_info: extractContactInfo(content, []),
+          confidence: classification.confidence * 0.8 // Lower confidence for general extraction
         });
       }
     }
@@ -1072,7 +1102,8 @@ function extractProducts(content, channelUsername) {
           category: extractCategory(name, '', channelUsername),
           stock_status: extractStockStatus(content),
           location: extractLocation(content, []),
-          contact_info: extractContactInfo(content, [])
+          contact_info: extractContactInfo(content, []),
+          confidence: classification.confidence * 0.8
         });
       }
     }
@@ -1116,7 +1147,8 @@ function extractProducts(content, channelUsername) {
           category: extractCategory(cleanLine, '', channelUsername),
           stock_status: extractStockStatus(content),
           location: extractLocation(content, []),
-          contact_info: extractContactInfo(content, [])
+          contact_info: extractContactInfo(content, []),
+          confidence: classification.confidence * 0.6
         });
       }
     }
@@ -1138,20 +1170,62 @@ function extractProducts(content, channelUsername) {
   return uniqueProducts;
 }
 
-function extractBonakdarjavanProducts(content, originalContent, patterns) {
-  Logger.log(`=== extractBonakdarjavanProducts START v3.7 ===`);
-  Logger.log(`Content length: ${content.length}`);
-  Logger.log(`Content preview: ${content.substring(0, 100)}`);
-  Logger.log(`VERSION: v3.7 - Enhanced name extraction and flexible price detection`);
-
+function extractNobelShopProducts(content, originalContent, channelUsername) {
+  Logger.log('Processing @nobelshop118 - Enhanced Extraction');
   const products = [];
-
-  // Extract main product name (first line or until pricing starts)
-  // Enhanced: Look for the first non-empty line that doesn't start with pricing keywords
-  const lines = content.split('\n').map(l => l.trim()).filter(l => l);
-  let productName = 'Unknown Product';
+  const lines = content.split('\n').map(line => line.trim()).filter(line => line);
   
-  if (lines.length > 0) {
+  let currentProductName = 'Unknown Nobel Product';
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    
+    // Pattern: : 75/000 (The price line)
+    const priceMatch = line.match(/^:\s*(\d+)\/(\d+)$/);
+    
+    if (priceMatch) {
+      // If the previous line was NOT a price line, it's likely the product name
+      if (i > 0 && !lines[i-1].match(/^:\s*\d+\/\d+$/)) {
+        currentProductName = lines[i-1].replace(/✅|❌/g, '').trim();
+      }
+      
+      const priceStr = priceMatch[1] + priceMatch[2];
+      const price = NormalizationEngine.parsePrice(priceStr);
+      
+      products.push({
+        name: currentProductName,
+        price: price,
+        currency: 'IRT',
+        packaging: 'Price List',
+        volume: `${priceMatch[1]}/${priceMatch[2]}`,
+        consumer_price: null,
+        description: `NobelShop: ${currentProductName} - ${line}`,
+        category: extractCategory(currentProductName, '', channelUsername),
+        stock_status: extractStockStatus(line)
+      });
+    }
+  }
+  
+  return products;
+}
+
+function extractBonakdarjavanProducts(content, originalContent, patterns) {
+  Logger.log(`=== extractBonakdarjavanProducts START v4.1 ===`);
+  
+  const products = [];
+  
+  // Split message by double newlines or lines that look like a new product start
+  const productBlocks = content.split(/\n\s*\n/).filter(block => block.trim());
+  
+  for (const block of productBlocks) {
+    const lines = block.split('\n').map(l => l.trim()).filter(l => l);
+    if (lines.length === 0) continue;
+
+    let productName = 'Unknown Product';
+    const prices = [];
+    let packaging = '';
+
+    // Find product name
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       if (!line.match(/^(?:✅)?(?:قیمت|تعداد|باکس|کارتن|دونه|مصرف|خرید|فروش)/i)) {
@@ -1159,164 +1233,44 @@ function extractBonakdarjavanProducts(content, originalContent, patterns) {
         break;
       }
     }
+
+    // Extract pricing for this block
+    const boxMatch = block.match(/قیمت\s+هر\s+(?:یک\s+)?باکس:?\s*([\d,\/]+)(?:تومان|تومن|ت)/i);
+    if (boxMatch) prices.push({ type: 'wholesale_box_price', value: boxMatch[1], description: 'قیمت هر یک باکس' });
+
+    const indMatch = block.match(/(?:دونه\s+ای|هر\s+عدد)\s*:?\s*([\d,\/]+)(?:تومان|تومن|ت)/i);
+    if (indMatch) prices.push({ type: 'individual_price', value: indMatch[1], description: 'دونه ای' });
+
+    const consMatch = block.match(/قیمت\s+(?:مصرف|مصرف\s+کننده):?\s*([\d,\/]+)(?:تومان|تومن|ت)/i);
+    if (consMatch) prices.push({ type: 'consumer_price', value: consMatch[1], description: 'قیمت مصرف' });
+
+    const packMatch = block.match(/(?:✅)?(?:در\s+|تعداد\s+در\s+)?(?:باکس|کارتن)\s+([\d]+)\s*عددی/i);
+    if (packMatch) packaging = `${packMatch[1]} عددی`;
+
+    if (prices.length > 0) {
+      const wholesale = prices.find(p => p.type === 'wholesale_box_price') || prices[0];
+      const primaryPrice = NormalizationEngine.parsePrice(wholesale.value);
+
+      products.push({
+        name: productName,
+        price: primaryPrice,
+        currency: 'IRT',
+        packaging: packaging,
+        volume: '',
+        consumer_price: prices.find(p => p.type === 'consumer_price')?.value || null,
+        double_pack_price: null,
+        double_pack_consumer_price: null,
+        description: block.substring(0, 500),
+        category: extractCategory(productName, '', '@bonakdarjavan'),
+        stock_status: extractStockStatus(block),
+        location: '',
+        contact_info: ''
+      });
+    }
   }
 
-  Logger.log(`Extracted product name: "${productName}"`);
-
-  // Extract all pricing information
-  const prices = [];
-
-  // Pattern 1: قیمت هر یک باکس:1,872,000تومن
-  const boxPriceMatch = content.match(/قیمت\s+هر\s+(?:یک\s+)?باکس:?\s*([\d,]+)(?:تومان|تومن|ت)/i);
-  if (boxPriceMatch) {
-    prices.push({
-      type: 'wholesale_box_price',
-      value: boxPriceMatch[1],
-      description: 'قیمت هر یک باکس'
-    });
-  }
-
-  // Pattern 2: دونه ای : 78,000تومن
-  const individualPriceMatch = content.match(/(?:دونه\s+ای|هر\s+عدد)\s*:?\s*([\d,]+)(?:تومان|تومن|ت)/i);
-  if (individualPriceMatch) {
-    prices.push({
-      type: 'individual_price',
-      value: individualPriceMatch[1],
-      description: 'دونه ای'
-    });
-  }
-
-  // Pattern 3: قیمت مصرف: 120,000ت
-  const consumerPriceMatch = content.match(/قیمت\s+(?:مصرف|مصرف\s+کننده):?\s*([\d,]+)(?:تومان|تومن|ت)/i);
-  if (consumerPriceMatch) {
-    prices.push({
-      type: 'consumer_price',
-      value: consumerPriceMatch[1],
-      description: 'قیمت مصرف'
-    });
-  }
-
-  // Pattern 4: قیمت فروش ما ۱۶/۰۰۰ تومان
-  const salesPriceMatch = content.match(/قیمت\s+فروش\s+(?:ما\s+)?([\d\/,]+)(?:تومان|تومن|ت)/i);
-  if (salesPriceMatch) {
-    prices.push({
-      type: 'wholesale_price',
-      value: salesPriceMatch[1],
-      description: 'قیمت فروش ما'
-    });
-  }
-
-  // Pattern 5: قیمت خرید : 574/000 (tissue format)
-  const purchasePriceMatch = content.match(/قیمت\s+خرید\s*:?\s*([\d\/,]+)(?:\s*(?:تومان|تومن|ت))?/i);
-  if (purchasePriceMatch) {
-    prices.push({
-      type: 'purchase_price',
-      value: purchasePriceMatch[1],
-      description: 'قیمت خرید'
-    });
-  }
-
-  // Additional patterns for prices without تومان - be more permissive
-  // Look for any "قیمت" followed by numbers, even without currency units
-  const allPriceMatches = content.match(/قیمت\s+([^:]+):?\s*([\d,\/]+)/gi);
-  if (allPriceMatches) {
-    Logger.log(`Found ${allPriceMatches.length} potential price matches`);
-    allPriceMatches.forEach(match => {
-      const priceMatch = match.match(/قیمت\s+([^:]+):?\s*([\d,\/]+)/i);
-      if (priceMatch) {
-        const priceType = priceMatch[1].trim();
-        const priceValue = priceMatch[2];
-        Logger.log(`Price match: ${priceType} = ${priceValue}`);
-
-        // Categorize the price type
-        if (priceType.includes('مصرف') || priceType.includes('دونه ای')) {
-          if (!prices.some(p => p.type === 'consumer_price')) {
-            prices.push({
-              type: 'consumer_price',
-              value: priceValue,
-              description: priceType
-            });
-          }
-        } else if (priceType.includes('خرید') || priceType.includes('فروش')) {
-          if (!prices.some(p => p.type === 'wholesale_price')) {
-            prices.push({
-              type: 'wholesale_price',
-              value: priceValue,
-              description: priceType
-            });
-          }
-        } else if (priceType.includes('باکس')) {
-          if (!prices.some(p => p.type === 'wholesale_box_price')) {
-            prices.push({
-              type: 'wholesale_box_price',
-              value: priceValue,
-              description: priceType
-            });
-          }
-        }
-      }
-    });
-  }
-
-  // Generic price detection fallback
-  const genericPriceMatch = content.match(/([\d,]+)\s*(?:تومان|تومن|ت)/gi);
-  if (genericPriceMatch && prices.length === 0) {
-    genericPriceMatch.forEach(m => {
-      const valMatch = m.match(/([\d,]+)/);
-      if (valMatch) {
-        prices.push({
-          type: 'general_price',
-          value: valMatch[1],
-          description: 'قیمت استخراج شده'
-        });
-      }
-    });
-  }
-
-  // Extract packaging info
-  const packagingMatch = content.match(/(?:✅)?(?:در\s+|تعداد\s+در\s+)?(?:باکس|کارتن)\s+([\d]+)\s*عددی/i);
-  const packaging = packagingMatch ? `${packagingMatch[1]} عددی` : '';
-
-  Logger.log(`Found ${prices.length} price points for "${productName}"`);
-
-  if (prices.length === 0) {
-    Logger.log(`No prices found for "${productName}" - skipping`);
-    return [];
-  }
-
-  // Find the primary price (wholesale or purchase price)
-  let primaryPrice = 0;
-  const wholesalePrice = prices.find(p => p.type === 'wholesale_price' || p.type === 'wholesale_box_price');
-  const individualPrice = prices.find(p => p.type === 'individual_price');
-  const purchasePrice = prices.find(p => p.type === 'purchase_price');
-  const consumerPrice = prices.find(p => p.type === 'consumer_price');
-
-  if (wholesalePrice) {
-    primaryPrice = parseFloat(wholesalePrice.value.toString().replace(/[\/,]/g, '')) || 0;
-  } else if (individualPrice) {
-    primaryPrice = parseFloat(individualPrice.value.toString().replace(/[\/,]/g, '')) || 0;
-  } else if (purchasePrice) {
-    primaryPrice = parseFloat(purchasePrice.value.toString().replace(/[\/,]/g, '')) || 0;
-  }
-
-  const product = {
-    name: productName,
-    price: primaryPrice,
-    currency: 'IRT',
-    packaging: packaging,
-    volume: '',
-    consumer_price: consumerPrice ? consumerPrice.value : null,
-    double_pack_price: null,
-    double_pack_consumer_price: null,
-    description: `${packaging} - ${prices.map(p => p.description + ': ' + p.value).join(' | ')}`,
-    category: extractCategory(productName, '', '@bonakdarjavan'),
-    stock_status: extractStockStatus(originalContent),
-    location: '',
-    contact_info: ''
-  };
-
-  Logger.log(`Returning extracted product: ${product.name} - ${product.price} IRT`);
-  return [product];
+  Logger.log(`Extracted ${products.length} products from blocks`);
+  return products;
 }
 
 function extractStockStatus(content) {
@@ -1503,6 +1457,7 @@ function updateProduct(sheet, rowNumber, product, messageData) {
       { header: 'Message Timestamp', value: messageData.timestamp },
       { header: 'Forwarded By', value: messageData.forwarded_by },
       { header: 'Last Updated', value: new Date().toISOString() },
+      { header: 'Confidence', value: product.confidence },
       { header: 'Status', value: 'updated' }
     ];
 
@@ -1552,6 +1507,7 @@ function createProductRow(product, messageData) {
     messageData.forwarded_by, // Forwarded By
     new Date().toISOString(), // Import Timestamp
     new Date().toISOString(), // Last Updated
+    product.confidence || 0, // Confidence
     'new' // Status
   ];
 }
