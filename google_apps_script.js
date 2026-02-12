@@ -950,11 +950,18 @@ const NormalizationEngine = {
   },
 
   parsePrice: function(priceStr) {
-    if (!priceStr) return 0;
-    // Handle formats like 75/000 or 1,200,000 or 1.200.000
-    let clean = priceStr.toString().replace(/[\/,]/g, '');
-    return parseFloat(clean) || 0;
-  }
+      if (!priceStr) return 0;
+      // Handle formats like 75/000 or 1,200,000 or 1.200.000
+      let clean = priceStr.toString().replace(/[\/,]/g, '');
+      
+      // If it's something like 75/000, the regex above makes it 75000
+      // If it's something like 1.200.000, we might need to handle dots too
+      if (clean.includes('.') && clean.split('.').length > 2) {
+        clean = clean.replace(/\./g, '');
+      }
+      
+      return parseFloat(clean) || 0;
+    }
 };
 
 function extractProducts(content, channelUsername) {
@@ -1171,7 +1178,7 @@ function extractProducts(content, channelUsername) {
 }
 
 function extractNobelShopProducts(content, originalContent, channelUsername) {
-  Logger.log('Processing @nobelshop118 - Enhanced Extraction');
+  Logger.log('Processing @nobelshop118 - Enhanced Extraction v4.2');
   const products = [];
   const lines = content.split('\n').map(line => line.trim()).filter(line => line);
   
@@ -1184,7 +1191,6 @@ function extractNobelShopProducts(content, originalContent, channelUsername) {
     const priceMatch = line.match(/^:\s*(\d+)\/(\d+)$/);
     
     if (priceMatch) {
-      // If the previous line was NOT a price line, it's likely the product name
       if (i > 0 && !lines[i-1].match(/^:\s*\d+\/\d+$/)) {
         currentProductName = lines[i-1].replace(/✅|❌/g, '').trim();
       }
@@ -1192,16 +1198,20 @@ function extractNobelShopProducts(content, originalContent, channelUsername) {
       const priceStr = priceMatch[1] + priceMatch[2];
       const price = NormalizationEngine.parsePrice(priceStr);
       
+      // Extract volume and packaging from the product name
+      const vp = extractVolumeAndPackaging(currentProductName);
+      
       products.push({
         name: currentProductName,
         price: price,
         currency: 'IRT',
-        packaging: 'Price List',
-        volume: `${priceMatch[1]}/${priceMatch[2]}`,
-        consumer_price: null,
+        packaging: vp.packaging || 'Price List',
+        volume: vp.volume || `${priceMatch[1]}/${priceMatch[2]}`,
+        consumer_price: extractConsumerPrice(content, currentProductName),
         description: `NobelShop: ${currentProductName} - ${line}`,
         category: extractCategory(currentProductName, '', channelUsername),
-        stock_status: extractStockStatus(line)
+        stock_status: extractStockStatus(line),
+        location: extractLocation(content)
       });
     }
   }
@@ -1210,11 +1220,9 @@ function extractNobelShopProducts(content, originalContent, channelUsername) {
 }
 
 function extractBonakdarjavanProducts(content, originalContent, patterns) {
-  Logger.log(`=== extractBonakdarjavanProducts START v4.1 ===`);
+  Logger.log(`=== extractBonakdarjavanProducts START v4.2 ===`);
   
   const products = [];
-  
-  // Split message by double newlines or lines that look like a new product start
   const productBlocks = content.split(/\n\s*\n/).filter(block => block.trim());
   
   for (const block of productBlocks) {
@@ -1224,17 +1232,21 @@ function extractBonakdarjavanProducts(content, originalContent, patterns) {
     let productName = 'Unknown Product';
     const prices = [];
     let packaging = '';
+    let volume = '';
 
-    // Find product name
+    // Find product name and extract embedded info
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       if (!line.match(/^(?:✅)?(?:قیمت|تعداد|باکس|کارتن|دونه|مصرف|خرید|فروش)/i)) {
         productName = line.replace(/✅$/, '').trim();
+        const vp = extractVolumeAndPackaging(productName);
+        if (vp.volume) volume = vp.volume;
+        if (vp.packaging) packaging = vp.packaging;
         break;
       }
     }
 
-    // Extract pricing for this block
+    // Pricing extraction
     const boxMatch = block.match(/قیمت\s+هر\s+(?:یک\s+)?باکس:?\s*([\d,\/]+)(?:تومان|تومن|ت)/i);
     if (boxMatch) prices.push({ type: 'wholesale_box_price', value: boxMatch[1], description: 'قیمت هر یک باکس' });
 
@@ -1244,33 +1256,70 @@ function extractBonakdarjavanProducts(content, originalContent, patterns) {
     const consMatch = block.match(/قیمت\s+(?:مصرف|مصرف\s+کننده):?\s*([\d,\/]+)(?:تومان|تومن|ت)/i);
     if (consMatch) prices.push({ type: 'consumer_price', value: consMatch[1], description: 'قیمت مصرف' });
 
-    const packMatch = block.match(/(?:✅)?(?:در\s+|تعداد\s+در\s+)?(?:باکس|کارتن)\s+([\d]+)\s*عددی/i);
-    if (packMatch) packaging = `${packMatch[1]} عددی`;
+    // Packaging info from other lines
+    const packMatch = block.match(/(?:✅)?(?:در\s+|تعداد\s+در\s+)?(?:باکس|کارتن|عدد)\s+([\d]+)\s*(?:عدد|تایی|عددی)/i);
+    if (packMatch && !packaging) packaging = `${packMatch[1]} عددی`;
 
     if (prices.length > 0) {
       const wholesale = prices.find(p => p.type === 'wholesale_box_price') || prices[0];
       const primaryPrice = NormalizationEngine.parsePrice(wholesale.value);
+      const consumerPriceRaw = prices.find(p => p.type === 'consumer_price')?.value;
+      const consumerPrice = consumerPriceRaw ? NormalizationEngine.parsePrice(consumerPriceRaw) : null;
 
       products.push({
         name: productName,
         price: primaryPrice,
         currency: 'IRT',
         packaging: packaging,
-        volume: '',
-        consumer_price: prices.find(p => p.type === 'consumer_price')?.value || null,
+        volume: volume,
+        consumer_price: consumerPrice,
         double_pack_price: null,
         double_pack_consumer_price: null,
         description: block.substring(0, 500),
         category: extractCategory(productName, '', '@bonakdarjavan'),
         stock_status: extractStockStatus(block),
-        location: '',
-        contact_info: ''
+        location: extractLocation(content),
+        contact_info: extractContactInfo(block)
       });
     }
   }
 
   Logger.log(`Extracted ${products.length} products from blocks`);
   return products;
+}
+
+// HELPER FUNCTIONS FOR ENHANCED EXTRACTION
+
+function extractVolumeAndPackaging(text) {
+  const result = { volume: '', packaging: '' };
+  if (!text) return result;
+
+  // Volume patterns (e.g., 180 گرم, 250 برگ, 1 لیتری, 180گرمی)
+  const volumePattern = /(\d+\s*(?:گرم|گرمی|لیتر|لیتری|برگ|سی سی|cc|ml|g|kg|کیلو|کیلویی))/i;
+  const vMatch = text.match(volumePattern);
+  if (vMatch) result.volume = vMatch[1].trim();
+
+  // Packaging patterns (e.g., 24 عددی, باکس 4 تایی, کارتن 16 تایی, ۲۴ عددى)
+  const packagingPattern = /((?:باکس|کارتن|بسته)?\s*\d+\s*(?:عدد|عددی|عددى|تایی|تایی|بسته))/i;
+  const pMatch = text.match(packagingPattern);
+  if (pMatch) result.packaging = pMatch[1].trim();
+
+  return result;
+}
+
+function extractConsumerPrice(content, productName) {
+  // Try to find consumer price related to a product name in a larger content
+  const lines = content.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].includes(productName)) {
+      // Look ahead a few lines for consumer price
+      for (let j = i; j < Math.min(i + 5, lines.length); j++) {
+        const consMatch = lines[j].match(/(?:مصرف|مصرف\s+کننده):?\s*([\d,\/]+)/i);
+        if (consMatch) return NormalizationEngine.parsePrice(consMatch[1]);
+      }
+    }
+  }
+  return null;
 }
 
 function extractStockStatus(content) {
@@ -1363,13 +1412,37 @@ function getChannelPatterns() {
 }
 
 function extractLocation(content, customPatterns) {
+  // Common locations in Wholesale project messages
+  const marketKeywords = [
+    'میدان محمدیه',
+    'خیابان خیام',
+    'پاساژ برلیان',
+    'اعدام',
+    'پلاک',
+    'بازار تهران'
+  ];
+
+  // If content contains specific market keywords, try to extract the whole sentence/line
+  for (const keyword of marketKeywords) {
+    if (content.includes(keyword)) {
+      // Find the line containing the keyword
+      const lines = content.split('\n');
+      for (const line of lines) {
+        if (line.includes(keyword)) {
+          return line.trim();
+        }
+      }
+    }
+  }
+
   // Use custom patterns if provided, otherwise use defaults
   const locationPatterns = customPatterns || [
     /location:?\s*([^\n,]+)/i,
+    /📍\s*([^\n]+)/,
+    /آدرس:?\s*([^\n]+)/,
     /based in:?\s*([^\n,]+)/i,
     /from:?\s*([^\n,]+)/i,
     /shipping from:?\s*([^\n,]+)/i,
-    /📍\s*([^\n]+)/,
     /made in:?\s*([^\n,]+)/i
   ];
 
@@ -1508,7 +1581,7 @@ function createProductRow(product, messageData) {
     new Date().toISOString(), // Import Timestamp
     new Date().toISOString(), // Last Updated
     product.confidence || 0, // Confidence
-    'new' // Status
+    'imported' // Status
   ];
 }
 
