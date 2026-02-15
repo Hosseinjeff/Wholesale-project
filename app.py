@@ -10,6 +10,7 @@ import os
 import time
 import json
 import asyncio
+import threading
 from utils.logger import setup_logger
 from telegram import Update
 from telegram.ext import Application
@@ -19,6 +20,7 @@ app = Flask(__name__)
 # Global variables - read from Railway environment variables
 WEB_APP_URL = os.getenv('GOOGLE_WEB_APP_URL')
 BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
+APP_VERSION = "2026-02-16-batching-v1"
 setup_logger(logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -41,6 +43,66 @@ if WEB_APP_URL:
     logger.info(f"Web app URL: {WEB_APP_URL[:50]}...")
 else:
     logger.error("GOOGLE_WEB_APP_URL environment variable not found!")
+
+BATCH_MAX_SIZE = 100
+BATCH_MAX_WAIT_SEC = 5.0
+
+class BatchManager:
+    def __init__(self, web_app_url):
+        self.web_app_url = web_app_url
+        self.lock = threading.Lock()
+        self.buffer = []
+        self.timer = None
+        self.batch_id = None
+
+    def start_timer(self):
+        if self.timer:
+            return
+        self.timer = threading.Timer(BATCH_MAX_WAIT_SEC, self.flush_and_finalize)
+        self.timer.daemon = True
+        self.timer.start()
+
+    def add_message(self, data):
+        with self.lock:
+            if not self.batch_id:
+                self.batch_id = str(int(time.time() * 1000))
+            self.buffer.append(data)
+            if len(self.buffer) >= BATCH_MAX_SIZE:
+                self._finalize_locked()
+            else:
+                self.start_timer()
+
+    def flush_and_finalize(self):
+        with self.lock:
+            self._finalize_locked()
+
+    def _finalize_locked(self):
+        if not self.buffer or not self.batch_id:
+            return
+        expected = len(self.buffer)
+        payload = {
+            "mode": "batch_ingest",
+            "batch_id": self.batch_id,
+            "messages": list(self.buffer),
+            "transmission_complete": True,
+            "expected_count": expected
+        }
+        try:
+            resp = requests.post(self.web_app_url, json=payload, timeout=60, headers={'Content-Type': 'application/json'})
+            logger.info(f"Finalize ack: {resp.status_code} {resp.text[:200]}")
+        except Exception as e:
+            logger.error(f"Batch finalize error: {e}")
+        finally:
+            self.buffer = []
+            self.batch_id = None
+            if self.timer:
+                try:
+                    self.timer.cancel()
+                except:
+                    pass
+            self.timer = None
+
+batch_manager = None
 
 def extract_forward_data(message):
     """Extract data from forwarded Telegram message."""
@@ -109,17 +171,12 @@ def send_to_google_apps_script(data):
             data['processing_mode'] = 'message_only'
         logger.info(f"Data: {data}")
 
-        response = requests.post(
-            WEB_APP_URL,
-            json=data,
-            timeout=30,
-            headers={'Content-Type': 'application/json'}
-        )
+        global batch_manager
+        if batch_manager is None:
+            batch_manager = BatchManager(WEB_APP_URL)
 
-        logger.info(f"Response status: {response.status_code}")
-        logger.info(f"Response content: {response.text[:200]}")
-
-        return response.status_code == 200
+        batch_manager.add_message(data)
+        return True
     except Exception as e:
         logger.error(f"Error sending to Google Apps Script: {str(e)}")
         return False
@@ -171,7 +228,8 @@ def health_check():
     return jsonify({
         'status': 'healthy',
         'service': 'telegram-webhook',
-        'timestamp': int(time.time())
+        'timestamp': int(time.time()),
+        'version': APP_VERSION
     })
 
 @app.route('/health/detailed', methods=['GET'])
@@ -193,7 +251,7 @@ def detailed_health_check():
             'service': 'telegram-webhook',
             'google_apps_script': gas_status,
             'web_app_url': bool(WEB_APP_URL),
-            'version': '1.1',
+            'version': APP_VERSION,
             'timestamp': int(time.time())
         })
     except Exception as e:

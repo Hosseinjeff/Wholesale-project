@@ -157,7 +157,8 @@ const PRODUCT_HEADERS = [
   'Last Updated',
   'Extraction Confidence Score',
   'Confidence',
-  'Status'
+  'Status',
+  'Batch ID'
 ];
 
 // Function to get column index by header name (flexible column positioning)
@@ -191,7 +192,8 @@ const MESSAGE_HEADERS = [
   'Has Media',
   'Media Type',
   'Import Timestamp',
-  'Status'
+  'Status',
+  'Batch ID'
 ];
 
 // Test function for GET requests
@@ -608,6 +610,10 @@ function doGet(e) {
     }
   }
 
+  if (action === 'process_pending_messages') {
+    return processPendingMessages();
+  }
+
   return ContentService
     .createTextOutput(JSON.stringify({
       status: 'success',
@@ -624,6 +630,7 @@ function doGet(e) {
         pause_ingestion: '?action=pause_ingestion',
         resume_ingestion: '?action=resume_ingestion',
         ingestion_status: '?action=ingestion_status',
+        process_pending_messages: '?action=process_pending_messages',
         health: '/',
         version: '?action=version'
       },
@@ -668,7 +675,20 @@ function doPost(e) {
     while (retryCount < CONFIG.MAX_RETRIES) {
       try {
         const data = JSON.parse(e.postData.contents);
-        Logger.log(`JSON parsed successfully for message ${data.id}`);
+        Logger.log(`JSON parsed successfully`);
+
+        if (data && (data.mode === 'batch_ingest' || (data.messages && data.batch_id))) {
+          const spreadsheet = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+          if (data.transmission_complete) {
+            const result = finalizeBatch(spreadsheet, data);
+            resultResponse = ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
+            break;
+          } else {
+            const result = batchIngestChunk(spreadsheet, data);
+            resultResponse = ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
+            break;
+          }
+        }
 
         // Log webhook reception to spreadsheet (ONLY ONCE PER MESSAGE)
         if (retryCount === 0) {
@@ -891,7 +911,8 @@ function importMessageData(data, existingRow, status) {
       'Has Media': data.has_media || false,
       'Media Type': data.media_type || '',
       'Import Timestamp': new Date().toISOString(),
-      'Status': status || (existingRow ? 'updated' : 'imported')
+      'Status': status || (existingRow ? 'updated' : 'imported'),
+      'Batch ID': data.batch_id || ''
     };
 
     // Fill the row based on headers
@@ -1028,6 +1049,240 @@ function importProductData(data) {
       error: error.toString()
     };
   }
+}
+
+function processPendingMessages() {
+  const spreadsheet = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+  const messageSheet = getOrCreateSheet(spreadsheet, 'MessageData', MESSAGE_HEADERS);
+  const lastRow = messageSheet.getLastRow();
+  if (lastRow < 2) {
+    return ContentService
+      .createTextOutput(JSON.stringify({
+        status: 'success',
+        message: 'No messages to process',
+        processed: 0,
+        last_processed_row: 1
+      }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  const data = messageSheet.getRange(1, 1, lastRow, messageSheet.getLastColumn()).getValues();
+  const headers = data[0];
+  const headerMap = {};
+  headers.forEach(function(header, index) {
+    headerMap[header] = index;
+  });
+
+  const idCol = headerMap['ID'];
+  const contentCol = headerMap['Content'];
+  const channelCol = headerMap['Channel'];
+  const channelUsernameCol = headerMap['Channel Username'];
+  const statusCol = headerMap['Status'];
+
+  const props = PropertiesService.getScriptProperties();
+  var lastProcessedRow = parseInt(props.getProperty('LAST_PROCESSED_MESSAGE_ROW') || '1', 10);
+  if (isNaN(lastProcessedRow) || lastProcessedRow < 1) {
+    lastProcessedRow = 1;
+  }
+
+  var processedCount = 0;
+  var newLastProcessedRow = lastProcessedRow;
+  var maxBatchSize = 50;
+
+  for (var rowIndex = lastProcessedRow + 1; rowIndex <= lastRow && processedCount < maxBatchSize; rowIndex++) {
+    var row = data[rowIndex - 1];
+    var id = idCol !== undefined ? row[idCol] : null;
+    if (!id) {
+      newLastProcessedRow = rowIndex;
+      continue;
+    }
+
+    var messageStatus = statusCol !== undefined ? String(row[statusCol] || '') : '';
+    var isCandidate = !messageStatus || /product_listing|price_update|out_of_stock/i.test(messageStatus);
+    if (!isCandidate) {
+      newLastProcessedRow = rowIndex;
+      continue;
+    }
+
+    var msgData = {
+      id: id,
+      channel: channelCol !== undefined ? row[channelCol] : '',
+      channel_username: channelUsernameCol !== undefined ? row[channelUsernameCol] : '',
+      content: contentCol !== undefined ? row[contentCol] : ''
+    };
+
+    try {
+      var result = importProductData(msgData);
+      processedCount++;
+    } catch (err) {
+      try {
+        logExtractionIssue(spreadsheet, 'ERROR', id, 'Background extraction failed: ' + err);
+      } catch (logErr) {
+        Logger.log('Background extraction logging failed: ' + logErr);
+      }
+    }
+
+    newLastProcessedRow = rowIndex;
+  }
+
+  props.setProperty('LAST_PROCESSED_MESSAGE_ROW', String(newLastProcessedRow));
+
+  return ContentService
+    .createTextOutput(JSON.stringify({
+      status: 'success',
+      message: 'Background product extraction completed',
+      processed: processedCount,
+      last_processed_row: newLastProcessedRow
+    }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function batchIngestChunk(spreadsheet, payload) {
+  return {
+    status: 'batch_ingest_ignored'
+  };
+}
+
+function finalizeBatch(spreadsheet, payload) {
+  var batchId = String(payload.batch_id || '');
+  var messages = Array.isArray(payload.messages) ? payload.messages : [];
+  var expected = parseInt(payload.expected_count || '0', 10) || messages.length || 0;
+  var written = 0;
+
+  if (messages.length > 0) {
+    var sheet = getOrCreateSheet(spreadsheet, 'MessageData', MESSAGE_HEADERS);
+    var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    var rows = [];
+
+    for (var i = 0; i < messages.length; i++) {
+      var m = messages[i] || {};
+      m.batch_id = batchId;
+      var cls = MessageClassifier.classify(m.content || '', m.channel_username || m.channel || '');
+      var status = cls.type;
+
+      var row = new Array(headers.length).fill('');
+      var dataMap = {
+        'ID': m.id || '',
+        'Channel': m.channel || '',
+        'Channel Username': m.channel_username || '',
+        'Author': m.author || '',
+        'Content': m.content || '',
+        'Timestamp': m.timestamp || '',
+        'URL': m.url || '',
+        'Forwarded By': m.forwarded_by || '',
+        'Forwarded At': m.forwarded_at || '',
+        'Has Media': m.has_media || false,
+        'Media Type': m.media_type || '',
+        'Import Timestamp': new Date().toISOString(),
+        'Status': status || 'imported',
+        'Batch ID': m.batch_id || ''
+      };
+
+      for (var h = 0; h < headers.length; h++) {
+        var header = headers[h];
+        if (dataMap[header] !== undefined) {
+          row[h] = dataMap[header];
+        }
+      }
+
+      rows.push(row);
+    }
+
+    if (rows.length > 0) {
+      var startRow = sheet.getLastRow() + 1;
+      if (startRow < 2) startRow = 2;
+      sheet.getRange(startRow, 1, rows.length, headers.length).setValues(rows);
+      written = rows.length;
+    }
+  } else {
+    written = countBatchMessages(spreadsheet, batchId);
+  }
+
+  if (expected > 0 && written !== expected) {
+    return {
+      status: 'error',
+      ack: 'ingestion_incomplete',
+      batch_id: batchId,
+      expected_count: expected,
+      written_count: written
+    };
+  }
+  var extraction = processBatchProducts(spreadsheet, batchId);
+  return {
+    status: 'success',
+    ack: 'ingestion_complete',
+    batch_id: batchId,
+    expected_count: expected,
+    written_count: written,
+    extraction_status: extraction.status,
+    processed_messages: extraction.processed,
+    rollback: extraction.rollback || false
+  };
+}
+
+function countBatchMessages(spreadsheet, batchId) {
+  var sheet = getOrCreateSheet(spreadsheet, 'MessageData', MESSAGE_HEADERS);
+  var values = sheet.getDataRange().getValues();
+  if (values.length < 2) return 0;
+  var headers = values[0];
+  var idx = headers.indexOf('Batch ID');
+  if (idx < 0) return 0;
+  var count = 0;
+  for (var i = 1; i < values.length; i++) {
+    if (String(values[i][idx] || '') === batchId) count++;
+  }
+  return count;
+}
+
+function listBatchMessageIds(spreadsheet, batchId) {
+  var sheet = getOrCreateSheet(spreadsheet, 'MessageData', MESSAGE_HEADERS);
+  var values = sheet.getDataRange().getValues();
+  var headers = values[0];
+  var idIdx = headers.indexOf('ID');
+  var batchIdx = headers.indexOf('Batch ID');
+  var result = [];
+  for (var i = 1; i < values.length; i++) {
+    if (String(values[i][batchIdx] || '') === batchId) {
+      result.push(String(values[i][idIdx] || ''));
+    }
+  }
+  return result;
+}
+
+function deleteProductsByBatchId(spreadsheet, batchId) {
+  var sheet = getOrCreateSheet(spreadsheet, 'Products', PRODUCT_HEADERS);
+  var values = sheet.getDataRange().getValues();
+  if (values.length < 2) return 0;
+  var headers = values[0];
+  var idx = headers.indexOf('Batch ID');
+  if (idx < 0) return 0;
+  var deleted = 0;
+  for (var i = values.length - 1; i >= 1; i--) {
+    if (String(values[i][idx] || '') === batchId) {
+      sheet.deleteRow(i + 1);
+      deleted++;
+    }
+  }
+  return deleted;
+}
+
+function processBatchProducts(spreadsheet, batchId) {
+  var ids = listBatchMessageIds(spreadsheet, batchId);
+  var processed = 0;
+  for (var i = 0; i < ids.length; i++) {
+    var msgData = { id: ids[i], batch_id: batchId };
+    var ok = false;
+    for (var attempt = 0; attempt < 3 && !ok; attempt++) {
+      var res = importProductData(msgData);
+      ok = !!res && !!res.success;
+    }
+    if (!ok) {
+      deleteProductsByBatchId(spreadsheet, batchId);
+      return { status: 'error', processed: processed, rollback: true };
+    }
+    processed++;
+  }
+  return { status: 'success', processed: processed };
 }
 
 function checkSystemicErrors(spreadsheet) {
@@ -2001,7 +2256,8 @@ function createProductRow(sheet, product, messageData) {
     'Last Updated': new Date().toISOString(),
     'Extraction Confidence Score': product.extraction_confidence || product.confidence || 0,
     'Confidence': product.confidence || 0,
-    'Status': product.status || 'imported'
+    'Status': product.status || 'imported',
+    'Batch ID': messageData.batch_id || ''
   };
 
   // Fill the row based on headers
