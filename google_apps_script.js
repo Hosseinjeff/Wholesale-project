@@ -706,26 +706,30 @@ function doPost(e) {
           break; // Exit retry loop
         }
 
-        // Check for duplicates if enabled
-        const duplicateCheck = checkForDuplicates(data);
-        if (CONFIG.DUPLICATE_CHECK && duplicateCheck.isDuplicate && !duplicateCheck.contentChanged) {
-          Logger.log(`Duplicate found for message ${data.id}`);
-          resultResponse = ContentService
-            .createTextOutput(JSON.stringify({
-              status: 'duplicate',
-              message: 'Message already exists with same content',
-              id: data.id
-            }))
-            .setMimeType(ContentService.MimeType.JSON);
-          break; // Exit retry loop
-        }
-
-        Logger.log('Processing message');
-
         // Determine processing mode: 'full' (message + products) or 'message_only'
         const classification = MessageClassifier.classify(data.content || '', data.channel_username);
         const processingMode = (data.processing_mode || '').toLowerCase() || 'full';
         const messageStatus = classification.type;
+
+        // For performance, only run duplicate checks in full processing mode
+        let duplicateCheck = { isDuplicate: false, contentChanged: false, existingRow: null };
+        if (processingMode === 'full') {
+          duplicateCheck = checkForDuplicates(data);
+          if (CONFIG.DUPLICATE_CHECK && duplicateCheck.isDuplicate && !duplicateCheck.contentChanged) {
+            Logger.log(`Duplicate found for message ${data.id}`);
+            resultResponse = ContentService
+              .createTextOutput(JSON.stringify({
+                status: 'duplicate',
+                message: 'Message already exists with same content',
+                id: data.id
+              }))
+              .setMimeType(ContentService.MimeType.JSON);
+            break; // Exit retry loop
+          }
+        }
+
+        Logger.log('Processing message');
+
         const messageResult = importMessageData(data, duplicateCheck.existingRow, messageStatus);
         let productResult = { success: true, products_found: 0, row: null };
         if (processingMode === 'full') {
