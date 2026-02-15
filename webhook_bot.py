@@ -125,10 +125,13 @@ class WebhookBot:
     def send_to_google_apps_script(self, data):
         """Send data to Google Apps Script webhook."""
         try:
+            # Prefer fast ingestion by default; products handled asynchronously
+            if 'processing_mode' not in data:
+                data['processing_mode'] = 'message_only'
             response = requests.post(
                 self.web_app_url,
                 json=data,
-                timeout=10,
+                timeout=30,
                 headers={'Content-Type': 'application/json'}
             )
 

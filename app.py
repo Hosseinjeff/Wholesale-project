@@ -104,12 +104,15 @@ def send_to_google_apps_script(data):
 
     try:
         logger.info(f"Sending data to Google Apps Script: {WEB_APP_URL}")
+        # Prefer fast ingestion by default: only write MessageData on webhook
+        if 'processing_mode' not in data:
+            data['processing_mode'] = 'message_only'
         logger.info(f"Data: {data}")
 
         response = requests.post(
             WEB_APP_URL,
             json=data,
-            timeout=10,
+            timeout=30,
             headers={'Content-Type': 'application/json'}
         )
 

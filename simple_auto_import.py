@@ -83,7 +83,7 @@ class SimpleAutoImporter:
             }
 
             # Send to Google Apps Script
-            response = requests.post(self.web_app_url, json=data, timeout=10)
+            response = requests.post(self.web_app_url, json=data, timeout=30)
 
             if response.status_code == 200:
                 print(f"SUCCESS: Imported message from {data['channel']}")
