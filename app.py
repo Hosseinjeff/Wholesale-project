@@ -52,6 +52,7 @@ class BatchManager:
         self.web_app_url = web_app_url
         self.lock = threading.Lock()
         self.buffer = []
+        self.chat_ids = set()
         self.timer = None
         self.batch_id = None
 
@@ -67,6 +68,9 @@ class BatchManager:
             if not self.batch_id:
                 self.batch_id = str(int(time.time() * 1000))
             self.buffer.append(data)
+            chat_id = data.get('chat_id')
+            if chat_id:
+                self.chat_ids.add(chat_id)
             if len(self.buffer) >= BATCH_MAX_SIZE:
                 self._finalize_locked()
             else:
@@ -90,11 +94,29 @@ class BatchManager:
         try:
             resp = requests.post(self.web_app_url, json=payload, timeout=60, headers={'Content-Type': 'application/json'})
             logger.info(f"Finalize ack: {resp.status_code} {resp.text[:200]}")
+            try:
+                data = resp.json()
+            except Exception:
+                data = {}
+            status = data.get("status")
+            ack = data.get("ack")
+            processed = data.get("processed_messages")
+            rollback = data.get("rollback")
+            for chat_id in list(self.chat_ids):
+                try:
+                    if not BOT_TOKEN:
+                        continue
+                    text = f"Batch {self.batch_id}: status={status}, ack={ack}, processed={processed}, rollback={rollback}"
+                    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+                    requests.post(url, json={"chat_id": chat_id, "text": text}, timeout=10)
+                except Exception as e:
+                    logger.error(f"Error sending Telegram status: {e}")
         except Exception as e:
             logger.error(f"Batch finalize error: {e}")
         finally:
             self.buffer = []
             self.batch_id = None
+            self.chat_ids = set()
             if self.timer:
                 try:
                     self.timer.cancel()
@@ -120,7 +142,8 @@ def extract_forward_data(message):
         'channel_username': 'Unknown',
         'author': 'Unknown',
         'timestamp': None,
-        'url': ''
+        'url': '',
+        'chat_id': message.get('chat', {}).get('id')
     }
 
     # Extract origin information

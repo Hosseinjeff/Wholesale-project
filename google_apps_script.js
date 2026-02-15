@@ -955,18 +955,31 @@ function importProductData(data) {
   try {
     const spreadsheet = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
 
-    // FIX: Read channel information from MessageData sheet if not in webhook data
-    if (!data.channel_username && !data.channel) {
+    if (!data.channel_username || !data.channel || !data.content) {
       try {
         const messageSheet = getOrCreateSheet(spreadsheet, 'MessageData', MESSAGE_HEADERS);
         const messageData = messageSheet.getDataRange().getValues();
+        if (messageData.length > 1) {
+          const headers = messageData[0];
+          const idIdx = headers.indexOf('ID');
+          const channelIdx = headers.indexOf('Channel');
+          const channelUsernameIdx = headers.indexOf('Channel Username');
+          const contentIdx = headers.indexOf('Content');
 
-        // Find the message by ID
-        for (let i = 1; i < messageData.length; i++) { // Skip header row
-          if (messageData[i][0] == data.id) { // ID column
-            data.channel = messageData[i][1] || ''; // Channel column
-            data.channel_username = messageData[i][2] || ''; // Channel Username column
-            break;
+          for (let i = 1; i < messageData.length; i++) {
+            const row = messageData[i];
+            if (idIdx >= 0 && row[idIdx] == data.id) {
+              if (!data.channel && channelIdx >= 0) {
+                data.channel = row[channelIdx] || '';
+              }
+              if (!data.channel_username && channelUsernameIdx >= 0) {
+                data.channel_username = row[channelUsernameIdx] || '';
+              }
+              if (!data.content && contentIdx >= 0) {
+                data.content = row[contentIdx] || '';
+              }
+              break;
+            }
           }
         }
       } catch (sheetError) {
