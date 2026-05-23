@@ -17,12 +17,15 @@ def load_config(config_path: str = '.env') -> Dict[str, Any]:
         Dictionary containing configuration values
     """
     # Load environment variables from .env file
-    load_dotenv(config_path)
+    load_dotenv(config_path, override=True)
 
     # Get all relevant environment variables
     config = {
         # Telegram configuration
         'TELEGRAM_BOT_TOKEN': os.getenv('TELEGRAM_BOT_TOKEN'),
+
+        # Bale configuration
+        'BALE_BOT_TOKEN': os.getenv('BALE_BOT_TOKEN'),
 
         # Discord configuration
         'DISCORD_BOT_TOKEN': os.getenv('DISCORD_BOT_TOKEN'),

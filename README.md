@@ -4,7 +4,7 @@ This Python application reads posts from various channels (Telegram, Discord, Sl
 
 ## Features
 
-- **Multi-platform support**: Telegram, Discord, and Slack channels
+- **Multi-platform support**: Telegram, Bale, Discord, and Slack channels
 - **Google Sheets integration**: Direct import to Google Spreadsheets
 - **Configurable**: Easy setup via environment variables
 - **Logging**: Comprehensive logging for debugging and monitoring
@@ -59,6 +59,21 @@ This project uses a **forwarding approach** - you forward posts from any channel
 - ✅ Works with any public channel
 - ✅ You control exactly which posts to import
 - ✅ No admin rights needed
+
+### Bale Setup
+
+1. **Create a Bale Bot**:
+   - Contact `@BotFather` on Bale to create a new bot.
+   - Get your bot token.
+
+2. **Configure in .env**:
+   ```
+   BALE_BOT_TOKEN=your_bale_bot_token
+   ```
+
+3. **Forward Messages**:
+   - Similar to Telegram, forward posts from any Bale channel to your bot.
+   - The bot will process these messages and make them available for import.
 
 ### Discord Setup
 

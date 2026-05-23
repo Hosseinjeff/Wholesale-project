@@ -9,6 +9,23 @@ const CONFIG = {
   CONTENT_CHANGE_CHECK: true // Check for content changes even on duplicate IDs
 };
 
+// Global trace for diagnostic requests
+let CURRENT_TRACE = [];
+
+function logTrace(message, details = {}) {
+  const entry = {
+    timestamp: new Date().toISOString(),
+    message: message,
+    details: details
+  };
+  CURRENT_TRACE.push(entry);
+  Logger.log(`[TRACE] ${message} ${JSON.stringify(details)}`);
+}
+
+function clearTrace() {
+  CURRENT_TRACE = [];
+}
+
 // Persian number conversion helper
 function persianToEnglishNumbers(text) {
   if (!text) return '';
@@ -161,6 +178,16 @@ const PRODUCT_HEADERS = [
   'Batch ID'
 ];
 
+const BATCH_STATUS_HEADERS = [
+  'Timestamp',
+  'Batch ID',
+  'Expected Messages',
+  'Written Messages',
+  'Processed Messages',
+  'Extraction Status',
+  'Rollback'
+];
+
 // Function to get column index by header name (flexible column positioning)
 function getColumnIndexByHeader(sheet, headerName) {
   try {
@@ -230,6 +257,38 @@ function doGet(e) {
   }
 
   Logger.log(`Final parsed action: "${action}"`);
+
+  if (action === 'diagnostic') {
+    Logger.log('Action recognized: diagnostic');
+    try {
+      const content = e.parameter.content || '';
+      const channel = e.parameter.channel || 'default';
+      
+      clearTrace();
+      logTrace('Starting diagnostic extraction', { content: content, channel: channel });
+      
+      const products = extractProducts(content, channel);
+      
+      return ContentService
+        .createTextOutput(JSON.stringify({
+          status: 'diagnostic_complete',
+          version: 'v2.1.0-fixes-applied',
+          results: products,
+          trace: CURRENT_TRACE,
+          timestamp: new Date().toISOString()
+        }))
+        .setMimeType(ContentService.MimeType.JSON);
+    } catch (error) {
+      return ContentService
+        .createTextOutput(JSON.stringify({
+          status: 'error',
+          message: error.toString(),
+          trace: CURRENT_TRACE,
+          timestamp: new Date().toISOString()
+        }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+  }
 
   if (action === 'setup') {
     Logger.log('Action recognized: setup');
@@ -396,11 +455,22 @@ function doGet(e) {
     return setIngestionEnabled(true);
   }
   if (action === 'ingestion_status') {
+    const props = PropertiesService.getScriptProperties();
+    let lastBatch = null;
+    try {
+      const raw = props.getProperty('LAST_BATCH_STATUS');
+      if (raw) {
+        lastBatch = JSON.parse(raw);
+      }
+    } catch (e2) {
+      lastBatch = null;
+    }
     return ContentService
       .createTextOutput(JSON.stringify({
         status: 'success',
         ingestion_enabled: getIngestionEnabled(),
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        last_batch_status: lastBatch
       }))
       .setMimeType(ContentService.MimeType.JSON);
   }
@@ -425,6 +495,88 @@ function doGet(e) {
         status: 'version_check_passed'
       }))
       .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  if (action === 'batch_status') {
+    try {
+      const spreadsheet = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+      const sheet = getOrCreateSheet(spreadsheet, 'BatchStatus', BATCH_STATUS_HEADERS);
+      const values = sheet.getDataRange().getValues();
+      const headers = values[0] || [];
+      const rows = [];
+      for (let i = 1; i < values.length; i++) {
+        const row = {};
+        for (let j = 0; j < headers.length; j++) {
+          row[headers[j]] = values[i][j];
+        }
+        rows.push(row);
+      }
+      return ContentService
+        .createTextOutput(JSON.stringify({
+          status: 'success',
+          batches: rows.slice(-50),
+          timestamp: new Date().toISOString()
+        }))
+        .setMimeType(ContentService.MimeType.JSON);
+    } catch (error) {
+      return ContentService
+        .createTextOutput(JSON.stringify({
+          status: 'error',
+          message: error.toString(),
+          timestamp: new Date().toISOString()
+        }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+  }
+
+  if (action === 'debug_last_message') {
+    try {
+      const result = debugLastMessage();
+      return ContentService
+        .createTextOutput(JSON.stringify({
+          status: 'success',
+          result: result,
+          timestamp: new Date().toISOString()
+        }))
+        .setMimeType(ContentService.MimeType.JSON);
+    } catch (error) {
+      return ContentService
+        .createTextOutput(JSON.stringify({
+          status: 'error',
+          message: error.toString(),
+          timestamp: new Date().toISOString()
+        }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+  }
+
+  if (action === 'debug_all_messages') {
+    try {
+      var limit = 20;
+      if (e.parameter && e.parameter.limit) {
+        var parsed = parseInt(e.parameter.limit, 10);
+        if (!isNaN(parsed) && parsed > 0 && parsed <= 500) {
+          limit = parsed;
+        }
+      }
+      const result = debugAllMessages(limit);
+      return ContentService
+        .createTextOutput(JSON.stringify({
+          status: 'success',
+          limit: limit,
+          messages: result,
+          timestamp: new Date().toISOString()
+        }))
+        .setMimeType(ContentService.MimeType.JSON);
+    } catch (error) {
+      return ContentService
+        .createTextOutput(JSON.stringify({
+          status: 'error',
+          message: error.toString(),
+          timestamp: new Date().toISOString()
+        }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
   }
 
   if (action === 'get_execution_logs') {
@@ -477,6 +629,115 @@ function doGet(e) {
         .createTextOutput(JSON.stringify({
           status: 'error',
           message: `Failed to retrieve execution logs: ${error}`,
+          timestamp: new Date().toISOString()
+        }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+  }
+
+  if (action === 'get_sheet_content') {
+    Logger.log('Action recognized: get_sheet_content');
+    try {
+      const spreadsheet = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+      let sheet;
+      
+      if (e.parameter.sheet_name) {
+        sheet = spreadsheet.getSheetByName(e.parameter.sheet_name);
+      } else if (e.parameter.gid) {
+        const gid = parseInt(e.parameter.gid, 10);
+        const sheets = spreadsheet.getSheets();
+        for (const s of sheets) {
+          if (s.getSheetId() === gid) {
+            sheet = s;
+            break;
+          }
+        }
+      }
+
+      if (!sheet) {
+        // Fallback: list all available sheets
+        const allSheets = spreadsheet.getSheets().map(s => ({
+          name: s.getName(),
+          id: s.getSheetId()
+        }));
+        
+        return ContentService
+          .createTextOutput(JSON.stringify({
+            status: 'error',
+            message: 'Sheet not found',
+            available_sheets: allSheets
+          }))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+
+      const data = sheet.getDataRange().getValues();
+      const headers = data[0] || [];
+      const rows = [];
+      const limit = e.parameter.limit ? parseInt(e.parameter.limit, 10) : 100;
+      
+      // Convert to array of objects if headers exist
+      if (headers.length > 0) {
+        for (let i = 1; i < data.length; i++) {
+          const row = {};
+          for (let j = 0; j < headers.length; j++) {
+            row[headers[j]] = data[i][j];
+          }
+          rows.push(row);
+        }
+      }
+
+      return ContentService
+        .createTextOutput(JSON.stringify({
+          status: 'success',
+          sheet_name: sheet.getName(),
+          sheet_id: sheet.getSheetId(),
+          total_rows: rows.length,
+          data: rows.slice(-limit) // Return last N rows
+        }))
+        .setMimeType(ContentService.MimeType.JSON);
+
+    } catch (error) {
+      return ContentService
+        .createTextOutput(JSON.stringify({
+          status: 'error',
+          message: error.toString()
+        }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+  }
+
+  if (action === 'get_sheet_data') {
+    Logger.log('Action recognized: get_sheet_data');
+    try {
+      const sheetName = e.parameter.sheet_name || 'MessageData';
+      const spreadsheet = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+      const sheet = spreadsheet.getSheetByName(sheetName);
+
+      if (!sheet) {
+        return ContentService
+          .createTextOutput(JSON.stringify({
+            status: 'error',
+            message: `Sheet "${sheetName}" not found`
+          }))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+
+      const data = sheet.getDataRange().getValues();
+      return ContentService
+        .createTextOutput(JSON.stringify({
+          status: 'success',
+          message: `Retrieved ${data.length} rows from ${sheetName}`,
+          timestamp: new Date().toISOString(),
+          data: data
+        }))
+        .setMimeType(ContentService.MimeType.JSON);
+
+    } catch (error) {
+      Logger.log(`get_sheet_data error: ${error}`);
+      return ContentService
+        .createTextOutput(JSON.stringify({
+          status: 'error',
+          message: `Failed to retrieve sheet data: ${error}`,
           timestamp: new Date().toISOString()
         }))
         .setMimeType(ContentService.MimeType.JSON);
@@ -611,7 +872,8 @@ function doGet(e) {
   }
 
   if (action === 'process_pending_messages') {
-    return processPendingMessages();
+    var reset = e.parameter.reset === 'true';
+    return processPendingMessages(reset);
   }
 
   return ContentService
@@ -621,6 +883,9 @@ function doGet(e) {
       timestamp: new Date().toISOString(),
       debug_info: debugInfo,
       available_endpoints: {
+        get_message_data: '?action=get_message_data',
+        get_products: '?action=get_products',
+        get_sheet_data: '?action=get_sheet_data&sheet_name=MessageData',
         setup: '?action=setup',
         debug: '?action=debug',
         test_extraction: '?action=test_extraction',
@@ -1064,7 +1329,7 @@ function importProductData(data) {
   }
 }
 
-function processPendingMessages() {
+function processPendingMessages(reset) {
   const spreadsheet = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
   const messageSheet = getOrCreateSheet(spreadsheet, 'MessageData', MESSAGE_HEADERS);
   const lastRow = messageSheet.getLastRow();
@@ -1093,6 +1358,9 @@ function processPendingMessages() {
   const statusCol = headerMap['Status'];
 
   const props = PropertiesService.getScriptProperties();
+  if (reset === true) {
+    props.setProperty('LAST_PROCESSED_MESSAGE_ROW', '1');
+  }
   var lastProcessedRow = parseInt(props.getProperty('LAST_PROCESSED_MESSAGE_ROW') || '1', 10);
   if (isNaN(lastProcessedRow) || lastProcessedRow < 1) {
     lastProcessedRow = 1;
@@ -1111,7 +1379,9 @@ function processPendingMessages() {
     }
 
     var messageStatus = statusCol !== undefined ? String(row[statusCol] || '') : '';
-    var isCandidate = !messageStatus || /product_listing|price_update|out_of_stock/i.test(messageStatus);
+    // Allow 'imported' and 'updated' statuses to be processed, effectively processing all messages with content
+    // This ensures we don't skip messages that were default-classified as 'imported'
+    var isCandidate = !messageStatus || /(?:product_listing|price_update|out_of_stock|imported|updated)/i.test(messageStatus);
     if (!isCandidate) {
       newLastProcessedRow = rowIndex;
       continue;
@@ -1212,6 +1482,8 @@ function finalizeBatch(spreadsheet, payload) {
   }
 
   if (expected > 0 && written !== expected) {
+    recordBatchStatus(spreadsheet, batchId, expected, written, { status: 'error', processed: 0, rollback: false });
+    storeLastBatchStatus(batchId, expected, written, { status: 'error', processed: 0, rollback: false });
     return {
       status: 'error',
       ack: 'ingestion_incomplete',
@@ -1220,7 +1492,9 @@ function finalizeBatch(spreadsheet, payload) {
       written_count: written
     };
   }
-  var extraction = processBatchProducts(spreadsheet, batchId);
+  var extraction = processBatchProducts(spreadsheet, batchId, messages);
+  recordBatchStatus(spreadsheet, batchId, expected, written, extraction);
+  storeLastBatchStatus(batchId, expected, written, extraction);
   return {
     status: 'success',
     ack: 'ingestion_complete',
@@ -1279,23 +1553,75 @@ function deleteProductsByBatchId(spreadsheet, batchId) {
   return deleted;
 }
 
-function processBatchProducts(spreadsheet, batchId) {
-  var ids = listBatchMessageIds(spreadsheet, batchId);
+function processBatchProducts(spreadsheet, batchId, messages) {
   var processed = 0;
-  for (var i = 0; i < ids.length; i++) {
-    var msgData = { id: ids[i], batch_id: batchId };
-    var ok = false;
-    for (var attempt = 0; attempt < 3 && !ok; attempt++) {
-      var res = importProductData(msgData);
-      ok = !!res && !!res.success;
+
+  if (Array.isArray(messages) && messages.length > 0) {
+    for (var i = 0; i < messages.length; i++) {
+      var msgData = messages[i] || {};
+      msgData.batch_id = batchId;
+      var ok = false;
+      for (var attempt = 0; attempt < 3 && !ok; attempt++) {
+        var res = importProductData(msgData);
+        ok = !!res && !!res.success;
+      }
+      if (!ok) {
+        deleteProductsByBatchId(spreadsheet, batchId);
+        return { status: 'error', processed: processed, rollback: true };
+      }
+      processed++;
     }
-    if (!ok) {
+    return { status: 'success', processed: processed };
+  }
+
+  var ids = listBatchMessageIds(spreadsheet, batchId);
+  for (var j = 0; j < ids.length; j++) {
+    var msg = { id: ids[j], batch_id: batchId };
+    var ok2 = false;
+    for (var attempt2 = 0; attempt2 < 3 && !ok2; attempt2++) {
+      var res2 = importProductData(msg);
+      ok2 = !!res2 && !!res2.success;
+    }
+    if (!ok2) {
       deleteProductsByBatchId(spreadsheet, batchId);
       return { status: 'error', processed: processed, rollback: true };
     }
     processed++;
   }
   return { status: 'success', processed: processed };
+}
+
+function recordBatchStatus(spreadsheet, batchId, expected, written, extraction) {
+  var sheet = getOrCreateSheet(spreadsheet, 'BatchStatus', BATCH_STATUS_HEADERS);
+  var status = extraction && extraction.status ? extraction.status : '';
+  var processed = extraction && typeof extraction.processed === 'number' ? extraction.processed : 0;
+  var rollback = extraction && extraction.rollback ? true : false;
+  sheet.appendRow([
+    new Date().toISOString(),
+    batchId,
+    expected,
+    written,
+    processed,
+    status,
+    rollback
+  ]);
+}
+
+function storeLastBatchStatus(batchId, expected, written, extraction) {
+  var status = extraction && extraction.status ? extraction.status : '';
+  var processed = extraction && typeof extraction.processed === 'number' ? extraction.processed : 0;
+  var rollback = extraction && extraction.rollback ? true : false;
+  var props = PropertiesService.getScriptProperties();
+  var payload = {
+    batch_id: batchId,
+    expected_messages: expected,
+    written_messages: written,
+    processed_messages: processed,
+    extraction_status: status,
+    rollback: rollback,
+    timestamp: new Date().toISOString()
+  };
+  props.setProperty('LAST_BATCH_STATUS', JSON.stringify(payload));
 }
 
 function checkSystemicErrors(spreadsheet) {
@@ -1379,206 +1705,297 @@ const NormalizationEngine = {
 
   parsePrice: function(priceStr) {
       if (!priceStr) return 0;
-      // Convert Persian to English numbers first (just in case)
+      logTrace('parsePrice called', { priceStr: priceStr });
       let clean = persianToEnglishNumbers(priceStr.toString());
-      // Remove all non-digit characters except possibly one decimal point
-      // But in our case, prices are usually whole numbers with / , . or ٫ as separators
-      clean = clean.replace(/[\/,.\u066B]/g, '');
-      // Remove any other non-digits
+      // Replace Persian/Arabic decimal separator and other common separators
+      clean = clean.replace(/[\/,٫\u066B]/g, '');
+      // Treat dot as thousand separator if it looks like one
+      clean = clean.replace(/\./g, '');
+      // Remove any remaining non-digits
       clean = clean.replace(/\D/g, '');
-      
-      return parseInt(clean, 10) || 0;
+      const result = parseInt(clean, 10) || 0;
+      logTrace('parsePrice result', { result: result });
+      return result;
     }
 };
 
 function extractChannelBonakdarjavan(content) {
-  const patterns = CHANNEL_PATTERNS['@bonakdarjavan'] || CHANNEL_PATTERNS['default'];
-  let segments = content.split(/\n\s*\n/);
-  if (segments.length === 1 || segments.some(s => s.split('\n').length > 8)) {
-    const splitRegex = /\n(?=(?:✅|🚀|🔥|💎|•|●|▪|📦|✨|🌟|📣|💰|🛍️))/;
-    let newSegments = [];
-    segments.forEach(seg => {
-      const sub = seg.split(splitRegex);
-      newSegments = newSegments.concat(sub);
-    });
-    segments = newSegments;
-  }
-  let finalSegments = [];
-  segments.forEach(seg => {
-    if (seg.includes('✅') && !seg.trim().startsWith('✅')) {
-      const firstEmojiIndex = seg.search(/[✅🚀🔥💎📦✨🌟📣💰🛍️]/);
-      if (firstEmojiIndex > 0) {
-        const namePart = seg.substring(0, firstEmojiIndex).trim();
-        const detailPart = seg.substring(firstEmojiIndex).trim();
-      }
-    }
-    finalSegments.push(seg);
-  });
-  segments = finalSegments;
+  logTrace('Entering extractChannelBonakdarjavan');
   const products = [];
-  let lastBaseName = null;
-  segments.forEach(segment => {
-    if (segment.trim().length < 5) return;
-    const normalizedSegment = NormalizationEngine.normalize(segment);
-    const lines = segment.trim().split('\n')
-      .map(l => l.trim())
-      .filter(l => l && l.length > 1 && /[\d\u06F0-\u06F9a-zA-Z\u0600-\u06FF]/.test(l));
-    if (lines[0] && /^(?:آدرس|خرید حضوری|تماس|واتساپ|wa\.me|https?:\/\/|@)/i.test(lines[0])) return;
-    if (lines.length === 0) return;
-    const cleanedName = cleanProductName(lines[0]);
-    if (!cleanedName) return;
+  
+  // Clean content: remove contact info block at the bottom
+  // The contact info usually starts with "ثبت سفارش" or "پاسخگو" or "آدرس" or "wa.me"
+  const lines = content.split('\n').map(l => l.trim()).filter(l => l);
+  
+  // Find where the product info likely ends (before contact info)
+  let productLines = [];
+  for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (/^(?:ثبت سفارش|پاسخگو|آدرس|wa\.me|https?:\/\/|👇)/.test(line)) {
+          logTrace('Contact info detected, stopping line collection', { line: line, index: i });
+          break; 
+      }
+      productLines.push(line);
+  }
+  
+  if (productLines.length < 2) {
+      logTrace('Not enough lines to extract product', { count: productLines.length });
+      Logger.log(`[Bonakdar] Not enough lines: ${productLines.length}`);
+      return products;
+  }
 
-    // Determine base product name vs pure variation label (e.g. "یک مثقالی", "نیم گرمی")
-    const variationOnlyRegex = /^(?:یک|نیم|ربع|\d+)\s+(?:مثقالی|گرمی)\s*$/i;
-    let finalName = cleanedName;
-    let variationLabel = '';
+  // Assuming single product per message for now based on samples
+  const name = cleanProductName(productLines[0]);
+  logTrace('Extracted name', { name: name });
+  Logger.log(`[Bonakdar] Name: ${name}`);
+  if (!name || name.length < 3) {
+    logTrace('Name too short or invalid', { name: name });
+    return products;
+  }
 
-    if (variationOnlyRegex.test(cleanedName) && lastBaseName) {
-      variationLabel = cleanedName;
-      finalName = `${lastBaseName} ${cleanedName}`;
-    } else {
-      lastBaseName = cleanedName;
-    }
-    const product = {
-      name: finalName,
-      sale_price: 0,
-      actual_price: 0,
-      price_type: detectPresentationMethod(segment),
-      price: 0,
-      consumer_price: 0,
-      packaging: '',
-      variation_type: variationLabel || extractVariationType(lines[0]) || extractVariationType(segment),
-      confidence: 0.7,
-      extraction_confidence: 0.7,
-      raw_name: lines[0],
-      description: segment,
-      stock_status: /(?:تمام|ناموجود|❌)/i.test(segment) ? 'Out of Stock' : 'Available',
-      currency: 'IRT'
-    };
-    const pricing = analyzePricingForSegment(lines);
-    product.sale_price = pricing.sale_price || 0;
-    product.actual_price = pricing.actual_price || 0;
-    product.price_type = pricing.price_type || product.price_type;
-    product.extraction_confidence = pricing.extraction_confidence || product.extraction_confidence;
-    product.price = product.sale_price;
-    product.consumer_price = product.actual_price;
-    if (patterns.packaging_patterns) {
-      patterns.packaging_patterns.forEach(p => {
-        let match;
-        const regex = new RegExp(p.source, p.flags.includes('g') ? p.flags : p.flags + 'g');
-        while ((match = regex.exec(normalizedSegment)) !== null) {
-          product.packaging = match[1] + ' عددی';
-        }
-      });
-    }
-    if (product.sale_price === 0) {
-      const fallbackMatch = normalizedSegment.match(/(?:قیمت|فی|قیمت هر یک باکس)\s*[:\s]*([\d,\/\u06F0-\u06F9\u066B\.]+)/i);
-      if (fallbackMatch) product.sale_price = NormalizationEngine.parsePrice(fallbackMatch[1]);
-      product.price = product.sale_price;
-    }
-    if (product.sale_price > 0 && product.name.length > 3 && !product.name.includes('http') && !product.name.includes('wa.me')) {
-      products.push(product);
-    }
+  const pricing = analyzePricingForSegment(productLines);
+  logTrace('Pricing result', { pricing: pricing });
+  Logger.log(`[Bonakdar] Pricing: Sale=${pricing.sale_price}, Consumer=${pricing.actual_price}`);
+  
+  // Extract packaging
+  let packaging = '';
+  productLines.forEach((line, idx) => {
+      if (/(?:باکس|کارتن|تعداد)/.test(line) && !/قیمت/.test(line)) {
+          packaging = line;
+          logTrace('Extracted packaging', { packaging: packaging, lineIdx: idx });
+      }
   });
+
+  if (pricing.sale_price > 0 || pricing.actual_price > 0) {
+      logTrace('Product validated and added', { name: name, sale: pricing.sale_price });
+      products.push({
+          name: name,
+          sale_price: pricing.sale_price,
+          consumer_price: pricing.actual_price,
+          price: pricing.sale_price > 0 ? pricing.sale_price : pricing.actual_price,
+          actual_price: pricing.actual_price,
+          packaging: packaging,
+          channel: '@bonakdarjavan',
+          currency: 'IRT',
+          stock_status: 'Available',
+          description: content,
+          confidence: pricing.extraction_confidence || 0.8,
+          extraction_confidence: pricing.extraction_confidence || 0.8
+      });
+  } else {
+    logTrace('Product rejected: no price found', { name: name });
+  }
+
   return products;
 }
 
 function extractChannelTopShopRahimi(content) {
-  const patterns = CHANNEL_PATTERNS['@top_shop_rahimi'] || CHANNEL_PATTERNS['default'];
-  let segments = content.split(/\n\s*\n/);
-  if (segments.length === 1 || segments.some(s => s.split('\n').length > 8)) {
-    const splitRegex = /\n(?=(?:✅|🚀|🔥|💎|•|●|▪|📦|✨|🌟|📣|💰|🛍️))/;
-    let newSegments = [];
-    segments.forEach(seg => {
-      const sub = seg.split(splitRegex);
-      newSegments = newSegments.concat(sub);
-    });
-    segments = newSegments;
-  }
+  logTrace('Entering extractChannelTopShopRahimi');
   const products = [];
-  segments.forEach(segment => {
-    if (segment.trim().length < 5) return;
-    const normalizedSegment = NormalizationEngine.normalize(segment);
-    const lines = segment.trim().split('\n')
-      .map(l => l.trim())
-      .filter(l => l && l.length > 1 && /[\d\u06F0-\u06F9a-zA-Z\u0600-\u06FF]/.test(l));
-    if (lines[0] && /^(?:آدرس|خرید حضوری|تماس|واتساپ|wa\.me|https?:\/\/|@)/i.test(lines[0])) return;
-    if (lines.length === 0) return;
-    const cleanedName = cleanProductName(lines[0]);
-    if (!cleanedName) return;
-    const product = {
-      name: cleanedName,
-      sale_price: 0,
-      actual_price: 0,
-      price_type: detectPresentationMethod(segment),
-      price: 0,
-      consumer_price: 0,
-      packaging: '',
-      variation_type: extractVariationType(lines[0]) || extractVariationType(segment),
-      confidence: 0.7,
-      extraction_confidence: 0.7,
-      raw_name: lines[0],
-      description: segment,
-      stock_status: /(?:تمام|ناموجود|❌)/i.test(segment) ? 'Out of Stock' : 'Available',
-      currency: 'IRT'
-    };
-    const pricing = analyzePricingForSegment(lines);
-    product.sale_price = pricing.sale_price || 0;
-    product.actual_price = pricing.actual_price || 0;
-    product.price_type = pricing.price_type || product.price_type;
-    product.extraction_confidence = pricing.extraction_confidence || product.extraction_confidence;
-    product.price = product.sale_price;
-    product.consumer_price = product.actual_price;
-    if (patterns.packaging_patterns) {
-      patterns.packaging_patterns.forEach(p => {
-        let match;
-        const regex = new RegExp(p.source, p.flags.includes('g') ? p.flags : p.flags + 'g');
-        while ((match = regex.exec(normalizedSegment)) !== null) {
-          product.packaging = match[1] + ' عددی';
-        }
-      });
-    }
-    if (product.sale_price === 0) {
-      const fallbackMatch = normalizedSegment.match(/(?:قیمت|فی|قیمت هر یک باکس)\s*[:\s]*([\د,\/\u06F0-\u06F9\u066B\.]+)/i);
-      if (fallbackMatch) product.sale_price = NormalizationEngine.parsePrice(fallbackMatch[1]);
-      product.price = product.sale_price;
-    }
-    if (product.sale_price > 0 && product.name.length > 3 && !product.name.includes('http') && !product.name.includes('wa.me')) {
-      products.push(product);
-    }
+  
+  // Split by ✅ or newlines to get chunks
+  // Normalize newlines to spaces first to handle split lines like "Price:\n 1000"
+  const flatContent = content.replace(/\n/g, ' ');
+  const chunks = flatContent.split(/✅|\u2705/).map(c => c.trim()).filter(c => c);
+
+  logTrace('Split into chunks', { count: chunks.length });
+  Logger.log(`TopShop Chunks: ${chunks.length}`);
+  if (chunks.length < 2) {
+    logTrace('Too few chunks to extract', { count: chunks.length });
+    return products;
+  }
+
+  const name = NormalizationEngine.normalize(chunks[0]).replace(/[:.]/g, '').trim();
+  logTrace('Extracted name', { name: name });
+  Logger.log(`TopShop Name: ${name}`);
+  if (!name || name.length < 3) {
+    logTrace('Name too short or invalid', { name: name });
+    return products;
+  }
+
+  let salePrice = 0;
+  let consumerPrice = 0;
+  let packaging = '';
+
+  chunks.slice(1).forEach((chunk, idx) => {
+      const cleanChunk = NormalizationEngine.normalize(chunk);
+      logTrace(`Processing chunk ${idx}`, { chunk: cleanChunk });
+      Logger.log(`  Chunk: "${cleanChunk}"`);
+      
+      // Skip chunks that explicitly say "No Price" or similar
+      if (/(?:ندارد|نداره)/.test(cleanChunk)) {
+           logTrace('Chunk explicitly says no price', { chunk: cleanChunk });
+           Logger.log(`      -> Explicitly no price stated.`);
+           return; 
+      }
+
+      // Extract packaging info
+      // Avoid adding price chunks to packaging
+      if (/(?:باکس|کارتن|تعداد)/.test(cleanChunk) && !/قیمت/.test(cleanChunk)) {
+          packaging += cleanChunk + ' ';
+          logTrace('Added to packaging', { chunk: cleanChunk });
+      }
+
+      // Extract prices
+      // Look for numbers
+      const priceMatch = cleanChunk.match(/([\d,\/\.\u06F0-\u06F9\u066B]{3,})/);
+      if (priceMatch) {
+          const priceVal = NormalizationEngine.parsePrice(priceMatch[1]);
+          logTrace('Price found', { value: priceVal, match: priceMatch[1] });
+          Logger.log(`    Price found: ${priceVal} from ${priceMatch[1]}`);
+          if (priceVal > 100) {
+              if (/(?:مصرف|consumer)/i.test(cleanChunk)) {
+                  consumerPrice = priceVal;
+                  logTrace('Identified as Consumer Price', { value: consumerPrice });
+                  Logger.log(`      -> Consumer Price: ${consumerPrice}`);
+              } else if (/(?:هر\s*عدد|دونه|unit|هر\s*کیلو|یک\s*عدد|قیمت\s*تکی)/i.test(cleanChunk)) {
+                  salePrice = priceVal;
+                  logTrace('Identified as Sale Price', { value: salePrice });
+                  Logger.log(`      -> Sale Price: ${salePrice}`);
+              } else if (/(?:باکس|box|کارتن)/i.test(cleanChunk) && /قیمت/.test(cleanChunk)) {
+                  // Box price
+                  logTrace('Ignored as Box Price', { value: priceVal });
+                  Logger.log(`      -> Box Price (Ignored)`);
+              } else if (!salePrice && !consumerPrice && cleanChunk.includes('قیمت')) {
+                  // Fallback
+                  salePrice = priceVal;
+                  logTrace('Fallback Sale Price', { value: salePrice });
+                  Logger.log(`      -> Fallback Sale Price: ${salePrice}`);
+              }
+          } else {
+            logTrace('Price too low to be meaningful', { value: priceVal });
+          }
+      }
   });
+
+  if (name && (salePrice > 0 || consumerPrice > 0)) {
+      logTrace('Product validated and added', { name: name, sale: salePrice, consumer: consumerPrice });
+      products.push({
+          name: name,
+          sale_price: salePrice,
+          consumer_price: consumerPrice,
+          price: salePrice > 0 ? salePrice : consumerPrice,
+          actual_price: consumerPrice,
+          packaging: packaging.trim(),
+          channel: '@top_shop_rahimi',
+          currency: 'IRT',
+          stock_status: 'Available',
+          description: content,
+          confidence: 0.9,
+          extraction_confidence: 0.9
+      });
+  } else {
+    logTrace('Product rejected: no price found', { name: name });
+  }
+
   return products;
 }
 
 function extractChannelNobelshop118(content) {
+  logTrace('Entering extractChannelNobelshop118');
   const products = [];
-  const segments = content.split(/\n\s*\ن/);
-  segments.forEach(segment => {
-    const normalizedSegment = NormalizationEngine.normalize(segment);
-    const lines = normalizedSegment.split('\n');
-    lines.forEach(line => {
-      const match = line.match(/([^\n:]+)\s*:\s*([\d\/\u06F0-\u06F9,]+)/);
-      if (match) {
-        const left = match[1].trim();
-        if (/(آدرس|تماس|واتساپ|wa\.me|https?:\/\/|@)/i.test(left)) return;
-        const numNorm = persianToEnglishNumbers(match[2]).replace(/[,\.\u066B\/]/g, '');
-        if (!(numNorm.length >= 4 && numNorm.length <= 8)) return;
-        const name = cleanProductName(left);
-        if (name && name.length > 3) {
-          products.push({
-            name: name,
-            price: NormalizationEngine.parsePrice(match[2]),
-            confidence: 0.9,
-            raw_name: left,
-            description: segment,
-            stock_status: 'Available',
-            currency: 'IRT',
-            packaging: ''
-          });
-        }
+  // Nobelshop messages often use double newlines within a single product description.
+  // We treat the whole message as one segment unless clear separators exist.
+  // If needed, we can split by "----------------" or similar later.
+  const segments = [content]; 
+  
+  segments.forEach((segment, segIdx) => {
+    logTrace(`Processing segment ${segIdx}`, { length: segment.length });
+    // FIX: Split RAW segment first to preserve newlines because NormalizationEngine.normalize() collapses newlines into spaces
+    const lines = segment.split('\n').map(l => l.trim()).filter(l => l);
+    if (lines.length < 2) {
+      logTrace('Segment too short to contain product', { linesCount: lines.length });
+      return;
+    }
+
+    // Normalize lines individually for processing
+    const normalizedLines = lines.map(l => NormalizationEngine.normalize(l));
+
+    // Strategy: 
+    // Line 1: Name (usually ending with ✅)
+    // Line 2: Packaging (usually ending with ✅)
+    // Lines 3+: Prices
+    
+    // 1. Name Extraction
+    let name = normalizedLines[0].replace(/[✅\u2705]/g, '').trim();
+    logTrace('Extracted name', { name: name });
+    if (!name || name.length < 3) {
+      logTrace('Name too short or invalid', { name: name });
+      return;
+    }
+    
+    // 2. Packaging Extraction
+    let packaging = '';
+    // Look for packaging in first 3 lines
+    for (let i = 0; i < Math.min(normalizedLines.length, 3); i++) {
+      if (/(?:عددی|باکس|کارتن|ورق|شیشه|بسته)/.test(normalizedLines[i])) {
+        packaging = normalizedLines[i].replace(/[✅\u2705]/g, '').trim();
+        logTrace('Extracted packaging', { packaging: packaging, lineIdx: i });
       }
-    });
+    }
+
+    // 3. Price Extraction
+            let salePrice = 0;     // قیمت خرید (Our/Wholesale Price)
+            let consumerPrice = 0; // قیمت مصرف (Consumer/Retail Price)
+            
+            normalizedLines.forEach((line, lineIdx) => {
+              const cleanLine = line.replace(/[✅\u2705]/g, '').trim();
+              // Match numbers that look like prices (at least 3 digits)
+              const priceMatch = cleanLine.match(/([\d,\/\.\u06F0-\u06F9\u066B]{3,})/);
+              
+              if (priceMatch) {
+                const priceVal = NormalizationEngine.parsePrice(priceMatch[1]);
+                if (priceVal > 100) { // meaningful price
+                   logTrace(`Price found on line ${lineIdx}`, { value: priceVal, match: priceMatch[1] });
+                   Logger.log(`[Nobelshop] Line: ${cleanLine}, PriceVal: ${priceVal}`);
+                   
+                   if (/(?:مصرف|عمده|فروش ما|همکار|consumer|خرید)/i.test(cleanLine)) {
+                       if (/(?:مصرف|consumer)/i.test(cleanLine)) {
+                           consumerPrice = priceVal;
+                           logTrace('Identified as Consumer Price', { value: consumerPrice });
+                           Logger.log(`      -> Consumer Price: ${consumerPrice}`);
+                       } else if (/(?:عمده|فروش ما|همکار|خرید)/i.test(cleanLine)) {
+                           salePrice = priceVal;
+                           logTrace('Identified as Sale Price', { value: salePrice });
+                           Logger.log(`      -> Sale Price: ${salePrice}`);
+                       }
+                   } else if (!salePrice && !consumerPrice) {
+                       // Fallback if no keywords found but price exists (less reliable)
+                       salePrice = priceVal; 
+                       logTrace('Fallback sale price assigned', { value: salePrice });
+                   }
+                } else {
+                  logTrace('Price too low to be meaningful', { value: priceVal });
+                }
+              }
+            });
+            
+            logTrace('Final pricing for segment', { salePrice, consumerPrice });
+            Logger.log(`[Nobelshop] Final - Name: ${name}, Sale: ${salePrice}, Consumer: ${consumerPrice}`);
+    
+    if (name && (salePrice > 0 || consumerPrice > 0)) {
+       logTrace('Product validated and added', { name: name, sale: salePrice, consumer: consumerPrice });
+       products.push({
+         name: name,
+         sale_price: salePrice,
+         consumer_price: consumerPrice,
+         price: salePrice > 0 ? salePrice : consumerPrice,
+         actual_price: consumerPrice, // Map to Actual Price header
+         packaging: packaging,
+         description: segment,
+         confidence: 0.85,
+         extraction_confidence: 0.85,
+         channel: '@nobelshop118',
+         currency: 'IRT',
+         stock_status: 'Available',
+         variation_type: '',
+         original_message: segment
+       });
+    } else {
+      logTrace('Product rejected: no price found', { name: name });
+    }
   });
+  
   return products;
 }
 
@@ -1593,6 +2010,7 @@ function extractProducts(content, channelUsername) {
  * A robust, line-by-line extractor that works for list-style and block-style messages.
  */
 function extractUniversalProducts(content, channelUsername) {
+  logTrace('Entering extractUniversalProducts', { channelUsername: channelUsername });
   const lines = content.split('\n').map(l => l.trim()).filter(l => l);
   const products = [];
   
@@ -1609,7 +2027,10 @@ function extractUniversalProducts(content, channelUsername) {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const contactLine = /(wa\.me|https?:\/\/|@|📞|تماس|واتساپ|خرید\s*آنلاین|خرید\s*انلاین|لینک)/i.test(line);
-    const isPriceLine = !contactLine && priceRegex.test(line) && /\d/.test(line);
+    const hasPrice = priceRegex.test(line) && /\d/.test(line);
+    const hasPriceLabel = /(?:قیمت|Price|فی|Value|Amount|تومان|تومن|ت)/i.test(line);
+    const isSimplePrice = line.trim().length < 20 && hasPrice;
+    const isPriceLine = !contactLine && ((hasPrice && hasPriceLabel) || isSimplePrice);
     
     // DECISION: Is this a new product or details for the current one?
     // It's a NEW product if:
@@ -1622,9 +2043,15 @@ function extractUniversalProducts(content, channelUsername) {
                               (!currentProduct || (currentProduct.price > 0));
 
     if (isNewProductStart) {
+      logTrace('Detected new product start', { line: line, index: i });
       // Save previous product if valid
-      if (currentProduct && (currentProduct.price > 0 || currentProduct.stock_status === 'Out of Stock')) {
-        products.push(finalizeProduct(currentProduct, channelUsername));
+      if (currentProduct) {
+        if (currentProduct.price > 0 || currentProduct.stock_status === 'Out of Stock') {
+          logTrace('Finalizing previous product', { name: currentProduct.name, price: currentProduct.price });
+          products.push(finalizeProduct(currentProduct, channelUsername));
+        } else {
+          logTrace('Skipping previous product (no price/oos)', { name: currentProduct.name });
+        }
       }
 
       // Start new product
@@ -1641,19 +2068,36 @@ function extractUniversalProducts(content, channelUsername) {
         description: line,
         extraction_confidence: 0.8
       };
+      logTrace('Started new product object', { name: currentProduct.name });
     } else if (currentProduct) {
       // We are inside a product block, parse details
       currentProduct.description += '\n' + line;
       
       // Update Stock Status
-      if (oosRegex.test(line)) currentProduct.stock_status = 'Out of Stock';
+      if (oosRegex.test(line)) {
+        logTrace('Updated stock status to Out of Stock', { line: line });
+        currentProduct.stock_status = 'Out of Stock';
+      }
 
       // Update Packaging/Volume if found in detail lines
-      if (!currentProduct.packaging) currentProduct.packaging = extractPackaging(line);
-      if (!currentProduct.volume) currentProduct.volume = extractVolume(line);
+      if (!currentProduct.packaging) {
+        const pkg = extractPackaging(line);
+        if (pkg) {
+          logTrace('Extracted packaging from detail line', { packaging: pkg, line: line });
+          currentProduct.packaging = pkg;
+        }
+      }
+      if (!currentProduct.volume) {
+        const vol = extractVolume(line);
+        if (vol) {
+          logTrace('Extracted volume from detail line', { volume: vol, line: line });
+          currentProduct.volume = vol;
+        }
+      }
 
       // Extract Prices
       if (isPriceLine) {
+        logTrace('Processing price line', { line: line });
         const prices = extractPricesFromLine(line);
         if (prices.sale > 0) {
           currentProduct.sale_price = prices.sale;
@@ -1669,6 +2113,7 @@ function extractUniversalProducts(content, channelUsername) {
         // usually the smaller number is 'Our Price' and larger is 'Consumer'
         if (currentProduct.price > 0 && currentProduct.consumer_price > 0) {
            if (currentProduct.price > currentProduct.consumer_price) {
+             logTrace('Swapping prices: sale > consumer', { sale: currentProduct.price, consumer: currentProduct.consumer_price });
              // Swap if sale price is accidentally higher than consumer price
              const temp = currentProduct.price;
              currentProduct.price = currentProduct.consumer_price;
@@ -1678,21 +2123,34 @@ function extractUniversalProducts(content, channelUsername) {
              currentProduct.actual_price = t2;
            }
         }
+        logTrace('Updated product prices', { sale: currentProduct.price, consumer: currentProduct.consumer_price });
+      }
+    } else {
+      // No current product and not a new start
+      if (line.length > 0) {
+        logTrace('Ignoring line (no active product)', { line: line });
       }
     }
   }
 
   // Push the very last product found
-  if (currentProduct && (currentProduct.price > 0 || currentProduct.stock_status === 'Out of Stock')) {
-    products.push(finalizeProduct(currentProduct, channelUsername));
+  if (currentProduct) {
+    if (currentProduct.price > 0 || currentProduct.stock_status === 'Out of Stock') {
+      logTrace('Finalizing last product', { name: currentProduct.name, price: currentProduct.price });
+      products.push(finalizeProduct(currentProduct, channelUsername));
+    } else {
+      logTrace('Skipping last product (no price/oos)', { name: currentProduct.name });
+    }
   }
 
+  logTrace('Finished extractUniversalProducts', { productsFound: products.length });
   return products;
 }
 
 // --- Helper Functions for the Universal Extractor ---
 
 function extractPricesFromLine(line) {
+  logTrace('extractPricesFromLine called', { line: line });
   // Logic to distinguish between "Our Price" and "Consumer Price" on a single line
   const result = { sale: 0, consumer: 0 };
   
@@ -1700,26 +2158,35 @@ function extractPricesFromLine(line) {
   const cleanLine = persianToEnglishNumbers(line).replace(/(\d+)\/(\d+)/g, '$1$2').replace(/[,\.\u066B]/g, '');
   const numbers = cleanLine.match(/\d+/g);
   
-  if (!numbers) return result;
+  if (!numbers) {
+    logTrace('No numbers found in price line', { cleanLine: cleanLine });
+    return result;
+  }
   
   const vals = numbers
     .filter(n => n.length >= 4 && n.length <= 8)
     .map(n => parseInt(n, 10))
     .filter(n => n > 1000);
   
+  logTrace('Extracted values', { vals: vals });
+
   if (line.match(/(?:مصرف|روی جلد)/)) {
     result.consumer = vals[0] || 0;
+    logTrace('Identified as consumer price', { consumer: result.consumer });
   } else if (line.match(/(?:فروش|خرید|ما|همکار)/)) {
     result.sale = vals[0] || 0;
+    logTrace('Identified as sale price', { sale: result.sale });
   } else {
     // If ambiguous, assume it's the sale price
     result.sale = vals[0] || 0;
+    logTrace('Ambiguous line: assuming sale price', { sale: result.sale });
   }
   
   // Special Case: "Consumer: 275000 Our Price: 253000" on same line
   if (vals.length >= 2) {
      result.sale = Math.min(...vals);
      result.consumer = Math.max(...vals);
+     logTrace('Multiple values found: assigning min to sale, max to consumer', { sale: result.sale, consumer: result.consumer });
   }
   
   return result;
@@ -1727,6 +2194,7 @@ function extractPricesFromLine(line) {
 
 function cleanProductName(raw) {
   if (!raw) return '';
+  logTrace('cleanProductName called', { raw: raw });
   // Remove common emojis and specific prefixes
   let clean = raw.replace(/[✅❌🛑⭕️🚀🔥💎📦✨🌟📣💰🛍️•●▪]/g, '')
             .replace(/^(?:نام)?\s*محصول[:\s]*/, '')
@@ -1741,6 +2209,7 @@ function cleanProductName(raw) {
   if (labels.some(label => lowerClean === label || lowerClean.startsWith(label + ':') || lowerClean.startsWith(label + ' '))) {
     // If it starts with a label, check if it has numbers or price-like symbols (likely a price line, not a name)
     if (/[\d\u06F0-\u06F9]/.test(clean) || clean.includes('٫') || clean.includes('/')) {
+      logTrace('Rejected as price/info label', { clean: clean });
       return '';
     }
   }
@@ -1750,12 +2219,24 @@ function cleanProductName(raw) {
   if (splitPattern.test(clean)) {
     const parts = clean.split(splitPattern);
     if (parts[0].trim().length > 2) {
-      return parts[0].trim().replace(/[:\s-]+$/, '').trim();
+      const result = parts[0].trim().replace(/[:\s-]+$/, '').trim();
+      logTrace('Split name and took first part', { original: clean, result: result });
+      return result;
     }
   }
-  if (/(آدرس|میدان|خیابان|پاساژ|پلاک|بازار|wa\.me|https?:\/\/|@|واتساپ|تماس)/i.test(clean)) return '';
-  if (!/[\u0600-\u06FFA-Za-z]/.test(clean)) return '';
-  if (/^\s*[\d\u06F0-\u06F9\-\.\,\/\s]+$/.test(clean)) return '';
+  if (/(آدرس|میدان|خیابان|پاساژ|پلاک|بازار|wa\.me|https?:\/\/|@|واتساپ|تماس|اتمام|ناموجود|تمام شد)/i.test(clean)) {
+    logTrace('Rejected as contact/location info', { clean: clean });
+    return '';
+  }
+  if (!/[\u0600-\u06FFA-Za-z]/.test(clean)) {
+    logTrace('Rejected as non-alphabetic', { clean: clean });
+    return '';
+  }
+  if (/^\s*[\d\u06F0-\u06F9\-\.\,\/\s]+$/.test(clean)) {
+    logTrace('Rejected as numeric/symbolic only', { clean: clean });
+    return '';
+  }
+  logTrace('ProductName cleaned successfully', { result: clean });
   return clean;
 }
 
@@ -1834,64 +2315,51 @@ function extractVariationType(text) {
 }
 
 function analyzePricingForSegment(lines) {
-  // lines: array of cleaned lines for a product segment
-  const result = {
-    sale_price: 0,
-    actual_price: 0,
-    price_type: 'single',
-    extraction_confidence: 0.8
-  };
-  if (!lines || !lines.length) return result;
+  logTrace('analyzePricingForSegment called', { linesCount: lines.length });
+  let sale_price = 0;
+  let actual_price = 0;
+  let price_type = 'unit';
+  let extraction_confidence = 0;
 
-  // Collect all numeric candidates across lines
-  const candidates = [];
-  lines.forEach(line => {
-    const norm = NormalizationEngine.normalize(line).replace(/(\d+)\/(\d+)/g, '$1$2').replace(/[,.\u066B]/g, '');
-    const isContact = /(wa\.me|https?:\/\/|@|📞|تماس|واتساپ)/i.test(line);
-    const nums = norm.match(/\b\d{4,}\b/g);
-    if (nums && !isContact) {
-      nums.forEach(n => {
-        if (n.length >= 4 && n.length <= 8) candidates.push(parseInt(n, 10));
-      });
+  lines.forEach((line, idx) => {
+    const norm = NormalizationEngine.normalize(line);
+    
+    // Check for consumer price
+    if (/(?:مصرف|consumer)/i.test(line)) {
+      const m = norm.match(/[\d,\/\.]{4,}/);
+      if (m) {
+        actual_price = NormalizationEngine.parsePrice(m[0]);
+        logTrace(`Found consumer price on line ${idx}`, { value: actual_price });
+      }
     }
-    // Label-based assignment
-    if (/(?:مصرف|روی جلد|مصرف کننده)/i.test(line)) {
-      const m = norm.match(/\b\d{4,}\b/);
-      if (m) result.actual_price = NormalizationEngine.parsePrice(m[0]);
+    
+    // Check for sale price
+    if (/(?:فروش|خرید|\bما\b|همکار|دونه\s*ای|فی|هر\s*عدد|یک\s*باکس|قیمت\s*باکس)/i.test(line)) {
+      const m = norm.match(/[\d,\/\.]{4,}/);
+      if (m) {
+        sale_price = NormalizationEngine.parsePrice(m[0]);
+        extraction_confidence = 0.9;
+        logTrace(`Found sale price on line ${idx}`, { value: sale_price });
+      }
+    } else if (!sale_price) {
+        // Fallback: standalone price check
+        const m = norm.match(/^\s*[\d,\/]{4,}\s*(?:تومان|ت|ریال)?\s*$/);
+        if (m) {
+            sale_price = NormalizationEngine.parsePrice(m[0]);
+            extraction_confidence = 0.6;
+            logTrace(`Found fallback sale price on line ${idx}`, { value: sale_price });
+        }
     }
-    if (/(?:فروش|خرید|ما|همکار|دونه\s*ای|فی)/i.test(line)) {
-      const m = norm.match(/\b\d{4,}\b/);
-      if (m) result.sale_price = NormalizationEngine.parsePrice(m[0]);
-    }
+    
     // Pack hints
     if (/(?:باکس|کارتن|شیرینگ|ورق)/i.test(line)) {
-      result.price_type = 'pack';
+      price_type = 'pack';
+      logTrace(`Detected pack price type on line ${idx}`);
     }
   });
 
-  // Fallbacks if only one price present
-  const uniqueNumbers = Array.from(new Set(candidates)).sort((a,b)=>a-b);
-  if (uniqueNumbers.length === 1) {
-    // Contextual assumption: single price is sale price
-    result.sale_price = result.sale_price || uniqueNumbers[0];
-    result.extraction_confidence = Math.max(result.extraction_confidence, 0.9);
-  } else if (uniqueNumbers.length >= 2) {
-    // Assume min is sale (promo), max is actual (MSRP)
-    result.sale_price = result.sale_price || uniqueNumbers[0];
-    result.actual_price = result.actual_price || uniqueNumbers[uniqueNumbers.length - 1];
-    // Confidence increases if we can distinguish
-    result.extraction_confidence = Math.max(result.extraction_confidence, 0.92);
-  }
-
-  // Ensure logical ordering
-  if (result.actual_price && result.sale_price && result.sale_price > result.actual_price) {
-    // Swap if needed
-    const tmp = result.sale_price;
-    result.sale_price = result.actual_price;
-    result.actual_price = tmp;
-  }
-
-  return result;
+  logTrace('analyzePricingForSegment finished', { sale_price, actual_price, price_type });
+  return { sale_price, actual_price, price_type, extraction_confidence };
 }
 
 function performQualityChecks(product, spreadsheet) {
@@ -2677,8 +3145,17 @@ function debugLastMessage() {
   const data = sheet.getDataRange().getValues();
 
   if (data.length > 1) {
+    const headers = data[0];
     const lastRow = data[data.length - 1];
-    const content = lastRow[4]; // Content column
+    const idIdx = headers.indexOf('ID');
+    const channelIdx = headers.indexOf('Channel');
+    const channelUsernameIdx = headers.indexOf('Channel Username');
+    const contentIdx = headers.indexOf('Content');
+    const timestampIdx = headers.indexOf('Timestamp');
+    const forwardedByIdx = headers.indexOf('Forwarded By');
+    const batchIdx = headers.indexOf('Batch ID');
+
+    const content = contentIdx >= 0 ? lastRow[contentIdx] : '';
 
     Logger.log("=== LAST MESSAGE DEBUG ===");
     Logger.log("Full content: " + content);
@@ -2687,14 +3164,32 @@ function debugLastMessage() {
     Logger.log("Lines: " + content.split('\n').length);
 
     // Test extraction
-    const products = extractProducts(content, lastRow[2]); // channel_username
+    const channelUsername = channelUsernameIdx >= 0 ? lastRow[channelUsernameIdx] : '';
+    const products = extractProducts(content, channelUsername);
     Logger.log("Extracted products: " + products.length);
+
+    const productsSheet = getOrCreateSheet(spreadsheet, 'Products', PRODUCT_HEADERS);
+    var sampleRow = null;
+    if (products.length > 0) {
+      var msgData = {
+        id: idIdx >= 0 ? lastRow[idIdx] : '',
+        channel: channelIdx >= 0 ? lastRow[channelIdx] : '',
+        channel_username: channelUsername,
+        content: content,
+        timestamp: timestampIdx >= 0 ? lastRow[timestampIdx] : '',
+        forwarded_by: forwardedByIdx >= 0 ? lastRow[forwardedByIdx] : '',
+        batch_id: batchIdx >= 0 ? lastRow[batchIdx] : ''
+      };
+      sampleRow = createProductRow(productsSheet, products[0], msgData);
+    }
 
     return {
       content: content,
       products_found: products.length,
       has_prices: content.includes('$'),
-      line_count: content.split('\n').length
+      line_count: content.split('\n').length,
+      channel_username: channelUsername,
+      sample_product_row: sampleRow
     };
   }
 
@@ -2716,19 +3211,30 @@ function debugAllMessages(limit = 5) {
 
   for (let i = startIdx; i < data.length; i++) {
     const row = data[i];
-    const content = row[4] || ''; // Content column
+    const content = row[4] || '';
+    const channelUsername = row[2] || '';
 
-    // Test product extraction
-    const products = extractProducts(content, row[2]); // channel_username
+    const classification = MessageClassifier.classify(content, channelUsername);
+    const products = extractProducts(content, channelUsername);
 
     const messageInfo = {
       row: i + 1,
-      channel: row[2] || 'Unknown', // Channel username
+      channel: channelUsername || 'Unknown',
       content_preview: content.substring(0, 100) + (content.length > 100 ? '...' : ''),
       full_content: content,
-      has_prices: content.includes('$') || content.includes('price') || content.includes('Price'),
+      has_prices: /(?:قیمت|تومان|تومن|ت|ریال|rial|price|Price|\$)/i.test(content),
       products_found: products.length,
-      line_count: content.split('\n').length
+      line_count: content.split('\n').length,
+      classifier_type: classification.type,
+      classifier_confidence: classification.confidence,
+      sample_products: products.slice(0, 3).map(function(p) {
+        return {
+          name: p.name,
+          price: p.price,
+          consumer_price: p.consumer_price,
+          packaging: p.packaging
+        };
+      })
     };
 
     results.push(messageInfo);

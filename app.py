@@ -72,22 +72,42 @@ class BatchManager:
             if chat_id:
                 self.chat_ids.add(chat_id)
             if len(self.buffer) >= BATCH_MAX_SIZE:
-                self._finalize_locked()
+                batch_id, messages, chat_ids = self._snapshot_locked()
             else:
                 self.start_timer()
+                batch_id, messages, chat_ids = None, None, None
+        if batch_id and messages:
+            threading.Thread(target=self._send_finalize, args=(batch_id, messages, chat_ids), daemon=True).start()
 
     def flush_and_finalize(self):
         with self.lock:
-            self._finalize_locked()
+            batch_id, messages, chat_ids = self._snapshot_locked()
+        if batch_id and messages:
+            threading.Thread(target=self._send_finalize, args=(batch_id, messages, chat_ids), daemon=True).start()
 
-    def _finalize_locked(self):
+    def _snapshot_locked(self):
         if not self.buffer or not self.batch_id:
-            return
-        expected = len(self.buffer)
+            return None, None, None
+        batch_id = self.batch_id
+        messages = list(self.buffer)
+        chat_ids = list(self.chat_ids)
+        self.buffer = []
+        self.chat_ids = set()
+        self.batch_id = None
+        if self.timer:
+            try:
+                self.timer.cancel()
+            except Exception:
+                pass
+        self.timer = None
+        return batch_id, messages, chat_ids
+
+    def _send_finalize(self, batch_id, messages, chat_ids):
+        expected = len(messages)
         payload = {
             "mode": "batch_ingest",
-            "batch_id": self.batch_id,
-            "messages": list(self.buffer),
+            "batch_id": batch_id,
+            "messages": messages,
             "transmission_complete": True,
             "expected_count": expected
         }
@@ -102,7 +122,7 @@ class BatchManager:
             ack = data.get("ack")
             processed = data.get("processed_messages")
             rollback = data.get("rollback")
-            for chat_id in list(self.chat_ids):
+            for chat_id in chat_ids or []:
                 try:
                     if not BOT_TOKEN:
                         continue
@@ -113,16 +133,6 @@ class BatchManager:
                     logger.error(f"Error sending Telegram status: {e}")
         except Exception as e:
             logger.error(f"Batch finalize error: {e}")
-        finally:
-            self.buffer = []
-            self.batch_id = None
-            self.chat_ids = set()
-            if self.timer:
-                try:
-                    self.timer.cancel()
-                except:
-                    pass
-            self.timer = None
 
 batch_manager = None
 
