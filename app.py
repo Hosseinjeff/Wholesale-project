@@ -20,6 +20,7 @@ app = Flask(__name__)
 # Global variables - read from Railway environment variables
 WEB_APP_URL = os.getenv('GOOGLE_WEB_APP_URL')
 BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
+BALE_BOT_TOKEN = os.getenv('BALE_BOT_TOKEN')
 APP_VERSION = "2026-02-16-batching-v1"
 setup_logger(logging.INFO)
 logger = logging.getLogger(__name__)
@@ -124,13 +125,20 @@ class BatchManager:
             rollback = data.get("rollback")
             for chat_id in chat_ids or []:
                 try:
-                    if not BOT_TOKEN:
-                        continue
                     text = f"Batch {self.batch_id}: status={status}, ack={ack}, processed={processed}, rollback={rollback}"
-                    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-                    requests.post(url, json={"chat_id": chat_id, "text": text}, timeout=10)
+                    
+                    # Send to Telegram if token exists
+                    if BOT_TOKEN:
+                        url_tg = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+                        requests.post(url_tg, json={"chat_id": chat_id, "text": text}, timeout=10)
+                    
+                    # Send to Bale if token exists (Bale uses same API format as Telegram)
+                    if BALE_BOT_TOKEN:
+                        url_bale = f"https://tapi.bale.ai/bot{BALE_BOT_TOKEN}/sendMessage"
+                        requests.post(url_bale, json={"chat_id": chat_id, "text": text}, timeout=10)
+                        
                 except Exception as e:
-                    logger.error(f"Error sending Telegram status: {e}")
+                    logger.error(f"Error sending status update: {e}")
         except Exception as e:
             logger.error(f"Batch finalize error: {e}")
 
@@ -190,6 +198,45 @@ def get_media_type(message):
     elif message.get('voice'):
         return 'voice'
     return None
+
+def extract_bale_forward_data(message):
+    """Extract data from forwarded Bale message."""
+    forward_from_chat = message.get('forward_from_chat', {})
+    forward_from = message.get('forward_from', {})
+
+    # Base data
+    data = {
+        'id': str(message.get('message_id', '')),
+        'content': message.get('text', '') or message.get('caption', ''),
+        'has_media': bool(message.get('photo') or message.get('document') or message.get('video')),
+        'media_type': get_media_type(message),
+        'forwarded_by': message.get('from', {}).get('username', 'Unknown'),
+        'forwarded_at': message.get('date', ''),
+        'channel': 'bale',
+        'channel_username': 'Unknown',
+        'author': 'Unknown',
+        'timestamp': None,
+        'url': '',
+        'chat_id': message.get('chat', {}).get('id')
+    }
+
+    # Extract origin information
+    if forward_from_chat:
+        chat = forward_from_chat
+        data['channel_username'] = f"@{chat.get('username', '')}" if chat.get('username') else chat.get('title', 'Channel')
+        data['author'] = chat.get('title', 'Channel')
+        data['timestamp'] = message.get('date')
+        if chat.get('username'):
+            data['url'] = f"https://bale.ai/{chat['username']}/{message.get('message_id', '')}"
+    elif forward_from:
+        user = forward_from
+        first_name = user.get('first_name', '')
+        last_name = user.get('last_name', '')
+        username = user.get('username', '')
+        data['author'] = f"{first_name} {last_name}".strip() or username or 'User'
+        data['timestamp'] = message.get('date')
+
+    return data
 
 def send_to_google_apps_script(data):
     """Send data to Google Apps Script."""
@@ -253,6 +300,46 @@ def telegram_webhook():
 
     except Exception as e:
         logger.error(f"Webhook error: {str(e)}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/bale/webhook', methods=['POST'])
+def bale_webhook():
+    """Handle Bale webhook."""
+    try:
+        update_json = request.get_json()
+        
+        if not update_json:
+            return jsonify({'status': 'error', 'message': 'No JSON data'}), 400
+
+        # Bale's API is very similar to Telegram's
+        if 'message' in update_json:
+            message = update_json['message']
+            
+            # Process forwarded messages
+            if 'forward_from_chat' in message or 'forward_from' in message:
+                forward_data = extract_bale_forward_data(message)
+                success = send_to_google_apps_script(forward_data)
+                if success:
+                    return jsonify({'status': 'success', 'source': 'bale_forward'})
+            
+            # Process direct messages
+            elif 'text' in message:
+                direct_data = {
+                    'id': str(message.get('message_id')),
+                    'content': message.get('text'),
+                    'channel_username': 'DirectMessage',
+                    'author': message.get('from', {}).get('username', 'User'),
+                    'timestamp': message.get('date'),
+                    'channel': 'bale'
+                }
+                success = send_to_google_apps_script(direct_data)
+                if success:
+                    return jsonify({'status': 'success', 'source': 'bale_direct'})
+
+        return jsonify({'status': 'ignored'})
+
+    except Exception as e:
+        logger.error(f"Bale webhook error: {str(e)}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @app.route('/health', methods=['GET'])
