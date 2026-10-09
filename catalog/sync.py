@@ -68,6 +68,7 @@ class GoogleSheetStore:
         self._info = info
         self._service = None
         self._sheet_ids: dict[str, int] = {}
+        self._grids: dict[str, dict[str, int]] = {}
 
     def _api(self):
         if self._service is None:
@@ -83,10 +84,19 @@ class GoogleSheetStore:
             spreadsheetId=self.spreadsheet_id,
             fields="sheets.properties",
         ).execute()
-        self._sheet_ids = {
-            sheet["properties"]["title"]: sheet["properties"]["sheetId"]
-            for sheet in meta.get("sheets", [])
-        }
+        self._sheet_ids = {}
+        self._grids = {}
+        for sheet in meta.get("sheets", []):
+            props = sheet.get("properties") or {}
+            title = props.get("title")
+            if not title:
+                continue
+            grid = props.get("gridProperties") or {}
+            self._sheet_ids[title] = props["sheetId"]
+            self._grids[title] = {
+                "rowCount": int(grid.get("rowCount") or 0),
+                "columnCount": int(grid.get("columnCount") or 0),
+            }
 
     def ensure(self, name: str, headers: list[str]) -> None:
         if not self._sheet_ids:
@@ -125,6 +135,7 @@ class GoogleSheetStore:
             return
         width = max(len(row) for row in rows)
         end = start_row + len(rows) - 1
+        self._ensure_grid(name, end, width)
         self._api().spreadsheets().values().update(
             spreadsheetId=self.spreadsheet_id,
             range=f"{_quote(name)}!A{start_row}:{_column(width)}{end}",
@@ -157,6 +168,66 @@ class GoogleSheetStore:
             body={"requests": requests},
         ).execute()
         return len(requests)
+
+    def _ensure_grid(self, name: str, min_rows: int, min_cols: int) -> None:
+        if name not in self._sheet_ids:
+            self._refresh_sheet_ids()
+        sheet_id = self._sheet_ids.get(name)
+        grid = self._grids.get(name) or {"rowCount": 0, "columnCount": 0}
+        if sheet_id is None:
+            return
+        requests = grid_expansion_requests(
+            sheet_id,
+            grid["rowCount"],
+            grid["columnCount"],
+            min_rows,
+            min_cols,
+        )
+        if not requests:
+            return
+        self._api().spreadsheets().batchUpdate(
+            spreadsheetId=self.spreadsheet_id,
+            body={"requests": requests},
+        ).execute()
+        for request in requests:
+            growth = request["appendDimension"]
+            if growth["dimension"] == "ROWS":
+                grid["rowCount"] += growth["length"]
+            else:
+                grid["columnCount"] += growth["length"]
+        self._grids[name] = grid
+
+
+def grid_growth(row_count: int, column_count: int, min_rows: int, min_cols: int) -> tuple[int, int]:
+    return max(0, min_rows - row_count), max(0, min_cols - column_count)
+
+
+def grid_expansion_requests(
+    sheet_id: int,
+    row_count: int,
+    column_count: int,
+    min_rows: int,
+    min_cols: int,
+) -> list[dict[str, Any]]:
+    extra_rows, extra_cols = grid_growth(row_count, column_count, min_rows, min_cols)
+    requests: list[dict[str, Any]] = []
+    if extra_rows:
+        requests.append({
+            "appendDimension": {
+                "sheetId": sheet_id,
+                "dimension": "ROWS",
+                "length": extra_rows,
+            }
+        })
+    if extra_cols:
+        requests.append({
+            "appendDimension": {
+                "sheetId": sheet_id,
+                "dimension": "COLUMNS",
+                "length": extra_cols,
+            }
+        })
+    return requests
 
 
 def sheets_configured() -> bool:

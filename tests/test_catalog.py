@@ -2,7 +2,7 @@ import os
 import unittest
 
 from catalog.extract import extract_products
-from catalog.sync import MemoryStore, finalize_batch, load_service_account_info
+from catalog.sync import MemoryStore, finalize_batch, grid_expansion_requests, load_service_account_info
 
 
 BONAKDAR = (
@@ -148,6 +148,19 @@ class SyncTests(unittest.TestCase):
         self.assertTrue(result["rollback"])
         self.assertEqual(result["processed_messages"], 0)
         self.assertEqual(len(store.read("MessageData")), 2)
+
+    def test_full_sheet_grows_before_the_next_write(self):
+        requests = grid_expansion_requests(7, 757, 47, 761, 47)
+        self.assertEqual(requests, [{
+            "appendDimension": {
+                "sheetId": 7,
+                "dimension": "ROWS",
+                "length": 4,
+            }
+        }])
+
+    def test_grid_growth_is_skipped_when_the_sheet_already_fits(self):
+        self.assertEqual(grid_expansion_requests(7, 800, 47, 761, 47), [])
 
     def test_invalid_service_account_json_is_rejected(self):
         previous = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
