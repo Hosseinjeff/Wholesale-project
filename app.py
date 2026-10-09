@@ -11,6 +11,7 @@ import time
 import json
 import asyncio
 import threading
+from urllib.parse import urlparse
 from utils.logger import setup_logger
 from telegram import Update
 from telegram.ext import Application
@@ -22,7 +23,7 @@ app = Flask(__name__)
 WEB_APP_URL = os.getenv('GOOGLE_WEB_APP_URL')
 BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 BALE_BOT_TOKEN = os.getenv('BALE_BOT_TOKEN')
-APP_VERSION = "2026-10-09-sheets-api"
+APP_VERSION = "2026-10-09-webhook-reply"
 setup_logger(logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -151,15 +152,7 @@ class BatchManager:
         rollback = data.get("rollback")
         text = f"Batch {batch_id}: status={status}, ack={ack}, processed={processed}, rollback={rollback}"
         for chat_id in chat_ids or []:
-            try:
-                if BOT_TOKEN:
-                    url_tg = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-                    requests.post(url_tg, json={"chat_id": chat_id, "text": text}, timeout=10)
-                if BALE_BOT_TOKEN:
-                    url_bale = f"https://tapi.bale.ai/bot{BALE_BOT_TOKEN}/sendMessage"
-                    requests.post(url_bale, json={"chat_id": chat_id, "text": text}, timeout=10)
-            except Exception as e:
-                logger.error(f"Error sending status update: {e}")
+            send_chat_text(chat_id, text)
 
 batch_manager = None
 
@@ -257,18 +250,124 @@ def extract_bale_forward_data(message):
 
     return data
 
-def send_to_google_apps_script(data):
-    """Send data to Google Apps Script."""
-    if not WEB_APP_URL:
-        logger.error("GOOGLE_WEB_APP_URL not configured")
+def webhook_url_from_env(env=None):
+    """Public Telegram webhook URL for this deployment."""
+    env = os.environ if env is None else env
+    explicit = (env.get("RAILWAY_WEBHOOK_URL") or "").strip()
+    candidate = explicit if "://" in explicit else f"https://{explicit}" if explicit else ""
+    parsed = urlparse(candidate)
+    if parsed.scheme == "https" and parsed.netloc and "." in parsed.netloc:
+        path = parsed.path.rstrip("/")
+        if not path.endswith("/webhook"):
+            path = (path + "/webhook") if path else "/webhook"
+        return f"https://{parsed.netloc}{path}"
+    domain = (env.get("RAILWAY_PUBLIC_DOMAIN") or "").strip().strip("/")
+    if domain:
+        return f"https://{domain}/webhook"
+    return ""
+
+
+def register_telegram_webhook():
+    """Point Telegram at this service. Pending updates stay queued until this is set."""
+    url = webhook_url_from_env()
+    if not BOT_TOKEN or not url:
+        logger.info("Skipping Telegram webhook registration")
+        return True
+    try:
+        response = requests.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook",
+            json={
+                "url": url,
+                "allowed_updates": ["message", "edited_message", "channel_post", "edited_channel_post"],
+                "drop_pending_updates": False,
+            },
+            timeout=15,
+        )
+        body = {}
+        try:
+            body = response.json()
+        except Exception:
+            body = {}
+        logger.info(
+            "setWebhook status=%s ok=%s description=%s",
+            response.status_code,
+            body.get("ok"),
+            body.get("description"),
+        )
+        return response.status_code == 200 and bool(body.get("ok"))
+    except Exception:
+        logger.exception("setWebhook failed")
+        return False
+
+
+_webhook_registered = False
+_webhook_lock = threading.Lock()
+
+
+def ensure_telegram_webhook():
+    global _webhook_registered
+    if _webhook_registered:
+        return
+    with _webhook_lock:
+        if _webhook_registered:
+            return
+        _webhook_registered = True
+
+    def _run():
+        global _webhook_registered
+        # Let gunicorn bind before Telegram delivers the queued updates.
+        time.sleep(1)
+        if register_telegram_webhook():
+            return
+        with _webhook_lock:
+            _webhook_registered = False
+
+    threading.Thread(target=_run, name="telegram-webhook", daemon=True).start()
+
+
+ensure_telegram_webhook()
+
+
+def send_chat_text(chat_id, text):
+    if not chat_id or not text:
+        return
+    try:
+        if BOT_TOKEN:
+            response = requests.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                json={"chat_id": chat_id, "text": text},
+                timeout=10,
+            )
+            if response.status_code != 200:
+                logger.error("Telegram sendMessage failed: %s %s", response.status_code, response.text[:200])
+        if BALE_BOT_TOKEN:
+            response = requests.post(
+                f"https://tapi.bale.ai/bot{BALE_BOT_TOKEN}/sendMessage",
+                json={"chat_id": chat_id, "text": text},
+                timeout=10,
+            )
+            if response.status_code != 200:
+                logger.error("Bale sendMessage failed: %s %s", response.status_code, response.text[:200])
+    except Exception:
+        logger.exception("Error sending status update")
+
+
+def enqueue_message(data):
+    """Queue one inbound message for the sheet writer."""
+    if not USE_SHEETS and not WEB_APP_URL:
+        logger.error("No sheet writer configured")
+        send_chat_text(data.get("chat_id"), "Sheet writer is not configured.")
         return False
 
     try:
-        logger.info(f"Sending data to Google Apps Script: {WEB_APP_URL}")
-        # Prefer fast ingestion by default: only write MessageData on webhook
         if 'processing_mode' not in data:
             data['processing_mode'] = 'message_only'
-        logger.info(f"Data: {data}")
+        logger.info(
+            "Queued message id=%s channel=%s chat_id=%s",
+            data.get("id"),
+            data.get("channel"),
+            data.get("chat_id"),
+        )
 
         global batch_manager
         if batch_manager is None:
@@ -276,47 +375,86 @@ def send_to_google_apps_script(data):
 
         batch_manager.add_message(data)
         return True
-    except Exception as e:
-        logger.error(f"Error sending to Google Apps Script: {str(e)}")
+    except Exception:
+        logger.exception("Error queueing inbound message")
+        send_chat_text(data.get("chat_id"), "Failed to queue the message.")
         return False
+
+
+def send_to_google_apps_script(data):
+    """Backward-compatible name for the inbound queue."""
+    return enqueue_message(data)
+
+
+def extract_direct_data(message, channel):
+    """Extract a private or channel post that was not forwarded."""
+    return {
+        'id': str(message.get('message_id', '')),
+        'content': message.get('text') or message.get('caption') or '',
+        'has_media': bool(message.get('photo') or message.get('document') or message.get('video')),
+        'media_type': get_media_type(message),
+        'forwarded_by': message.get('from', {}).get('username', 'Unknown'),
+        'forwarded_at': message.get('date', ''),
+        'channel': channel,
+        'channel_username': 'DirectMessage',
+        'author': message.get('from', {}).get('username', 'User'),
+        'timestamp': message.get('date'),
+        'url': '',
+        'chat_id': (message.get('chat') or {}).get('id'),
+    }
+
+
+def inbound_payload(message, channel):
+    """Build the sheet payload for one Telegram or Bale update."""
+    if channel == 'telegram' and 'forward_origin' in message:
+        data = extract_forward_data(message)
+        source = 'forward'
+    elif channel == 'bale' and ('forward_from_chat' in message or 'forward_from' in message):
+        data = extract_bale_forward_data(message)
+        source = 'forward'
+    elif message.get('text') or message.get('caption') or get_media_type(message):
+        data = extract_direct_data(message, channel)
+        source = 'direct'
+    else:
+        return None, 'ignored'
+
+    if not data.get('chat_id'):
+        data['chat_id'] = (message.get('chat') or {}).get('id')
+    return data, source
+
+
+def update_message(update_json):
+    for key in ('message', 'edited_message', 'channel_post', 'edited_channel_post'):
+        message = update_json.get(key)
+        if message:
+            return message
+    return None
+
+
+def handle_inbound_update(update_json, channel):
+    message = update_message(update_json)
+    if not message:
+        return jsonify({'status': 'ignored'})
+    data, source = inbound_payload(message, channel)
+    if not data:
+        return jsonify({'status': 'ignored'})
+    success = enqueue_message(data)
+    return jsonify({'status': 'success' if success else 'error', 'source': source})
+
+
+@app.before_request
+def register_webhook_when_serving():
+    ensure_telegram_webhook()
+
 
 @app.route('/webhook', methods=['POST'])
 def telegram_webhook():
     """Handle Telegram webhook."""
     try:
         update_json = request.get_json()
-        
         if not update_json:
             return jsonify({'status': 'error', 'message': 'No JSON data'}), 400
-
-        # Handle Telegram Update object
-        if 'message' in update_json:
-            message = update_json['message']
-            
-            # 1. Process as forwarded message (original logic)
-            if 'forward_origin' in message:
-                forward_data = extract_forward_data(message)
-                success = send_to_google_apps_script(forward_data)
-                if success:
-                    return jsonify({'status': 'success', 'source': 'forward'})
-            
-            # 2. Process as direct message (if text exists but not forwarded)
-            elif 'text' in message:
-                # Minimal data for direct messages
-                direct_data = {
-                    'id': str(message.get('message_id')),
-                    'content': message.get('text'),
-                    'channel_username': 'DirectMessage',
-                    'author': message.get('from', {}).get('username', 'User'),
-                    'timestamp': message.get('date'),
-                    'channel': 'telegram'
-                }
-                success = send_to_google_apps_script(direct_data)
-                if success:
-                    return jsonify({'status': 'success', 'source': 'direct'})
-
-        return jsonify({'status': 'ignored'})
-
+        return handle_inbound_update(update_json, 'telegram')
     except Exception as e:
         logger.error(f"Webhook error: {str(e)}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
@@ -326,37 +464,9 @@ def bale_webhook():
     """Handle Bale webhook."""
     try:
         update_json = request.get_json()
-        
         if not update_json:
             return jsonify({'status': 'error', 'message': 'No JSON data'}), 400
-
-        # Bale's API is very similar to Telegram's
-        if 'message' in update_json:
-            message = update_json['message']
-            
-            # Process forwarded messages
-            if 'forward_from_chat' in message or 'forward_from' in message:
-                forward_data = extract_bale_forward_data(message)
-                success = send_to_google_apps_script(forward_data)
-                if success:
-                    return jsonify({'status': 'success', 'source': 'bale_forward'})
-            
-            # Process direct messages
-            elif 'text' in message:
-                direct_data = {
-                    'id': str(message.get('message_id')),
-                    'content': message.get('text'),
-                    'channel_username': 'DirectMessage',
-                    'author': message.get('from', {}).get('username', 'User'),
-                    'timestamp': message.get('date'),
-                    'channel': 'bale'
-                }
-                success = send_to_google_apps_script(direct_data)
-                if success:
-                    return jsonify({'status': 'success', 'source': 'bale_direct'})
-
-        return jsonify({'status': 'ignored'})
-
+        return handle_inbound_update(update_json, 'bale')
     except Exception as e:
         logger.error(f"Bale webhook error: {str(e)}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
