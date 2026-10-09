@@ -14,6 +14,7 @@ import threading
 from utils.logger import setup_logger
 from telegram import Update
 from telegram.ext import Application
+from catalog.sync import build_store, finalize_batch, sheets_configured
 
 app = Flask(__name__)
 
@@ -21,7 +22,7 @@ app = Flask(__name__)
 WEB_APP_URL = os.getenv('GOOGLE_WEB_APP_URL')
 BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 BALE_BOT_TOKEN = os.getenv('BALE_BOT_TOKEN')
-APP_VERSION = "2026-02-16-batching-v1"
+APP_VERSION = "2026-10-09-sheets-api"
 setup_logger(logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -40,10 +41,14 @@ if BOT_TOKEN:
 logger.info("Starting Flask app for Railway")
 logger.info(f"GOOGLE_WEB_APP_URL: {'SET' if WEB_APP_URL else 'NOT SET'}")
 logger.info(f"TELEGRAM_BOT_TOKEN: {'SET' if BOT_TOKEN else 'NOT SET'}")
-if WEB_APP_URL:
+USE_SHEETS = sheets_configured()
+if USE_SHEETS:
+    logger.info("Sheet writer: service account")
+elif WEB_APP_URL:
+    logger.info("Sheet writer: Google Apps Script")
     logger.info(f"Web app URL: {WEB_APP_URL[:50]}...")
 else:
-    logger.error("GOOGLE_WEB_APP_URL environment variable not found!")
+    logger.error("No sheet writer configured. Set GOOGLE_SERVICE_ACCOUNT_JSON and GOOGLE_SHEET_ID, or GOOGLE_WEB_APP_URL.")
 
 BATCH_MAX_SIZE = 100
 BATCH_MAX_WAIT_SEC = 5.0
@@ -113,34 +118,48 @@ class BatchManager:
             "expected_count": expected
         }
         try:
-            resp = requests.post(self.web_app_url, json=payload, timeout=60, headers={'Content-Type': 'application/json'})
-            logger.info(f"Finalize ack: {resp.status_code} {resp.text[:200]}")
-            try:
-                data = resp.json()
-            except Exception:
-                data = {}
-            status = data.get("status")
-            ack = data.get("ack")
-            processed = data.get("processed_messages")
-            rollback = data.get("rollback")
-            for chat_id in chat_ids or []:
+            if USE_SHEETS:
+                data = finalize_batch(build_store(), payload)
+                logger.info(
+                    "Sheet batch %s status=%s processed=%s rollback=%s",
+                    batch_id,
+                    data.get("status"),
+                    data.get("processed_messages"),
+                    data.get("rollback"),
+                )
+            else:
+                resp = requests.post(self.web_app_url, json=payload, timeout=60, headers={'Content-Type': 'application/json'})
+                logger.info(f"Finalize ack: {resp.status_code} {resp.text[:200]}")
                 try:
-                    text = f"Batch {self.batch_id}: status={status}, ack={ack}, processed={processed}, rollback={rollback}"
-                    
-                    # Send to Telegram if token exists
-                    if BOT_TOKEN:
-                        url_tg = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-                        requests.post(url_tg, json={"chat_id": chat_id, "text": text}, timeout=10)
-                    
-                    # Send to Bale if token exists (Bale uses same API format as Telegram)
-                    if BALE_BOT_TOKEN:
-                        url_bale = f"https://tapi.bale.ai/bot{BALE_BOT_TOKEN}/sendMessage"
-                        requests.post(url_bale, json={"chat_id": chat_id, "text": text}, timeout=10)
-                        
-                except Exception as e:
-                    logger.error(f"Error sending status update: {e}")
-        except Exception as e:
-            logger.error(f"Batch finalize error: {e}")
+                    data = resp.json()
+                except Exception:
+                    data = {}
+            self._notify_chats(batch_id, chat_ids, data)
+        except Exception:
+            logger.exception("Batch finalize error")
+            self._notify_chats(batch_id, chat_ids, {
+                "status": "error",
+                "ack": "writer_failed",
+                "processed_messages": 0,
+                "rollback": False,
+            })
+
+    def _notify_chats(self, batch_id, chat_ids, data):
+        status = data.get("status")
+        ack = data.get("ack")
+        processed = data.get("processed_messages")
+        rollback = data.get("rollback")
+        text = f"Batch {batch_id}: status={status}, ack={ack}, processed={processed}, rollback={rollback}"
+        for chat_id in chat_ids or []:
+            try:
+                if BOT_TOKEN:
+                    url_tg = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+                    requests.post(url_tg, json={"chat_id": chat_id, "text": text}, timeout=10)
+                if BALE_BOT_TOKEN:
+                    url_bale = f"https://tapi.bale.ai/bot{BALE_BOT_TOKEN}/sendMessage"
+                    requests.post(url_bale, json={"chat_id": chat_id, "text": text}, timeout=10)
+            except Exception as e:
+                logger.error(f"Error sending status update: {e}")
 
 batch_manager = None
 
@@ -369,6 +388,7 @@ def detailed_health_check():
         return jsonify({
             'status': 'healthy',
             'service': 'telegram-webhook',
+            'sheet_writer': 'service_account' if USE_SHEETS else 'apps_script',
             'google_apps_script': gas_status,
             'web_app_url': bool(WEB_APP_URL),
             'version': APP_VERSION,
