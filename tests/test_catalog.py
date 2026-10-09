@@ -1,8 +1,8 @@
 import os
 import unittest
 
-from catalog.extract import extract_products
-from catalog.sync import MemoryStore, finalize_batch, grid_expansion_requests, load_service_account_info
+from catalog.extract import PRODUCT_HEADERS, extract_products
+from catalog.sync import MemoryStore, extend_header_row, finalize_batch, grid_expansion_requests, load_service_account_info
 
 
 BONAKDAR = (
@@ -23,6 +23,7 @@ TOP_SHOP = (
 )
 
 NOBEL = "کاپوچینو گوددی ۳۰ تایی\n: ۷۵/۰۰۰\n\nهات چاکلت ۲۰ تایی\n: ۶۵/۰۰۰"
+BONAKDAR_REPRICE = BONAKDAR.replace("۵۲,۰۰۰", "۶۰,۰۰۰").replace("۶۵,۰۰۰", "۷۰,۰۰۰")
 
 
 class ExtractTests(unittest.TestCase):
@@ -69,6 +70,23 @@ class FailingProductStore(MemoryStore):
         super().append(name, rows)
 
 
+class FailProductUpdates(MemoryStore):
+    def __init__(self, times):
+        super().__init__()
+        self.remaining = times
+
+    def write_rows(self, name, start_row, rows):
+        if name == "Products" and start_row > 1 and self.remaining:
+            self.remaining -= 1
+            raise RuntimeError("denied")
+        super().write_rows(name, start_row, rows)
+
+
+class FailFirstProductUpdate(FailProductUpdates):
+    def __init__(self):
+        super().__init__(1)
+
+
 class SyncTests(unittest.TestCase):
     def test_batch_writes_message_product_and_status(self):
         store = MemoryStore()
@@ -102,6 +120,14 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(status[1][status[0].index("Batch ID")], "batch-1")
         self.assertEqual(status[1][status[0].index("Extraction Status")], "success")
 
+        offers = store.read("Offers")
+        self.assertEqual(len(offers), 2)
+        self.assertEqual(offers[1][offers[0].index("Offer ID")], "batch-1:m1:0")
+        self.assertEqual(offers[1][offers[0].index("Sale Price")], 52000)
+        self.assertEqual(products[1][products[0].index("Offer Count")], 1)
+        self.assertEqual(products[1][products[0].index("Previous Sale Price")], "")
+        self.assertEqual(products[1][products[0].index("Latest Offer ID")], "batch-1:m1:0")
+
     def test_repeat_product_updates_the_existing_row(self):
         store = MemoryStore()
         message = {
@@ -116,6 +142,10 @@ class SyncTests(unittest.TestCase):
         products = store.read("Products")
         self.assertEqual(len(products), 2)
         self.assertEqual(len(store.read("MessageData")), 3)
+        self.assertEqual(len(store.read("Offers")), 3)
+        self.assertEqual(products[1][products[0].index("Offer Count")], 2)
+        self.assertEqual(products[1][products[0].index("Previous Sale Price")], "")
+        self.assertEqual(products[1][products[0].index("Latest Offer ID")], "b2:m2:0")
 
     def test_count_mismatch_does_not_extract(self):
         store = MemoryStore()
@@ -132,6 +162,7 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(result["status"], "error")
         self.assertEqual(result["ack"], "ingestion_incomplete")
         self.assertNotIn("Products", store.sheets)
+        self.assertNotIn("Offers", store.sheets)
 
     def test_product_write_failure_rolls_back(self):
         store = FailingProductStore()
@@ -148,6 +179,8 @@ class SyncTests(unittest.TestCase):
         self.assertTrue(result["rollback"])
         self.assertEqual(result["processed_messages"], 0)
         self.assertEqual(len(store.read("MessageData")), 2)
+        self.assertEqual(len(store.read("Offers")), 1)
+        self.assertEqual(len(store.read("Products")), 1)
 
     def test_full_sheet_grows_before_the_next_write(self):
         requests = grid_expansion_requests(7, 757, 47, 761, 47)
@@ -161,6 +194,179 @@ class SyncTests(unittest.TestCase):
 
     def test_grid_growth_is_skipped_when_the_sheet_already_fits(self):
         self.assertEqual(grid_expansion_requests(7, 800, 47, 761, 47), [])
+
+    def test_new_price_keeps_the_previous_offer(self):
+        store = MemoryStore()
+        finalize_batch(store, {"batch_id": "b1", "messages": [{
+            "id": "m1",
+            "channel": "telegram",
+            "channel_username": "@bonakdarjavan",
+            "content": BONAKDAR,
+        }]})
+        finalize_batch(store, {"batch_id": "b2", "messages": [{
+            "id": "m2",
+            "channel": "telegram",
+            "channel_username": "@bonakdarjavan",
+            "content": BONAKDAR_REPRICE,
+        }]})
+
+        products = store.read("Products")
+        offers = store.read("Offers")
+        self.assertEqual(len(products), 2)
+        self.assertEqual(len(offers), 3)
+        row = products[1]
+        headers = products[0]
+        self.assertEqual(row[headers.index("Sale Price")], 60000)
+        self.assertEqual(row[headers.index("Consumer Price")], 70000)
+        self.assertEqual(row[headers.index("Previous Sale Price")], 52000)
+        self.assertEqual(row[headers.index("Previous Consumer Price")], 65000)
+        self.assertEqual(row[headers.index("Offer Count")], 2)
+        self.assertEqual(row[headers.index("Latest Offer ID")], "b2:m2:0")
+        self.assertEqual(row[headers.index("Price Changed At")], offers[2][offers[0].index("Import Timestamp")])
+        self.assertEqual(offers[1][offers[0].index("Sale Price")], 52000)
+        self.assertEqual(offers[2][offers[0].index("Sale Price")], 60000)
+
+    def test_same_name_from_another_supplier_stays_separate(self):
+        store = MemoryStore()
+        content = "Test Product\nPrice: 125000 toman"
+        finalize_batch(store, {"batch_id": "b1", "messages": [{
+            "id": "m1",
+            "channel": "telegram",
+            "channel_username": "@one",
+            "content": content,
+        }]})
+        finalize_batch(store, {"batch_id": "b2", "messages": [{
+            "id": "m2",
+            "channel": "telegram",
+            "channel_username": "@two",
+            "content": "Test Product\nPrice: 90000 toman",
+        }]})
+        products = store.read("Products")
+        self.assertEqual(len(products), 3)
+        self.assertEqual(len(store.read("Offers")), 3)
+
+    def test_existing_sheet_price_becomes_the_previous_price(self):
+        store = MemoryStore()
+        store.sheets["Products"] = [[
+            "Product Name",
+            "Channel Username",
+            "Sale Price",
+            "Consumer Price",
+            "Product ID",
+            "Import Timestamp",
+            "Last Updated",
+            "Buyer Note",
+        ], [
+            "کنسرو ماهی ۱۸۰ گرمی تاپ",
+            "@bonakdarjavan",
+            40000,
+            50000,
+            "keep-me",
+            "2020-01-01T00:00:00.000Z",
+            "2020-06-01T00:00:00.000Z",
+            "call supplier",
+        ]]
+        finalize_batch(store, {"batch_id": "b1", "messages": [{
+            "id": "m1",
+            "channel": "telegram",
+            "channel_username": "@bonakdarjavan",
+            "content": BONAKDAR,
+        }]})
+        finalize_batch(store, {"batch_id": "b2", "messages": [{
+            "id": "m2",
+            "channel": "telegram",
+            "channel_username": "@bonakdarjavan",
+            "content": BONAKDAR,
+        }]})
+
+        products = store.read("Products")
+        offers = store.read("Offers")
+        headers = products[0]
+        row = products[1]
+        self.assertEqual(len(products), 2)
+        self.assertIn("Previous Sale Price", headers)
+        self.assertEqual(headers[0], "Product Name")
+        self.assertEqual(row[headers.index("Product ID")], "keep-me")
+        self.assertEqual(row[headers.index("Import Timestamp")], "2020-01-01T00:00:00.000Z")
+        self.assertEqual(row[headers.index("Sale Price")], 52000)
+        self.assertEqual(row[headers.index("Previous Sale Price")], 40000)
+        self.assertEqual(row[headers.index("Previous Consumer Price")], 50000)
+        self.assertEqual(offers[1][offers[0].index("Batch ID")], "sheet")
+        self.assertEqual(offers[1][offers[0].index("Sale Price")], 40000)
+        self.assertEqual(offers[1][offers[0].index("Import Timestamp")], "2020-06-01T00:00:00.000Z")
+        self.assertEqual(row[headers.index("Price Changed At")], offers[2][offers[0].index("Import Timestamp")])
+        self.assertEqual(row[headers.index("Buyer Note")], "call supplier")
+        self.assertEqual(row[headers.index("Offer Count")], 3)
+
+    def test_header_extension_appends_missing_catalog_columns(self):
+        extended, changed = extend_header_row(["Product Name", "Buyer Note"], PRODUCT_HEADERS)
+        self.assertTrue(changed)
+        self.assertEqual(extended[0], "Product Name")
+        self.assertEqual(extended[1], "Buyer Note")
+        self.assertIn("Previous Sale Price", extended)
+
+        store = MemoryStore()
+        store.ensure("Products", ["Product Name"])
+        store.ensure("Products", PRODUCT_HEADERS)
+        self.assertEqual(store.read("Products")[0][0], "Product Name")
+        self.assertIn("Offer Count", store.read("Products")[0])
+
+    def test_failed_update_retries_without_a_duplicate_offer(self):
+        store = FailFirstProductUpdate()
+        finalize_batch(store, {"batch_id": "b1", "messages": [{
+            "id": "m1",
+            "channel": "telegram",
+            "channel_username": "@bonakdarjavan",
+            "content": BONAKDAR,
+        }]})
+        result = finalize_batch(store, {"batch_id": "b2", "messages": [{
+            "id": "m2",
+            "channel": "telegram",
+            "channel_username": "@bonakdarjavan",
+            "content": BONAKDAR_REPRICE,
+        }]})
+        products = store.read("Products")
+        self.assertEqual(result["status"], "success")
+        self.assertFalse(result["rollback"])
+        self.assertEqual(len(store.read("Offers")), 3)
+        self.assertEqual(products[1][products[0].index("Sale Price")], 60000)
+        self.assertEqual(products[1][products[0].index("Previous Sale Price")], 52000)
+
+    def test_failed_batch_restores_the_previous_current_price(self):
+        store = FailProductUpdates(3)
+        finalize_batch(store, {"batch_id": "b1", "messages": [{
+            "id": "m1",
+            "channel": "telegram",
+            "channel_username": "@bonakdarjavan",
+            "content": BONAKDAR,
+        }]})
+        result = finalize_batch(store, {"batch_id": "b2", "messages": [{
+            "id": "m2",
+            "channel": "telegram",
+            "channel_username": "@bonakdarjavan",
+            "content": BONAKDAR_REPRICE,
+        }]})
+        products = store.read("Products")
+        offers = store.read("Offers")
+        self.assertTrue(result["rollback"])
+        self.assertEqual(result["processed_messages"], 0)
+        self.assertEqual(len(offers), 2)
+        self.assertEqual(offers[1][offers[0].index("Batch ID")], "b1")
+        self.assertEqual(products[1][products[0].index("Sale Price")], 52000)
+        self.assertEqual(products[1][products[0].index("Previous Sale Price")], "")
+        self.assertEqual(len(store.read("MessageData")), 3)
+
+    def test_message_without_a_price_does_not_open_the_offer_log(self):
+        store = MemoryStore()
+        result = finalize_batch(store, {"batch_id": "b1", "messages": [{
+            "id": "m1",
+            "channel": "telegram",
+            "channel_username": "@bonakdarjavan",
+            "content": "سلام، سفارش بسته است",
+        }]})
+        self.assertEqual(result["status"], "success")
+        self.assertNotIn("Offers", store.sheets)
+        self.assertNotIn("Products", store.sheets)
 
     def test_invalid_service_account_json_is_rejected(self):
         previous = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")

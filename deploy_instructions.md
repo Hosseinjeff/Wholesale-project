@@ -15,7 +15,9 @@ This project is optimized for deployment on [Railway.app](https://railway.app). 
 2. **Configure Environment Variables**:
    In the Railway project settings, go to the **Variables** tab and add:
    - `TELEGRAM_BOT_TOKEN`: Your bot token from BotFather.
-   - `GOOGLE_WEB_APP_URL`: Your deployed Google Apps Script URL.
+   - `GOOGLE_SERVICE_ACCOUNT_JSON`: Service account key JSON, on one line. This is the catalog writer.
+   - `GOOGLE_SHEET_ID`: Spreadsheet that receives `MessageData`, `Offers`, and `Products`.
+   - `GOOGLE_WEB_APP_URL`: Legacy Apps Script URL. Used only when the service account is not set. It does not write the offer log or the current-book columns.
    - `PORT`: `8080` (Railway usually sets this automatically).
    - `RAILWAY_ENVIRONMENT`: `production`.
 
@@ -33,7 +35,7 @@ Once the app is "Active" on Railway:
 ## 4. Verification
 - Send/Forward a message to your Telegram bot.
 - Check the Railway "Logs" tab to see the incoming webhook and processing.
-- Check your Google Sheet to see the data appearing in `MessageData` and `Products` tabs.
+- Check your Google Sheet. `MessageData` keeps the forwarded post, `Offers` appends every price, and `Products` shows the latest price for that supplier and product, with the previous price beside it.
 
 ## 5. Troubleshooting
 - **403 Error**: Ensure Google Apps Script is deployed as "Anyone" (even anonymous).

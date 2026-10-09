@@ -1,3 +1,5 @@
+// Legacy ingest path. Offers and the Products current book (latest price,
+// previous price, offer count) are written only by catalog/sync.py.
 // Enhanced Google Apps Script code for Product Catalog Management
 // Deploy as Web App to create a webhook endpoint
 
