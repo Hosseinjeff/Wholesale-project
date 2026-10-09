@@ -33,10 +33,14 @@ curl "https://api.telegram.org/bot8266854184:AAEvZqs0tbjctOeQsh3JGpYr84r272tbxd8
 ## 📊 How It Works
 
 ```
-User forwards message → Telegram → Railway Bot → Google Apps Script → Google Sheet
+User forwards message → Telegram → Railway (app.py) → Google Sheet
                                       ↑
-                            Runs 24/7 on cloud
+                            The only required process
 ```
+
+A desktop process is optional. Leave it off unless you are testing on your own machine.
+
+Cloudflare Workers is not in this path. Do not add one to front the bot.
 
 ## 🛠️ Files Overview
 
@@ -54,16 +58,16 @@ User forwards message → Telegram → Railway Bot → Google Apps Script → Go
 - **Free tier** - Railway gives $5/month credits
 - **Reliable** - Cloud infrastructure
 
-## 🧪 Local Testing
+## Optional local run
 
-Before deploying, test locally:
+Railway is the process that stays up. Use a computer only when you want to test:
 
 ```bash
-# Test polling mode (requires desktop)
-python webhook_bot.py
-
-# Test webhook locally
+# Webhook on this machine
 python app.py
+
+# Polling, until you press Ctrl+C
+python webhook_bot.py
 ```
 
 ## 🔧 Troubleshooting

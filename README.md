@@ -1,6 +1,10 @@
 # Channel Posts to Google Sheets Importer
 
-This Python application reads posts from various channels (Telegram, Discord, Slack) and imports them into Google Spreadsheets.
+This service turns forwarded supplier posts into a wholesale price book.
+
+The live process is the Railway service in `app.py`. Telegram delivers a forwarded post to the webhook, and the service writes the Google Sheet. Nothing has to stay running on a desktop. A local run is optional and is only for testing.
+
+Cloudflare Workers is not part of this system. Railway builds the container from the `Dockerfile`.
 
 ## Features
 
@@ -27,11 +31,17 @@ pip install -r requirements.txt
 
 2. Edit `.env` and fill in your credentials (see setup sections below)
 
-### 3. Run the Importer
+### 3. Run it
+
+Deploy `app.py` on Railway. See `deploy_instructions.md`. The service registers its Telegram webhook from `RAILWAY_PUBLIC_DOMAIN` or `RAILWAY_WEBHOOK_URL`.
+
+To try the webhook on a computer instead, run:
 
 ```bash
-python channel_to_sheets.py --channel telegram --sheet-id YOUR_SHEET_ID
+python app.py
 ```
+
+`channel_to_sheets.py` and `webhook_bot.py` are the older desktop importers. They are optional. The Railway service does not use them.
 
 ## Detailed Setup
 
@@ -191,7 +201,13 @@ The script writes the following columns to Google Sheets:
 | views | Number of views (if available) |
 | reactions | Number of reactions/likes (if available) |
 
-## Automation
+## Optional desktop run
+
+The Railway service replaces a machine that has to stay on. These paths remain if you want to import from a computer:
+
+- `python app.py` serves the webhook locally.
+- `python webhook_bot.py` polls Telegram until you stop it.
+- `python channel_to_sheets.py --channel telegram --sheet-id YOUR_SHEET_ID` imports on demand.
 
 ### Schedule with Cron (Linux/Mac)
 

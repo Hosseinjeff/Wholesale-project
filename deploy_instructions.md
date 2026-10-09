@@ -37,7 +37,13 @@ Once the app is "Active" on Railway:
 - Check the Railway "Logs" tab to see the incoming webhook and processing.
 - Check your Google Sheet. `MessageData` keeps the forwarded post, `Offers` appends every price, and `Products` shows the latest price for that supplier and product, with the previous price beside it.
 
-## 5. Troubleshooting
+## 5. What this deploy is
+
+Railway runs the container. A desktop server is not required. `python app.py` and `python webhook_bot.py` remain available if you want to test on a computer.
+
+Cloudflare Workers is not used. This repository has no Worker script and no Wrangler config. A "Workers Builds: wholesale-project" check on a pull request comes from the Cloudflare Workers GitHub connection on the repository. Disconnect that project in the Cloudflare dashboard, or remove the Cloudflare Workers and Pages app from the GitHub repository settings. The Railway deploy does not depend on that check.
+
+## 6. Troubleshooting
 - **403 Error**: Ensure Google Apps Script is deployed as "Anyone" (even anonymous).
 - **Webhook Not Working**: Check the webhook status:
   `https://api.telegram.org/botYOUR_BOT_TOKEN/getWebhookInfo`
