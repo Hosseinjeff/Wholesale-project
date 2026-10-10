@@ -109,6 +109,20 @@ ITEM_HEADERS = [
     "Updated At",
 ]
 
+PROMPT_HEADERS = [
+    "Prompt ID",
+    "Chat ID",
+    "Item Key",
+    "Offer ID",
+    "Channel Username",
+    "Product Name",
+    "Reason",
+    "Question",
+    "Status",
+    "Answer",
+    "Created At",
+]
+
 DECISION_HEADERS = [
     "Item Key",
     "Channel Username",

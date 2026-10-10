@@ -36,8 +36,9 @@ Once the app is "Active" on Railway:
 - Send/Forward a message to your Telegram bot.
 - Check the Railway "Logs" tab to see the incoming webhook and processing.
 - Check your Google Sheet. `MessageData` keeps the forwarded post, `Offers` appends every price, and `Products` shows the latest price for that supplier and product, with the previous price beside it.
-- `Items` is where you type the real item name and the price you charge. Those two cells are left as you typed them.
-- `Decisions` is the list to work: a missing unit price, a price that moved, an odd gap, an item you have not named, or a supplier who costs more than another for the same confirmed name. Quiet rows drop off. After you edit `Items`, the next forwarded post rebuilds the list. `POST /desk/refresh` rebuilds it immediately.
+- A clear price is saved without a question. The bot replies with what it saved.
+- When the unit price is missing, the gap looks wrong, or the read is otherwise in doubt, the bot asks in the same chat. Reply with the unit price, «باشه» to keep the saved prices, or «رد» to skip that post. The next doubt, if there is one, is asked after that.
+- `Items` is optional. A confirmed name and your own sell price stay as you type them. You are not asked to name every product.
 
 ## 5. What this deploy is
 
