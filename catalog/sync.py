@@ -163,24 +163,49 @@ class SheetsRest:
         if self._transport is not None:
             result = self._transport(method, path, params, body)
             return result if result is not None else {}
-        response = _session().request(
-            method,
-            "https://sheets.googleapis.com" + path,
-            params=params,
-            json=body,
-            headers={"Authorization": f"Bearer {_access_token(self._info)}"},
-            timeout=60,
-        )
+        delay = 2.0
+        detail = ""
+        for attempt in range(6):
+            response = _session().request(
+                method,
+                "https://sheets.googleapis.com" + path,
+                params=params,
+                json=body,
+                headers={"Authorization": f"Bearer {_access_token(self._info)}"},
+                timeout=60,
+            )
+            try:
+                if response.status_code in (429, 500, 502, 503):
+                    detail = response.text[:500]
+                    if attempt == 5:
+                        break
+                    time.sleep(_retry_wait(response, delay))
+                    delay = min(delay * 2, 60)
+                    continue
+                if response.status_code >= 400:
+                    detail = response.text[:500]
+                    raise RuntimeError(f"Sheets API {response.status_code}: {detail}")
+                if not response.content:
+                    return {}
+                parsed = response.json()
+                return parsed if isinstance(parsed, dict) else {}
+            finally:
+                response.close()
+        raise RuntimeError(f"Sheets API 429: {detail}")
+
+
+def _retry_wait(response: Any, delay: float) -> float:
+    retry_after = response.headers.get("Retry-After") if response is not None else None
+    if retry_after:
         try:
-            if response.status_code >= 400:
-                detail = response.text[:500]
-                raise RuntimeError(f"Sheets API {response.status_code}: {detail}")
-            if not response.content:
-                return {}
-            parsed = response.json()
-        finally:
-            response.close()
-        return parsed if isinstance(parsed, dict) else {}
+            return min(max(float(retry_after), delay), 60)
+        except (TypeError, ValueError):
+            return min(delay, 60)
+    return min(delay, 60)
+
+
+def _copy_table(rows: list[list[Any]]) -> list[list[Any]]:
+    return [list(row) for row in rows]
 
 
 class GoogleSheetStore:
@@ -190,6 +215,7 @@ class GoogleSheetStore:
         self._http = http
         self._sheet_ids: dict[str, int] = {}
         self._grids: dict[str, dict[str, int]] = {}
+        self._values: dict[str, list[list[Any]]] = {}
 
     def _api(self) -> SheetsRest:
         if self._http is None:
@@ -227,8 +253,13 @@ class GoogleSheetStore:
             self.write_rows(name, 1, [extended])
 
     def read(self, name: str) -> list[list[Any]]:
+        cached = self._values.get(name)
+        if cached is not None:
+            return _copy_table(cached)
         result = self._api().values_get(_a1(name))
-        return result.get("values", [])
+        table = _copy_table(result.get("values") or [])
+        self._values[name] = table
+        return _copy_table(table)
 
     def append(self, name: str, rows: list[list[Any]]) -> None:
         if not rows:
@@ -240,6 +271,9 @@ class GoogleSheetStore:
             "INSERT_ROWS",
             {"values": rows},
         )
+        cached = self._values.get(name)
+        if cached is not None:
+            cached.extend(_copy_table(rows))
 
     def write_rows(self, name: str, start_row: int, rows: list[list[Any]]) -> None:
         if not rows:
@@ -252,6 +286,14 @@ class GoogleSheetStore:
             "RAW",
             {"values": rows},
         )
+        cached = self._values.get(name)
+        if cached is None:
+            return
+        for offset, row in enumerate(rows):
+            index = start_row - 1 + offset
+            while len(cached) <= index:
+                cached.append([])
+            cached[index] = list(row)
 
     def delete_rows(self, name: str, row_numbers: list[int]) -> int:
         if not row_numbers:
@@ -274,6 +316,12 @@ class GoogleSheetStore:
                 }
             })
         self._api().batch_update({"requests": requests})
+        cached = self._values.get(name)
+        if cached is not None:
+            for row_number in sorted(set(row_numbers), reverse=True):
+                index = row_number - 1
+                if 0 <= index < len(cached):
+                    del cached[index]
         return len(requests)
 
     def _ensure_grid(self, name: str, min_rows: int, min_cols: int) -> None:
@@ -564,17 +612,20 @@ def _product_row(headers: list[str], product: dict[str, Any], message: dict[str,
 
 
 def _record_batch_status(store, batch_id: str, expected: int, written: int, extraction: dict[str, Any]) -> None:
-    store.ensure("BatchStatus", BATCH_STATUS_HEADERS)
-    headers = _headers(store, "BatchStatus", BATCH_STATUS_HEADERS)
-    store.append("BatchStatus", [_row_from_map(headers, {
-        "Timestamp": _now(),
-        "Batch ID": batch_id,
-        "Expected Messages": expected,
-        "Written Messages": written,
-        "Processed Messages": extraction.get("processed") or 0,
-        "Extraction Status": extraction.get("status") or "",
-        "Rollback": bool(extraction.get("rollback")),
-    })])
+    try:
+        store.ensure("BatchStatus", BATCH_STATUS_HEADERS)
+        headers = _headers(store, "BatchStatus", BATCH_STATUS_HEADERS)
+        store.append("BatchStatus", [_row_from_map(headers, {
+            "Timestamp": _now(),
+            "Batch ID": batch_id,
+            "Expected Messages": expected,
+            "Written Messages": written,
+            "Processed Messages": extraction.get("processed") or 0,
+            "Extraction Status": extraction.get("status") or "",
+            "Rollback": bool(extraction.get("rollback")),
+        })])
+    except Exception:
+        logger.exception("Could not record batch status")
 
 
 def _log_issue(store, severity: str, message_id: Any, description: str) -> None:
@@ -1045,6 +1096,11 @@ def _read_sheet_if_present(store, name: str) -> list[list[Any]]:
         if isinstance(store, MemoryStore) and name not in store.sheets:
             return []
         return store.read(name)
+    except RuntimeError as exc:
+        if "429" in str(exc) or "503" in str(exc):
+            raise
+        logger.error("Could not read sheet %s", name)
+        return []
     except Exception:
         logger.error("Could not read sheet %s", name)
         return []
