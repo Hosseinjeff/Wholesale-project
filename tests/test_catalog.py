@@ -432,6 +432,16 @@ class SheetTransportTests(unittest.TestCase):
         self.assertEqual(http.calls[1][1], "'Offers'!A1:B1")
         self.assertEqual(http.calls[1][4], {"values": [["a", "b"]]})
 
+    def test_one_batch_reads_a_sheet_once(self):
+        http = RecordingSheets()
+        store = GoogleSheetStore("sheet-id", {}, http=http)
+        self.assertEqual(store.read("Products"), [["Sale Price"], ["52000"]])
+        store.write_rows("Products", 3, [["60000"]])
+        store.append("Products", [["70000"]])
+        self.assertEqual(store.read("Products"), [["Sale Price"], ["52000"], ["60000"], ["70000"]])
+        gets = [call for call in http.calls if call[0] == "get"]
+        self.assertEqual(len(gets), 1)
+
     def test_a_short_grid_grows_before_the_write(self):
         http = RecordingSheets(row_count=1, column_count=1)
         store = GoogleSheetStore("sheet-id", {}, http=http)
