@@ -15,7 +15,7 @@ from urllib.parse import urlparse
 from utils.logger import setup_logger
 from telegram import Update
 from telegram.ext import Application
-from catalog.sync import build_store, finalize_batch, sheets_configured
+from catalog.sync import build_store, finalize_batch, refresh_buying_desk, sheets_configured
 
 app = Flask(__name__)
 
@@ -471,6 +471,19 @@ def bale_webhook():
     except Exception as e:
         logger.error(f"Bale webhook error: {str(e)}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/desk/refresh', methods=['POST'])
+def refresh_desk():
+    """Rebuild the buying list after a person edits Items in the sheet."""
+    if not USE_SHEETS:
+        return jsonify({'status': 'error', 'message': 'Service account sheet writer is not configured'}), 503
+    try:
+        counts = refresh_buying_desk(build_store())
+        return jsonify({'status': 'success', **counts})
+    except Exception as exc:
+        logger.exception("Desk refresh failed")
+        return jsonify({'status': 'error', 'message': exc.__class__.__name__}), 500
+
 
 @app.route('/health', methods=['GET'])
 def health_check():

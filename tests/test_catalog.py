@@ -2,7 +2,7 @@ import os
 import unittest
 
 from catalog.extract import PRODUCT_HEADERS, extract_products
-from catalog.sync import MemoryStore, extend_header_row, finalize_batch, grid_expansion_requests, load_service_account_info
+from catalog.sync import MemoryStore, extend_header_row, finalize_batch, grid_expansion_requests, load_service_account_info, refresh_buying_desk
 
 
 BONAKDAR = (
@@ -367,6 +367,105 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(result["status"], "success")
         self.assertNotIn("Offers", store.sheets)
         self.assertNotIn("Products", store.sheets)
+
+    def test_new_offer_stays_on_the_decision_list_until_named(self):
+        store = MemoryStore()
+        finalize_batch(store, {"batch_id": "b1", "messages": [{
+            "id": "m1",
+            "channel": "telegram",
+            "channel_username": "@bonakdarjavan",
+            "content": BONAKDAR,
+        }]})
+        decisions = store.read("Decisions")
+        items = store.read("Items")
+        self.assertEqual(len(decisions), 2)
+        self.assertEqual(decisions[1][decisions[0].index("Reasons")], "unconfirmed item")
+        self.assertEqual(decisions[1][decisions[0].index("Sale Price")], 52000)
+        self.assertEqual(decisions[1][decisions[0].index("Shelf Gap")], 13000)
+        self.assertEqual(items[1][items[0].index("Status")], "unconfirmed")
+        self.assertEqual(items[1][items[0].index("Last Sale Price")], 52000)
+
+    def test_confirmed_sell_price_is_kept_and_a_quiet_item_leaves_the_list(self):
+        store = MemoryStore()
+        message = {
+            "id": "m1",
+            "channel": "telegram",
+            "channel_username": "@bonakdarjavan",
+            "content": BONAKDAR,
+        }
+        finalize_batch(store, {"batch_id": "b1", "messages": [message]})
+        items = store.sheets["Items"]
+        headers = items[0]
+        items[1][headers.index("Confirmed Item Name")] = "Tuna 180g"
+        items[1][headers.index("Our Sell Price")] = 58000
+        items[0].append("Buyer Note")
+        items[1].append("weekly")
+        message["id"] = "m2"
+        finalize_batch(store, {"batch_id": "b2", "messages": [message]})
+
+        items = store.read("Items")
+        headers = items[0]
+        self.assertEqual(len(store.read("Decisions")), 1)
+        self.assertEqual(items[1][headers.index("Confirmed Item Name")], "Tuna 180g")
+        self.assertEqual(items[1][headers.index("Our Sell Price")], 58000)
+        self.assertEqual(items[1][headers.index("Status")], "confirmed")
+        self.assertEqual(items[1][headers.index("Buyer Note")], "weekly")
+
+        result = refresh_buying_desk(store)
+        self.assertEqual(result["decisions"], 0)
+        self.assertEqual(result["items"], 1)
+
+    def test_price_move_and_missing_unit_price_are_listed(self):
+        store = MemoryStore()
+        finalize_batch(store, {"batch_id": "b1", "messages": [{
+            "id": "m1",
+            "channel": "telegram",
+            "channel_username": "@bonakdarjavan",
+            "content": BONAKDAR,
+        }]})
+        finalize_batch(store, {"batch_id": "b2", "messages": [{
+            "id": "m2",
+            "channel": "telegram",
+            "channel_username": "@bonakdarjavan",
+            "content": BONAKDAR_REPRICE,
+        }]})
+        finalize_batch(store, {"batch_id": "b3", "messages": [{
+            "id": "m3",
+            "channel": "telegram",
+            "channel_username": "@top_shop_rahimi",
+            "content": TOP_SHOP,
+        }]})
+        decisions = store.read("Decisions")
+        headers = decisions[0]
+        by_channel = {row[headers.index("Channel Username")]: row for row in decisions[1:]}
+        self.assertIn("price moved", by_channel["@bonakdarjavan"][headers.index("Reasons")])
+        self.assertEqual(by_channel["@bonakdarjavan"][headers.index("Previous Sale Price")], 52000)
+        self.assertEqual(by_channel["@bonakdarjavan"][headers.index("Sale Price")], 60000)
+        self.assertIn("missing unit price", by_channel["@top_shop_rahimi"][headers.index("Reasons")])
+        self.assertEqual(by_channel["@top_shop_rahimi"][headers.index("Sale Price")], "")
+
+    def test_confirmed_item_flags_the_supplier_who_costs_more(self):
+        store = MemoryStore()
+        cheaper = "Test Product\nPrice: 100000 toman"
+        dearer = "Test Product\nPrice: 120000 toman"
+        finalize_batch(store, {"batch_id": "b1", "messages": [
+            {"id": "m1", "channel": "telegram", "channel_username": "@one", "content": cheaper},
+            {"id": "m2", "channel": "telegram", "channel_username": "@two", "content": dearer},
+        ]})
+        items = store.sheets["Items"]
+        headers = items[0]
+        name_index = headers.index("Supplier Product Name")
+        for row in items[1:]:
+            if row[name_index] == "Test Product":
+                row[headers.index("Confirmed Item Name")] = "Test Product"
+        refresh_buying_desk(store)
+        decisions = store.read("Decisions")
+        headers = decisions[0]
+        flagged = [row for row in decisions[1:] if row[headers.index("Compared With")]]
+        self.assertEqual(len(flagged), 1)
+        self.assertEqual(flagged[0][headers.index("Channel Username")], "@two")
+        self.assertEqual(flagged[0][headers.index("Compared With")], "higher than @one at 100000")
+        self.assertNotIn("unconfirmed item", flagged[0][headers.index("Reasons")])
 
     def test_invalid_service_account_json_is_rejected(self):
         previous = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")

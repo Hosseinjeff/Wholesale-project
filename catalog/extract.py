@@ -96,6 +96,35 @@ OFFER_HEADERS = [
     "Original Message",
 ]
 
+ITEM_HEADERS = [
+    "Item Key",
+    "Channel Username",
+    "Supplier Product Name",
+    "Confirmed Item Name",
+    "Our Sell Price",
+    "Status",
+    "Last Sale Price",
+    "Last Consumer Price",
+    "Last Offer ID",
+    "Updated At",
+]
+
+DECISION_HEADERS = [
+    "Item Key",
+    "Channel Username",
+    "Supplier Product Name",
+    "Confirmed Item Name",
+    "Reasons",
+    "Sale Price",
+    "Previous Sale Price",
+    "Consumer Price",
+    "Our Sell Price",
+    "Spread",
+    "Shelf Gap",
+    "Compared With",
+    "Latest Offer ID",
+]
+
 BATCH_STATUS_HEADERS = [
     "Timestamp",
     "Batch ID",

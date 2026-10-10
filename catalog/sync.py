@@ -1,8 +1,10 @@
 """Write catalog batches straight to Google Sheets with a service account.
 
 Offers is the append-only price log. Products is the current book: one row
-per supplier and product name, rebuilt from that log. The Apps Script webhook
-is a legacy ingest path and does not write either sheet.
+per supplier and product name, rebuilt from that log. Items holds the name
+and sell price a person confirms. Decisions is the list rebuilt from those
+rows: missing unit prices, odd spreads, moves, and a supplier who costs more.
+The Apps Script webhook is a legacy ingest path and does not write these sheets.
 """
 
 from __future__ import annotations
@@ -18,6 +20,8 @@ from typing import Any
 from catalog.extract import (
     BATCH_STATUS_HEADERS,
     EXECUTION_LOG_HEADERS,
+    DECISION_HEADERS,
+    ITEM_HEADERS,
     MESSAGE_HEADERS,
     OFFER_HEADERS,
     PRODUCT_HEADERS,
@@ -333,6 +337,10 @@ def _finalize_batch(store: MemoryStore | GoogleSheetStore, payload: dict[str, An
 
     extraction = _process_batch_products(store, batch_id, messages)
     _record_batch_status(store, batch_id, expected, written, extraction)
+    try:
+        refresh_buying_desk(store)
+    except Exception:
+        logger.exception("Buying desk refresh failed")
     return {
         "status": "success",
         "ack": "ingestion_complete",
@@ -406,6 +414,219 @@ def import_product_data(store, data: dict[str, Any]) -> dict[str, Any]:
     except Exception as exc:
         logger.error("Product import failed: %s", exc.__class__.__name__)
         return {"success": False, "error": exc.__class__.__name__}
+
+
+_SYSTEM_ITEM_FIELDS = {
+    "Item Key",
+    "Channel Username",
+    "Supplier Product Name",
+    "Status",
+    "Last Sale Price",
+    "Last Consumer Price",
+    "Last Offer ID",
+    "Updated At",
+}
+
+_DECISION_REASON_ORDER = (
+    "missing unit price",
+    "unusual spread",
+    "price moved",
+    "unconfirmed item",
+)
+
+
+def refresh_buying_desk(store: MemoryStore | GoogleSheetStore) -> dict[str, int]:
+    """Rebuild Items stubs and the Decisions list from the current book.
+
+    Confirmed Item Name and Our Sell Price are typed by a person and kept.
+    Decisions is generated again, so it only contains rows that need a look.
+    """
+    products = _read_sheet_if_present(store, "Products")
+    store.ensure("Items", ITEM_HEADERS)
+    item_headers = _headers(store, "Items", ITEM_HEADERS)
+    existing_items = _records(_read_sheet_if_present(store, "Items"))[1]
+    items_by_key = {
+        str(item.get("Item Key") or ""): item
+        for item in existing_items
+        if item.get("Item Key")
+    }
+    _, product_rows = _records(products)
+    seen: set[str] = set()
+    item_rows: list[list[Any]] = []
+    desk_rows: list[dict[str, Any]] = []
+    updated_at = _now()
+    for product in product_rows:
+        name = str(product.get("Product Name") or "").strip()
+        channel = str(product.get("Channel Username") or "").strip()
+        if not name:
+            continue
+        key = _item_key(channel, name)
+        seen.add(key)
+        existing = items_by_key.get(key, {})
+        confirmed = str(existing.get("Confirmed Item Name") or "").strip()
+        consumer = product.get("Consumer Price")
+        if _positive_price(consumer) is None:
+            consumer = product.get("Actual Price")
+        updates = {
+            "Item Key": key,
+            "Channel Username": channel,
+            "Supplier Product Name": name,
+            "Status": "confirmed" if confirmed else "unconfirmed",
+            "Last Sale Price": product.get("Sale Price") if product.get("Sale Price") not in (None, "") else "",
+            "Last Consumer Price": consumer if consumer not in (None, "") else "",
+            "Last Offer ID": product.get("Latest Offer ID") or "",
+            "Updated At": updated_at,
+        }
+        item_rows.append(_merged_item_row(item_headers, existing, updates))
+        desk_rows.append({
+            "key": key,
+            "channel": channel,
+            "name": name,
+            "confirmed": confirmed,
+            "sale": product.get("Sale Price"),
+            "previous": product.get("Previous Sale Price"),
+            "consumer": consumer,
+            "our_sell": existing.get("Our Sell Price") if existing.get("Our Sell Price") not in (None, "") else "",
+            "offer_id": product.get("Latest Offer ID") or "",
+        })
+    for key, existing in items_by_key.items():
+        if key in seen:
+            continue
+        item_rows.append(_merged_item_row(item_headers, existing, {}))
+    _replace_sheet_rows(store, "Items", item_headers, item_rows)
+
+    comparisons = _higher_than(desk_rows)
+    store.ensure("Decisions", DECISION_HEADERS)
+    decision_headers = _headers(store, "Decisions", DECISION_HEADERS)
+    previous_decisions = {
+        str(row.get("Item Key") or ""): row
+        for row in _records(_read_sheet_if_present(store, "Decisions"))[1]
+        if row.get("Item Key")
+    }
+    decision_rows = []
+    for desk in desk_rows:
+        reasons = _decision_reasons(desk, comparisons.get(desk["key"], ""))
+        if not reasons:
+            continue
+        decision_rows.append(_decision_row(decision_headers, desk, reasons, previous_decisions.get(desk["key"])))
+    _replace_sheet_rows(store, "Decisions", decision_headers, decision_rows)
+    return {"items": len(item_rows), "decisions": len(decision_rows)}
+
+
+def _item_key(channel: str, name: str) -> str:
+    return f"{(channel or '').strip()}|{(name or '').strip().lower()}"
+
+
+def _decision_reasons(desk: dict[str, Any], higher_than: str) -> list[str]:
+    reasons = []
+    sale = _positive_price(desk.get("sale"))
+    previous = _positive_price(desk.get("previous"))
+    consumer = _positive_price(desk.get("consumer"))
+    if sale is None:
+        reasons.append("missing unit price")
+    if sale is not None and previous is not None and sale != previous:
+        reasons.append("price moved")
+    if _unusual_spread(sale, consumer):
+        reasons.append("unusual spread")
+    if higher_than:
+        reasons.append(higher_than)
+    if not desk.get("confirmed"):
+        reasons.append("unconfirmed item")
+    return _sorted_reasons(reasons)
+
+
+def _sorted_reasons(reasons: list[str]) -> list[str]:
+    order = {reason: index for index, reason in enumerate(_DECISION_REASON_ORDER)}
+
+    def rank(reason: str) -> tuple[int, str]:
+        if reason in order:
+            return order[reason], reason
+        if reason.startswith("higher than "):
+            return order["unconfirmed item"] - 1, reason
+        return len(order), reason
+
+    return sorted(reasons, key=rank)
+
+
+def _unusual_spread(sale: int | None, consumer: int | None) -> bool:
+    if sale is None or consumer is None:
+        return False
+    discount = 1 - (sale / consumer)
+    return discount > 0.8 or discount < 0.05
+
+
+def _higher_than(rows: list[dict[str, Any]]) -> dict[str, str]:
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        label = (row.get("confirmed") or "").strip().lower()
+        if label and _positive_price(row.get("sale")) is not None:
+            groups.setdefault(label, []).append(row)
+    notes: dict[str, str] = {}
+    for group in groups.values():
+        if len(group) < 2:
+            continue
+        cheapest = min(group, key=lambda row: _positive_price(row.get("sale")) or 0)
+        cheap_sale = _positive_price(cheapest.get("sale")) or 0
+        for row in group:
+            sale = _positive_price(row.get("sale")) or 0
+            if sale > cheap_sale:
+                notes[row["key"]] = f"higher than {cheapest['channel']} at {cheap_sale}"
+    return notes
+
+
+def _decision_row(headers: list[str], desk: dict[str, Any], reasons: list[str], previous: dict[str, Any] | None) -> list[Any]:
+    sale = _positive_price(desk.get("sale"))
+    consumer = _positive_price(desk.get("consumer"))
+    our_sell = _positive_price(desk.get("our_sell"))
+    compared = next((reason for reason in reasons if reason.startswith("higher than ")), "")
+    visible = [reason for reason in reasons if reason != compared]
+    fields = {
+        "Item Key": desk["key"],
+        "Channel Username": desk["channel"],
+        "Supplier Product Name": desk["name"],
+        "Confirmed Item Name": desk.get("confirmed") or "",
+        "Reasons": "; ".join(visible) if visible else compared,
+        "Sale Price": sale if sale is not None else "",
+        "Previous Sale Price": _positive_price(desk.get("previous")) or "",
+        "Consumer Price": consumer if consumer is not None else "",
+        "Our Sell Price": our_sell if our_sell is not None else "",
+        "Spread": our_sell - sale if our_sell is not None and sale is not None else "",
+        "Shelf Gap": consumer - sale if consumer is not None and sale is not None else "",
+        "Compared With": compared,
+        "Latest Offer ID": desk.get("offer_id") or "",
+    }
+    row: list[Any] = [""] * len(headers)
+    for index, header in enumerate(headers):
+        if header in fields and fields[header] is not None:
+            row[index] = fields[header]
+        elif previous and header not in DECISION_HEADERS and header in previous and previous[header] not in (None, ""):
+            row[index] = previous[header]
+    return row
+
+
+def _merged_item_row(headers: list[str], existing: dict[str, Any], updates: dict[str, Any]) -> list[Any]:
+    row: list[Any] = [""] * len(headers)
+    for index, header in enumerate(headers):
+        if existing and header in existing and existing[header] not in (None,):
+            row[index] = existing[header]
+        if header in _SYSTEM_ITEM_FIELDS and header in updates:
+            row[index] = "" if updates[header] is None else updates[header]
+        elif not existing and header in updates:
+            row[index] = "" if updates[header] is None else updates[header]
+    return row
+
+
+def _replace_sheet_rows(store, name: str, headers: list[str], rows: list[list[Any]]) -> None:
+    store.ensure(name, headers)
+    current = _read_sheet_if_present(store, name)
+    sheet_headers = _headers(store, name, headers)
+    width = len(sheet_headers)
+    padded = [list(row) + [""] * max(0, width - len(row)) for row in rows]
+    padded = [row[:width] for row in padded]
+    store.write_rows(name, 1, [sheet_headers] + padded)
+    extra = list(range(len(padded) + 2, len(current) + 1))
+    if extra:
+        store.delete_rows(name, extra)
 
 
 def _fill_message_from_sheet(store, data: dict[str, Any]) -> None:
