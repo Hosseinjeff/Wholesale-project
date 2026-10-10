@@ -1,8 +1,10 @@
 """Write catalog batches straight to Google Sheets with a service account.
 
 Offers is the append-only price log. Products is the current book: one row
-per supplier and product name, rebuilt from that log. The Apps Script webhook
-is a legacy ingest path and does not write either sheet.
+per supplier and product name, rebuilt from that log. Items holds an optional confirmed name and sell price. A clear price is
+saved without a question. Decisions and the bot ask only when the unit
+price is missing, the gap looks wrong, or the read is otherwise in doubt.
+The Apps Script webhook is a legacy ingest path and does not write these sheets.
 """
 
 from __future__ import annotations
@@ -18,11 +20,16 @@ from typing import Any
 from catalog.extract import (
     BATCH_STATUS_HEADERS,
     EXECUTION_LOG_HEADERS,
+    DECISION_HEADERS,
+    ITEM_HEADERS,
+    PROMPT_HEADERS,
     MESSAGE_HEADERS,
     OFFER_HEADERS,
     PRODUCT_HEADERS,
     classify_message,
     extract_products,
+    normalize,
+    parse_price,
     quality_check,
 )
 
@@ -333,6 +340,11 @@ def _finalize_batch(store: MemoryStore | GoogleSheetStore, payload: dict[str, An
 
     extraction = _process_batch_products(store, batch_id, messages)
     _record_batch_status(store, batch_id, expected, written, extraction)
+    desk = {}
+    try:
+        desk = refresh_buying_desk(store, messages, batch_id)
+    except Exception:
+        logger.exception("Buying desk refresh failed")
     return {
         "status": "success",
         "ack": "ingestion_complete",
@@ -342,6 +354,8 @@ def _finalize_batch(store: MemoryStore | GoogleSheetStore, payload: dict[str, An
         "extraction_status": extraction["status"],
         "processed_messages": extraction["processed"],
         "rollback": bool(extraction.get("rollback")),
+        "saved": desk.get("saved") or [],
+        "prompts": desk.get("prompts") or [],
     }
 
 
@@ -406,6 +420,491 @@ def import_product_data(store, data: dict[str, Any]) -> dict[str, Any]:
     except Exception as exc:
         logger.error("Product import failed: %s", exc.__class__.__name__)
         return {"success": False, "error": exc.__class__.__name__}
+
+
+_SYSTEM_ITEM_FIELDS = {
+    "Item Key",
+    "Channel Username",
+    "Supplier Product Name",
+    "Status",
+    "Last Sale Price",
+    "Last Consumer Price",
+    "Last Offer ID",
+    "Updated At",
+}
+
+_DECISION_REASON_ORDER = (
+    "missing unit price",
+    "unusual spread",
+    "low confidence",
+)
+_PROMPT_SETTLED = {"accepted", "corrected", "skipped"}
+_ACCEPT_ANSWERS = {"ok", "okay", "yes", "y", "باشه", "بله", "درسته", "درست", "تایید", "تأیید", "قبول"}
+_SKIP_ANSWERS = {"skip", "no", "n", "رد", "نه", "بیخیال", "لغو"}
+
+
+def refresh_buying_desk(
+    store: MemoryStore | GoogleSheetStore,
+    messages: list[dict[str, Any]] | None = None,
+    batch_id: str = "",
+) -> dict[str, Any]:
+    """Rebuild the optional item rows, the doubt list, and bot prompts.
+
+    A clear price is not a prompt. Confirmed Item Name and Our Sell Price
+    stay as a person typed them.
+    """
+    products = _read_sheet_if_present(store, "Products")
+    store.ensure("Items", ITEM_HEADERS)
+    item_headers = _headers(store, "Items", ITEM_HEADERS)
+    existing_items = _records(_read_sheet_if_present(store, "Items"))[1]
+    items_by_key = {
+        str(item.get("Item Key") or ""): item
+        for item in existing_items
+        if item.get("Item Key")
+    }
+    _, product_rows = _records(products)
+    _, offer_rows = _records(_read_sheet_if_present(store, "Offers"))
+    review_by_offer = {
+        str(offer.get("Offer ID") or ""): str(offer.get("Review Reason") or "")
+        for offer in offer_rows
+    }
+    seen: set[str] = set()
+    item_rows: list[list[Any]] = []
+    desk_rows: list[dict[str, Any]] = []
+    updated_at = _now()
+    for product in product_rows:
+        name = str(product.get("Product Name") or "").strip()
+        channel = str(product.get("Channel Username") or "").strip()
+        if not name:
+            continue
+        key = _item_key(channel, name)
+        seen.add(key)
+        existing = items_by_key.get(key, {})
+        confirmed = str(existing.get("Confirmed Item Name") or "").strip()
+        consumer = product.get("Consumer Price")
+        if _positive_price(consumer) is None:
+            consumer = product.get("Actual Price")
+        updates = {
+            "Item Key": key,
+            "Channel Username": channel,
+            "Supplier Product Name": name,
+            "Status": "confirmed" if confirmed else "unconfirmed",
+            "Last Sale Price": product.get("Sale Price") if product.get("Sale Price") not in (None, "") else "",
+            "Last Consumer Price": consumer if consumer not in (None, "") else "",
+            "Last Offer ID": product.get("Latest Offer ID") or "",
+            "Updated At": updated_at,
+        }
+        item_rows.append(_merged_item_row(item_headers, existing, updates))
+        desk_rows.append({
+            "key": key,
+            "channel": channel,
+            "name": name,
+            "confirmed": confirmed,
+            "sale": product.get("Sale Price"),
+            "previous": product.get("Previous Sale Price"),
+            "consumer": consumer,
+            "our_sell": existing.get("Our Sell Price") if existing.get("Our Sell Price") not in (None, "") else "",
+            "offer_id": str(product.get("Latest Offer ID") or ""),
+            "status": str(product.get("Status") or ""),
+            "review_reason": review_by_offer.get(str(product.get("Latest Offer ID") or ""), ""),
+        })
+    for key, existing in items_by_key.items():
+        if key in seen:
+            continue
+        item_rows.append(_merged_item_row(item_headers, existing, {}))
+    _replace_sheet_rows(store, "Items", item_headers, item_rows)
+
+    settled_offers = _settled_offer_ids(store)
+    for desk in desk_rows:
+        if desk["offer_id"] in settled_offers or desk["offer_id"].startswith("operator:"):
+            desk["reasons"] = []
+        else:
+            desk["reasons"] = _decision_reasons(desk)
+    store.ensure("Decisions", DECISION_HEADERS)
+    decision_headers = _headers(store, "Decisions", DECISION_HEADERS)
+    previous_decisions = {
+        str(row.get("Item Key") or ""): row
+        for row in _records(_read_sheet_if_present(store, "Decisions"))[1]
+        if row.get("Item Key")
+    }
+    decision_rows = []
+    for desk in desk_rows:
+        reasons = desk.get("reasons") or []
+        if not reasons:
+            continue
+        decision_rows.append(_decision_row(decision_headers, desk, reasons, previous_decisions.get(desk["key"])))
+    _replace_sheet_rows(store, "Decisions", decision_headers, decision_rows)
+    notice = _sync_prompts(store, desk_rows, messages or [], batch_id)
+    return {
+        "items": len(item_rows),
+        "decisions": len(decision_rows),
+        "saved": notice["saved"],
+        "prompts": notice["prompts"],
+    }
+
+
+def _item_key(channel: str, name: str) -> str:
+    return f"{(channel or '').strip()}|{(name or '').strip().lower()}"
+
+
+def parse_prompt_answer(text: str) -> tuple[str, int | None] | None:
+    """Read a bot reply: accept, skip, or a unit price."""
+    cleaned = normalize(text or "").strip().lower()
+    if cleaned in _ACCEPT_ANSWERS:
+        return ("accept", None)
+    if cleaned in _SKIP_ANSWERS:
+        return ("skip", None)
+    without_currency = re.sub(r"(تومان|تومن|ریال|\bت\b|toman|irr|irt)", " ", cleaned, flags=re.I).strip()
+    if re.fullmatch(r"[\d\s,./٫\u066B]+", without_currency):
+        price = parse_price(without_currency)
+        if price > 0:
+            return ("correct", price)
+    return None
+
+
+def resolve_prompt(store: MemoryStore | GoogleSheetStore, chat_id: Any, text: str) -> dict[str, Any]:
+    """Apply a reply to the open question for this chat."""
+    records = _prompt_records(store)
+    waiting = _waiting_prompt(records, chat_id)
+    if not waiting:
+        return {"matched": False}
+    parsed = parse_prompt_answer(text)
+    if not parsed:
+        return {
+            "matched": True,
+            "understood": False,
+            "reply": "قیمت واحد را بفرست، یا «باشه» برای تأیید، یا «رد».\n\n" + str(waiting.get("Question") or ""),
+        }
+    action, price = parsed
+    if action == "correct":
+        _apply_operator_price(store, waiting, price or 0)
+        waiting["Status"] = "corrected"
+        waiting["Answer"] = str(price)
+        reply = f"قیمت واحد {price} برای {waiting.get('Product Name') or 'این مورد'} ثبت شد."
+    elif action == "skip":
+        _mark_product_status(store, waiting, "skipped")
+        waiting["Status"] = "skipped"
+        waiting["Answer"] = "skip"
+        reply = f"{waiting.get('Product Name') or 'این مورد'} رد شد."
+    else:
+        _mark_product_status(store, waiting, "imported")
+        waiting["Status"] = "accepted"
+        waiting["Answer"] = "ok"
+        reply = f"{waiting.get('Product Name') or 'این مورد'} با همین قیمت‌ها ثبت شد."
+    _write_prompt_records(store, records)
+    desk = refresh_buying_desk(store)
+    follow = desk.get("prompts") or []
+    if follow:
+        reply = reply + "\n\n" + str(follow[0].get("question") or "")
+    return {"matched": True, "understood": True, "action": action, "reply": reply}
+
+
+def _sync_prompts(store, desk_rows: list[dict[str, Any]], messages: list[dict[str, Any]], batch_id: str = "") -> dict[str, list]:
+    records = _prompt_records(store)
+    known_offers = {str(row.get("Offer ID") or "") for row in records if row.get("Offer ID")}
+    chats = _chats_by_message(messages)
+    for desk in desk_rows:
+        offer_id = str(desk.get("offer_id") or "")
+        reasons = desk.get("reasons") or []
+        if not reasons or not offer_id or offer_id.startswith("operator:") or offer_id in known_offers:
+            continue
+        chat_id = _chat_for_offer(offer_id, chats)
+        record = {
+            "Prompt ID": f"p:{offer_id}",
+            "Chat ID": chat_id,
+            "Item Key": desk["key"],
+            "Offer ID": offer_id,
+            "Channel Username": desk["channel"],
+            "Product Name": desk["name"],
+            "Reason": "; ".join(reasons),
+            "Question": _prompt_question(desk, reasons),
+            "Status": "open",
+            "Answer": "",
+            "Created At": _now(),
+        }
+        records.append(record)
+        known_offers.add(offer_id)
+    to_send = _mark_next_prompts_asked(records)
+    _write_prompt_records(store, records)
+    saved = []
+    for desk in desk_rows:
+        offer_id = str(desk.get("offer_id") or "")
+        if desk.get("reasons") or not batch_id or not offer_id.startswith(f"{batch_id}:"):
+            continue
+        saved.append({
+            "name": desk["name"],
+            "channel": desk["channel"],
+            "sale": _positive_price(desk.get("sale")) or "",
+            "consumer": _positive_price(desk.get("consumer")) or "",
+        })
+    return {"saved": saved, "prompts": [_public_prompt(row) for row in to_send]}
+
+
+def _prompt_question(desk: dict[str, Any], reasons: list[str]) -> str:
+    sale = _positive_price(desk.get("sale"))
+    consumer = _positive_price(desk.get("consumer"))
+    return (
+        "این مورد را مطمئن نیستم.\n"
+        f"{desk['name']}\n"
+        f"{desk['channel']}\n"
+        f"قیمت واحد: {sale if sale else 'پیدا نشد'}\n"
+        f"قیمت مصرف: {consumer if consumer else 'پیدا نشد'}\n"
+        f"علت: {_persian_reasons(reasons)}\n\n"
+        "قیمت واحد را بفرست، یا «باشه» برای تأیید، یا «رد»."
+    )
+
+
+def _persian_reasons(reasons: list[str]) -> str:
+    labels = []
+    for reason in reasons:
+        if reason == "missing unit price":
+            labels.append("قیمت واحد پیدا نشد")
+        elif reason == "unusual spread" or reason.startswith("Unusual discount"):
+            labels.append("فاصله قیمت واحد و مصرف غیرعادی است")
+        elif reason == "low confidence" or "low confidence" in reason:
+            labels.append("استخراج نامطمئن بود")
+        elif "deviates from history" in reason:
+            labels.append("با قیمت‌های قبلی خیلی فرق دارد")
+        else:
+            labels.append(reason)
+    return "، ".join(labels)
+
+
+def _prompt_records(store) -> list[dict[str, Any]]:
+    store.ensure("Prompts", PROMPT_HEADERS)
+    return _records(_read_sheet_if_present(store, "Prompts"))[1]
+
+
+def _write_prompt_records(store, records: list[dict[str, Any]]) -> None:
+    headers = _headers(store, "Prompts", PROMPT_HEADERS)
+    _replace_sheet_rows(store, "Prompts", headers, [_row_from_map(headers, record) for record in records])
+
+
+def _settled_offer_ids(store) -> set[str]:
+    if isinstance(store, MemoryStore) and "Prompts" not in store.sheets:
+        return set()
+    try:
+        records = _records(_read_sheet_if_present(store, "Prompts"))[1]
+    except Exception:
+        return set()
+    return {
+        str(row.get("Offer ID") or "")
+        for row in records
+        if row.get("Offer ID") and str(row.get("Status") or "") in _PROMPT_SETTLED
+    }
+
+
+def _waiting_prompt(records: list[dict[str, Any]], chat_id: Any) -> dict[str, Any] | None:
+    chat = str(chat_id or "")
+    same = [row for row in records if str(row.get("Chat ID") or "") == chat]
+    for status in ("asked", "open"):
+        for row in same:
+            if row.get("Status") == status:
+                return row
+    return None
+
+
+def _mark_next_prompts_asked(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    busy = {str(row.get("Chat ID") or "") for row in records if row.get("Status") == "asked" and row.get("Chat ID")}
+    asked = []
+    for row in records:
+        if row.get("Status") != "open":
+            continue
+        chat = str(row.get("Chat ID") or "")
+        if not chat or chat in busy:
+            continue
+        row["Status"] = "asked"
+        busy.add(chat)
+        asked.append(row)
+    return asked
+
+
+def _chats_by_message(messages: list[dict[str, Any]]) -> dict[str, str]:
+    found = {}
+    for message in messages:
+        message_id = str(message.get("id") or "")
+        chat_id = str(message.get("chat_id") or "")
+        if message_id and chat_id:
+            found[message_id] = chat_id
+    return found
+
+
+def _chat_for_offer(offer_id: str, chats: dict[str, str]) -> str:
+    parts = str(offer_id or "").split(":")
+    if len(parts) >= 3 and parts[1] in chats:
+        return chats[parts[1]]
+    unique = {chat for chat in chats.values() if chat}
+    if len(unique) == 1:
+        return unique.pop()
+    return ""
+
+
+def _public_prompt(row: dict[str, Any]) -> dict[str, str]:
+    return {
+        "prompt_id": str(row.get("Prompt ID") or ""),
+        "chat_id": str(row.get("Chat ID") or ""),
+        "question": str(row.get("Question") or ""),
+        "name": str(row.get("Product Name") or ""),
+        "reason": str(row.get("Reason") or ""),
+    }
+
+
+def _apply_operator_price(store, prompt: dict[str, Any], sale_price: int) -> None:
+    consumer = _product_consumer(store, prompt)
+    offer_id = f"operator:{prompt.get('Prompt ID') or sale_price}"
+    imported_at = _now()
+    message = {
+        "channel_username": prompt.get("Channel Username") or "",
+        "channel": "telegram",
+        "content": prompt.get("Product Name") or "",
+        "id": prompt.get("Prompt ID") or "",
+        "batch_id": "operator",
+        "timestamp": imported_at,
+        "forwarded_by": "operator",
+    }
+    product = {
+        "name": prompt.get("Product Name") or "",
+        "sale_price": sale_price,
+        "price": sale_price,
+        "consumer_price": consumer,
+        "actual_price": consumer,
+        "currency": "IRT",
+        "status": "imported",
+        "confidence": 1,
+        "extraction_confidence": 1,
+        "stock_status": "Available",
+    }
+    store.ensure("Offers", OFFER_HEADERS)
+    headers = _headers(store, "Offers", OFFER_HEADERS)
+    _append_at_next_row(store, "Offers", headers, [_row_from_map(headers, _offer_fields(product, message, offer_id, imported_at, ""))])
+    _restore_current_book(store, [(product["name"], message["channel_username"])])
+
+
+def _product_consumer(store, prompt: dict[str, Any]) -> Any:
+    products = _read_sheet_if_present(store, "Products")
+    headers, rows = _records(products)
+    if not rows and products:
+        headers = [str(header) for header in products[0]]
+    for row in rows:
+        if str(row.get("Product Name") or "") == str(prompt.get("Product Name") or "") and str(row.get("Channel Username") or "") == str(prompt.get("Channel Username") or ""):
+            consumer = _positive_price(row.get("Consumer Price")) or _positive_price(row.get("Actual Price"))
+            return consumer if consumer is not None else ""
+    return ""
+
+
+def _mark_product_status(store, prompt: dict[str, Any], status: str) -> None:
+    products = _read_sheet_if_present(store, "Products")
+    if len(products) < 2 or "Status" not in products[0]:
+        return
+    headers = [str(header) for header in products[0]]
+    name_index = headers.index("Product Name") if "Product Name" in headers else None
+    channel_index = headers.index("Channel Username") if "Channel Username" in headers else None
+    status_index = headers.index("Status")
+    if name_index is None or channel_index is None:
+        return
+    for row_number, row in enumerate(products[1:], start=2):
+        name = row[name_index] if name_index < len(row) else ""
+        channel = row[channel_index] if channel_index < len(row) else ""
+        if str(name) == str(prompt.get("Product Name") or "") and str(channel) == str(prompt.get("Channel Username") or ""):
+            padded = list(row) + [""] * max(0, len(headers) - len(row))
+            padded[status_index] = status
+            store.write_rows("Products", row_number, [padded[:len(headers)]])
+            return
+
+
+def _decision_reasons(desk: dict[str, Any]) -> list[str]:
+    if str(desk.get("status") or "") == "skipped":
+        return []
+    reasons = []
+    sale = _positive_price(desk.get("sale"))
+    consumer = _positive_price(desk.get("consumer"))
+    if sale is None:
+        reasons.append("missing unit price")
+    if _unusual_spread(sale, consumer):
+        reasons.append("unusual spread")
+    if str(desk.get("status") or "") == "needs_review":
+        for part in str(desk.get("review_reason") or "").split(";"):
+            part = part.strip()
+            if not part or part.startswith("Unusual discount"):
+                continue
+            if part not in reasons:
+                reasons.append(part)
+        if not reasons:
+            reasons.append("low confidence")
+    return _sorted_reasons(reasons)
+
+
+def _sorted_reasons(reasons: list[str]) -> list[str]:
+    order = {reason: index for index, reason in enumerate(_DECISION_REASON_ORDER)}
+
+    def rank(reason: str) -> tuple[int, str]:
+        if reason in order:
+            return order[reason], reason
+        return len(order), reason
+
+    return sorted(reasons, key=rank)
+
+
+def _unusual_spread(sale: int | None, consumer: int | None) -> bool:
+    if sale is None or consumer is None:
+        return False
+    discount = 1 - (sale / consumer)
+    return discount > 0.8 or discount < 0.05
+
+
+def _decision_row(headers: list[str], desk: dict[str, Any], reasons: list[str], previous: dict[str, Any] | None) -> list[Any]:
+    sale = _positive_price(desk.get("sale"))
+    consumer = _positive_price(desk.get("consumer"))
+    our_sell = _positive_price(desk.get("our_sell"))
+    compared = next((reason for reason in reasons if reason.startswith("higher than ")), "")
+    visible = [reason for reason in reasons if reason != compared]
+    fields = {
+        "Item Key": desk["key"],
+        "Channel Username": desk["channel"],
+        "Supplier Product Name": desk["name"],
+        "Confirmed Item Name": desk.get("confirmed") or "",
+        "Reasons": "; ".join(visible) if visible else compared,
+        "Sale Price": sale if sale is not None else "",
+        "Previous Sale Price": _positive_price(desk.get("previous")) or "",
+        "Consumer Price": consumer if consumer is not None else "",
+        "Our Sell Price": our_sell if our_sell is not None else "",
+        "Spread": our_sell - sale if our_sell is not None and sale is not None else "",
+        "Shelf Gap": consumer - sale if consumer is not None and sale is not None else "",
+        "Compared With": compared,
+        "Latest Offer ID": desk.get("offer_id") or "",
+    }
+    row: list[Any] = [""] * len(headers)
+    for index, header in enumerate(headers):
+        if header in fields and fields[header] is not None:
+            row[index] = fields[header]
+        elif previous and header not in DECISION_HEADERS and header in previous and previous[header] not in (None, ""):
+            row[index] = previous[header]
+    return row
+
+
+def _merged_item_row(headers: list[str], existing: dict[str, Any], updates: dict[str, Any]) -> list[Any]:
+    row: list[Any] = [""] * len(headers)
+    for index, header in enumerate(headers):
+        if existing and header in existing and existing[header] not in (None,):
+            row[index] = existing[header]
+        if header in _SYSTEM_ITEM_FIELDS and header in updates:
+            row[index] = "" if updates[header] is None else updates[header]
+        elif not existing and header in updates:
+            row[index] = "" if updates[header] is None else updates[header]
+    return row
+
+
+def _replace_sheet_rows(store, name: str, headers: list[str], rows: list[list[Any]]) -> None:
+    store.ensure(name, headers)
+    current = _read_sheet_if_present(store, name)
+    sheet_headers = _headers(store, name, headers)
+    width = len(sheet_headers)
+    padded = [list(row) + [""] * max(0, width - len(row)) for row in rows]
+    padded = [row[:width] for row in padded]
+    store.write_rows(name, 1, [sheet_headers] + padded)
+    extra = list(range(len(padded) + 2, len(current) + 1))
+    if extra:
+        store.delete_rows(name, extra)
 
 
 def _fill_message_from_sheet(store, data: dict[str, Any]) -> None:

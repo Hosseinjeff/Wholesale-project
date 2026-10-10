@@ -15,7 +15,7 @@ from urllib.parse import urlparse
 from utils.logger import setup_logger
 from telegram import Update
 from telegram.ext import Application
-from catalog.sync import build_store, finalize_batch, sheets_configured
+from catalog.sync import build_store, finalize_batch, refresh_buying_desk, resolve_prompt, sheets_configured
 
 app = Flask(__name__)
 
@@ -147,13 +147,17 @@ class BatchManager:
             })
 
     def _notify_chats(self, batch_id, chat_ids, data):
-        status = data.get("status")
-        ack = data.get("ack")
-        processed = data.get("processed_messages")
-        rollback = data.get("rollback")
-        text = f"Batch {batch_id}: status={status}, ack={ack}, processed={processed}, rollback={rollback}"
-        for chat_id in chat_ids or []:
-            send_chat_text(chat_id, text)
+        prompts = data.get("prompts") or []
+        targets = []
+        seen = set()
+        for chat_id in list(chat_ids or []) + [prompt.get("chat_id") for prompt in prompts]:
+            if chat_id in (None, "") or str(chat_id) in seen:
+                continue
+            seen.add(str(chat_id))
+            targets.append(chat_id)
+        for chat_id in targets:
+            chat_prompts = [prompt for prompt in prompts if str(prompt.get("chat_id") or "") == str(chat_id)]
+            send_chat_text(chat_id, format_batch_reply({**data, "prompts": chat_prompts}))
 
 batch_manager = None
 
@@ -329,6 +333,29 @@ def ensure_telegram_webhook():
 ensure_telegram_webhook()
 
 
+def format_batch_reply(data):
+    """Tell the operator what was saved, and ask when a price is in doubt."""
+    if data.get("rollback"):
+        return "این دسته ذخیره نشد. قیمت قبلی سر جایش ماند."
+    if data.get("status") == "error":
+        return "این دسته ذخیره نشد."
+    lines = []
+    saved = data.get("saved") or []
+    if saved:
+        lines.append("ثبت شد:")
+        for item in saved[:20]:
+            price = item.get("sale") or "بدون قیمت واحد"
+            lines.append(f"{item.get('name')} — {price}")
+    prompts = data.get("prompts") or []
+    if prompts:
+        if lines:
+            lines.append("")
+        lines.append(prompts[0].get("question") or "")
+    if not lines:
+        return "قیمتی در این پیام نبود."
+    return "\n".join(lines)
+
+
 def send_chat_text(chat_id, text):
     if not chat_id or not text:
         return
@@ -439,6 +466,15 @@ def handle_inbound_update(update_json, channel):
     data, source = inbound_payload(message, channel)
     if not data:
         return jsonify({'status': 'ignored'})
+    if source == "direct" and USE_SHEETS:
+        try:
+            outcome = resolve_prompt(build_store(), data.get("chat_id"), data.get("content") or "")
+        except Exception:
+            logger.exception("Prompt reply failed")
+            outcome = {"matched": False}
+        if outcome.get("matched"):
+            send_chat_text(data.get("chat_id"), outcome.get("reply") or "")
+            return jsonify({"status": "resolved" if outcome.get("understood") else "needs_answer"})
     success = enqueue_message(data)
     return jsonify({'status': 'success' if success else 'error', 'source': source})
 
@@ -471,6 +507,19 @@ def bale_webhook():
     except Exception as e:
         logger.error(f"Bale webhook error: {str(e)}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/desk/refresh', methods=['POST'])
+def refresh_desk():
+    """Rebuild the buying list after a person edits Items in the sheet."""
+    if not USE_SHEETS:
+        return jsonify({'status': 'error', 'message': 'Service account sheet writer is not configured'}), 503
+    try:
+        counts = refresh_buying_desk(build_store())
+        return jsonify({'status': 'success', **counts})
+    except Exception as exc:
+        logger.exception("Desk refresh failed")
+        return jsonify({'status': 'error', 'message': exc.__class__.__name__}), 500
+
 
 @app.route('/health', methods=['GET'])
 def health_check():
