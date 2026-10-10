@@ -1,16 +1,13 @@
 # Use Python 3.11 slim as base image
 FROM python:3.11-slim
 
-# Set environment variables
+# One glibc arena, and return freed pages, so an idle worker stays small.
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
+    MALLOC_ARENA_MAX=2 \
+    MALLOC_TRIM_THRESHOLD_=131072 \
     PORT=8080
-
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
 
 # Create app directory
 WORKDIR /app
@@ -34,7 +31,5 @@ USER app
 # Expose port (Railway will override this with $PORT)
 EXPOSE 8080
 
-# Start application using gunicorn
-# Use brackets for exec form which is preferred in Docker, but we need shell for $PORT
-# Alternatively, Railway handles the start command from railway.json
-CMD gunicorn app:app --bind 0.0.0.0:${PORT:-8080} --workers 1 --threads 8 --timeout 0
+# One worker and two threads: a sheet write can run while /health still answers.
+CMD gunicorn app:app --bind 0.0.0.0:${PORT:-8080} --workers 1 --threads 2 --timeout 120 --graceful-timeout 20

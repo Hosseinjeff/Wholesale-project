@@ -22,6 +22,8 @@ Cloudflare Workers is not part of this system. Railway builds the container from
 pip install -r requirements.txt
 ```
 
+The optional desktop importers (`channel_to_sheets.py`, `webhook_bot.py`) need the extra libraries in `requirements-desktop.txt`. The Railway service does not install those.
+
 ### 2. Configure Your Credentials
 
 1. Copy the example configuration:

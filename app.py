@@ -8,14 +8,10 @@ import logging
 import requests
 import os
 import time
-import json
-import asyncio
 import threading
 from urllib.parse import urlparse
 from utils.logger import setup_logger
-from telegram import Update
-from telegram.ext import Application
-from catalog.sync import build_store, finalize_batch, sheets_configured
+from catalog.sync import build_store, finalize_batch, release_idle_memory, sheets_configured
 
 app = Flask(__name__)
 
@@ -24,19 +20,8 @@ WEB_APP_URL = os.getenv('GOOGLE_WEB_APP_URL')
 BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 BALE_BOT_TOKEN = os.getenv('BALE_BOT_TOKEN')
 APP_VERSION = "2026-10-09-webhook-reply"
-setup_logger(logging.INFO)
+setup_logger(logging.INFO, log_file=None)
 logger = logging.getLogger(__name__)
-
-# Initialize Telegram Application (Optional - only if needed for advanced extraction)
-tg_application = None
-if BOT_TOKEN:
-    try:
-        tg_application = Application.builder().token(BOT_TOKEN).build()
-        logger.info("Telegram Application initialized successfully")
-    except Exception as e:
-        logger.error(f"Failed to initialize Telegram Application: {e}")
-        # Don't crash the whole app if TG init fails
-        tg_application = None
 
 # Log startup info
 logger.info("Starting Flask app for Railway")
@@ -446,6 +431,11 @@ def handle_inbound_update(update_json, channel):
 @app.before_request
 def register_webhook_when_serving():
     ensure_telegram_webhook()
+
+
+@app.teardown_request
+def _release_memory_after_request(_exc):
+    release_idle_memory()
 
 
 @app.route('/webhook', methods=['POST'])

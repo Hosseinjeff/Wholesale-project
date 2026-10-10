@@ -2,7 +2,16 @@ import os
 import unittest
 
 from catalog.extract import PRODUCT_HEADERS, extract_products
-from catalog.sync import MemoryStore, extend_header_row, finalize_batch, grid_expansion_requests, load_service_account_info
+from catalog.sync import (
+    GoogleSheetStore,
+    MemoryStore,
+    SheetsRest,
+    extend_header_row,
+    finalize_batch,
+    grid_expansion_requests,
+    load_service_account_info,
+    release_idle_memory,
+)
 
 
 BONAKDAR = (
@@ -379,6 +388,86 @@ class SyncTests(unittest.TestCase):
                 os.environ.pop("GOOGLE_SERVICE_ACCOUNT_JSON", None)
             else:
                 os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"] = previous
+
+
+class RecordingSheets:
+    def __init__(self, row_count=1000, column_count=40):
+        self.calls = []
+        self.row_count = row_count
+        self.column_count = column_count
+
+    def get_spreadsheet(self, fields):
+        self.calls.append(("meta", fields))
+        return {"sheets": [{"properties": {
+            "title": "Products",
+            "sheetId": 3,
+            "gridProperties": {"rowCount": self.row_count, "columnCount": self.column_count},
+        }}]}
+
+    def values_get(self, range_name):
+        self.calls.append(("get", range_name))
+        return {"values": [["Sale Price"], ["52000"]]}
+
+    def values_append(self, range_name, value_input, insert_data, body):
+        self.calls.append(("append", range_name, value_input, insert_data, body))
+        return {}
+
+    def values_update(self, range_name, value_input, body):
+        self.calls.append(("update", range_name, value_input, body))
+        return {}
+
+    def batch_update(self, body):
+        self.calls.append(("batch", body))
+        return {}
+
+
+class SheetTransportTests(unittest.TestCase):
+    def test_read_and_append_use_small_rest_calls(self):
+        http = RecordingSheets()
+        store = GoogleSheetStore("sheet-id", {}, http=http)
+        self.assertEqual(store.read("Products"), [["Sale Price"], ["52000"]])
+        store.append("Offers", [["a", "b"]])
+        self.assertEqual(http.calls[0], ("get", "'Products'"))
+        self.assertEqual(http.calls[1][0], "append")
+        self.assertEqual(http.calls[1][1], "'Offers'!A1:B1")
+        self.assertEqual(http.calls[1][4], {"values": [["a", "b"]]})
+
+    def test_a_short_grid_grows_before_the_write(self):
+        http = RecordingSheets(row_count=1, column_count=1)
+        store = GoogleSheetStore("sheet-id", {}, http=http)
+        store.write_rows("Products", 2, [["52000", "65000"]])
+        self.assertEqual(http.calls[0][0], "meta")
+        self.assertEqual(http.calls[1][0], "batch")
+        growth = http.calls[1][1]["requests"]
+        self.assertEqual(growth[0]["appendDimension"]["dimension"], "ROWS")
+        self.assertEqual(growth[1]["appendDimension"]["dimension"], "COLUMNS")
+        self.assertEqual(http.calls[2][0], "update")
+        self.assertEqual(http.calls[2][1], "'Products'!A2:B2")
+
+    def test_rest_client_encodes_the_sheet_range(self):
+        seen = {}
+
+        def transport(method, path, params, body):
+            seen["method"] = method
+            seen["path"] = path
+            seen["params"] = params
+            seen["body"] = body
+            return {"values": [["ok"]]}
+
+        client = SheetsRest("sheet id", transport=transport)
+        self.assertEqual(client.values_get("'Offers'"), {"values": [["ok"]]})
+        self.assertEqual(seen["method"], "GET")
+        self.assertEqual(seen["path"], "/v4/spreadsheets/sheet%20id/values/%27Offers%27")
+        client.values_append("'Offers'!A1:A1", "RAW", "INSERT_ROWS", {"values": [["1"]]})
+        self.assertTrue(seen["path"].endswith(":append"))
+        self.assertEqual(seen["params"]["valueInputOption"], "RAW")
+
+    def test_import_does_not_load_the_discovery_client(self):
+        import sys
+        self.assertNotIn("googleapiclient", sys.modules)
+        self.assertNotIn("telegram", sys.modules)
+        self.assertNotIn("pandas", sys.modules)
+        release_idle_memory()
 
 
 if __name__ == "__main__":
