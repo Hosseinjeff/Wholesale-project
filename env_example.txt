@@ -25,6 +25,9 @@ SLACK_CHANNEL_ID=C1234567890
 # https://console.cloud.google.com/apis/credentials
 GOOGLE_SHEETS_CREDENTIALS_PATH=credentials.json
 GOOGLE_SHEET_ID=your_google_sheet_id_here
+# One-line service account JSON. When this and GOOGLE_SHEET_ID are set,
+# the bot writes the Offers log and the Products current book itself.
+GOOGLE_SERVICE_ACCOUNT_JSON=
 
 # === GENERAL CONFIGURATION ===
 LOG_LEVEL=INFO

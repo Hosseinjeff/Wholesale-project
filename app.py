@@ -47,6 +47,7 @@ if USE_SHEETS:
     logger.info("Sheet writer: service account")
 elif WEB_APP_URL:
     logger.info("Sheet writer: Google Apps Script")
+    logger.info("Legacy Apps Script writer does not keep the offer log or current book.")
     logger.info(f"Web app URL: {WEB_APP_URL[:50]}...")
 else:
     logger.error("No sheet writer configured. Set GOOGLE_SERVICE_ACCOUNT_JSON and GOOGLE_SHEET_ID, or GOOGLE_WEB_APP_URL.")
