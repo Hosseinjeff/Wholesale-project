@@ -6,26 +6,25 @@ import logging
 import sys
 from pathlib import Path
 
-def setup_logger(log_level: int = logging.INFO, log_file: str = 'channel_import.log'):
+def setup_logger(log_level: int = logging.INFO, log_file: str | None = 'channel_import.log'):
     """
     Setup logging configuration for the application.
 
     Args:
         log_level: Logging level (e.g., logging.DEBUG, logging.INFO)
-        log_file: Path to log file
+        log_file: Path to log file. None logs to the console only.
     """
-    # Create logs directory if it doesn't exist
-    log_path = Path(log_file)
-    log_path.parent.mkdir(exist_ok=True)
+    handlers = [logging.StreamHandler(sys.stdout)]
+    if log_file:
+        log_path = Path(log_file)
+        log_path.parent.mkdir(exist_ok=True)
+        handlers.insert(0, logging.FileHandler(log_file))
 
     # Configure logging
     logging.basicConfig(
         level=log_level,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler(log_file),
-            logging.StreamHandler(sys.stdout)
-        ]
+        handlers=handlers,
     )
 
     # Reduce verbosity of some third-party libraries

@@ -27,7 +27,7 @@ def test_dependencies():
 
     if missing_packages:
         print(f"ERROR: Missing packages: {', '.join(missing_packages)}")
-        print("Run: pip install -r requirements.txt")
+        print("Run: pip install -r requirements-desktop.txt")
         return False
     else:
         print("SUCCESS: All dependencies are installed")

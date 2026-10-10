@@ -1,23 +1,5 @@
-# Core dependencies
-google-api-python-client
-google-auth-oauthlib
-google-auth-httplib2
-python-dotenv
+# Railway webhook. Desktop importers use requirements-desktop.txt.
 flask
 gunicorn
-
-# HTTP requests
 requests
-aiohttp
-
-# Data processing
-pandas
-openpyxl
-
-# Logging and utilities
-schedule
-
-# Channel-specific libraries
-python-telegram-bot>=20.0
-discord.py
-slack-sdk
+google-auth

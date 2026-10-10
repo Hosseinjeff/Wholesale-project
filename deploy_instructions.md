@@ -22,7 +22,7 @@ This project is optimized for deployment on [Railway.app](https://railway.app). 
    - `RAILWAY_ENVIRONMENT`: `production`.
 
 3. **Wait for Build**:
-   Railway will automatically detect the `Dockerfile` and `railway.json`. It will install dependencies from `requirements.txt` and start the Flask app using `python app.py`.
+   Railway will automatically detect the `Dockerfile` and `railway.json`. It installs `requirements.txt` and starts one gunicorn worker. The desktop libraries (Telegram client, pandas, Discord, Slack) are not installed, and the process gives memory back after each request.
 
 ## 3. Set Telegram Webhook
 Once the app is "Active" on Railway:

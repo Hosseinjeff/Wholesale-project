@@ -16,6 +16,7 @@ import re
 import threading
 import time
 from typing import Any
+from urllib.parse import quote
 
 from catalog.extract import (
     BATCH_STATUS_HEADERS,
@@ -92,28 +93,118 @@ class MemoryStore:
         return deleted
 
 
+_credentials = None
+_credential_lock = threading.Lock()
+_http_session = None
+
+
+def release_idle_memory() -> None:
+    """Give freed heap pages back so an idle process does not keep a batch's footprint."""
+    import gc
+
+    gc.collect()
+    try:
+        import ctypes
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except Exception:
+        return
+
+
+def _access_token(info: dict[str, Any]) -> str:
+    global _credentials
+    with _credential_lock:
+        if _credentials is None:
+            from google.oauth2.service_account import Credentials
+
+            _credentials = Credentials.from_service_account_info(info, scopes=[SHEETS_SCOPE])
+        if not _credentials.valid:
+            from google.auth.transport.requests import Request
+
+            _credentials.refresh(Request())
+        return _credentials.token
+
+
+def _session():
+    global _http_session
+    if _http_session is None:
+        import requests
+
+        _http_session = requests.Session()
+    return _http_session
+
+
+class SheetsRest:
+    """Sheets calls over HTTP. The discovery client stays out of the idle process."""
+
+    def __init__(self, spreadsheet_id: str, info: dict[str, Any] | None = None, transport=None) -> None:
+        self.spreadsheet_id = quote(spreadsheet_id, safe="")
+        self._info = info or {}
+        self._transport = transport
+
+    def get_spreadsheet(self, fields: str) -> dict[str, Any]:
+        return self._call("GET", f"/v4/spreadsheets/{self.spreadsheet_id}", params={"fields": fields})
+
+    def batch_update(self, body: dict[str, Any]) -> dict[str, Any]:
+        return self._call("POST", f"/v4/spreadsheets/{self.spreadsheet_id}:batchUpdate", body=body)
+
+    def values_get(self, range_name: str) -> dict[str, Any]:
+        return self._call("GET", f"/v4/spreadsheets/{self.spreadsheet_id}/values/{quote(range_name, safe='')}")
+
+    def values_append(self, range_name: str, value_input: str, insert_data: str, body: dict[str, Any]) -> dict[str, Any]:
+        return self._call(
+            "POST",
+            f"/v4/spreadsheets/{self.spreadsheet_id}/values/{quote(range_name, safe='')}:append",
+            params={"valueInputOption": value_input, "insertDataOption": insert_data},
+            body=body,
+        )
+
+    def values_update(self, range_name: str, value_input: str, body: dict[str, Any]) -> dict[str, Any]:
+        return self._call(
+            "PUT",
+            f"/v4/spreadsheets/{self.spreadsheet_id}/values/{quote(range_name, safe='')}",
+            params={"valueInputOption": value_input},
+            body=body,
+        )
+
+    def _call(self, method: str, path: str, params: dict[str, str] | None = None, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        if self._transport is not None:
+            result = self._transport(method, path, params, body)
+            return result if result is not None else {}
+        response = _session().request(
+            method,
+            "https://sheets.googleapis.com" + path,
+            params=params,
+            json=body,
+            headers={"Authorization": f"Bearer {_access_token(self._info)}"},
+            timeout=60,
+        )
+        try:
+            if response.status_code >= 400:
+                detail = response.text[:500]
+                raise RuntimeError(f"Sheets API {response.status_code}: {detail}")
+            if not response.content:
+                return {}
+            parsed = response.json()
+        finally:
+            response.close()
+        return parsed if isinstance(parsed, dict) else {}
+
+
 class GoogleSheetStore:
-    def __init__(self, spreadsheet_id: str, info: dict[str, Any]) -> None:
+    def __init__(self, spreadsheet_id: str, info: dict[str, Any], http: SheetsRest | None = None) -> None:
         self.spreadsheet_id = spreadsheet_id
         self._info = info
-        self._service = None
+        self._http = http
         self._sheet_ids: dict[str, int] = {}
         self._grids: dict[str, dict[str, int]] = {}
 
-    def _api(self):
-        if self._service is None:
-            from google.oauth2.service_account import Credentials
-            from googleapiclient.discovery import build
-
-            creds = Credentials.from_service_account_info(self._info, scopes=[SHEETS_SCOPE])
-            self._service = build("sheets", "v4", credentials=creds, cache_discovery=False)
-        return self._service
+    def _api(self) -> SheetsRest:
+        if self._http is None:
+            self._http = SheetsRest(self.spreadsheet_id, self._info)
+        return self._http
 
     def _refresh_sheet_ids(self) -> None:
-        meta = self._api().spreadsheets().get(
-            spreadsheetId=self.spreadsheet_id,
-            fields="sheets.properties",
-        ).execute()
+        meta = self._api().get_spreadsheet("sheets.properties")
         self._sheet_ids = {}
         self._grids = {}
         for sheet in meta.get("sheets", []):
@@ -132,10 +223,7 @@ class GoogleSheetStore:
         if not self._sheet_ids:
             self._refresh_sheet_ids()
         if name not in self._sheet_ids:
-            self._api().spreadsheets().batchUpdate(
-                spreadsheetId=self.spreadsheet_id,
-                body={"requests": [{"addSheet": {"properties": {"title": name}}}]},
-            ).execute()
+            self._api().batch_update({"requests": [{"addSheet": {"properties": {"title": name}}}]})
             self._refresh_sheet_ids()
         existing = self.read(name)
         if not existing:
@@ -146,23 +234,19 @@ class GoogleSheetStore:
             self.write_rows(name, 1, [extended])
 
     def read(self, name: str) -> list[list[Any]]:
-        result = self._api().spreadsheets().values().get(
-            spreadsheetId=self.spreadsheet_id,
-            range=_a1(name),
-        ).execute()
+        result = self._api().values_get(_a1(name))
         return result.get("values", [])
 
     def append(self, name: str, rows: list[list[Any]]) -> None:
         if not rows:
             return
         width = max(len(row) for row in rows)
-        self._api().spreadsheets().values().append(
-            spreadsheetId=self.spreadsheet_id,
-            range=f"{_quote(name)}!A1:{_column(width)}1",
-            valueInputOption="RAW",
-            insertDataOption="INSERT_ROWS",
-            body={"values": rows},
-        ).execute()
+        self._api().values_append(
+            f"{_quote(name)}!A1:{_column(width)}1",
+            "RAW",
+            "INSERT_ROWS",
+            {"values": rows},
+        )
 
     def write_rows(self, name: str, start_row: int, rows: list[list[Any]]) -> None:
         if not rows:
@@ -170,12 +254,11 @@ class GoogleSheetStore:
         width = max(len(row) for row in rows)
         end = start_row + len(rows) - 1
         self._ensure_grid(name, end, width)
-        self._api().spreadsheets().values().update(
-            spreadsheetId=self.spreadsheet_id,
-            range=f"{_quote(name)}!A{start_row}:{_column(width)}{end}",
-            valueInputOption="RAW",
-            body={"values": rows},
-        ).execute()
+        self._api().values_update(
+            f"{_quote(name)}!A{start_row}:{_column(width)}{end}",
+            "RAW",
+            {"values": rows},
+        )
 
     def delete_rows(self, name: str, row_numbers: list[int]) -> int:
         if not row_numbers:
@@ -197,10 +280,7 @@ class GoogleSheetStore:
                     }
                 }
             })
-        self._api().spreadsheets().batchUpdate(
-            spreadsheetId=self.spreadsheet_id,
-            body={"requests": requests},
-        ).execute()
+        self._api().batch_update({"requests": requests})
         return len(requests)
 
     def _ensure_grid(self, name: str, min_rows: int, min_cols: int) -> None:
@@ -219,10 +299,7 @@ class GoogleSheetStore:
         )
         if not requests:
             return
-        self._api().spreadsheets().batchUpdate(
-            spreadsheetId=self.spreadsheet_id,
-            body={"requests": requests},
-        ).execute()
+        self._api().batch_update({"requests": requests})
         for request in requests:
             growth = request["appendDimension"]
             if growth["dimension"] == "ROWS":
