@@ -1,0 +1,12 @@
+-r requirements.txt
+google-api-python-client
+google-auth-oauthlib
+google-auth-httplib2
+python-dotenv
+pandas
+openpyxl
+aiohttp
+schedule
+python-telegram-bot>=20.0
+discord.py
+slack-sdk
