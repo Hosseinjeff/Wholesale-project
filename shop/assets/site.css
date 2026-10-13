@@ -1,0 +1,87 @@
+@font-face {
+    font-family: Vazirmatn;
+    src: url("fonts/Vazirmatn-Regular.woff2") format("woff2");
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: Vazirmatn;
+    src: url("fonts/Vazirmatn-Bold.woff2") format("woff2");
+    font-weight: 700;
+    font-style: normal;
+    font-display: swap;
+}
+:root {
+    --ink: #1d241c;
+    --paper: #f3ecdf;
+    --card: #fffaf3;
+    --line: #d9cbb6;
+    --green: #1f4a38;
+    --copper: #9a4e2c;
+}
+* { box-sizing: border-box; }
+body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: Vazirmatn, Tahoma, sans-serif;
+    line-height: 1.7;
+}
+a { color: var(--green); }
+.top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 1.25rem;
+    background: var(--green);
+    color: #f6f1e7;
+}
+.top a { color: inherit; text-decoration: none; }
+.brand { font-weight: 700; font-size: 1.35rem; letter-spacing: -0.03em; }
+.cart-link { border: 1px solid rgba(255,255,255,.35); padding: .25rem .7rem; }
+main { padding: 1.25rem; max-width: 1100px; margin: 0 auto; }
+.narrow { max-width: 760px; }
+.intro h1 { margin: 0 0 .5rem; font-size: 1.8rem; line-height: 1.35; }
+.kicker { margin: 0; color: var(--copper); font-weight: 700; }
+.floor { background: var(--card); border: 1px solid var(--line); padding: .8rem 1rem; }
+.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: .9rem;
+    margin-top: 1rem;
+}
+.card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    padding: .9rem 1rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: .35rem;
+}
+.card h2 { margin: 0; font-size: 1.05rem; }
+.meta { margin: 0; color: #5d564c; font-size: .88rem; }
+.price { margin: .2rem 0 0; font-size: 1.25rem; font-weight: 700; }
+.range { margin: 0; font-size: .82rem; color: #5d564c; }
+form label { display: block; margin: .6rem 0 .3rem; }
+input, textarea, button {
+    font: inherit;
+    padding: .4rem .55rem;
+}
+input[type="number"] { width: 5.5rem; }
+button {
+    background: var(--copper);
+    color: white;
+    border: 0;
+    cursor: pointer;
+}
+.card form { margin-top: auto; display: flex; gap: .5rem; align-items: end; flex-wrap: wrap; }
+table { width: 100%; border-collapse: collapse; background: var(--card); }
+th, td { border-bottom: 1px solid var(--line); text-align: right; padding: .55rem; vertical-align: top; }
+.total { font-size: 1.2rem; font-weight: 700; }
+.meter { background: var(--card); border: 1px solid var(--line); padding: .8rem 1rem; }
+.bar { height: .7rem; background: #e4d8c6; }
+.bar span { display: block; height: 100%; background: var(--green); }
+.error { background: #f8e4dc; padding: .6rem .8rem; }
+.order { margin-top: 1.5rem; }
+.order input, .order textarea { width: 100%; max-width: 28rem; }

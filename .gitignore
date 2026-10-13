@@ -26,3 +26,7 @@ channel_import.log
 # Credentials
 credentials.json
 token.pickle
+shop/private/config.php
+shop/data/cache.json
+shop/data/token.json
+shop/data/orders/
