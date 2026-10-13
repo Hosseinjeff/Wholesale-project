@@ -1,76 +1,105 @@
 <?php
 declare(strict_types=1);
 require __DIR__ . '/lib.php';
+require __DIR__ . '/layout.php';
 shop_start();
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && shop_token_ok()) {
-    shop_add((string) ($_POST['id'] ?? ''), (int) ($_POST['qty'] ?? 1));
-    header('Location: index.php');
-    exit;
-}
-
-$catalog = shop_catalog();
+$catalog = shop_present();
+$products = shop_visible($catalog);
 $quote = shop_quote($catalog, $_SESSION['cart']);
-$priced = [];
-foreach ($quote['lines'] as $line) {
-    $priced[$line['id']] = $line['unit'];
+$boot = shop_boot($catalog, $quote);
+$categories = [];
+$suppliers = [];
+foreach ($products as $product) {
+    $categories[$product['category']] = true;
+    if (($product['supplier'] ?? '') !== '') {
+        $suppliers[$product['supplier']] = true;
+    }
 }
-$reference = $quote['reference'];
-$count = 0;
-foreach ($_SESSION['cart'] as $qty) {
-    $count += (int) $qty;
-}
+$categories = array_keys($categories);
+$suppliers = array_keys($suppliers);
+sort($categories);
+$total = count($products);
+
+shop_header('مولوی‌سل', 'shop', $boot);
 ?>
-<!DOCTYPE html>
-<html lang="fa" dir="rtl">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>مولوی‌سل</title>
-    <link rel="stylesheet" href="assets/site.css">
-</head>
-<body>
-<header class="top">
-    <a class="brand" href="index.php">مولوی‌سل</a>
-    <a class="cart-link" href="cart.php">سبد<?= $count ? ' (' . $count . ')' : '' ?></a>
-</header>
-<main>
-    <section class="intro">
-        <p class="kicker">مواد غذایی بسته‌بندی</p>
-        <h1>قیمت هر کالا با اندازه سبد عوض می‌شود.</h1>
-        <p>سبد کوچک نزدیک قیمت مصرف می‌ماند. هرچه جمع سبد بالاتر برود، قیمت هر قلم به قیمت فروش تأمین‌کننده نزدیک‌تر می‌شود.</p>
-        <?php if ($reference): ?>
-            <p class="floor">کف سبد، قیمت مصرف <?= SHOP_TUNA_PACK ?> عدد <?= shop_h($reference['name']) ?> است: <strong><?= shop_h(shop_toman($reference['floor'])) ?></strong>. قیمت فروش تأمین‌کننده از <?= shop_h(shop_toman($reference['ceiling'])) ?> به بعد کامل می‌شود.</p>
-        <?php endif; ?>
-    </section>
-    <section class="grid">
-        <?php foreach ($catalog['products'] as $product): ?>
-            <?php
-            $unit = $priced[$product['id']] ?? (($product['shelf'] > $product['sale']) ? $product['shelf'] : $product['sale']);
-            ?>
-            <article class="card">
+<div class="toolbar">
+    <div class="cluster">
+        <label class="sort"><span>مرتب‌سازی:</span>
+            <select id="sort" aria-label="مرتب‌سازی">
+                <option value="new">جدیدترین</option>
+                <option value="cheap">ارزان‌ترین</option>
+                <option value="dear">گران‌ترین</option>
+                <option value="name">نام</option>
+            </select>
+        </label>
+        <button type="button" class="ghost" id="filter-toggle"><?= shop_svg('filter') ?> فیلتر</button>
+        <div class="views" role="group" aria-label="نوع نمایش">
+            <button type="button" data-view="grid" aria-label="شبکه"><?= shop_svg('grid') ?></button>
+            <button type="button" data-view="list" aria-label="فهرست"><?= shop_svg('list') ?></button>
+        </div>
+        <div class="pop" id="filter-pop" hidden>
+            <p>تأمین‌کننده</p>
+            <?php foreach ($suppliers as $supplier): ?>
+                <label><input type="checkbox" data-supplier-filter value="<?= shop_h($supplier) ?>"> <?= shop_h($supplier) ?></label>
+            <?php endforeach; ?>
+            <label><input type="checkbox" id="only-shelf"> فقط کالاهای دارای قیمت مصرف</label>
+            <button type="button" class="linkish" id="filter-clear">پاک کردن فیلتر</button>
+        </div>
+    </div>
+    <div class="cluster">
+        <label class="choice">
+            <select id="cat">
+                <option value="">همه دسته‌بندی‌ها</option>
+                <?php foreach ($categories as $category): ?>
+                    <option value="<?= shop_h($category) ?>"><?= shop_h($category) ?></option>
+                <?php endforeach; ?>
+            </select>
+        </label>
+        <p class="count" id="count">نمایش ۱ تا <?= $total ?> از <?= $total ?> محصول</p>
+    </div>
+</div>
+<div class="chips" id="cats">
+    <button type="button" data-cat="" class="on">همه</button>
+    <?php foreach ($categories as $category): ?>
+        <button type="button" data-cat="<?= shop_h($category) ?>"><?= shop_h($category) ?></button>
+    <?php endforeach; ?>
+</div>
+<div class="catalog view-auto" id="catalog">
+    <?php foreach ($products as $product): ?>
+        <?php
+        $qty = (int) ($_SESSION['cart'][$product['id']] ?? 0);
+        $unit = (int) ($quote['units'][$product['id']] ?? shop_unit_price($product, (float) $quote['progress']));
+        $shelf = (int) $product['shelf'];
+        ?>
+        <article class="card"
+                 data-pid="<?= shop_h($product['id']) ?>"
+                 data-name="<?= shop_h($product['name']) ?>"
+                 data-cat="<?= shop_h($product['category']) ?>"
+                 data-supplier="<?= shop_h($product['supplier']) ?>"
+                 data-sale="<?= (int) $product['sale'] ?>"
+                 data-shelf="<?= $shelf ?>"
+                 data-index="<?= (int) $product['index'] ?>">
+            <div class="photo">
+                <img src="<?= shop_h($product['image']) ?>" alt="<?= shop_h($product['name']) ?>">
+                <button type="button" class="heart" aria-label="نشان کردن" aria-pressed="false"><?= shop_svg('heart') ?></button>
+            </div>
+            <div class="info">
                 <h2><?= shop_h($product['name']) ?></h2>
-                <p class="meta">
-                    <?= shop_h($product['supplier']) ?>
-                    <?php if ($product['packaging'] !== ''): ?> · <?= shop_h($product['packaging']) ?><?php endif; ?>
-                    <?php if ($product['volume'] !== ''): ?> · <?= shop_h($product['volume']) ?><?php endif; ?>
-                </p>
-                <?php if ($product['variation'] !== ''): ?>
-                    <p class="meta"><?= shop_h($product['variation']) ?></p>
-                <?php endif; ?>
-                <p class="price"><?= shop_h(shop_toman($unit)) ?></p>
-                <?php if ($product['shelf'] > $product['sale']): ?>
-                    <p class="range">قیمت مصرف <?= shop_h(shop_toman($product['shelf'])) ?> · قیمت فروش <?= shop_h(shop_toman($product['sale'])) ?></p>
-                <?php endif; ?>
-                <form method="post">
-                    <input type="hidden" name="token" value="<?= shop_h($_SESSION['token']) ?>">
-                    <input type="hidden" name="id" value="<?= shop_h($product['id']) ?>">
-                    <label>تعداد <input name="qty" type="number" min="1" max="999" value="1"></label>
-                    <button type="submit">افزودن به سبد</button>
-                </form>
-            </article>
-        <?php endforeach; ?>
-    </section>
-</main>
-</body>
-</html>
+                <div class="buy">
+                    <div>
+                        <p class="now" data-unit="<?= $unit ?>"><?= shop_h(shop_toman($unit)) ?></p>
+                        <p class="sub">
+                            <span class="was"<?= $shelf > $unit ? '' : ' hidden' ?>><?= shop_h(shop_toman($shelf)) ?></span>
+                            <span class="sku"><?= shop_h($product['sku']) ?></span>
+                        </p>
+                    </div>
+                    <?= shop_control($product['id'], $qty, 'index.php') ?>
+                </div>
+            </div>
+        </article>
+    <?php endforeach; ?>
+</div>
+<p class="empty" id="empty" hidden>کالایی با این مشخصات پیدا نشد.</p>
+<?php
+shop_footer($boot);

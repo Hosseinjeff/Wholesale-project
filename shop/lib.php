@@ -40,6 +40,7 @@ function shop_start(): void
     if (empty($_SESSION['token'])) {
         $_SESSION['token'] = bin2hex(random_bytes(16));
     }
+    header('Cache-Control: no-store');
 }
 
 function shop_token_ok(): bool
@@ -258,6 +259,17 @@ function shop_reference(array $products): ?array
     ];
 }
 
+function shop_unit_price(array $product, float $progress): int
+{
+    $sale = (int) $product['sale'];
+    $shelf = (int) $product['shelf'];
+    if ($shelf > $sale) {
+        $unit = (int) (round(($shelf - $progress * ($shelf - $sale)) / 1000) * 1000);
+        return max($sale, min($shelf, $unit));
+    }
+    return $sale;
+}
+
 function shop_quote(array $catalog, array $cart): array
 {
     $byId = [];
@@ -283,6 +295,10 @@ function shop_quote(array $catalog, array $cart): array
     if ($floor > 0 && $ceiling > $floor && $measure > $floor) {
         $progress = min(1.0, ($measure - $floor) / ($ceiling - $floor));
     }
+    $units = [];
+    foreach ($byId as $id => $product) {
+        $units[$id] = shop_unit_price($product, $progress);
+    }
     $lines = [];
     $total = 0;
     $shelfTotal = 0;
@@ -291,21 +307,18 @@ function shop_quote(array $catalog, array $cart): array
         $qty = $item['qty'];
         $sale = (int) $product['sale'];
         $shelf = (int) $product['shelf'];
-        if ($shelf > $sale) {
-            $unit = (int) (round(($shelf - $progress * ($shelf - $sale)) / 1000) * 1000);
-            $unit = max($sale, min($shelf, $unit));
-        } else {
-            $unit = $sale;
-        }
+        $unit = $units[$product['id']] ?? shop_unit_price($product, $progress);
         $lineTotal = $unit * $qty;
         $total += $lineTotal;
         $shelfTotal += ($shelf > 0 ? $shelf : $sale) * $qty;
         $lines[] = [
             'id' => $product['id'],
             'name' => $product['name'],
-            'packaging' => $product['packaging'],
-            'volume' => $product['volume'],
-            'supplier' => $product['supplier'],
+            'packaging' => $product['packaging'] ?? '',
+            'volume' => $product['volume'] ?? '',
+            'supplier' => $product['supplier'] ?? '',
+            'image' => (string) ($product['image'] ?? ''),
+            'sku' => (string) ($product['sku'] ?? ''),
             'qty' => $qty,
             'sale' => $sale,
             'shelf' => $shelf,
@@ -320,6 +333,7 @@ function shop_quote(array $catalog, array $cart): array
         'shelf_total' => $shelfTotal,
         'progress' => $progress,
         'reference' => $reference,
+        'units' => $units,
     ];
 }
 
@@ -341,3 +355,5 @@ function shop_set(string $id, int $qty): void
     }
     $_SESSION['cart'][$id] = min(999, $qty);
 }
+
+require_once __DIR__ . '/store.php';

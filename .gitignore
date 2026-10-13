@@ -27,6 +27,13 @@ channel_import.log
 credentials.json
 token.pickle
 shop/private/config.php
+shop/private/admin.php
 shop/data/cache.json
 shop/data/token.json
 shop/data/orders/
+shop/data/shop.sqlite
+shop/data/shop.sqlite-wal
+shop/data/shop.sqlite-shm
+shop/assets/uploads/*
+!shop/assets/uploads/.htaccess
+!shop/assets/uploads/.gitkeep
