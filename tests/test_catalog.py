@@ -1,7 +1,7 @@
 import os
 import unittest
 
-from catalog.extract import PRODUCT_HEADERS, extract_products
+from catalog.extract import OFFER_HEADERS, PRODUCT_HEADERS, extract_products
 from catalog.sync import (
     GoogleSheetStore,
     MemoryStore,
@@ -10,7 +10,10 @@ from catalog.sync import (
     finalize_batch,
     grid_expansion_requests,
     load_service_account_info,
+    parse_prompt_answer,
+    refresh_buying_desk,
     release_idle_memory,
+    resolve_prompt,
 )
 
 
@@ -44,6 +47,8 @@ class ExtractTests(unittest.TestCase):
         self.assertEqual(product["sale_price"], 52000)
         self.assertEqual(product["price"], 52000)
         self.assertEqual(product["consumer_price"], 65000)
+        self.assertEqual(product["package_price"], 1250000)
+        self.assertEqual(product["price_type"], "unit")
         self.assertIn("۲۴ عددی", product["packaging"])
 
     def test_top_shop_keeps_consumer_price_and_ignores_box_price(self):
@@ -54,6 +59,7 @@ class ExtractTests(unittest.TestCase):
         self.assertEqual(product["sale_price"], 0)
         self.assertEqual(product["price"], 65000)
         self.assertEqual(product["consumer_price"], 65000)
+        self.assertEqual(product["package_price"], 1200000)
         self.assertIn("24", product["packaging"])
 
     def test_nobelshop_keeps_the_first_priced_product(self):
@@ -70,6 +76,73 @@ class ExtractTests(unittest.TestCase):
         self.assertEqual(products[0]["name"], "Test Product")
         self.assertEqual(products[0]["price"], 125000)
         self.assertEqual(products[0]["currency"], "IRT")
+
+    def test_bonakdar_keeps_the_name_and_the_carton_count(self):
+        croissant = (
+            "کروسان پچ‌ پچ ،کارتن ۳۶ عددی\n"
+            "قیمت فروش ما : ۳۰/۰۰۰ تومان\n"
+            "قیمت مصرف کننده : ۵۰/۰۰۰ تومان"
+        )
+        tuna = (
+            "تن ۱۸۰ گرم درب شفاف شیان،۲۴عدد\n"
+            "قیمت فروش ما: ۲۵۵/۰۰۰ تومان\n"
+            "قیمت مصرف کننده: ۳۴۵/۰۰۰ تومان"
+        )
+        cookie = (
+            "کلوچه دوقلو تبرک،۳۰ عددی\n"
+            "قیمت فروش ما: ۲۰/۰۰۰ تومان\n"
+            "قیمت مصرف کننده: ندارد\n"
+            "قیمت بالای ۵۰ کارتن ۱۹/۰۰۰ تومان"
+        )
+        pasta = (
+            "پاستا فوری شف هو،۶ عددی\n"
+            "طعم: آلفردو،پستو،گوجه ریحان،کاربونارا\n"
+            "قیمت فروش ما: ۱۵۰/۰۰۰ تومان\n"
+            "قیمت مصرف کننده: ۱۹۵/۰۰۰ تومان"
+        )
+        tea = (
+            "چای کیسه ای لفاف دار شهرزاد\n"
+            "بسته ۲۵ عدد و کارتن ۲۴ بسته\n"
+            "قیمت فروش ما: ۱۱۵/۰۰۰ تومان\n"
+            "قیمت مصرف کننده: ۲۰۰/۰۰۰ تومان"
+        )
+        sugar = (
+            "قند شکسته درجه یک،۵ کیلویی\n"
+            "قیمت فروش کیلو: ۱۲۶/۰۰۰ تومان"
+        )
+
+        products = extract_products(croissant, "@bonakdarjavan")
+        self.assertEqual(products[0]["name"], "کروسان پچ‌ پچ")
+        self.assertEqual(products[0]["packaging"], "کارتن ۳۶ عددی")
+        self.assertEqual(products[0]["sale_price"], 30000)
+        self.assertEqual(products[0]["price_type"], "unit")
+
+        products = extract_products(tuna, "@bonakdarjavan")
+        self.assertEqual(products[0]["name"], "تن ۱۸۰ گرم درب شفاف شیان")
+        self.assertEqual(products[0]["packaging"], "۲۴عدد")
+        self.assertEqual(products[0]["volume"], "180 گرم")
+        self.assertEqual(products[0]["sale_price"], 255000)
+        self.assertEqual(products[0]["consumer_price"], 345000)
+
+        products = extract_products(cookie, "@bonakdarjavan")
+        self.assertEqual(products[0]["name"], "کلوچه دوقلو تبرک")
+        self.assertEqual(products[0]["packaging"], "۳۰ عددی")
+        self.assertEqual(products[0]["sale_price"], 20000)
+        self.assertEqual(products[0]["package_price"], 0)
+
+        products = extract_products(pasta, "@bonakdarjavan")
+        self.assertEqual(products[0]["variation_type"], "آلفردو،پستو،گوجه ریحان،کاربونارا")
+        self.assertEqual(products[0]["sale_price"], 150000)
+
+        products = extract_products(tea, "@bonakdarjavan")
+        self.assertEqual(products[0]["name"], "چای کیسه ای لفاف دار شهرزاد")
+        self.assertEqual(products[0]["packaging"], "بسته ۲۵ عدد و کارتن ۲۴ بسته")
+
+        products = extract_products(sugar, "@bonakdarjavan")
+        self.assertEqual(products[0]["name"], "قند شکسته درجه یک،۵ کیلویی")
+        self.assertEqual(products[0]["volume"], "5 کیلویی")
+        self.assertEqual(products[0]["sale_price"], 126000)
+        self.assertEqual(products[0]["packaging"], "")
 
 
 class FailingProductStore(MemoryStore):
@@ -123,6 +196,7 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(len(products), 2)
         self.assertEqual(products[1][products[0].index("Product Name")], "کنسرو ماهی ۱۸۰ گرمی تاپ")
         self.assertEqual(products[1][products[0].index("Sale Price")], 52000)
+        self.assertEqual(products[1][products[0].index("Double Pack Price")], 1250000)
         self.assertEqual(products[1][products[0].index("Channel Username")], "@bonakdarjavan")
 
         status = store.read("BatchStatus")
@@ -155,6 +229,46 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(products[1][products[0].index("Offer Count")], 2)
         self.assertEqual(products[1][products[0].index("Previous Sale Price")], "")
         self.assertEqual(products[1][products[0].index("Latest Offer ID")], "b2:m2:0")
+
+    def test_repost_updates_the_row_that_kept_the_carton_in_the_name(self):
+        store = MemoryStore()
+        store.ensure("Products", PRODUCT_HEADERS)
+        store.ensure("Offers", OFFER_HEADERS)
+        product_headers = store.read("Products")[0]
+        old = [""] * len(product_headers)
+        old[product_headers.index("Product Name")] = "تن ۱۸۰ گرم درب شفاف شیان،۲۴عدد"
+        old[product_headers.index("Channel Username")] = "@bonakdarjavan"
+        old[product_headers.index("Sale Price")] = 240000
+        old[product_headers.index("Consumer Price")] = 345000
+        store.append("Products", [old])
+        offer_headers = store.read("Offers")[0]
+        offer = [""] * len(offer_headers)
+        offer[offer_headers.index("Offer ID")] = "old:1"
+        offer[offer_headers.index("Product Name")] = "تن ۱۸۰ گرم درب شفاف شیان،۲۴عدد"
+        offer[offer_headers.index("Channel Username")] = "@bonakdarjavan"
+        offer[offer_headers.index("Sale Price")] = 240000
+        offer[offer_headers.index("Consumer Price")] = 345000
+        store.append("Offers", [offer])
+        finalize_batch(store, {
+            "batch_id": "b",
+            "messages": [{
+                "id": "m1",
+                "channel": "telegram",
+                "channel_username": "@bonakdarjavan",
+                "content": (
+                    "تن ۱۸۰ گرم درب شفاف شیان،۲۴عدد\n"
+                    "قیمت فروش ما: ۲۵۵/۰۰۰ تومان\n"
+                    "قیمت مصرف کننده: ۳۴۵/۰۰۰ تومان"
+                ),
+            }],
+        })
+        products = store.read("Products")
+        self.assertEqual(len(products), 2)
+        self.assertEqual(products[1][products[0].index("Product Name")], "تن ۱۸۰ گرم درب شفاف شیان")
+        self.assertEqual(products[1][products[0].index("Packaging")], "۲۴عدد")
+        self.assertEqual(products[1][products[0].index("Sale Price")], 255000)
+        self.assertEqual(products[1][products[0].index("Previous Sale Price")], 240000)
+        self.assertEqual(products[1][products[0].index("Offer Count")], 2)
 
     def test_count_mismatch_does_not_extract(self):
         store = MemoryStore()
@@ -376,6 +490,132 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(result["status"], "success")
         self.assertNotIn("Offers", store.sheets)
         self.assertNotIn("Products", store.sheets)
+
+    def test_clear_price_is_saved_without_a_prompt(self):
+        store = MemoryStore()
+        result = finalize_batch(store, {"batch_id": "b1", "messages": [{
+            "id": "m1",
+            "chat_id": 42,
+            "channel": "telegram",
+            "channel_username": "@bonakdarjavan",
+            "content": BONAKDAR,
+        }]})
+        self.assertEqual(len(store.read("Decisions")), 1)
+        self.assertEqual(len(store.read("Prompts")), 1)
+        self.assertEqual(result["prompts"], [])
+        self.assertEqual(result["saved"][0]["sale"], 52000)
+        self.assertEqual(store.read("Items")[1][store.read("Items")[0].index("Last Sale Price")], 52000)
+
+    def test_confirmed_sell_price_is_kept_and_a_quiet_item_leaves_the_list(self):
+        store = MemoryStore()
+        message = {
+            "id": "m1",
+            "channel": "telegram",
+            "channel_username": "@bonakdarjavan",
+            "content": BONAKDAR,
+        }
+        finalize_batch(store, {"batch_id": "b1", "messages": [message]})
+        items = store.sheets["Items"]
+        headers = items[0]
+        items[1][headers.index("Confirmed Item Name")] = "Tuna 180g"
+        items[1][headers.index("Our Sell Price")] = 58000
+        items[0].append("Buyer Note")
+        items[1].append("weekly")
+        message["id"] = "m2"
+        finalize_batch(store, {"batch_id": "b2", "messages": [message]})
+
+        items = store.read("Items")
+        headers = items[0]
+        self.assertEqual(len(store.read("Decisions")), 1)
+        self.assertEqual(items[1][headers.index("Confirmed Item Name")], "Tuna 180g")
+        self.assertEqual(items[1][headers.index("Our Sell Price")], 58000)
+        self.assertEqual(items[1][headers.index("Status")], "confirmed")
+        self.assertEqual(items[1][headers.index("Buyer Note")], "weekly")
+
+        result = refresh_buying_desk(store)
+        self.assertEqual(result["decisions"], 0)
+        self.assertEqual(result["items"], 1)
+
+    def test_missing_unit_price_asks_in_the_bot_and_a_number_clears_it(self):
+        store = MemoryStore()
+        result = finalize_batch(store, {"batch_id": "b1", "messages": [{
+            "id": "m1",
+            "chat_id": 42,
+            "channel": "telegram",
+            "channel_username": "@top_shop_rahimi",
+            "content": TOP_SHOP,
+        }]})
+        decisions = store.read("Decisions")
+        prompts = store.read("Prompts")
+        self.assertEqual(decisions[1][decisions[0].index("Reasons")], "missing unit price")
+        self.assertEqual(prompts[1][prompts[0].index("Status")], "asked")
+        self.assertIn("قیمت واحد پیدا نشد", prompts[1][prompts[0].index("Question")])
+        self.assertEqual(result["prompts"][0]["chat_id"], "42")
+        self.assertEqual(result["saved"], [])
+
+        outcome = resolve_prompt(store, 42, "۳۰۸۳۳ تومان")
+        products = store.read("Products")
+        prompts = store.read("Prompts")
+        self.assertTrue(outcome["understood"])
+        self.assertEqual(outcome["action"], "correct")
+        self.assertEqual(products[1][products[0].index("Sale Price")], 30833)
+        self.assertEqual(prompts[1][prompts[0].index("Status")], "corrected")
+        self.assertEqual(len(store.read("Decisions")), 1)
+
+    def test_ok_and_skip_settle_a_doubt_without_asking_again(self):
+        store = MemoryStore()
+        finalize_batch(store, {"batch_id": "b1", "messages": [{
+            "id": "m1",
+            "chat_id": 7,
+            "channel": "telegram",
+            "channel_username": "@top_shop_rahimi",
+            "content": TOP_SHOP,
+        }]})
+        accepted = resolve_prompt(store, "7", "باشه")
+        self.assertEqual(accepted["action"], "accept")
+        self.assertEqual(len(store.read("Decisions")), 1)
+        refresh_buying_desk(store)
+        self.assertEqual(len(store.read("Prompts")), 2)
+        self.assertEqual(store.read("Prompts")[1][store.read("Prompts")[0].index("Status")], "accepted")
+
+        store = MemoryStore()
+        finalize_batch(store, {"batch_id": "b1", "messages": [{
+            "id": "m1",
+            "chat_id": 7,
+            "channel": "telegram",
+            "channel_username": "@top_shop_rahimi",
+            "content": TOP_SHOP,
+        }]})
+        skipped = resolve_prompt(store, 7, "رد")
+        self.assertEqual(skipped["action"], "skip")
+        self.assertEqual(store.read("Products")[1][store.read("Products")[0].index("Status")], "skipped")
+        self.assertEqual(len(store.read("Decisions")), 1)
+
+    def test_a_clear_price_change_does_not_ask(self):
+        store = MemoryStore()
+        finalize_batch(store, {"batch_id": "b1", "messages": [{
+            "id": "m1",
+            "chat_id": 1,
+            "channel": "telegram",
+            "channel_username": "@bonakdarjavan",
+            "content": BONAKDAR,
+        }]})
+        result = finalize_batch(store, {"batch_id": "b2", "messages": [{
+            "id": "m2",
+            "chat_id": 1,
+            "channel": "telegram",
+            "channel_username": "@bonakdarjavan",
+            "content": BONAKDAR_REPRICE,
+        }]})
+        self.assertEqual(len(store.read("Decisions")), 1)
+        self.assertEqual(result["prompts"], [])
+        self.assertEqual(result["saved"][0]["sale"], 60000)
+
+    def test_prompt_answers(self):
+        self.assertEqual(parse_prompt_answer("باشه"), ("accept", None))
+        self.assertEqual(parse_prompt_answer("رد"), ("skip", None))
+        self.assertEqual(parse_prompt_answer("52,000"), ("correct", 52000))
+        self.assertIsNone(parse_prompt_answer("این قیمت عجیبه"))
 
     def test_invalid_service_account_json_is_rejected(self):
         previous = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
