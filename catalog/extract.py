@@ -94,6 +94,7 @@ OFFER_HEADERS = [
     "Forwarded By",
     "Import Timestamp",
     "Original Message",
+    "Package Price",
 ]
 
 ITEM_HEADERS = [
@@ -187,7 +188,6 @@ _SALE_LINE = re.compile(
 )
 _PRICE_TOKEN = re.compile(r"[\d,/\.]{4,}")
 _STANDALONE_PRICE = re.compile(r"^\s*[\d,/]{4,}\s*(?:تومان|ت|ریال)?\s*$")
-_PACK_HINT = re.compile(r"(?:باکس|کارتن|شیرینگ|ورق)", re.I)
 
 
 def persian_to_english_numbers(text: str) -> str:
@@ -263,9 +263,50 @@ def extract_packaging(text: str) -> str:
     return match.group(0) if match else ""
 
 
+_VOLUME_TEXT = re.compile(
+    r"(\d+\s*(?:گرم|کیلویی|کیلوگرم|میلی\s*لیتر|میلی|میل|لیتری|لیتر|gr|ml)|یک\s*لیتری)",
+    re.I,
+)
+_TITLE_CARTON = re.compile(
+    r"^(?P<name>.+?)(?:\s*[،,]\s*|\s+)(?P<pack>(?:در\s*)?(?:کارتن|باکس|بسته)\s*[\d۰-۹]+\s*(?:عددی|عدد|تایی))\s*$"
+)
+_TITLE_COUNT = re.compile(
+    r"^(?P<name>.+?)\s*[،,]\s*(?P<pack>[\d۰-۹]+\s*(?:عددی|عدد|تایی))\s*$"
+)
+_UNIT_SALE = re.compile(r"(?:دونه\s*ای|هر\s*عدد|فروش\s*(?:ما|کیلو)|قیمت\s*تکی|هر\s*کیلو)", re.I)
+_PACK_SALE = re.compile(r"(?:هر\s*(?:یک\s*)?(?:باکس|بسته|کارتن)|قیمت\s*(?:باکس|کارتن)|یک\s*بسته)", re.I)
+_TIER_SALE = re.compile(r"بالای|به\s*بالا", re.I)
+_FLAVOR_LINE = re.compile(r"^طعم\s*[:：]?\s*(.+)$")
+
+
 def extract_volume(text: str) -> str:
-    match = re.search(r"(\d+\s*(?:گرم|gr|ml|لیتر|میلی))", text or "", re.I)
+    match = _VOLUME_TEXT.search(text or "")
     return match.group(0) if match else ""
+
+
+def peel_title_pack(line: str) -> tuple[str, str]:
+    """Separate a trailing carton count from a product title.
+
+    ``کروسان پچ‌ پچ ،کارتن ۳۶ عددی`` keeps the name and returns the carton
+    clause. A weight such as ``۵ کیلویی`` stays in the name.
+    """
+    text = (line or "").strip()
+    for pattern in (_TITLE_CARTON, _TITLE_COUNT):
+        match = pattern.match(text)
+        if not match:
+            continue
+        name = re.sub(r"[\s،,:：\-]+$", "", match.group("name")).strip()
+        pack = re.sub(r"\s+", " ", match.group("pack")).strip()
+        if len(name) > 2 and pack:
+            return name, pack
+    return text, ""
+
+
+def _line_price(line: str) -> int:
+    match = _PRICE_TOKEN.search(normalize(line))
+    if not match:
+        return 0
+    return parse_price(match.group(0))
 
 
 def infer_price_type(packaging: str) -> str:
@@ -368,29 +409,44 @@ def finalize_product(product: dict[str, Any], channel: str) -> dict[str, Any]:
 def analyze_pricing(lines: list[str]) -> dict[str, Any]:
     sale_price = 0
     actual_price = 0
-    price_type = "unit"
+    package_price = 0
     extraction_confidence = 0
     for line in lines:
-        norm = normalize(line)
+        if _TIER_SALE.search(line):
+            continue
+        price = _line_price(line)
+        if not price:
+            continue
         if re.search(r"(?:مصرف|consumer)", line, re.I):
-            match = _PRICE_TOKEN.search(norm)
-            if match:
-                actual_price = parse_price(match.group(0))
+            actual_price = price
+            continue
+        if _UNIT_SALE.search(line):
+            sale_price = price
+            extraction_confidence = 0.9
+            continue
+        if _PACK_SALE.search(line):
+            package_price = price
+            continue
         if _SALE_LINE.search(line):
-            match = _PRICE_TOKEN.search(norm)
-            if match:
-                sale_price = parse_price(match.group(0))
-                extraction_confidence = 0.9
+            sale_price = price
+            extraction_confidence = 0.9
         elif not sale_price:
-            match = _STANDALONE_PRICE.search(norm)
+            match = _STANDALONE_PRICE.search(normalize(line))
             if match:
                 sale_price = parse_price(match.group(0))
                 extraction_confidence = 0.6
-        if _PACK_HINT.search(line):
-            price_type = "pack"
+    if sale_price:
+        price_type = "unit"
+    elif package_price:
+        sale_price = package_price
+        price_type = "pack"
+        extraction_confidence = extraction_confidence or 0.7
+    else:
+        price_type = "unit"
     return {
         "sale_price": sale_price,
         "actual_price": actual_price,
+        "package_price": package_price,
         "price_type": price_type,
         "extraction_confidence": extraction_confidence,
     }
@@ -406,15 +462,25 @@ def extract_channel_bonakdarjavan(content: str) -> list[dict[str, Any]]:
     if len(product_lines) < 2:
         return []
 
-    name = clean_product_name(product_lines[0])
+    raw_name, title_pack = peel_title_pack(product_lines[0])
+    name = clean_product_name(raw_name) or raw_name
     if not name or len(name) < 3:
         return []
 
     pricing = analyze_pricing(product_lines)
     packaging = ""
-    for line in product_lines:
-        if re.search(r"(?:باکس|کارتن|تعداد)", line) and "قیمت" not in line:
-            packaging = line
+    variation = ""
+    for line in product_lines[1:]:
+        flavor = _FLAVOR_LINE.match(line.strip())
+        if flavor:
+            variation = flavor.group(1).strip()
+            continue
+        if "قیمت" in line:
+            continue
+        if re.search(r"(?:باکس|کارتن|تعداد|بسته)", line):
+            packaging = line.strip()
+    if not packaging:
+        packaging = title_pack
 
     if pricing["sale_price"] > 0 or pricing["actual_price"] > 0:
         confidence = pricing["extraction_confidence"] or 0.8
@@ -424,7 +490,10 @@ def extract_channel_bonakdarjavan(content: str) -> list[dict[str, Any]]:
             "consumer_price": pricing["actual_price"],
             "price": pricing["sale_price"] if pricing["sale_price"] > 0 else pricing["actual_price"],
             "actual_price": pricing["actual_price"],
+            "package_price": pricing["package_price"],
             "packaging": packaging,
+            "volume": extract_volume(normalize(product_lines[0])),
+            "variation_type": variation,
             "channel": "@bonakdarjavan",
             "currency": "IRT",
             "stock_status": "Available",
@@ -448,6 +517,7 @@ def extract_channel_top_shop_rahimi(content: str) -> list[dict[str, Any]]:
 
     sale_price = 0
     consumer_price = 0
+    package_price = 0
     packaging = ""
     for chunk in chunks[1:]:
         clean_chunk = normalize(chunk)
@@ -465,8 +535,8 @@ def extract_channel_top_shop_rahimi(content: str) -> list[dict[str, Any]]:
             consumer_price = price_val
         elif re.search(r"(?:هر\s*عدد|دونه|unit|هر\s*کیلو|یک\s*عدد|قیمت\s*تکی)", clean_chunk, re.I):
             sale_price = price_val
-        elif re.search(r"(?:باکس|box|کارتن)", clean_chunk, re.I) and "قیمت" in clean_chunk:
-            continue
+        elif re.search(r"(?:باکس|box|کارتن|بسته)", clean_chunk, re.I) and "قیمت" in clean_chunk:
+            package_price = price_val
         elif not sale_price and not consumer_price and "قیمت" in clean_chunk:
             sale_price = price_val
 
@@ -477,13 +547,16 @@ def extract_channel_top_shop_rahimi(content: str) -> list[dict[str, Any]]:
             "consumer_price": consumer_price,
             "price": sale_price if sale_price > 0 else consumer_price,
             "actual_price": consumer_price,
+            "package_price": package_price,
             "packaging": packaging.strip(),
+            "volume": extract_volume(normalize(chunks[0])),
             "channel": "@top_shop_rahimi",
             "currency": "IRT",
             "stock_status": "Available",
             "description": content,
             "confidence": 0.9,
             "extraction_confidence": 0.9,
+            "price_type": "unit" if sale_price else "pack",
         }]
     return []
 

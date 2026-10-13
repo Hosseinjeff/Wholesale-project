@@ -31,6 +31,7 @@ from catalog.extract import (
     extract_products,
     normalize,
     parse_price,
+    peel_title_pack,
     quality_check,
 )
 
@@ -587,6 +588,11 @@ def refresh_buying_desk(
         for item in existing_items
         if item.get("Item Key")
     }
+    items_by_product = {
+        _item_key(item.get("Channel Username") or "", item.get("Supplier Product Name") or ""): item
+        for item in existing_items
+        if item.get("Supplier Product Name")
+    }
     _, product_rows = _records(products)
     _, offer_rows = _records(_read_sheet_if_present(store, "Offers"))
     review_by_offer = {
@@ -604,7 +610,9 @@ def refresh_buying_desk(
             continue
         key = _item_key(channel, name)
         seen.add(key)
-        existing = items_by_key.get(key, {})
+        existing = items_by_key.get(key) or items_by_product.get(key) or {}
+        if existing.get("Item Key"):
+            seen.add(str(existing.get("Item Key")))
         confirmed = str(existing.get("Confirmed Item Name") or "").strip()
         consumer = product.get("Consumer Price")
         if _positive_price(consumer) is None:
@@ -668,8 +676,14 @@ def refresh_buying_desk(
     }
 
 
+def _product_key(name: str) -> str:
+    """Identity of a product after a trailing carton count is removed."""
+    peeled, _pack = peel_title_pack(name or "")
+    return re.sub(r"[\s،,:：\-]+$", "", peeled).strip().lower()
+
+
 def _item_key(channel: str, name: str) -> str:
-    return f"{(channel or '').strip()}|{(name or '').strip().lower()}"
+    return f"{(channel or '').strip()}|{_product_key(name)}"
 
 
 def parse_prompt_answer(text: str) -> tuple[str, int | None] | None:
@@ -1060,11 +1074,11 @@ def _find_product_row(rows: list[list[Any]], headers: list[str], product_name: s
         channel_idx = headers.index("Channel Username")
     except ValueError:
         return None
-    target = (product_name or "").strip().lower()
+    target = _product_key(product_name)
     for index, row in enumerate(rows[1:], start=2):
         existing_name = row[name_idx] if name_idx < len(row) else ""
         existing_channel = row[channel_idx] if channel_idx < len(row) else ""
-        if existing_name and str(existing_name).strip().lower() == target and existing_channel == channel_username:
+        if existing_name and _product_key(str(existing_name)) == target and existing_channel == channel_username:
             return index
     return None
 
@@ -1264,6 +1278,7 @@ def _offer_fields(product: dict[str, Any], message: dict[str, Any], offer_id: st
         "Currency": product.get("currency") or "",
         "Packaging": product.get("packaging") or "",
         "Volume": product.get("volume") or "",
+        "Package Price": product.get("package_price") or "",
         "Category": product.get("category") or "",
         "Variation Type": product.get("variation_type") or "",
         "Stock Status": product.get("stock_status") or "",
@@ -1294,6 +1309,7 @@ def _product_from_offers(offers: list[dict[str, Any]]) -> dict[str, Any]:
         "currency": latest.get("Currency") or "",
         "packaging": latest.get("Packaging") or "",
         "volume": latest.get("Volume") or "",
+        "double_pack_price": latest.get("Package Price") or "",
         "category": latest.get("Category") or "",
         "description": latest.get("Description") or "",
         "stock_status": latest.get("Stock Status") or "",
@@ -1372,10 +1388,10 @@ def _consumer_price(offer: dict[str, Any]) -> int | None:
 
 
 def _offers_for_product(offers: list[dict[str, Any]], name: str, channel: str) -> list[dict[str, Any]]:
-    target = (name or "").strip().lower()
+    target = _product_key(name)
     return [
         offer for offer in offers
-        if str(offer.get("Product Name") or "").strip().lower() == target
+        if _product_key(str(offer.get("Product Name") or "")) == target
         and (offer.get("Channel Username") or "") == channel
     ]
 
@@ -1416,6 +1432,7 @@ def _opening_offer_rows(store, keys: list[tuple[str, str]], offer_headers: list[
             "Currency": _cell(existing, headers, "Currency"),
             "Packaging": _cell(existing, headers, "Packaging"),
             "Volume": _cell(existing, headers, "Volume"),
+            "Package Price": _cell(existing, headers, "Double Pack Price"),
             "Category": _cell(existing, headers, "Category"),
             "Stock Status": _cell(existing, headers, "Stock Status"),
             "Description": _cell(existing, headers, "Description"),
