@@ -14,10 +14,7 @@
       --paper: #f4efe6;
       --card: #fffdf8;
       --line: #e4d9c8;
-      --saffron: #b86112;
-      --saffron-soft: #f8e6d4;
       --green: #0e6b4e;
-      --green-soft: #e5f4ee;
       --shadow: 0 16px 40px rgba(36, 25, 16, 0.08);
     }
     * { box-sizing: border-box; }
@@ -59,17 +56,35 @@
     .card { padding: 16px 16px 14px; display: flex; flex-direction: column; gap: 8px; }
     .channel { color: var(--muted); font-size: 0.82rem; }
     .name { font-weight: 700; font-size: 1.05rem; line-height: 1.5; }
+    .price { display: flex; flex-direction: column; gap: 2px; }
     .regular { color: var(--muted); text-decoration: line-through; }
     .ceiling { font-size: 1.45rem; font-weight: 700; }
-    .rates { display: flex; flex-wrap: wrap; gap: 6px; }
-    .badge {
-      border-radius: 999px;
-      padding: 4px 10px;
-      font-size: 0.82rem;
-      background: var(--saffron-soft);
-      color: var(--saffron);
+    .discount-pair {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      margin: 6px 0 0;
+      padding: 8px 0 0;
+      border-top: 1px solid var(--line);
     }
-    .badge.max { background: var(--green-soft); color: var(--green); }
+    .discount-pair div + div {
+      border-inline-start: 1px solid var(--line);
+      padding-inline-start: 12px;
+    }
+    .discount-pair dt {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.72rem;
+      font-weight: 400;
+    }
+    .discount-pair dd {
+      margin: 2px 0 0;
+      font-size: 0.95rem;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    .discount-pair .accent dd { color: var(--green); }
+    .add { margin-top: auto; }
     button {
       font: inherit;
       cursor: pointer;
@@ -91,12 +106,13 @@
     .line { border-top: 1px solid var(--line); padding: 12px 0; }
     .line-top, .qty, .totals { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
     .qty { justify-content: flex-start; margin-top: 8px; }
-    .line-discount { margin-top: 8px; color: var(--green); font-weight: 600; line-height: 1.6; }
+    .line-top strong { min-width: 0; }
+    .line-top span { white-space: nowrap; }
+    .line .discount-pair { margin-top: 8px; }
     .channel, .qty span { direction: ltr; unicode-bidi: isolate; }
     .totals { margin-top: 8px; padding-top: 12px; border-top: 1px solid var(--line); display: block; }
-    .pay { color: var(--muted); margin-top: 4px; }
-    .aggregate { font-size: 1.6rem; font-weight: 700; color: var(--green); margin: 8px 0 0; }
-    .aggregate span { display: block; font-size: 1rem; }
+    .totals .discount-pair { margin-top: 4px; }
+    .pay { color: var(--muted); margin-top: 10px; }
     .empty, .status { color: var(--muted); }
     @media (max-width: 860px) {
       main { grid-template-columns: 1fr; padding: 16px; }
@@ -135,12 +151,35 @@
       return toman.format(value) + " تومان";
     }
 
+    function amount(value) {
+      return toman.format(value);
+    }
+
     function percent(rate) {
       return percentFormat.format(rate * 100) + "٪";
     }
 
     function productById(id) {
       return products.find((product) => product.product_id === id);
+    }
+
+    function discountPair(items) {
+      const pair = document.createElement("dl");
+      pair.className = "discount-pair";
+      items.forEach((item) => {
+        const cell = document.createElement("div");
+        if (item.accent) cell.classList.add("accent");
+        const label = document.createElement("dt");
+        label.textContent = item.label;
+        const value = document.createElement("dd");
+        value.textContent = item.value;
+        Object.entries(item.data || {}).forEach(([key, entry]) => {
+          value.dataset[key] = entry;
+        });
+        cell.append(label, value);
+        pair.append(cell);
+      });
+      return pair;
     }
 
     function renderProducts() {
@@ -157,11 +196,9 @@
         card.innerHTML = `
           <div class="channel"></div>
           <div class="name"></div>
-          <div class="regular"></div>
-          <div class="ceiling"></div>
-          <div class="rates">
-            <span class="badge opening"></span>
-            <span class="badge max"></span>
+          <div class="price">
+            <div class="regular"></div>
+            <div class="ceiling"></div>
           </div>
           <button type="button" class="add"></button>
         `;
@@ -169,8 +206,10 @@
         card.querySelector(".name").textContent = product.name;
         card.querySelector(".regular").textContent = "قیمت مصرف‌کننده " + money(product.regular);
         card.querySelector(".ceiling").textContent = money(product.ceiling);
-        card.querySelector(".opening").textContent = "از همین حالا " + percent(product.opening_rate);
-        card.querySelector(".max").textContent = "تا " + percent(product.max_discount);
+        card.querySelector(".price").append(discountPair([
+          { label: "اکنون", value: percent(product.opening_rate) },
+          { label: "بیشترین", value: percent(product.max_discount), accent: true },
+        ]));
         const button = card.querySelector(".add");
         button.textContent = soldOut ? "ناموجود" : "افزودن به سبد";
         button.disabled = soldOut;
@@ -203,11 +242,19 @@
         const unit = document.createElement("span");
         unit.textContent = money(line.unit_price);
         top.append(name, unit);
-        const discount = document.createElement("div");
-        discount.className = "line-discount";
-        discount.dataset.discountRate = String(line.discount_rate);
-        discount.dataset.discountAmount = String(line.discount_amount);
-        discount.textContent = "تخفیف این قلم " + percent(line.discount_rate) + "، " + money(line.discount_amount);
+        const discount = discountPair([
+          {
+            label: "تخفیف",
+            value: percent(line.discount_rate),
+            accent: true,
+            data: { discountRate: String(line.discount_rate) },
+          },
+          {
+            label: "مبلغ",
+            value: amount(line.discount_amount),
+            data: { discountAmount: String(line.discount_amount) },
+          },
+        ]);
         const qty = document.createElement("div");
         qty.className = "qty";
         const minus = document.createElement("button");
@@ -232,15 +279,20 @@
       totals.className = "totals";
       const label = document.createElement("div");
       label.textContent = "جمع تخفیف سبد";
-      const aggregate = document.createElement("p");
-      aggregate.className = "aggregate";
-      aggregate.dataset.discountRate = String(quote.discount_rate);
-      aggregate.dataset.discountTotal = String(quote.discount_total);
-      const rate = document.createElement("span");
-      rate.textContent = percent(quote.discount_rate);
-      const amount = document.createElement("span");
-      amount.textContent = money(quote.discount_total);
-      aggregate.append(rate, amount);
+      const aggregate = discountPair([
+        {
+          label: "درصد",
+          value: percent(quote.discount_rate),
+          accent: true,
+          data: { discountRate: String(quote.discount_rate) },
+        },
+        {
+          label: "مبلغ",
+          value: amount(quote.discount_total),
+          data: { discountTotal: String(quote.discount_total) },
+        },
+      ]);
+      aggregate.classList.add("aggregate");
       const pay = document.createElement("div");
       pay.className = "pay";
       pay.textContent = "قابل پرداخت " + money(quote.pay_total);
