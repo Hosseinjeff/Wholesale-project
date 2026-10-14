@@ -157,11 +157,11 @@ class FailProductUpdates(MemoryStore):
         super().__init__()
         self.remaining = times
 
-    def write_rows(self, name, start_row, rows):
+    def write_rows(self, name, start_row, rows, value_input="RAW"):
         if name == "Products" and start_row > 1 and self.remaining:
             self.remaining -= 1
             raise RuntimeError("denied")
-        super().write_rows(name, start_row, rows)
+        super().write_rows(name, start_row, rows, value_input)
 
 
 class FailFirstProductUpdate(FailProductUpdates):

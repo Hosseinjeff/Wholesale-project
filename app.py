@@ -11,6 +11,9 @@ import time
 import threading
 from urllib.parse import urlparse
 from utils.logger import setup_logger
+from pathlib import Path
+
+from catalog.pricing import catalog_from_records, default_settings, preview_records, resolve_quote
 from catalog.sync import (
     build_store,
     finalize_batch,
@@ -18,6 +21,7 @@ from catalog.sync import (
     release_idle_memory,
     resolve_prompt,
     sheets_configured,
+    shop_catalog,
 )
 
 app = Flask(__name__)
@@ -516,6 +520,55 @@ def refresh_desk():
     except Exception as exc:
         logger.exception("Desk refresh failed")
         return jsonify({'status': 'error', 'message': exc.__class__.__name__}), 500
+
+
+def shop_source(preview: bool) -> dict:
+    """The live sheet when it is configured, otherwise the preview catalog."""
+    if USE_SHEETS:
+        return shop_catalog(build_store())
+    if preview or os.getenv("SHOP_PREVIEW") == "1":
+        settings = default_settings()
+        return {
+            "settings": settings.as_dict(),
+            "products": catalog_from_records(preview_records(), settings),
+        }
+    settings = default_settings()
+    return {"settings": settings.as_dict(), "products": []}
+
+
+@app.route("/")
+def shop_page():
+    """Customer shop. Prices and the cart both come from /api/shop and /api/cart."""
+    page = Path(__file__).with_name("shop") / "index.html"
+    body = page.read_text(encoding="utf-8")
+    return body, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
+@app.route("/api/shop", methods=["GET"])
+def shop_api():
+    preview = request.args.get("preview") == "1"
+    try:
+        return jsonify(shop_source(preview))
+    except Exception:
+        logger.exception("Shop catalog failed")
+        return jsonify({"status": "error", "products": [], "settings": {}}), 500
+
+
+@app.route("/api/cart", methods=["POST"])
+def cart_api():
+    """Reprice every line and the aggregate discount for the cart as it stands."""
+    preview = request.args.get("preview") == "1"
+    body = request.get_json(silent=True) or {}
+    lines = body.get("lines") if isinstance(body, dict) else None
+    if not isinstance(lines, list):
+        return jsonify({"status": "error", "message": "lines must be a list"}), 400
+    try:
+        catalog = shop_source(preview)
+        unlock = int(catalog["settings"]["unlock_target"])
+        return jsonify(resolve_quote(catalog["products"], lines, unlock))
+    except Exception:
+        logger.exception("Cart quote failed")
+        return jsonify({"status": "error"}), 500
 
 
 @app.route('/health', methods=['GET'])

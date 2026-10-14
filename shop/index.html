@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>فروشگاه</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --ink: #241910;
+      --muted: #6d6256;
+      --paper: #f4efe6;
+      --card: #fffdf8;
+      --line: #e4d9c8;
+      --saffron: #b86112;
+      --saffron-soft: #f8e6d4;
+      --green: #0e6b4e;
+      --green-soft: #e5f4ee;
+      --shadow: 0 16px 40px rgba(36, 25, 16, 0.08);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Vazirmatn", Tahoma, sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at top right, #f8e7cf, transparent 28%),
+        var(--paper);
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: end;
+      padding: 28px 7vw 8px;
+    }
+    h1 { margin: 0; font-size: 2rem; letter-spacing: -0.03em; }
+    header p { margin: 6px 0 0; color: var(--muted); max-width: 38rem; }
+    main {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 340px;
+      gap: 24px;
+      padding: 20px 7vw 48px;
+      align-items: start;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 16px;
+    }
+    .card, .cart {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      box-shadow: var(--shadow);
+    }
+    .card { padding: 16px 16px 14px; display: flex; flex-direction: column; gap: 8px; }
+    .channel { color: var(--muted); font-size: 0.82rem; }
+    .name { font-weight: 700; font-size: 1.05rem; line-height: 1.5; }
+    .regular { color: var(--muted); text-decoration: line-through; }
+    .ceiling { font-size: 1.45rem; font-weight: 700; }
+    .rates { display: flex; flex-wrap: wrap; gap: 6px; }
+    .badge {
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 0.82rem;
+      background: var(--saffron-soft);
+      color: var(--saffron);
+    }
+    .badge.max { background: var(--green-soft); color: var(--green); }
+    button {
+      font: inherit;
+      cursor: pointer;
+      border: 0;
+      border-radius: 12px;
+      padding: 10px 12px;
+      background: var(--ink);
+      color: white;
+    }
+    button:disabled { cursor: not-allowed; opacity: 0.45; }
+    button.ghost {
+      background: transparent;
+      color: var(--ink);
+      border: 1px solid var(--line);
+      padding: 6px 10px;
+    }
+    .cart { padding: 16px; position: sticky; top: 16px; }
+    .cart h2 { margin: 0 0 12px; font-size: 1.15rem; }
+    .line { border-top: 1px solid var(--line); padding: 12px 0; }
+    .line-top, .qty, .totals { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+    .qty { justify-content: flex-start; margin-top: 8px; }
+    .line-discount { margin-top: 8px; color: var(--green); font-weight: 600; line-height: 1.6; }
+    .channel, .qty span { direction: ltr; unicode-bidi: isolate; }
+    .totals { margin-top: 8px; padding-top: 12px; border-top: 1px solid var(--line); display: block; }
+    .pay { color: var(--muted); margin-top: 4px; }
+    .aggregate { font-size: 1.6rem; font-weight: 700; color: var(--green); margin: 8px 0 0; }
+    .aggregate span { display: block; font-size: 1rem; }
+    .empty, .status { color: var(--muted); }
+    @media (max-width: 860px) {
+      main { grid-template-columns: 1fr; padding: 16px; }
+      header { padding: 20px 16px 0; }
+      .cart {
+        order: -1;
+        position: sticky;
+        top: 8px;
+        max-height: 46vh;
+        overflow: auto;
+        z-index: 2;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>فروشگاه</h1>
+      <p>قیمت مصرف‌کننده روی هر کالا نوشته شده. سقف قیمت خودش تخفیف دارد، و با سنگین‌تر شدن سبد تخفیف هر قلم تا سقف خودش جلو می‌رود.</p>
+    </div>
+  </header>
+  <main>
+    <section class="grid" id="products" aria-live="polite"></section>
+    <aside class="cart" id="cart" aria-live="polite"></aside>
+  </main>
+  <script>
+    const preview = new URLSearchParams(location.search).get("preview") === "1" ? "?preview=1" : "";
+    const cart = new Map();
+    let products = [];
+
+    const toman = new Intl.NumberFormat("fa-IR");
+    const percentFormat = new Intl.NumberFormat("fa-IR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+
+    function money(value) {
+      return toman.format(value) + " تومان";
+    }
+
+    function percent(rate) {
+      return percentFormat.format(rate * 100) + "٪";
+    }
+
+    function productById(id) {
+      return products.find((product) => product.product_id === id);
+    }
+
+    function renderProducts() {
+      const root = document.getElementById("products");
+      if (!products.length) {
+        root.innerHTML = '<p class="empty">کالایی با هر دو حد قیمت روی شیت نیست.</p>';
+        return;
+      }
+      root.replaceChildren(...products.map((product) => {
+        const card = document.createElement("article");
+        card.className = "card";
+        card.dataset.productId = product.product_id;
+        const soldOut = product.stock_status === "Out of Stock";
+        card.innerHTML = `
+          <div class="channel"></div>
+          <div class="name"></div>
+          <div class="regular"></div>
+          <div class="ceiling"></div>
+          <div class="rates">
+            <span class="badge opening"></span>
+            <span class="badge max"></span>
+          </div>
+          <button type="button" class="add"></button>
+        `;
+        card.querySelector(".channel").textContent = product.channel || "";
+        card.querySelector(".name").textContent = product.name;
+        card.querySelector(".regular").textContent = "قیمت مصرف‌کننده " + money(product.regular);
+        card.querySelector(".ceiling").textContent = money(product.ceiling);
+        card.querySelector(".opening").textContent = "از همین حالا " + percent(product.opening_rate);
+        card.querySelector(".max").textContent = "تا " + percent(product.max_discount);
+        const button = card.querySelector(".add");
+        button.textContent = soldOut ? "ناموجود" : "افزودن به سبد";
+        button.disabled = soldOut;
+        button.addEventListener("click", () => change(product.product_id, 1));
+        return card;
+      }));
+    }
+
+    function renderCart(quote) {
+      const root = document.getElementById("cart");
+      root.replaceChildren();
+      const title = document.createElement("h2");
+      title.textContent = "سبد";
+      root.appendChild(title);
+      if (!quote.lines.length) {
+        const empty = document.createElement("p");
+        empty.className = "empty";
+        empty.textContent = "سبد خالی است.";
+        root.appendChild(empty);
+        return;
+      }
+      quote.lines.forEach((line) => {
+        const row = document.createElement("div");
+        row.className = "line";
+        row.dataset.productId = line.product_id;
+        const top = document.createElement("div");
+        top.className = "line-top";
+        const name = document.createElement("strong");
+        name.textContent = line.name;
+        const unit = document.createElement("span");
+        unit.textContent = money(line.unit_price);
+        top.append(name, unit);
+        const discount = document.createElement("div");
+        discount.className = "line-discount";
+        discount.dataset.discountRate = String(line.discount_rate);
+        discount.dataset.discountAmount = String(line.discount_amount);
+        discount.textContent = "تخفیف این قلم " + percent(line.discount_rate) + "، " + money(line.discount_amount);
+        const qty = document.createElement("div");
+        qty.className = "qty";
+        const minus = document.createElement("button");
+        minus.type = "button";
+        minus.className = "ghost";
+        minus.textContent = "−";
+        minus.setAttribute("aria-label", "کم کردن " + line.name);
+        minus.addEventListener("click", () => change(line.product_id, -1));
+        const count = document.createElement("span");
+        count.textContent = toman.format(line.qty);
+        const plus = document.createElement("button");
+        plus.type = "button";
+        plus.className = "ghost";
+        plus.textContent = "+";
+        plus.setAttribute("aria-label", "افزودن " + line.name);
+        plus.addEventListener("click", () => change(line.product_id, 1));
+        qty.append(minus, count, plus);
+        row.append(top, discount, qty);
+        root.appendChild(row);
+      });
+      const totals = document.createElement("div");
+      totals.className = "totals";
+      const label = document.createElement("div");
+      label.textContent = "جمع تخفیف سبد";
+      const aggregate = document.createElement("p");
+      aggregate.className = "aggregate";
+      aggregate.dataset.discountRate = String(quote.discount_rate);
+      aggregate.dataset.discountTotal = String(quote.discount_total);
+      const rate = document.createElement("span");
+      rate.textContent = percent(quote.discount_rate);
+      const amount = document.createElement("span");
+      amount.textContent = money(quote.discount_total);
+      aggregate.append(rate, amount);
+      const pay = document.createElement("div");
+      pay.className = "pay";
+      pay.textContent = "قابل پرداخت " + money(quote.pay_total);
+      totals.append(label, aggregate, pay);
+      root.appendChild(totals);
+    }
+
+    async function change(productId, delta) {
+      const next = (cart.get(productId) || 0) + delta;
+      if (next > 0) cart.set(productId, next);
+      else cart.delete(productId);
+      await requote();
+    }
+
+    async function requote() {
+      const lines = [...cart.entries()].map(([product_id, qty]) => ({ product_id, qty }));
+      if (!lines.length) {
+        renderCart({ lines: [], discount_total: 0, discount_rate: 0, pay_total: 0 });
+        return;
+      }
+      const response = await fetch("/api/cart" + preview, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lines }),
+      });
+      const quote = await response.json();
+      (quote.missing || []).forEach((id) => cart.delete(id));
+      renderCart(quote);
+    }
+
+    async function load() {
+      const response = await fetch("/api/shop" + preview);
+      const payload = await response.json();
+      products = payload.products || [];
+      renderProducts();
+      renderCart({ lines: [] });
+    }
+
+    load();
+  </script>
+</body>
+</html>
