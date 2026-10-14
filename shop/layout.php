@@ -49,7 +49,7 @@ function shop_header(string $title, string $active, array $boot): void
     $progress = (int) round(((float) ($boot['progress'] ?? 0)) * 100);
     $nav = [
         'shop' => ['index.php', 'فروشگاه'],
-        'cats' => ['index.php#cats', 'دسته‌بندی‌ها'],
+        'cats' => ['index.php#cat', 'دسته‌بندی‌ها'],
         'home' => ['index.php', 'خانه'],
         'about' => ['about.php', 'درباره ما'],
         'contact' => ['contact.php', 'تماس با ما'],
@@ -67,7 +67,7 @@ function shop_header(string $title, string $active, array $boot): void
 <body>
 <header class="bar">
     <div class="bar-inner">
-        <a class="logo" href="index.php"><span>م</span>مولوی‌سل</a>
+        <a class="logo" href="index.php">مولوی‌سل</a>
         <nav class="nav" id="nav">
             <?php foreach ($nav as $key => [$href, $label]): ?>
                 <a href="<?= shop_h($href) ?>"<?= $key === $active ? ' class="on"' : '' ?>><?= shop_h($label) ?></a>

@@ -33,7 +33,7 @@ shop_header('مولوی‌سل', 'shop', $boot);
                 <option value="name">نام</option>
             </select>
         </label>
-        <button type="button" class="ghost" id="filter-toggle"><?= shop_svg('filter') ?> فیلتر</button>
+        <button type="button" class="ghost" id="filter-toggle" aria-label="فیلتر"><?= shop_svg('filter') ?></button>
         <div class="views" role="group" aria-label="نوع نمایش">
             <button type="button" data-view="grid" aria-label="شبکه"><?= shop_svg('grid') ?></button>
             <button type="button" data-view="list" aria-label="فهرست"><?= shop_svg('list') ?></button>
