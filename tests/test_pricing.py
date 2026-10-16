@@ -159,10 +159,6 @@ class ShopApiTests(unittest.TestCase):
         app.USE_SHEETS = self.sheets
 
     def test_shop_page_and_preview_cart_round_trip(self):
-        page = self.client.get("/?preview=1")
-        self.assertEqual(page.status_code, 200)
-        self.assertIn("سبد".encode(), page.data)
-
         listed = self.client.get("/api/shop?preview=1").get_json()
         bear = next(product for product in listed["products"] if product["product_id"] == "preview-bear")
         tea = next(product for product in listed["products"] if product["product_id"] == "preview-tea")

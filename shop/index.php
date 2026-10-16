@@ -77,18 +77,24 @@ shop_header('مولوی‌سل', 'shop', $boot);
                  data-name="<?= shop_h($product['name']) ?>"
                  data-cat="<?= shop_h($product['category']) ?>"
                  data-supplier="<?= shop_h($product['supplier']) ?>"
-                 data-sale="<?= (int) $product['sale'] ?>"
                  data-shelf="<?= $shelf ?>"
                  data-index="<?= (int) $product['index'] ?>">
             <div class="photo">
                 <img src="<?= shop_h($product['image']) ?>" alt="<?= shop_h($product['name']) ?>">
+                <?php if ((float) $product['max'] > 0): ?>
+                    <span class="deal"><?= shop_h(shop_percent((float) $product['max'])) ?> تخفیف</span>
+                <?php endif; ?>
                 <button type="button" class="heart" aria-label="نشان کردن" aria-pressed="false"><?= shop_svg('heart') ?></button>
             </div>
             <div class="info">
                 <h2><?= shop_h($product['name']) ?></h2>
                 <div class="buy">
                     <div>
-                        <p class="now" data-unit="<?= $unit ?>"><?= shop_h(shop_toman($unit)) ?></p>
+                        <?php $rate = $shelf > $unit ? ($shelf - $unit) / $shelf : 0; ?>
+                        <p class="now" data-unit="<?= $unit ?>">
+                            <span class="rate"<?= $rate > 0 ? '' : ' hidden' ?>>−<?= shop_h(shop_percent((float) $rate)) ?></span>
+                            <span class="amount"><?= shop_h(shop_toman($unit)) ?></span>
+                        </p>
                         <p class="sub">
                             <span class="was"<?= $shelf > $unit ? '' : ' hidden' ?>><?= shop_h(shop_toman($shelf)) ?></span>
                             <span class="sku"><?= shop_h($product['sku']) ?></span>

@@ -1,9 +1,6 @@
 <?php
 declare(strict_types=1);
 
-const SHOP_CEILING_MULTIPLE = 5;
-const SHOP_TUNA_PACK = 24;
-
 function shop_config(): array
 {
     $path = __DIR__ . '/private/config.php';
@@ -114,10 +111,18 @@ function shop_fetch_sheet(): array
             $i = $index[$name];
             return isset($row[$i]) ? trim((string) $row[$i]) : '';
         };
+        $status = strtolower($cell('Status'));
+        if ($status === 'skipped' || $status === 'needs_review') {
+            continue;
+        }
         $name = shop_trim_name($cell('Product Name'));
         $sale = shop_int($cell('Sale Price'));
         if ($name === '' || $sale <= 0) {
             continue;
+        }
+        $shelf = shop_int($cell('Consumer Price'));
+        if ($shelf <= 0) {
+            $shelf = shop_int($cell('Actual Price'));
         }
         $channel = $cell('Channel Username');
         $products[] = [
@@ -127,16 +132,35 @@ function shop_fetch_sheet(): array
             'volume' => $cell('Volume'),
             'variation' => $cell('Variation Type'),
             'sale' => $sale,
-            'shelf' => shop_int($cell('Consumer Price')),
+            'shelf' => $shelf,
             'channel' => $channel,
             'supplier' => $labels[$channel] ?? $channel,
         ];
     }
     usort($products, static fn(array $a, array $b): int => strcmp($a['name'], $b['name']));
+    $settings = shop_default_settings();
+    try {
+        $settings = shop_parse_settings(shop_sheet_rows($token, (string) $sheetId, 'Shop!A1:B9'));
+    } catch (Throwable $e) {
+        $settings = shop_default_settings();
+    }
     return [
         'generated_at' => gmdate('c'),
+        'settings' => $settings,
         'products' => $products,
     ];
+}
+
+function shop_sheet_rows(string $token, string $sheetId, string $range): array
+{
+    $url = 'https://sheets.googleapis.com/v4/spreadsheets/' . rawurlencode($sheetId)
+        . '/values/' . rawurlencode($range);
+    $response = shop_http('GET', $url, [
+        'Authorization: Bearer ' . $token,
+    ]);
+    $payload = json_decode($response, true);
+    $rows = $payload['values'] ?? null;
+    return is_array($rows) ? $rows : [];
 }
 
 function shop_trim_name(string $name): string
@@ -229,56 +253,192 @@ function shop_http(string $method, string $url, array $headers, string $body = '
     return $response;
 }
 
-function shop_reference(array $products): ?array
+function shop_default_settings(): array
 {
-    $candidates = [];
-    foreach ($products as $product) {
-        $name = (string) ($product['name'] ?? '');
-        if (mb_strpos($name, 'تن') === false) {
-            continue;
-        }
-        if (!preg_match('/180|۱۸۰/u', $name)) {
-            continue;
-        }
-        if ((int) ($product['shelf'] ?? 0) <= 0) {
-            continue;
-        }
-        $candidates[] = $product;
-    }
-    if ($candidates === []) {
-        return null;
-    }
-    usort($candidates, static fn(array $a, array $b): int => $a['shelf'] <=> $b['shelf']);
-    $pick = $candidates[intdiv(count($candidates) - 1, 2)];
-    $unit = (int) $pick['shelf'];
     return [
-        'name' => (string) $pick['name'],
-        'unit' => $unit,
-        'floor' => $unit * SHOP_TUNA_PACK,
-        'ceiling' => $unit * SHOP_TUNA_PACK * SHOP_CEILING_MULTIPLE,
+        'min_margin' => 0.12,
+        'min_profit' => 5000,
+        'spread_low' => 0.10,
+        'spread_high' => 0.60,
+        'profit_share_low' => 0.70,
+        'profit_share_high' => 0.35,
+        'opening_share_low' => 0.20,
+        'opening_share_high' => 0.25,
+        'unlock_target' => 2000000,
     ];
+}
+
+function shop_parse_settings(array $rows): array
+{
+    $map = [
+        'Min Margin' => ['min_margin', true],
+        'Min Profit' => ['min_profit', false],
+        'Spread Low' => ['spread_low', true],
+        'Spread High' => ['spread_high', true],
+        'Profit Share Low' => ['profit_share_low', true],
+        'Profit Share High' => ['profit_share_high', true],
+        'Opening Share Low' => ['opening_share_low', true],
+        'Opening Share High' => ['opening_share_high', true],
+        'Unlock Target' => ['unlock_target', false],
+    ];
+    $found = [];
+    foreach ($rows as $row) {
+        if (!is_array($row) || !isset($row[0])) {
+            continue;
+        }
+        $label = trim((string) $row[0]);
+        if ($label === '' || array_key_exists($label, $found) || !isset($row[1]) || $row[1] === '') {
+            continue;
+        }
+        $found[$label] = $row[1];
+    }
+    $settings = shop_default_settings();
+    foreach ($map as $label => [$field, $percent]) {
+        if (!array_key_exists($label, $found) || !is_numeric($found[$label])) {
+            continue;
+        }
+        $number = (float) $found[$label];
+        if ($field === 'min_profit' || $field === 'unlock_target') {
+            $settings[$field] = (int) round($number);
+            continue;
+        }
+        if ($percent && $number >= 2) {
+            $number /= 100;
+        }
+        $settings[$field] = $number;
+    }
+    return $settings;
+}
+
+function shop_settings(array $catalog): array
+{
+    $settings = shop_default_settings();
+    $given = $catalog['settings'] ?? null;
+    if (!is_array($given)) {
+        return $settings;
+    }
+    foreach ($settings as $field => $default) {
+        if (!isset($given[$field]) || !is_numeric($given[$field])) {
+            continue;
+        }
+        $settings[$field] = $field === 'min_profit' || $field === 'unlock_target'
+            ? (int) $given[$field]
+            : (float) $given[$field];
+    }
+    return $settings;
+}
+
+function shop_round_up(float $value): int
+{
+    $nearest = round($value, 8);
+    $whole = (int) $nearest;
+    if ($nearest - $whole > 1e-8) {
+        return $whole + 1;
+    }
+    return $whole;
+}
+
+function shop_round_down(float $value): int
+{
+    return (int) round($value, 8);
+}
+
+function shop_round_half_up(float $value): int
+{
+    $nearest = round($value, 8);
+    $whole = (int) $nearest;
+    if ($nearest - $whole >= 0.5 - 1e-8) {
+        return $whole + 1;
+    }
+    return $whole;
+}
+
+function shop_band(int $cost, int $regular, array $settings): array
+{
+    $blank = static function (int $regularPrice): array {
+        $price = $regularPrice > 0 ? $regularPrice : 0;
+        return [
+            'floor' => $price,
+            'ceiling' => $price,
+            'opening' => 0.0,
+            'depth' => 0.0,
+            'max' => 0.0,
+            'discountable' => false,
+        ];
+    };
+    if ($cost <= 0 || $regular <= 0 || $regular <= $cost) {
+        return $blank($regular);
+    }
+    $gap = $regular - $cost;
+    $spread = $gap / $regular;
+    $span = $settings['spread_high'] - $settings['spread_low'];
+    $t = $span <= 0 ? 0.0 : max(0.0, min(1.0, ($spread - $settings['spread_low']) / $span));
+    $profitShare = $settings['profit_share_low'] + ($settings['profit_share_high'] - $settings['profit_share_low']) * $t;
+    $openingShare = $settings['opening_share_low'] + ($settings['opening_share_high'] - $settings['opening_share_low']) * $t;
+    $profit = max($profitShare * $gap, max($cost * $settings['min_margin'], (float) $settings['min_profit']));
+    if ($cost + $profit >= $regular) {
+        return $blank($regular);
+    }
+    $floor = shop_round_up($cost + $profit);
+    if ($floor >= $regular) {
+        return $blank($regular);
+    }
+    $room = $regular - $floor;
+    $openingToman = min($openingShare * $gap, (float) $room);
+    $ceiling = shop_round_down($regular - $openingToman);
+    if ($ceiling < $floor) {
+        $ceiling = $floor;
+    }
+    if ($ceiling > $regular) {
+        $ceiling = $regular;
+    }
+    return [
+        'floor' => $floor,
+        'ceiling' => $ceiling,
+        'opening' => ($regular - $ceiling) / $regular,
+        'depth' => ($ceiling - $floor) / $regular,
+        'max' => ($regular - $floor) / $regular,
+        'discountable' => ($regular - $floor) > 0,
+    ];
+}
+
+function shop_percent(float $rate): string
+{
+    $value = round($rate * 1000) / 10;
+    if (abs($value - round($value)) < 0.001) {
+        return (string) (int) round($value) . '٪';
+    }
+    return number_format($value, 1, '.', '') . '٪';
 }
 
 function shop_unit_price(array $product, float $progress): int
 {
+    $regular = (int) $product['shelf'];
     $sale = (int) $product['sale'];
-    $shelf = (int) $product['shelf'];
-    if ($shelf > $sale) {
-        $unit = (int) (round(($shelf - $progress * ($shelf - $sale)) / 1000) * 1000);
-        return max($sale, min($shelf, $unit));
+    if ($regular <= 0) {
+        return $sale;
     }
-    return $sale;
+    $ceiling = (int) ($product['ceiling'] ?? $regular);
+    $floor = (int) ($product['floor'] ?? $regular);
+    $unit = shop_round_half_up($ceiling + ($floor - $ceiling) * $progress);
+    $low = min($floor, $ceiling);
+    $high = min(max($floor, $ceiling, $low), $regular);
+    if ($unit < $low) {
+        $unit = $low;
+    }
+    if ($unit > $high) {
+        $unit = $high;
+    }
+    return $unit;
 }
 
 function shop_quote(array $catalog, array $cart): array
 {
+    $unlock = (int) shop_settings($catalog)['unlock_target'];
     $byId = [];
     foreach ($catalog['products'] ?? [] as $product) {
         $byId[$product['id']] = $product;
     }
-    $reference = shop_reference($catalog['products'] ?? []);
-    $floor = $reference['floor'] ?? 0;
-    $ceiling = $reference['ceiling'] ?? 0;
     $measure = 0;
     $pending = [];
     foreach ($cart as $id => $qty) {
@@ -287,30 +447,30 @@ function shop_quote(array $catalog, array $cart): array
             continue;
         }
         $product = $byId[$id];
-        $basis = (int) $product['shelf'] > 0 ? (int) $product['shelf'] : (int) $product['sale'];
-        $measure += $basis * $qty;
+        if (!empty($product['discountable']) && (int) $product['shelf'] > 0) {
+            $measure += (int) $product['shelf'] * $qty;
+        }
         $pending[] = ['product' => $product, 'qty' => $qty];
     }
-    $progress = 0.0;
-    if ($floor > 0 && $ceiling > $floor && $measure > $floor) {
-        $progress = min(1.0, ($measure - $floor) / ($ceiling - $floor));
-    }
+    $progress = ($unlock > 0 && $measure > 0) ? min(1.0, $measure / $unlock) : 0.0;
     $units = [];
     foreach ($byId as $id => $product) {
+        if (empty($product['discountable'])) {
+            continue;
+        }
         $units[$id] = shop_unit_price($product, $progress);
     }
     $lines = [];
     $total = 0;
-    $shelfTotal = 0;
+    $discountTotal = 0;
     foreach ($pending as $item) {
         $product = $item['product'];
         $qty = $item['qty'];
-        $sale = (int) $product['sale'];
         $shelf = (int) $product['shelf'];
         $unit = $units[$product['id']] ?? shop_unit_price($product, $progress);
-        $lineTotal = $unit * $qty;
-        $total += $lineTotal;
-        $shelfTotal += ($shelf > 0 ? $shelf : $sale) * $qty;
+        $saved = $shelf > $unit ? ($shelf - $unit) * $qty : 0;
+        $discountTotal += $saved;
+        $total += $unit * $qty;
         $lines[] = [
             'id' => $product['id'],
             'name' => $product['name'],
@@ -320,19 +480,22 @@ function shop_quote(array $catalog, array $cart): array
             'image' => (string) ($product['image'] ?? ''),
             'sku' => (string) ($product['sku'] ?? ''),
             'qty' => $qty,
-            'sale' => $sale,
+            'sale' => (int) $product['sale'],
             'shelf' => $shelf,
             'unit' => $unit,
-            'total' => $lineTotal,
+            'total' => $unit * $qty,
+            'discount_amount' => $saved,
+            'discount_rate' => $shelf > $unit ? ($shelf - $unit) / $shelf : 0.0,
         ];
     }
     return [
         'lines' => $lines,
         'total' => $total,
         'measure' => $measure,
-        'shelf_total' => $shelfTotal,
+        'discount_total' => $discountTotal,
+        'discount_rate' => $measure > 0 ? $discountTotal / $measure : 0.0,
         'progress' => $progress,
-        'reference' => $reference,
+        'unlock' => $unlock,
         'units' => $units,
     ];
 }

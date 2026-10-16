@@ -67,7 +67,9 @@ shop_header('ثبت سفارش · مولوی‌سل', 'shop', $boot);
                     <?php if ($line['image'] !== ''): ?><img src="<?= shop_h($line['image']) ?>" alt=""><?php endif; ?>
                     <div class="dtext">
                         <h3><?= shop_h($line['name']) ?></h3>
-                        <p><strong><?= shop_h(shop_toman((int) $line['unit'])) ?></strong>
+                        <p>
+                            <?php if ((int) $line['shelf'] > (int) $line['unit']): ?><span class="rate">−<?= shop_h(shop_percent((float) $line['discount_rate'])) ?></span><?php endif; ?>
+                            <strong><?= shop_h(shop_toman((int) $line['unit'])) ?></strong>
                             <?php if ((int) $line['shelf'] > (int) $line['unit']): ?><s class="was"><?= shop_h(shop_toman((int) $line['shelf'])) ?></s><?php endif; ?>
                         </p>
                         <p class="sku"><?= shop_h($line['sku']) ?></p>
@@ -77,6 +79,7 @@ shop_header('ثبت سفارش · مولوی‌سل', 'shop', $boot);
             <?php endforeach; ?>
         </div>
         <?php if ($quote['lines'] !== []): ?>
+            <div class="payline" id="discount-line"><span>تخفیف سبد</span><strong id="discount-total"><?= shop_h(shop_percent((float) $quote['discount_rate'])) ?> · <?= shop_h(shop_toman((int) $quote['discount_total'])) ?></strong></div>
             <div class="payline"><span>قابل پرداخت</span><strong id="checkout-total"><?= shop_h(shop_toman((int) $quote['total'])) ?></strong></div>
         <?php endif; ?>
     </aside>

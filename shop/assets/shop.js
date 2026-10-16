@@ -159,8 +159,9 @@
         state.total = data.total;
         state.measure = data.measure;
         state.progress = data.progress;
-        state.floor = data.floor;
-        state.ceiling = data.ceiling;
+        state.unlock = data.unlock;
+        state.discount_total = data.discount_total || 0;
+        state.discount_rate = data.discount_rate || 0;
         state.count = data.count;
         paint();
     }
@@ -170,35 +171,41 @@
         Object.keys(state.cart).forEach(function (id) {
             var item = state.book[id];
             if (!item) return;
-            var basis = item.shelf > 0 ? item.shelf : item.sale;
-            measure += basis * state.cart[id];
+            if (Number(item.shelf) > Number(item.floor)) {
+                measure += Number(item.shelf) * state.cart[id];
+            }
         });
         state.measure = measure;
-        state.progress = progressOf(measure, state.floor, state.ceiling);
+        state.progress = progressOf(measure, state.unlock);
         state.units = {};
         state.total = 0;
+        state.discount_total = 0;
         state.lines = [];
         Object.keys(state.book).forEach(function (id) {
             var item = state.book[id];
-            var unit = priceOf(item.sale, item.shelf, state.progress);
+            var unit = priceOf(item, state.progress);
             state.units[id] = unit;
             var qty = state.cart[id] || 0;
             if (qty > 0) {
+                var saved = Number(item.shelf) > unit ? (Number(item.shelf) - unit) * qty : 0;
                 state.total += unit * qty;
+                state.discount_total += saved;
                 state.lines.push({
                     id: id,
                     name: item.name,
                     qty: qty,
                     unit: unit,
                     shelf: item.shelf,
-                    sale: item.sale,
                     total: unit * qty,
+                    discount_amount: saved,
+                    discount_rate: Number(item.shelf) > unit ? (Number(item.shelf) - unit) / Number(item.shelf) : 0,
                     image: item.image,
                     sku: item.sku
                 });
             }
         });
         state.count = state.lines.reduce(function (sum, line) { return sum + line.qty; }, 0);
+        state.discount_rate = state.measure > 0 ? state.discount_total / state.measure : 0;
     }
 
     function paint() {
@@ -207,8 +214,17 @@
             var unit = state.units[id];
             if (unit == null) return;
             var now = card.querySelector(".now");
-            now.textContent = toman(unit);
+            var amount = now.querySelector(".amount");
+            if (amount) amount.textContent = toman(unit);
+            else now.textContent = toman(unit);
             now.dataset.unit = String(unit);
+            var rateNode = now.querySelector(".rate");
+            var shelfPrice = Number(card.dataset.shelf);
+            var current = shelfPrice > unit ? (shelfPrice - unit) / shelfPrice : 0;
+            if (rateNode) {
+                rateNode.hidden = current <= 0;
+                if (current > 0) rateNode.textContent = "−" + percent(current);
+            }
             var was = card.querySelector(".was");
             var shelf = Number(card.dataset.shelf);
             if (shelf > unit) {
@@ -229,6 +245,8 @@
         renderLines(document.getElementById("checkout-lines"), false);
         var checkoutTotal = document.getElementById("checkout-total");
         if (checkoutTotal) checkoutTotal.textContent = toman(state.total || 0);
+        var discountTotal = document.getElementById("discount-total");
+        if (discountTotal) discountTotal.textContent = discountText();
         if (pay) pay.textContent = toman(state.total || 0);
         var emptyCart = (state.count || 0) < 1;
         var footGo = document.querySelector(".drawer-foot .go");
@@ -250,9 +268,10 @@
         }
         node.innerHTML = state.lines.map(function (line) {
             var was = line.shelf > line.unit ? '<s class="was">' + toman(line.shelf) + "</s>" : "";
+            var rate = line.shelf > line.unit ? '<span class="rate">−' + percent(line.discount_rate) + "</span> " : "";
             return '<article class="dline" data-pid="' + esc(line.id) + '">'
                 + '<img src="' + esc(line.image) + '" alt="">'
-                + '<div class="dtext"><h3>' + esc(line.name) + "</h3><p><strong>" + toman(line.unit) + "</strong> " + was + "</p>"
+                + '<div class="dtext"><h3>' + esc(line.name) + "</h3><p>" + rate + "<strong>" + toman(line.unit) + "</strong> " + was + "</p>"
                 + '<p class="sku">' + esc(line.sku) + "</p></div>"
                 + stepperHtml(line.qty)
                 + "</article>";
@@ -269,14 +288,13 @@
         if (drawerNote) drawerNote.textContent = text;
     }
 
-    function meterTextFor(percent) {
+    function discountText() {
+        return percent(state.discount_rate || 0) + " · " + toman(state.discount_total || 0);
+    }
+    function meterTextFor() {
         if ((state.count || 0) < 1) return "";
-        if (!state.floor) return "جمع سبد " + toman(state.total || 0);
-        if ((state.measure || 0) <= state.floor) {
-            return "تخفیف از جمع " + toman(state.floor) + " با قیمت مصرف شروع می‌شود. الان " + toman(state.measure || 0) + " است.";
-        }
-        if (percent >= 100) return "قیمت فروش تأمین‌کننده روی این سبد اعمال شده است.";
-        return percent + "٪ از راه تا قیمت فروش تأمین‌کننده. سقف این تخفیف " + toman(state.ceiling) + " است.";
+        if ((state.discount_total || 0) < 1) return "تخفیف سبد هنوز باز نشده است.";
+        return "تخفیف سبد " + discountText();
     }
 
     function renderBadges() {
@@ -305,7 +323,7 @@
             var ok = (!query || norm(card.dataset.name).indexOf(query) !== -1)
                 && (!cat || card.dataset.cat === cat)
                 && (!suppliers.length || suppliers.indexOf(card.dataset.supplier) !== -1)
-                && (!shelfOnly || Number(card.dataset.shelf) > Number(card.dataset.sale))
+                && (!shelfOnly || Number(card.dataset.shelf) > 0)
                 && (!state.wishOnly || state.wishes.indexOf(card.dataset.pid) !== -1);
             card.hidden = !ok;
             if (ok) shown += 1;
@@ -400,20 +418,32 @@
     function toman(amount) {
         return Number(amount || 0).toLocaleString("en-US") + " تومان";
     }
-    function priceOf(sale, shelf, progress) {
-        sale = Number(sale);
-        shelf = Number(shelf);
-        if (shelf > sale) {
-            var unit = Math.round((shelf - progress * (shelf - sale)) / 1000) * 1000;
-            return Math.max(sale, Math.min(shelf, unit));
-        }
-        return sale;
+    function priceOf(item, progress) {
+        var shelf = Number(item.shelf);
+        var ceiling = Number(item.ceiling);
+        var floor = Number(item.floor);
+        if (!(shelf > 0)) return 0;
+        var unit = halfUp(ceiling + (floor - ceiling) * progress);
+        var low = Math.min(floor, ceiling);
+        var high = Math.min(Math.max(floor, ceiling, low), shelf);
+        if (unit < low) unit = low;
+        if (unit > high) unit = high;
+        return unit;
     }
-    function progressOf(measure, floor, ceiling) {
-        if (floor > 0 && ceiling > floor && measure > floor) {
-            return Math.min(1, (measure - floor) / (ceiling - floor));
-        }
+    function progressOf(measure, unlock) {
+        if (measure > 0 && unlock > 0) return Math.min(1, measure / unlock);
         return 0;
+    }
+    function halfUp(value) {
+        var nearest = Math.round(value * 1e8) / 1e8;
+        var whole = Math.trunc(nearest);
+        if (nearest - whole >= 0.5 - 1e-8) return whole + 1;
+        return whole;
+    }
+    function percent(rate) {
+        var value = Math.round(rate * 1000) / 10;
+        var text = Math.abs(value - Math.round(value)) < 0.001 ? String(Math.round(value)) : value.toFixed(1);
+        return text + "٪";
     }
     function norm(value) {
         return String(value || "").replace(/ي/g, "ی").replace(/ك/g, "ک").replace(/کارتن/g, " ").replace(/درب/g, " ").replace(/\s+/g, " ").trim().toLowerCase();

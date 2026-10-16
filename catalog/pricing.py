@@ -52,6 +52,7 @@ _PUBLIC_FIELDS = (
     "product_id",
     "name",
     "channel",
+    "category",
     "regular",
     "floor",
     "ceiling",
@@ -302,6 +303,7 @@ def _public_product(source: dict[str, Any], band: dict[str, Any]) -> dict[str, A
         "product_id": str(source.get("product_id") or ""),
         "name": source.get("name") or "",
         "channel": source.get("channel") or "",
+        "category": source.get("category") or "",
         "stock_status": source.get("stock_status") or "Available",
     }
     for field in ("regular", "floor", "ceiling", "opening_rate", "depth_rate", "max_discount", "spread"):
@@ -327,6 +329,7 @@ def product_from_record(record: dict[str, Any], settings: PricingSettings | None
         "product_id": record.get("Product ID") or "",
         "name": name,
         "channel": record.get("Channel Username") or "",
+        "category": record.get("Category") or "",
         "stock_status": record.get("Stock Status") or "Available",
     }, band)
 

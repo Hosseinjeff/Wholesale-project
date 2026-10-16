@@ -22,17 +22,11 @@ function shop_meter_text(array $boot): string
     if ((int) ($boot['count'] ?? 0) < 1) {
         return '';
     }
-    $percent = (int) round(((float) ($boot['progress'] ?? 0)) * 100);
-    if (empty($boot['floor'])) {
-        return 'جمع سبد ' . shop_toman((int) ($boot['total'] ?? 0));
+    $amount = (int) ($boot['discount_total'] ?? 0);
+    if ($amount < 1) {
+        return 'تخفیف سبد هنوز باز نشده است.';
     }
-    if ((int) ($boot['measure'] ?? 0) <= (int) $boot['floor']) {
-        return 'تخفیف از جمع ' . shop_toman((int) $boot['floor']) . ' با قیمت مصرف شروع می‌شود. الان ' . shop_toman((int) ($boot['measure'] ?? 0)) . ' است.';
-    }
-    if ($percent >= 100) {
-        return 'قیمت فروش تأمین‌کننده روی این سبد اعمال شده است.';
-    }
-    return $percent . '٪ از راه تا قیمت فروش تأمین‌کننده. سقف این تخفیف ' . shop_toman((int) $boot['ceiling']) . ' است.';
+    return 'تخفیف سبد ' . shop_percent((float) ($boot['discount_rate'] ?? 0)) . ' · ' . shop_toman($amount);
 }
 
 function shop_json(array $data): string

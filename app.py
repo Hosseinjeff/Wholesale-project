@@ -11,7 +11,6 @@ import time
 import threading
 from urllib.parse import urlparse
 from utils.logger import setup_logger
-from pathlib import Path
 
 from catalog.pricing import catalog_from_records, default_settings, preview_records, resolve_quote
 from catalog.sync import (
@@ -534,14 +533,6 @@ def shop_source(preview: bool) -> dict:
         }
     settings = default_settings()
     return {"settings": settings.as_dict(), "products": []}
-
-
-@app.route("/")
-def shop_page():
-    """Customer shop. Prices and the cart both come from /api/shop and /api/cart."""
-    page = Path(__file__).with_name("shop") / "index.html"
-    body = page.read_text(encoding="utf-8")
-    return body, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 
 @app.route("/api/shop", methods=["GET"])

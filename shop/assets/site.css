@@ -222,6 +222,21 @@ main { max-width: 1080px; margin: 0 auto; padding: 18px 20px 56px; }
     padding: 0;
 }
 .heart svg { width: 20px; height: 20px; }
+.deal {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 1;
+    max-width: calc(100% - 16px);
+    padding: 1px 8px;
+    border-radius: 999px;
+    background: #f43f6a;
+    color: #fff;
+    font-size: .72rem;
+    font-weight: 700;
+    line-height: 1.7;
+    white-space: nowrap;
+}
 .info { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 10px; flex: 1; }
 .card h2, .dline h3 {
     margin: 0;
@@ -231,7 +246,17 @@ main { max-width: 1080px; margin: 0 auto; padding: 18px 20px 56px; }
 }
 .card h2 { min-height: 3em; }
 .buy { margin-top: auto; display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; }
-.now { margin: 0; font-weight: 700; font-size: 1.12rem; }
+.now { margin: 0; font-weight: 700; font-size: 1.12rem; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.rate {
+    background: #ffe4ea;
+    color: #e11d48;
+    border-radius: 999px;
+    font-size: .72rem;
+    font-weight: 700;
+    line-height: 1.7;
+    padding: 0 6px;
+    white-space: nowrap;
+}
 .sub { margin: 2px 0 0; display: flex; flex-direction: column; align-items: flex-start; gap: 1px; min-height: 2.3em; }
 .was { color: var(--green); text-decoration: line-through; font-size: .8rem; }
 .sku { color: var(--faint); font-size: .72rem; }
@@ -323,7 +348,8 @@ main { max-width: 1080px; margin: 0 auto; padding: 18px 20px 56px; }
 .dline img { width: 72px; height: 72px; object-fit: contain; background: #f4efe8; border-radius: 12px; flex: none; padding: 4px; }
 .dtext { flex: 1; min-width: 0; }
 .dtext h3 { font-size: .92rem; }
-.dtext p { margin: 2px 0 0; }
+.dtext p { margin: 2px 0 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; }
+.dtext .was { flex-basis: 100%; }
 .fine { margin: 0 0 10px; color: var(--muted); font-size: .82rem; }
 .payline { display: flex; justify-content: space-between; align-items: baseline; font-weight: 700; margin-bottom: 12px; }
 .payline strong { font-size: 1.15rem; }
@@ -442,6 +468,7 @@ body.locked { overflow: hidden; }
     .catalog.view-auto .card h2, .catalog.view-list .card h2 { min-height: 0; font-size: .92rem; }
     .catalog.view-auto .heart, .catalog.view-list .heart { display: none; }
     .catalog.view-auto .sub, .catalog.view-list .sub { min-height: 0; }
+    .deal { top: 4px; right: 4px; font-size: .62rem; padding: 0 5px; }
     .catalog.view-grid { grid-template-columns: repeat(2, 1fr); }
     .toolbar { margin-bottom: 8px; }
     .views, .choice, .count, .chips { display: none !important; }
