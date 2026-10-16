@@ -458,7 +458,7 @@
         return digits(Math.round(rate * 100)) + "٪";
     }
     function trashSvg() {
-        return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M9 7V5h6v2M8 7l1 13h6l1-13M10 11v6M14 11v6"></path></svg>';
+        return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 7h15M9.5 7V5.2A1.2 1.2 0 0 1 10.7 4h2.6a1.2 1.2 0 0 1 1.2 1.2V7M7.2 7l.7 12.2a1 1 0 0 0 1 .8h6.2a1 1 0 0 0 1-.8L17.8 7M10 11v5.5M14 11v5.5"></path></svg>';
     }
     function norm(value) {
         return String(value || "").replace(/ي/g, "ی").replace(/ك/g, "ک").replace(/کارتن/g, " ").replace(/درب/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
