@@ -26,6 +26,9 @@
     var drawerNote = document.getElementById("drawer-note");
     var live = document.getElementById("live");
     var catalog = document.querySelector(".catalog");
+    var armed = false;
+    var wave = [];
+    var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
     document.addEventListener("click", function (event) {
         var wish = event.target.closest(".heart");
@@ -223,15 +226,15 @@
             if (unit == null) return;
             var now = card.querySelector(".now");
             var amount = now.querySelector(".amount");
-            if (amount) amount.textContent = toman(unit);
-            else now.textContent = toman(unit);
+            if (amount) present(amount, unit, toman(unit), "shop");
+            else present(now, unit, toman(unit), "shop");
             now.dataset.unit = String(unit);
             var rateNode = now.querySelector(".rate");
             var shelfPrice = Number(card.dataset.shelf);
             var current = shelfPrice > unit ? (shelfPrice - unit) / shelfPrice : 0;
             if (rateNode) {
                 rateNode.hidden = current <= 0;
-                if (current > 0) rateNode.textContent = "\u2212" + percent(current);
+                if (current > 0) present(rateNode, Math.round(current * 100), "\u2212" + percent(current), "shop");
             }
             var was = card.querySelector(".was");
             var shelf = Number(card.dataset.shelf);
@@ -243,19 +246,21 @@
             }
             var control = card.querySelector(".control");
             var qty = state.cart[id] || 0;
+            var qtyNode = control.querySelector(".stepper b");
+            var prevQty = qtyNode ? qtyNode.dataset.n : (control.querySelector(".add") ? "0" : null);
+            var prevQtyText = qtyNode ? (qtyNode.dataset.t || qtyNode.textContent) : digits(0);
             control.innerHTML = qty > 0 ? stepperHtml(qty) : addHtml();
+            var nextQty = control.querySelector(".stepper b");
+            if (nextQty) present(nextQty, qty, digits(qty), "shop", prevQty, prevQtyText);
             var heart = card.querySelector(".heart");
-            var saved = state.wishes.indexOf(id) !== -1;
-            heart.classList.toggle("on", saved);
-            heart.setAttribute("aria-pressed", saved ? "true" : "false");
+            if (heart) {
+                var saved = state.wishes.indexOf(id) !== -1;
+                heart.classList.toggle("on", saved);
+                heart.setAttribute("aria-pressed", saved ? "true" : "false");
+            }
         });
         renderLines(drawerLines, true);
         renderLines(document.getElementById("checkout-lines"), false);
-        var checkoutTotal = document.getElementById("checkout-total");
-        if (checkoutTotal) checkoutTotal.textContent = toman(state.total || 0);
-        var discountTotal = document.getElementById("discount-total");
-        if (discountTotal) discountTotal.textContent = discountText();
-        if (pay) pay.textContent = toman(state.total || 0);
         var emptyCart = (state.count || 0) < 1;
         var footGo = document.querySelector(".drawer-foot .go");
         var footPay = document.querySelector(".drawer-foot .payline");
@@ -266,34 +271,88 @@
         if (catalog && document.getElementById("sort") && document.getElementById("sort").value !== "new") {
             sortCards();
         }
+        flushWave();
+        armed = true;
+    }
+
+    function lineSnap(node) {
+        var map = {};
+        if (!node) return map;
+        node.querySelectorAll(".dline").forEach(function (line) {
+            var strong = line.querySelector(".dprice");
+            var rate = line.querySelector(".rate");
+            var qty = line.querySelector(".stepper b");
+            map[line.dataset.pid] = {
+                unit: strong ? strong.dataset.n : null,
+                unitText: strong ? (strong.dataset.t || strong.textContent) : "",
+                rate: rate ? rate.dataset.n : null,
+                rateText: rate ? (rate.dataset.t || rate.textContent) : "",
+                qty: qty ? qty.dataset.n : null,
+                qtyText: qty ? (qty.dataset.t || qty.textContent) : ""
+            };
+        });
+        return map;
     }
 
     function renderLines(node, emptyCopy) {
         if (!node) return;
+        var previous = lineSnap(node);
         if (!state.lines.length) {
             node.innerHTML = emptyCopy ? '<p class="note">سبد خالی است.</p>' : "";
             return;
         }
         node.innerHTML = state.lines.map(function (line) {
             var was = line.shelf > line.unit ? '<s class="was">' + toman(line.shelf) + "</s>" : "";
-            var rate = line.shelf > line.unit ? '<span class="rate" dir="ltr">\u2212' + percent(line.discount_rate) + "</span> " : "";
+            var rate = line.shelf > line.unit ? '<span class="rate" dir="ltr"></span>' : "";
             return '<article class="dline" data-pid="' + esc(line.id) + '">'
                 + '<img src="' + esc(line.image) + '" alt="">'
-                + '<div class="dtext"><h3>' + esc(line.name) + "</h3><p>" + rate + "<strong>" + toman(line.unit) + "</strong> " + was + "</p>"
+                + '<div class="dtext"><h3>' + esc(line.name) + "</h3><p>" + rate + '<strong class="dprice"></strong> ' + was + "</p>"
                 + '<p class="sku">' + esc(line.sku) + "</p></div>"
                 + stepperHtml(line.qty)
                 + "</article>";
         }).join("");
+        node.querySelectorAll(".dline").forEach(function (line) {
+            var id = line.dataset.pid;
+            var data = null;
+            state.lines.forEach(function (item) { if (item.id === id) data = item; });
+            if (!data) return;
+            var prior = previous[id] || {};
+            var price = line.querySelector(".dprice");
+            present(price, data.unit, toman(data.unit), "cart", prior.unit, prior.unitText);
+            var rateNode = line.querySelector(".rate");
+            if (rateNode) {
+                present(rateNode, Math.round(data.discount_rate * 100), "\u2212" + percent(data.discount_rate), "cart", prior.rate, prior.rateText);
+            }
+            var qtyNode = line.querySelector(".stepper b");
+            present(qtyNode, data.qty, digits(data.qty), "cart", prior.qty, prior.qtyText);
+        });
     }
 
     function renderMeter() {
         var count = state.count || 0;
+        var saved = state.discount_total || 0;
+        var hasSave = saved > 0;
         if (meter) meter.hidden = count < 1;
-        var percent = Math.round((state.progress || 0) * 100);
-        if (meterBar) meterBar.style.width = percent + "%";
-        var text = meterTextFor(percent);
-        if (meterText) meterText.textContent = text;
-        if (drawerNote) drawerNote.textContent = text;
+        var progress = Math.round((state.progress || 0) * 100);
+        if (meterBar) meterBar.style.width = progress + "%";
+        if (meterText) meterText.textContent = meterTextFor();
+        var saving = document.getElementById("drawer-saving");
+        if (saving) saving.hidden = !hasSave;
+        if (drawerNote) {
+            drawerNote.hidden = hasSave || count < 1;
+            drawerNote.textContent = (!hasSave && count > 0) ? "تخفیف سبد هنوز باز نشده است." : "";
+        }
+        if (hasSave) {
+            present(document.getElementById("drawer-rate"), Math.round((state.discount_rate || 0) * 100), percent(state.discount_rate || 0), "cart");
+            present(document.getElementById("drawer-save"), saved, toman(saved), "cart");
+        }
+        var checkoutRate = document.getElementById("discount-rate");
+        var checkoutSave = document.getElementById("discount-total");
+        if (checkoutRate) present(checkoutRate, Math.round((state.discount_rate || 0) * 100), percent(state.discount_rate || 0), "cart");
+        if (checkoutSave) present(checkoutSave, saved, toman(saved), "cart");
+        if (pay) present(pay, state.total || 0, toman(state.total || 0), "cart");
+        var checkoutTotal = document.getElementById("checkout-total");
+        if (checkoutTotal) present(checkoutTotal, state.total || 0, toman(state.total || 0), "cart");
     }
 
     function discountText() {
@@ -308,7 +367,7 @@
     function renderBadges() {
         var count = state.count || 0;
         cartBadge.hidden = count < 1;
-        cartBadge.textContent = count > 99 ? digits(99) + "+" : digits(count);
+        present(cartBadge, count, count > 99 ? digits(99) + "+" : digits(count), "shop");
         var known = state.wishes.filter(function (id) { return state.book[id]; });
         wishBadge.hidden = known.length < 1;
         wishBadge.textContent = digits(known.length);
@@ -458,7 +517,93 @@
         return digits(Math.round(rate * 100)) + "٪";
     }
     function trashSvg() {
-        return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 7h15M9.5 7V5.2A1.2 1.2 0 0 1 10.7 4h2.6a1.2 1.2 0 0 1 1.2 1.2V7M7.2 7l.7 12.2a1 1 0 0 0 1 .8h6.2a1 1 0 0 0 1-.8L17.8 7M10 11v5.5M14 11v5.5"></path></svg>';
+        return '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" stroke="none" d="M4.4 6.15h15.2c.5 0 .9.4.9.9s-.4.9-.9.9H4.4c-.5 0-.9-.4-.9-.9s.4-.9.9-.9z"></path><path fill="currentColor" stroke="none" d="M10 3.3h4c.55 0 1 .4 1 .95V6.1h-6V4.25c0-.55.45-.95 1-.95z"></path><path fill="currentColor" stroke="none" fill-rule="evenodd" d="M6.35 9.2h11.3c.25 0 .45.22.43.48l-.78 10.05c-.08.85-.8 1.5-1.65 1.5H8.35c-.85 0-1.57-.65-1.65-1.5L5.92 9.68c-.02-.26.18-.48.43-.48zM9.15 12h1.4v5.15h-1.4V12zm4.3 0h1.4v5.15h-1.4V12z"></path></svg>';
+    }
+    function present(el, key, text, scope, prevKey, prevText) {
+        if (!el) return;
+        var nextKey = String(key);
+        var priorKey = prevKey != null ? String(prevKey) : el.dataset.n;
+        var priorText = prevText != null && prevText !== "" ? prevText : (el.dataset.t || el.textContent);
+        el.dataset.n = nextKey;
+        el.dataset.t = text;
+        if (!armed || reduceMotion || priorKey == null || priorKey === "" || priorKey === nextKey) {
+            if (!el.querySelector(".tick")) el.textContent = text;
+            return;
+        }
+        wave.push({ el: el, from: priorText, to: text, scope: scope });
+    }
+    function flushWave() {
+        var batch = wave;
+        wave = [];
+        var groups = {};
+        batch.forEach(function (item) {
+            if (!groups[item.scope]) groups[item.scope] = [];
+            groups[item.scope].push(item);
+        });
+        Object.keys(groups).forEach(function (scope) {
+            var list = groups[scope].filter(function (item) {
+                return item.el.getClientRects().length > 0;
+            });
+            groups[scope].forEach(function (item) {
+                if (item.el.getClientRects().length === 0) item.el.textContent = item.to;
+            });
+            if (!list.length) return;
+            var tops = list.map(function (item) { return item.el.getBoundingClientRect().top; });
+            var min = Math.min.apply(null, tops);
+            var max = Math.max.apply(null, tops);
+            var span = Math.max(1, max - min);
+            list.forEach(function (item) {
+                var delay = Math.round(((item.el.getBoundingClientRect().top - min) / span) * 180);
+                startReel(item.el, item.from, item.to, delay);
+            });
+        });
+    }
+    function startReel(el, fromText, toText, delay) {
+        var from = Array.from(fromText || "");
+        var to = Array.from(toText || "");
+        var width = Math.max(from.length, to.length);
+        while (from.length < width) from.unshift(" ");
+        while (to.length < width) to.unshift(" ");
+        var changed = false;
+        for (var i = 0; i < width; i++) if (from[i] !== to[i] && digitChar(to[i])) changed = true;
+        if (!changed) {
+            el.textContent = toText;
+            return;
+        }
+        var token = (el._roll || 0) + 1;
+        el._roll = token;
+        var root = document.createElement("span");
+        root.className = "tick";
+        var pending = 0;
+        for (var n = 0; n < width; n++) {
+            var cell = document.createElement("i");
+            if (from[n] === to[n] || !digitChar(to[n])) {
+                cell.textContent = to[n];
+            } else {
+                var strip = document.createElement("b");
+                strip.style.animationDelay = delay + "ms";
+                var next = document.createElement("span");
+                next.textContent = to[n];
+                var prev = document.createElement("span");
+                prev.textContent = digitChar(from[n]) ? from[n] : to[n];
+                strip.appendChild(next);
+                strip.appendChild(prev);
+                cell.appendChild(strip);
+                pending++;
+                strip.addEventListener("animationend", function () {
+                    if (el._roll !== token) return;
+                    pending--;
+                    if (pending <= 0) el.textContent = toText;
+                }, { once: true });
+            }
+            root.appendChild(cell);
+        }
+        el.textContent = "";
+        el.appendChild(root);
+        if (pending === 0) el.textContent = toText;
+    }
+    function digitChar(ch) {
+        return /[0-9۰-۹]/.test(ch);
     }
     function norm(value) {
         return String(value || "").replace(/ي/g, "ی").replace(/ك/g, "ک").replace(/کارتن/g, " ").replace(/درب/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
