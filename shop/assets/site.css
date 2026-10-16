@@ -265,10 +265,8 @@ main { max-width: 1080px; margin: 0 auto; padding: 18px 20px 56px; }
 .now { margin: 0; font-weight: 700; font-size: 1.12rem; display: flex; align-items: center; flex-wrap: nowrap; gap: 6px; }
 .amount { white-space: nowrap; }
 .tick {
-    display: inline-flex;
-    align-items: flex-end;
+    display: inline;
     white-space: nowrap;
-    vertical-align: bottom;
 }
 .tick i {
     display: inline-block;
@@ -277,6 +275,7 @@ main { max-width: 1080px; margin: 0 auto; padding: 18px 20px 56px; }
     font-style: normal;
     line-height: 1.15;
     white-space: pre;
+    vertical-align: bottom;
 }
 .tick b {
     display: flex;

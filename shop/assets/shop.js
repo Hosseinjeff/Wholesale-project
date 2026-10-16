@@ -559,13 +559,21 @@
         });
     }
     function startReel(el, fromText, toText, delay) {
-        var from = Array.from(fromText || "");
         var to = Array.from(toText || "");
-        var width = Math.max(from.length, to.length);
-        while (from.length < width) from.unshift(" ");
-        while (to.length < width) to.unshift(" ");
-        var changed = false;
-        for (var i = 0; i < width; i++) if (from[i] !== to[i] && digitChar(to[i])) changed = true;
+        var fromDigits = [];
+        Array.from(fromText || "").forEach(function (ch) {
+            if (digitChar(ch)) fromDigits.push(ch);
+        });
+        var toPlaces = [];
+        to.forEach(function (ch, index) {
+            if (digitChar(ch)) toPlaces.push(index);
+        });
+        var oldAt = {};
+        toPlaces.forEach(function (index, place) {
+            var fromPlace = fromDigits.length - toPlaces.length + place;
+            oldAt[index] = fromPlace >= 0 ? fromDigits[fromPlace] : "";
+        });
+        var changed = toPlaces.some(function (index) { return oldAt[index] !== to[index]; });
         if (!changed) {
             el.textContent = toText;
             return;
@@ -575,29 +583,29 @@
         var root = document.createElement("span");
         root.className = "tick";
         var pending = 0;
-        for (var n = 0; n < width; n++) {
-            var cell = document.createElement("i");
-            if (from[n] === to[n] || !digitChar(to[n])) {
-                cell.textContent = to[n];
-            } else {
-                var strip = document.createElement("b");
-                strip.style.animationDelay = delay + "ms";
-                var next = document.createElement("span");
-                next.textContent = to[n];
-                var prev = document.createElement("span");
-                prev.textContent = digitChar(from[n]) ? from[n] : to[n];
-                strip.appendChild(next);
-                strip.appendChild(prev);
-                cell.appendChild(strip);
-                pending++;
-                strip.addEventListener("animationend", function () {
-                    if (el._roll !== token) return;
-                    pending--;
-                    if (pending <= 0) el.textContent = toText;
-                }, { once: true });
+        to.forEach(function (ch, index) {
+            if (!digitChar(ch) || oldAt[index] === ch) {
+                root.appendChild(document.createTextNode(ch));
+                return;
             }
+            var cell = document.createElement("i");
+            var strip = document.createElement("b");
+            strip.style.animationDelay = delay + "ms";
+            var next = document.createElement("span");
+            next.textContent = ch;
+            var prev = document.createElement("span");
+            prev.textContent = oldAt[index] || "\u2007";
+            strip.appendChild(next);
+            strip.appendChild(prev);
+            cell.appendChild(strip);
             root.appendChild(cell);
-        }
+            pending++;
+            strip.addEventListener("animationend", function () {
+                if (el._roll !== token) return;
+                pending--;
+                if (pending <= 0) el.textContent = toText;
+            }, { once: true });
+        });
         el.textContent = "";
         el.appendChild(root);
         if (pending === 0) el.textContent = toText;
