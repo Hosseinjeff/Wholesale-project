@@ -265,8 +265,11 @@ main { max-width: 1080px; margin: 0 auto; padding: 18px 20px 56px; }
 .now { margin: 0; font-weight: 700; font-size: 1.12rem; display: flex; align-items: center; flex-wrap: nowrap; gap: 6px; }
 .amount { white-space: nowrap; }
 .tick {
-    display: inline;
+    display: inline-flex;
+    direction: ltr;
+    unicode-bidi: isolate;
     white-space: nowrap;
+    align-items: flex-end;
 }
 .tick i {
     display: inline-block;

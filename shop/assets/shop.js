@@ -578,12 +578,19 @@
             el.textContent = toText;
             return;
         }
+        var lastDigit = -1;
+        to.forEach(function (ch, index) {
+            if (digitChar(ch)) lastDigit = index;
+        });
+        var body = to.slice(0, lastDigit + 1);
+        var suffix = to.slice(lastDigit + 1).join("");
         var token = (el._roll || 0) + 1;
         el._roll = token;
         var root = document.createElement("span");
         root.className = "tick";
+        root.dir = "ltr";
         var pending = 0;
-        to.forEach(function (ch, index) {
+        body.forEach(function (ch, index) {
             if (!digitChar(ch) || oldAt[index] === ch) {
                 root.appendChild(document.createTextNode(ch));
                 return;
@@ -608,6 +615,7 @@
         });
         el.textContent = "";
         el.appendChild(root);
+        if (suffix) el.appendChild(document.createTextNode(suffix));
         if (pending === 0) el.textContent = toText;
     }
     function digitChar(ch) {
