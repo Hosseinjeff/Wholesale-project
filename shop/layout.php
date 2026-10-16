@@ -57,7 +57,7 @@ function shop_header(string $title, string $active, array $boot): void
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title><?= shop_h($title) ?></title>
     <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="assets/site.css">
+    <link rel="stylesheet" href="assets/site.css?v=<?= (int) @filemtime(__DIR__ . '/assets/site.css') ?>">
 </head>
 <body>
 <header class="bar">
@@ -118,7 +118,7 @@ function shop_footer(array $boot): void
     ?>
 </main>
 <script id="shop-boot" type="application/json"><?= shop_json($boot) ?></script>
-<script src="assets/shop.js"></script>
+<script src="assets/shop.js?v=<?= (int) @filemtime(__DIR__ . '/assets/shop.js') ?>"></script>
 </body>
 </html>
     <?php
