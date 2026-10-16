@@ -12,6 +12,7 @@ function shop_svg(string $name): string
         'filter' => '<path d="M4 6h16l-6 7v5l-4 2v-7z"/>',
         'grid' => '<rect x="4" y="4" width="6.5" height="6.5" rx="1.2"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.2"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.2"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.2"/>',
         'list' => '<path d="M9 7h11M9 12h11M9 17h11"/><circle cx="5.5" cy="7" r="1"/><circle cx="5.5" cy="12" r="1"/><circle cx="5.5" cy="17" r="1"/>',
+        'trash' => '<path d="M5 7h14M9 7V5h6v2M8 7l1 13h6l1-13M10 11v6M14 11v6"/>',
     ];
     $body = $icons[$name] ?? '';
     return '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' . $body . '</svg>';
@@ -129,8 +130,9 @@ function shop_control(string $id, int $qty, string $back): string
     $id = shop_h($id);
     $back = shop_h($back);
     if ($qty > 0) {
-        $inner = '<div class="stepper"><button type="button" data-step="-1" aria-label="کم کردن">−</button><b>'
-            . $qty . '</b><button type="button" data-step="1" aria-label="افزودن">+</button></div>';
+        $inner = '<div class="actions"><div class="stepper"><button type="button" data-step="-1" aria-label="کم کردن">−</button><b>'
+            . shop_h(shop_digits((string) $qty)) . '</b><button type="button" data-step="1" aria-label="افزودن">+</button></div>'
+            . '<button type="button" class="trash" data-clear aria-label="حذف از سبد">' . shop_svg('trash') . '</button></div>';
     } else {
         $inner = '<button class="add" type="submit" aria-label="افزودن به سبد">' . shop_svg('cart') . '</button>';
     }

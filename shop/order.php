@@ -24,7 +24,7 @@ shop_header('سفارش · مولوی‌سل', 'shop', $boot);
                     <?php if (!empty($line['image'])): ?><img src="<?= shop_h((string) $line['image']) ?>" alt=""><?php endif; ?>
                     <div class="dtext">
                         <h3><?= shop_h((string) $line['name']) ?></h3>
-                        <p><?= (int) $line['qty'] ?> عدد · <?= shop_h(shop_toman((int) $line['total'])) ?></p>
+                        <p><?= shop_h(shop_digits((string) (int) $line['qty'])) ?> عدد · <?= shop_h(shop_toman((int) $line['total'])) ?></p>
                     </div>
                 </article>
             <?php endforeach; ?>

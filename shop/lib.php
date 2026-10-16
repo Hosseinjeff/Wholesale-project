@@ -16,9 +16,26 @@ function shop_h(string $value): string
     return htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
 }
 
+function shop_digits(string $value): string
+{
+    return strtr($value, [
+        '0' => '۰',
+        '1' => '۱',
+        '2' => '۲',
+        '3' => '۳',
+        '4' => '۴',
+        '5' => '۵',
+        '6' => '۶',
+        '7' => '۷',
+        '8' => '۸',
+        '9' => '۹',
+        ',' => '٬',
+    ]);
+}
+
 function shop_toman(int $amount): string
 {
-    return number_format($amount, 0, '.', ',') . ' تومان';
+    return shop_digits(number_format($amount, 0, '.', ',')) . ' تومان';
 }
 
 function shop_start(): void
@@ -404,11 +421,12 @@ function shop_band(int $cost, int $regular, array $settings): array
 
 function shop_percent(float $rate): string
 {
-    $value = round($rate * 1000) / 10;
-    if (abs($value - round($value)) < 0.001) {
-        return (string) (int) round($value) . '٪';
-    }
-    return number_format($value, 1, '.', '') . '٪';
+    return shop_digits((string) (int) round($rate * 100)) . '٪';
+}
+
+function shop_upto(float $rate): string
+{
+    return 'تا ' . shop_percent($rate);
 }
 
 function shop_unit_price(array $product, float $progress): int

@@ -56,7 +56,7 @@ shop_header('مولوی‌سل', 'shop', $boot);
                 <?php endforeach; ?>
             </select>
         </label>
-        <p class="count" id="count">نمایش ۱ تا <?= $total ?> از <?= $total ?> محصول</p>
+        <p class="count" id="count">نمایش <?= shop_h(shop_digits('1')) ?> تا <?= shop_h(shop_digits((string) $total)) ?> از <?= shop_h(shop_digits((string) $total)) ?> محصول</p>
     </div>
 </div>
 <div class="chips" id="cats">
@@ -82,17 +82,17 @@ shop_header('مولوی‌سل', 'shop', $boot);
             <div class="photo">
                 <img src="<?= shop_h($product['image']) ?>" alt="<?= shop_h($product['name']) ?>">
                 <?php if ((float) $product['max'] > 0): ?>
-                    <span class="deal"><?= shop_h(shop_percent((float) $product['max'])) ?> تخفیف</span>
+                    <span class="deal" dir="rtl"><?= shop_h(shop_upto((float) $product['max'])) ?></span>
                 <?php endif; ?>
                 <button type="button" class="heart" aria-label="نشان کردن" aria-pressed="false"><?= shop_svg('heart') ?></button>
             </div>
             <div class="info">
                 <h2><?= shop_h($product['name']) ?></h2>
                 <div class="buy">
-                    <div>
+                    <div class="offer">
                         <?php $rate = $shelf > $unit ? ($shelf - $unit) / $shelf : 0; ?>
                         <p class="now" data-unit="<?= $unit ?>">
-                            <span class="rate"<?= $rate > 0 ? '' : ' hidden' ?>>−<?= shop_h(shop_percent((float) $rate)) ?></span>
+                            <span class="rate" dir="ltr"<?= $rate > 0 ? '' : ' hidden' ?>><?= shop_h('−' . shop_percent((float) $rate)) ?></span>
                             <span class="amount"><?= shop_h(shop_toman($unit)) ?></span>
                         </p>
                         <p class="sub">

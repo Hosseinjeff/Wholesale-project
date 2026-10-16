@@ -68,7 +68,7 @@ shop_header('ثبت سفارش · مولوی‌سل', 'shop', $boot);
                     <div class="dtext">
                         <h3><?= shop_h($line['name']) ?></h3>
                         <p>
-                            <?php if ((int) $line['shelf'] > (int) $line['unit']): ?><span class="rate">−<?= shop_h(shop_percent((float) $line['discount_rate'])) ?></span><?php endif; ?>
+                            <?php if ((int) $line['shelf'] > (int) $line['unit']): ?><span class="rate" dir="ltr"><?= shop_h('−' . shop_percent((float) $line['discount_rate'])) ?></span><?php endif; ?>
                             <strong><?= shop_h(shop_toman((int) $line['unit'])) ?></strong>
                             <?php if ((int) $line['shelf'] > (int) $line['unit']): ?><s class="was"><?= shop_h(shop_toman((int) $line['shelf'])) ?></s><?php endif; ?>
                         </p>

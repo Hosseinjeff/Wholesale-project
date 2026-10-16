@@ -33,6 +33,14 @@
             toggleWish(wish.closest(".card").dataset.pid);
             return;
         }
+        var wipe = event.target.closest("[data-clear]");
+        if (wipe) {
+            event.preventDefault();
+            var wiped = wipe.closest("[data-pid]");
+            if (!wiped) return;
+            change(wiped.dataset.pid, 0);
+            return;
+        }
         var step = event.target.closest("[data-step]");
         if (step) {
             event.preventDefault();
@@ -223,7 +231,7 @@
             var current = shelfPrice > unit ? (shelfPrice - unit) / shelfPrice : 0;
             if (rateNode) {
                 rateNode.hidden = current <= 0;
-                if (current > 0) rateNode.textContent = "−" + percent(current);
+                if (current > 0) rateNode.textContent = "\u2212" + percent(current);
             }
             var was = card.querySelector(".was");
             var shelf = Number(card.dataset.shelf);
@@ -268,7 +276,7 @@
         }
         node.innerHTML = state.lines.map(function (line) {
             var was = line.shelf > line.unit ? '<s class="was">' + toman(line.shelf) + "</s>" : "";
-            var rate = line.shelf > line.unit ? '<span class="rate">−' + percent(line.discount_rate) + "</span> " : "";
+            var rate = line.shelf > line.unit ? '<span class="rate" dir="ltr">\u2212' + percent(line.discount_rate) + "</span> " : "";
             return '<article class="dline" data-pid="' + esc(line.id) + '">'
                 + '<img src="' + esc(line.image) + '" alt="">'
                 + '<div class="dtext"><h3>' + esc(line.name) + "</h3><p>" + rate + "<strong>" + toman(line.unit) + "</strong> " + was + "</p>"
@@ -300,11 +308,11 @@
     function renderBadges() {
         var count = state.count || 0;
         cartBadge.hidden = count < 1;
-        cartBadge.textContent = count > 99 ? "99+" : String(count);
+        cartBadge.textContent = count > 99 ? digits(99) + "+" : digits(count);
         var known = state.wishes.filter(function (id) { return state.book[id]; });
         wishBadge.hidden = known.length < 1;
-        wishBadge.textContent = String(known.length);
-        if (live) live.textContent = count ? ("سبد، " + count + " عدد، " + toman(state.total || 0)) : "سبد خالی است";
+        wishBadge.textContent = digits(known.length);
+        if (live) live.textContent = count ? ("سبد، " + digits(count) + " عدد، " + toman(state.total || 0)) : "سبد خالی است";
     }
 
     function applyFilters() {
@@ -331,7 +339,7 @@
         var countNode = document.getElementById("count");
         if (countNode) {
             countNode.textContent = shown
-                ? "نمایش ۱ تا " + shown + " از " + total + " محصول"
+                ? "نمایش " + digits(1) + " تا " + digits(shown) + " از " + digits(total) + " محصول"
                 : "کالایی با این مشخصات پیدا نشد";
         }
         document.querySelectorAll(".chips button").forEach(function (button) {
@@ -406,8 +414,9 @@
     }
 
     function stepperHtml(qty) {
-        return '<div class="stepper"><button type="button" data-step="-1" aria-label="کم کردن">−</button><b>'
-            + qty + '</b><button type="button" data-step="1" aria-label="افزودن">+</button></div>';
+        return '<div class="actions"><div class="stepper"><button type="button" data-step="-1" aria-label="کم کردن">−</button><b>'
+            + digits(qty) + '</b><button type="button" data-step="1" aria-label="افزودن">+</button></div>'
+            + '<button type="button" class="trash" data-clear aria-label="حذف از سبد">' + trashSvg() + "</button></div>";
     }
     function addHtml() {
         return '<button type="button" class="add" data-step="1" aria-label="افزودن به سبد">' + cartSvg() + "</button>";
@@ -415,8 +424,13 @@
     function cartSvg() {
         return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6h1.6l1.4 8.2a1 1 0 0 0 1 .8h7.8a1 1 0 0 0 1-.8L20 8H8"></path><circle cx="10" cy="19" r="1.2"></circle><circle cx="17" cy="19" r="1.2"></circle></svg>';
     }
+    function digits(value) {
+        return String(value).replace(/\d/g, function (d) {
+            return "۰۱۲۳۴۵۶۷۸۹"[d];
+        }).replace(/,/g, "٬");
+    }
     function toman(amount) {
-        return Number(amount || 0).toLocaleString("en-US") + " تومان";
+        return digits(Number(amount || 0).toLocaleString("en-US")) + " تومان";
     }
     function priceOf(item, progress) {
         var shelf = Number(item.shelf);
@@ -441,9 +455,10 @@
         return whole;
     }
     function percent(rate) {
-        var value = Math.round(rate * 1000) / 10;
-        var text = Math.abs(value - Math.round(value)) < 0.001 ? String(Math.round(value)) : value.toFixed(1);
-        return text + "٪";
+        return digits(Math.round(rate * 100)) + "٪";
+    }
+    function trashSvg() {
+        return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M9 7V5h6v2M8 7l1 13h6l1-13M10 11v6M14 11v6"></path></svg>';
     }
     function norm(value) {
         return String(value || "").replace(/ي/g, "ی").replace(/ك/g, "ک").replace(/کارتن/g, " ").replace(/درب/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
