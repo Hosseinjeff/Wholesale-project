@@ -1,0 +1,225 @@
+{
+  "generated_at": "2026-10-13T18:25:00Z",
+  "products": [
+    {
+      "id": "db5a98ea9ee9",
+      "name": "آب سودا یک لیتری سون،۶ عددی",
+      "packaging": "",
+      "volume": "",
+      "variation": "",
+      "sale": 50000,
+      "shelf": 88800,
+      "channel": "@bonakdarjavan",
+      "supplier": "بنکدار جوان"
+    },
+    {
+      "id": "98267a9b8512",
+      "name": "آب شلغم تخمیری",
+      "packaging": "در کارتن6 تایی",
+      "volume": "",
+      "variation": "",
+      "sale": 180000,
+      "shelf": 0,
+      "channel": "@top_shop_rahimi",
+      "supplier": "تاپ‌شاپ رحیمی"
+    },
+    {
+      "id": "e2d5ea3e411b",
+      "name": "آنتارس یک لیتری",
+      "packaging": "در کارتن 24تایی",
+      "volume": "",
+      "variation": "",
+      "sale": 95000,
+      "shelf": 0,
+      "channel": "@top_shop_rahimi",
+      "supplier": "تاپ‌شاپ رحیمی"
+    },
+    {
+      "id": "4ccda582e140",
+      "name": "انرژی زا شیشه سون،۱۲ عددی",
+      "packaging": "",
+      "volume": "",
+      "variation": "",
+      "sale": 45000,
+      "shelf": 90000,
+      "channel": "@bonakdarjavan",
+      "supplier": "بنکدار جوان"
+    },
+    {
+      "id": "be038ce8b8f8",
+      "name": "انرژی زا یک لیتری باویل،۶ عددی",
+      "packaging": "",
+      "volume": "",
+      "variation": "",
+      "sale": 90000,
+      "shelf": 0,
+      "channel": "@bonakdarjavan",
+      "supplier": "بنکدار جوان"
+    },
+    {
+      "id": "59742456bd28",
+      "name": "تن ۱۸۰ گرم درب شفاف شیان،۲۴عدد",
+      "packaging": "",
+      "volume": "",
+      "variation": "",
+      "sale": 255000,
+      "shelf": 345000,
+      "channel": "@bonakdarjavan",
+      "supplier": "بنکدار جوان"
+    },
+    {
+      "id": "7d45f7c341e9",
+      "name": "رب روژین ۸۰۰ گرم،۱۲ عددی",
+      "packaging": "",
+      "volume": "",
+      "variation": "",
+      "sale": 295000,
+      "shelf": 329000,
+      "channel": "@bonakdarjavan",
+      "supplier": "بنکدار جوان"
+    },
+    {
+      "id": "3a0f65a89a11",
+      "name": "رب ۸۰۰ گرم چین چین،۱۲ عددی",
+      "packaging": "",
+      "volume": "",
+      "variation": "",
+      "sale": 210000,
+      "shelf": 210000,
+      "channel": "@bonakdarjavan",
+      "supplier": "بنکدار جوان"
+    },
+    {
+      "id": "8b315157eca8",
+      "name": "شیر کاکائو ميهن،۳۶ عددی",
+      "packaging": "",
+      "volume": "",
+      "variation": "",
+      "sale": 42000,
+      "shelf": 59000,
+      "channel": "@bonakdarjavan",
+      "supplier": "بنکدار جوان"
+    },
+    {
+      "id": "b657bdba88a8",
+      "name": "قند شکسته درجه یک،۵ کیلویی",
+      "packaging": "",
+      "volume": "",
+      "variation": "",
+      "sale": 126000,
+      "shelf": 0,
+      "channel": "@bonakdarjavan",
+      "supplier": "بنکدار جوان"
+    },
+    {
+      "id": "b9e904fc28fc",
+      "name": "نوشیدنی گازدار سون،۱۲ عددی",
+      "packaging": "",
+      "volume": "",
+      "variation": "",
+      "sale": 45000,
+      "shelf": 90000,
+      "channel": "@bonakdarjavan",
+      "supplier": "بنکدار جوان"
+    },
+    {
+      "id": "c78f50fef2cc",
+      "name": "پاستا فوری شف هو،۶ عددی",
+      "packaging": "",
+      "volume": "",
+      "variation": "",
+      "sale": 150000,
+      "shelf": 195000,
+      "channel": "@bonakdarjavan",
+      "supplier": "بنکدار جوان"
+    },
+    {
+      "id": "4199d1f576b0",
+      "name": "چای کیسه ای لفاف دار شهرزاد",
+      "packaging": "بسته ۲۵ عدد و کارتن ۲۴ بسته",
+      "volume": "",
+      "variation": "",
+      "sale": 115000,
+      "shelf": 200000,
+      "channel": "@bonakdarjavan",
+      "supplier": "بنکدار جوان"
+    },
+    {
+      "id": "a531cd82d2d7",
+      "name": "ژل خوراکی ترشیکس،۳۶ عددی",
+      "packaging": "",
+      "volume": "",
+      "variation": "",
+      "sale": 95000,
+      "shelf": 138000,
+      "channel": "@bonakdarjavan",
+      "supplier": "بنکدار جوان"
+    },
+    {
+      "id": "171e3fb514c3",
+      "name": "کروسان پچ‌ پچ",
+      "packaging": "کروسان پچ‌ پچ ،کارتن ۳۶ عددی",
+      "volume": "",
+      "variation": "",
+      "sale": 30000,
+      "shelf": 50000,
+      "channel": "@bonakdarjavan",
+      "supplier": "بنکدار جوان"
+    },
+    {
+      "id": "ef65a0b23362",
+      "name": "کلوچه دوقلو تبرک،۳۰ عددی",
+      "packaging": "",
+      "volume": "",
+      "variation": "",
+      "sale": 20000,
+      "shelf": 0,
+      "channel": "@bonakdarjavan",
+      "supplier": "بنکدار جوان"
+    },
+    {
+      "id": "8539da8ff5b1",
+      "name": "کنسرو عدسی کاریبو،۱۲ عددی",
+      "packaging": "",
+      "volume": "",
+      "variation": "",
+      "sale": 100000,
+      "shelf": 128000,
+      "channel": "@bonakdarjavan",
+      "supplier": "بنکدار جوان"
+    },
+    {
+      "id": "2e3656f0a09f",
+      "name": "کیکس مکس،۲۴ عددی",
+      "packaging": "",
+      "volume": "",
+      "variation": "",
+      "sale": 75000,
+      "shelf": 145000,
+      "channel": "@bonakdarjavan",
+      "supplier": "بنکدار جوان"
+    },
+    {
+      "id": "3fc171a907e3",
+      "name": "گلاب ربیع ۵۰۰ میل،۱۲ عددی",
+      "packaging": "",
+      "volume": "",
+      "variation": "",
+      "sale": 220000,
+      "shelf": 275000,
+      "channel": "@bonakdarjavan",
+      "supplier": "بنکدار جوان"
+    },
+    {
+      "id": "6595bd62f256",
+      "name": "گیلانی 250گرم",
+      "packaging": "در کارتن 24تایی",
+      "volume": "",
+      "variation": "",
+      "sale": 295000,
+      "shelf": 370000,
+      "channel": "@top_shop_rahimi",
+      "supplier": "تاپ‌شاپ رحیمی"
+    }
+  ]
+}
