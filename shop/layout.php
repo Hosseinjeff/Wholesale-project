@@ -48,6 +48,7 @@ function shop_header(string $title, string $active, array $boot): void
         'home' => ['index.php', 'خانه'],
         'about' => ['about.php', 'درباره ما'],
         'contact' => ['contact.php', 'تماس با ما'],
+        'account' => ['account.php', !empty($_SESSION['customer_id']) ? 'حساب من' : 'ورود'],
     ];
     ?>
 <!DOCTYPE html>
@@ -128,11 +129,13 @@ function shop_footer(array $boot): void
     <?php
 }
 
-function shop_control(string $id, int $qty, string $back): string
+function shop_control(string $id, int $qty, string $back, int $min = 1): string
 {
     $token = shop_h((string) ($_SESSION['token'] ?? ''));
     $id = shop_h($id);
     $back = shop_h($back);
+    $min = max(1, $min);
+    $posted = $qty > 0 ? $qty : $min;
     if ($qty > 0) {
         $inner = '<div class="actions"><div class="stepper"><button type="button" data-step="-1" aria-label="کم کردن">−</button><b>'
             . shop_h(shop_digits((string) $qty)) . '</b><button type="button" data-step="1" aria-label="افزودن">+</button></div>'
@@ -143,7 +146,7 @@ function shop_control(string $id, int $qty, string $back): string
     return '<form class="control" method="post" action="api.php" data-pid="' . $id . '">'
         . '<input type="hidden" name="token" value="' . $token . '">'
         . '<input type="hidden" name="id" value="' . $id . '">'
-        . '<input type="hidden" name="qty" value="' . max(1, $qty) . '">'
+        . '<input type="hidden" name="qty" value="' . $posted . '">'
         . '<input type="hidden" name="back" value="' . $back . '">'
         . $inner
         . '</form>';

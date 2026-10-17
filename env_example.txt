@@ -29,6 +29,11 @@ GOOGLE_SHEET_ID=your_google_sheet_id_here
 # the bot writes the Offers log and the Products current book itself.
 GOOGLE_SERVICE_ACCOUNT_JSON=
 
+# Shared with shop/private/config.php notify_secret. The shop posts orders to /shop/order.
+SHOP_NOTIFY_SECRET=
+# Optional extra Telegram chat ids, comma-separated. Private chats that message the bot are remembered too.
+ORDER_NOTIFY_CHAT_ID=
+
 # === GENERAL CONFIGURATION ===
 LOG_LEVEL=INFO
 REQUEST_TIMEOUT=30

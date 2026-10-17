@@ -78,6 +78,7 @@ shop_header('مولوی‌سل', 'shop', $boot);
                  data-cat="<?= shop_h($product['category']) ?>"
                  data-supplier="<?= shop_h($product['supplier']) ?>"
                  data-shelf="<?= $shelf ?>"
+                 data-min="<?= (int) $product['min'] ?>"
                  data-index="<?= (int) $product['index'] ?>">
             <div class="photo">
                 <img src="<?= shop_h($product['image']) ?>" alt="<?= shop_h($product['name']) ?>">
@@ -88,6 +89,7 @@ shop_header('مولوی‌سل', 'shop', $boot);
             </div>
             <div class="info">
                 <h2><?= shop_h($product['name']) ?></h2>
+                <p class="meta"><?= shop_h(shop_product_facts($product)) ?></p>
                 <div class="buy">
                     <div class="offer">
                         <?php $rate = $shelf > $unit ? ($shelf - $unit) / $shelf : 0; ?>
@@ -100,7 +102,7 @@ shop_header('مولوی‌سل', 'shop', $boot);
                             <span class="sku"><?= shop_h($product['sku']) ?></span>
                         </p>
                     </div>
-                    <?= shop_control($product['id'], $qty, 'index.php') ?>
+                    <?= shop_control($product['id'], $qty, 'index.php', (int) $product['min']) ?>
                 </div>
             </div>
         </article>
