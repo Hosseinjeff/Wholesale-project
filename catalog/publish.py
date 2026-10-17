@@ -6,6 +6,7 @@ service sends, then pulls photo bytes from /media/file without a bot token.
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import logging
 import os
@@ -88,35 +89,64 @@ def site_settings(store: MemoryStore | GoogleSheetStore) -> dict[str, Any] | Non
     return settings_from_rows(rows).as_dict()
 
 
-def publish_shop(store: MemoryStore | GoogleSheetStore, *, max_rounds: int = 8) -> dict[str, Any]:
-    """Send the catalog, then keep pulling photos until the queue is idle."""
+def publish_shop(
+    store: MemoryStore | GoogleSheetStore,
+    *,
+    max_rounds: int = 8,
+    images_only: bool = False,
+) -> dict[str, Any]:
+    """Send the catalog, then upload photo bytes until the queue is idle."""
     url = (os.getenv("SHOP_SITE_URL") or "").strip().rstrip("/")
     secret = os.getenv("SHOP_NOTIFY_SECRET") or ""
     if not url or not secret:
         return {"ok": False, "pushed": False, "reason": "unconfigured"}
     with _publish_lock:
-        products = site_products(store)
-        if products is None:
-            return {"ok": False, "pushed": False, "reason": "sheet unread"}
-        payload: dict[str, Any] = {"products": products, "token": secret}
-        settings = site_settings(store)
-        if settings:
-            payload["settings"] = settings
-        result = _post_shop(url, secret, payload)
-        if not result.get("ok"):
-            result["pushed"] = False
-            return result
-        left = int(result.get("images_left") or 0)
+        if images_only:
+            result = _post_shop(url, secret, {"mode": "images", "token": secret})
+            if not result.get("ok"):
+                result["pushed"] = False
+                return result
+            products = []
+        else:
+            products = site_products(store)
+            if products is None:
+                return {"ok": False, "pushed": False, "reason": "sheet unread"}
+            payload: dict[str, Any] = {"products": products, "token": secret}
+            settings = site_settings(store)
+            if settings:
+                payload["settings"] = settings
+            result = _post_shop(url, secret, payload)
+            if not result.get("ok"):
+                result["pushed"] = False
+                return result
+        pending = result.get("pending") if isinstance(result.get("pending"), list) else []
         rounds = 0
-        while left > 0 and rounds < max_rounds:
-            nxt = _post_shop(url, secret, {"mode": "images", "token": secret})
-            attached = int(nxt.get("attached") or 0)
-            left = int(nxt.get("images_left") or 0)
-            result["attached"] = int(result.get("attached") or 0) + attached
-            rounds += 1
-            if not nxt.get("ok") or attached <= 0:
+        while pending and rounds < max_rounds:
+            item = pending[0] if isinstance(pending[0], dict) else {}
+            photo = _telegram_photo(str(item.get("file") or ""))
+            if photo is None:
+                body = {"mode": "images", "token": secret, "skip": [item]}
+            else:
+                blob, mime = photo
+                body = {
+                    "mode": "images",
+                    "token": secret,
+                    "images": [{
+                        "product": item.get("product"),
+                        "file": item.get("file"),
+                        "mime": mime,
+                        "data": base64.b64encode(blob).decode("ascii"),
+                    }],
+                }
+            nxt = _post_shop(url, secret, body)
+            if not nxt.get("ok"):
                 break
-        result["images_left"] = left
+            result["attached"] = int(result.get("attached") or 0) + int(nxt.get("attached") or 0)
+            result["images_left"] = int(nxt.get("images_left") or 0)
+            pending = nxt.get("pending") if isinstance(nxt.get("pending"), list) else []
+            rounds += 1
+            if photo is not None and int(nxt.get("attached") or 0) <= 0:
+                break
         result["pushed"] = True
         result["count"] = len(products)
         logger.info(
@@ -124,9 +154,40 @@ def publish_shop(store: MemoryStore | GoogleSheetStore, *, max_rounds: int = 8) 
             result.get("created"),
             result.get("updated"),
             result.get("hidden"),
-            left,
+            result.get("images_left"),
         )
         return result
+
+
+def _telegram_photo(file_id: str) -> tuple[bytes, str] | None:
+    """Fetch one Telegram photo. The shop receives the bytes from us."""
+    token = os.getenv("TELEGRAM_BOT_TOKEN") or ""
+    file_id = safe_file_id(file_id)
+    if not token or not file_id:
+        return None
+    try:
+        info = requests.get(
+            f"https://api.telegram.org/bot{token}/getFile",
+            params={"file_id": file_id},
+            timeout=15,
+        )
+        path = ""
+        if info.status_code == 200:
+            path = str(((info.json().get("result") or {}).get("file_path") or ""))
+        if not path or ".." in path or path.startswith("/"):
+            return None
+        upstream = requests.get(f"https://api.telegram.org/file/bot{token}/{path}", timeout=25)
+    except requests.RequestException:
+        return None
+    if upstream.status_code != 200 or not upstream.content or len(upstream.content) > 4_000_000:
+        return None
+    mime = "image/jpeg"
+    lower = path.lower()
+    if lower.endswith(".png"):
+        mime = "image/png"
+    elif lower.endswith(".webp"):
+        mime = "image/webp"
+    return upstream.content, mime
 
 
 def _post_shop(url: str, secret: str, payload: dict[str, Any]) -> dict[str, Any]:

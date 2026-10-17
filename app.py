@@ -615,7 +615,9 @@ def shop_publish():
     if not USE_SHEETS:
         return jsonify({"ok": False, "error": "sheets"}), 503
     try:
-        result = publish_shop(build_store())
+        body = request.get_json(silent=True) or {}
+        images_only = bool(body.get("images_only")) if isinstance(body, dict) else False
+        result = publish_shop(build_store(), max_rounds=12, images_only=images_only)
     except Exception:
         logger.exception("Shop publish failed")
         return jsonify({"ok": False, "error": "publish failed"}), 502

@@ -7,7 +7,7 @@ if (!defined('ABSPATH')) {
 
 /**
  * The bot publishes the product sheet here after each batch.
- * Photos are pulled from the bot's media stream, a few at a time.
+ * The shop host cannot always reach the bot, so the bot uploads photo bytes.
  */
 add_action('init', static function (): void {
     if (($_GET['molavi-sync'] ?? '') !== '1') {
@@ -34,7 +34,7 @@ add_action('init', static function (): void {
         molavi_sync_reply(['ok' => false, 'error' => 'woocommerce'], 503);
     }
     if (($payload['mode'] ?? '') === 'images') {
-        molavi_sync_reply(molavi_drain_images(6));
+        molavi_sync_reply(molavi_receive_images($payload));
     }
     molavi_sync_reply(molavi_apply_catalog($payload));
 }, 20);
@@ -100,15 +100,15 @@ function molavi_apply_catalog(array $payload): array
     }
     update_option('molavi_image_queue', $queue, false);
     molavi_forget_catalog();
-    $images = molavi_drain_images(4);
     molavi_purge_shop_cache();
     return [
         'ok' => true,
         'created' => $created,
         'updated' => $updated,
         'hidden' => $hidden,
-        'images_left' => (int) $images['images_left'],
-        'attached' => (int) $images['attached'],
+        'attached' => 0,
+        'images_left' => count($queue),
+        'pending' => molavi_image_pending(1),
     ];
 }
 
@@ -282,65 +282,119 @@ function molavi_hide_product(int $productId): bool
     return true;
 }
 
-function molavi_drain_images(int $limit): array
+function molavi_receive_images(array $payload): array
 {
-    $queue = get_option('molavi_image_queue', []);
-    if (!is_array($queue)) {
-        $queue = [];
-    }
-    $base = rtrim((string) (molavi_legacy_config()['media_base'] ?? molavi_legacy_config()['bot_url'] ?? ''), '/');
+    $queue = molavi_image_queue();
     $attached = 0;
-    $attempts = 0;
-    $failed = [];
-    $deferred = [];
-    $started = microtime(true);
-    foreach ($queue as $item) {
-        $productId = (int) ($item['product'] ?? 0);
-        $file = (string) ($item['file'] ?? '');
-        if ($productId <= 0 || $file === '') {
-            continue;
+    $images = $payload['images'] ?? [];
+    if (is_array($images)) {
+        foreach (array_slice($images, 0, 4) as $image) {
+            if (!is_array($image)) {
+                continue;
+            }
+            $productId = (int) ($image['product'] ?? 0);
+            $file = (string) ($image['file'] ?? '');
+            if (!molavi_store_image($productId, $file, (string) ($image['data'] ?? ''), (string) ($image['mime'] ?? ''))) {
+                continue;
+            }
+            $attached++;
+            $queue = array_values(array_filter($queue, static function (array $item) use ($productId, $file): bool {
+                return (int) ($item['product'] ?? 0) !== $productId || (string) ($item['file'] ?? '') !== $file;
+            }));
         }
-        $keep = ['product' => $productId, 'file' => $file];
-        if ($base === '' || $attempts >= $limit || (microtime(true) - $started) > 20) {
-            $deferred[] = $keep;
-            continue;
-        }
-        $attempts++;
-        if (!molavi_attach_image($productId, $file, $base)) {
-            $failed[] = $keep;
-            continue;
-        }
-        $attached++;
     }
-    $left = array_merge($deferred, $failed);
-    update_option('molavi_image_queue', $left, false);
+    $skips = $payload['skip'] ?? [];
+    if (is_array($skips)) {
+        foreach ($skips as $skip) {
+            if (!is_array($skip)) {
+                continue;
+            }
+            $productId = (int) ($skip['product'] ?? 0);
+            $file = (string) ($skip['file'] ?? '');
+            $moved = null;
+            $rest = [];
+            foreach ($queue as $item) {
+                if ($moved === null && (int) ($item['product'] ?? 0) === $productId && (string) ($item['file'] ?? '') === $file) {
+                    $moved = $item;
+                    continue;
+                }
+                $rest[] = $item;
+            }
+            if ($moved !== null) {
+                $rest[] = $moved;
+            }
+            $queue = $rest;
+        }
+    }
+    update_option('molavi_image_queue', $queue, false);
     if ($attached > 0) {
         molavi_purge_shop_cache();
     }
     return [
         'ok' => true,
         'attached' => $attached,
-        'images_left' => count($left),
+        'images_left' => count($queue),
+        'pending' => molavi_image_pending(1),
     ];
 }
 
-function molavi_attach_image(int $productId, string $fileId, string $base): bool
+function molavi_image_queue(): array
 {
-    if (!preg_match('/^[A-Za-z0-9_-]{8,300}$/', $fileId)) {
+    $queue = get_option('molavi_image_queue', []);
+    if (!is_array($queue)) {
+        return [];
+    }
+    $clean = [];
+    foreach ($queue as $item) {
+        if (!is_array($item)) {
+            continue;
+        }
+        $productId = (int) ($item['product'] ?? 0);
+        $file = (string) ($item['file'] ?? '');
+        if ($productId > 0 && $file !== '') {
+            $clean[] = ['product' => $productId, 'file' => $file];
+        }
+    }
+    return $clean;
+}
+
+function molavi_image_pending(int $limit): array
+{
+    return array_slice(molavi_image_queue(), 0, max(0, $limit));
+}
+
+function molavi_store_image(int $productId, string $fileId, string $data, string $mime): bool
+{
+    if ($productId <= 0 || !preg_match('/^[A-Za-z0-9_-]{8,300}$/', $fileId)) {
         return false;
     }
     if ((string) get_post_meta($productId, '_molavi_image_id', true) === $fileId && (int) get_post_thumbnail_id($productId) > 0) {
         return true;
     }
+    $raw = base64_decode($data, true);
+    if (!is_string($raw) || strlen($raw) < 32 || strlen($raw) > 4000000) {
+        return false;
+    }
+    $ext = '';
+    if (str_starts_with($raw, "\xFF\xD8\xFF")) {
+        $ext = 'jpg';
+    } elseif (str_starts_with($raw, "\x89PNG")) {
+        $ext = 'png';
+    } elseif (str_starts_with($raw, 'RIFF') && substr($raw, 8, 4) === 'WEBP') {
+        $ext = 'webp';
+    }
+    if ($ext === '' || ($mime !== '' && !str_starts_with($mime, 'image/'))) {
+        return false;
+    }
     require_once ABSPATH . 'wp-admin/includes/file.php';
     require_once ABSPATH . 'wp-admin/includes/media.php';
     require_once ABSPATH . 'wp-admin/includes/image.php';
-    $tmp = download_url($base . '/media/file/' . rawurlencode($fileId), 20);
-    if (is_wp_error($tmp)) {
+    $tmp = wp_tempnam('molavi');
+    if (!is_string($tmp) || file_put_contents($tmp, $raw) === false) {
         return false;
     }
     $attachmentId = media_handle_sideload([
-        'name' => 'molavi-' . substr(md5($fileId), 0, 12) . '.jpg',
+        'name' => 'molavi-' . substr(md5($fileId), 0, 12) . '.' . $ext,
         'tmp_name' => $tmp,
     ], $productId, get_the_title($productId));
     if (is_wp_error($attachmentId)) {

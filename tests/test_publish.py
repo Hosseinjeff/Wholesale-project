@@ -98,11 +98,20 @@ class PublishTests(unittest.TestCase):
         def post(url, json, headers, timeout):
             calls.append((url, json, headers, timeout))
             if json.get("mode") == "images":
-                return Response({"ok": True, "attached": 1, "images_left": 0})
-            return Response({"ok": True, "created": 1, "updated": 0, "hidden": 1, "attached": 0, "images_left": 1})
+                return Response({"ok": True, "attached": 1, "images_left": 0, "pending": []})
+            return Response({
+                "ok": True,
+                "created": 1,
+                "updated": 0,
+                "hidden": 1,
+                "attached": 0,
+                "images_left": 1,
+                "pending": [{"product": 9, "file": "AgACAgQAAxkBAAIB"}],
+            })
 
         env = {"SHOP_SITE_URL": "https://shop.example", "SHOP_NOTIFY_SECRET": "secret"}
-        with patch.dict(os.environ, env, clear=False), patch("catalog.publish.requests.post", side_effect=post):
+        photo = patch("catalog.publish._telegram_photo", return_value=(b"\xff\xd8\xff" + b"x" * 40, "image/jpeg"))
+        with patch.dict(os.environ, env, clear=False), patch("catalog.publish.requests.post", side_effect=post), photo:
             result = publish_shop(store)
         self.assertTrue(result["pushed"])
         self.assertEqual(result["created"], 1)
@@ -112,7 +121,9 @@ class PublishTests(unittest.TestCase):
         self.assertEqual(calls[0][2]["X-Shop-Token"], "secret")
         self.assertEqual(calls[0][1]["products"][0]["name"], "آب سودا")
         self.assertIn("settings", calls[0][1])
-        self.assertEqual(calls[1][1], {"mode": "images", "token": "secret"})
+        self.assertEqual(calls[1][1]["mode"], "images")
+        self.assertEqual(calls[1][1]["images"][0]["file"], "AgACAgQAAxkBAAIB")
+        self.assertEqual(calls[1][1]["images"][0]["product"], 9)
 
 
 if __name__ == "__main__":
