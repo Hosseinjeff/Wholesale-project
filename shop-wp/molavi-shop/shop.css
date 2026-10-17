@@ -1,0 +1,101 @@
+@font-face {
+    font-family: Vazirmatn;
+    src: url("fonts/Vazirmatn-Regular.woff2") format("woff2");
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: Vazirmatn;
+    src: url("fonts/Vazirmatn-Bold.woff2") format("woff2");
+    font-weight: 700;
+    font-style: normal;
+    font-display: swap;
+}
+body,
+button,
+input,
+select,
+textarea {
+    font-family: Vazirmatn, Tahoma, sans-serif;
+}
+body {
+    background: #faf4ec;
+    color: #2b241e;
+}
+.elementor-location-header {
+    background: #fffdfb;
+    border-bottom: 1px solid #f0e2d2;
+}
+.elementor-location-header .elementor-heading-title {
+    font-weight: 700;
+    letter-spacing: -0.03em;
+}
+.elementor-widget-woocommerce-products {
+    display: none !important;
+}
+.woocommerce ul.products {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+    margin: 0 !important;
+}
+.woocommerce ul.products::before,
+.woocommerce ul.products::after {
+    display: none;
+}
+.woocommerce ul.products li.product {
+    width: auto !important;
+    float: none !important;
+    margin: 0 !important;
+    background: #fffdfb;
+    border-radius: 16px;
+    padding: 12px;
+    box-shadow: 0 10px 28px rgba(62, 40, 18, 0.07);
+}
+.woocommerce ul.products li.product a img {
+    border-radius: 12px;
+    background: #f8f1e8;
+}
+.woocommerce ul.products li.product .woocommerce-loop-product__title {
+    font-size: 1rem;
+    color: #2b241e;
+}
+.woocommerce ul.products li.product .price {
+    color: #2b241e;
+    font-weight: 700;
+}
+.woocommerce ul.products li.product .price del {
+    color: #157a3a;
+    font-weight: 400;
+    opacity: 1;
+}
+.woocommerce ul.products li.product .price ins {
+    color: #2b241e;
+    text-decoration: none;
+}
+.woocommerce ul.products li.product .button,
+.woocommerce a.button,
+.woocommerce button.button,
+.woocommerce input.button,
+.elementor-button {
+    background: #e86a12 !important;
+    color: #fff !important;
+    border-radius: 12px !important;
+    border: 0 !important;
+}
+.elementor-location-footer {
+    background: #fffdfb;
+    border-top: 1px solid #f0e2d2;
+    color: #6f6256;
+}
+@media (max-width: 900px) {
+    .woocommerce ul.products {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+@media (max-width: 640px) {
+    .woocommerce ul.products {
+        grid-template-columns: 1fr;
+    }
+}
