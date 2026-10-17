@@ -80,14 +80,14 @@ class Deal extends Widget_Base
         if (!$product) {
             return;
         }
-        $regular = (float) $product->get_regular_price();
-        $current = (float) $product->get_price();
-        if ($regular <= 0 || $current <= 0 || $current >= $regular) {
+        $curve = molavi_curve($product);
+        if (($curve['max'] ?? 0) <= 0) {
             return;
         }
-        $percent = (int) round((($regular - $current) / $regular) * 100);
         $prefix = trim((string) $this->get_settings_for_display('prefix'));
-        $label = trim($prefix . ' ' . molavi_digits((string) $percent) . '٪');
-        echo '<span class="molavi-deal" dir="rtl">' . esc_html($label) . '</span>';
+        if ($prefix === '') {
+            $prefix = 'تا';
+        }
+        echo '<span class="molavi-deal" dir="rtl">' . esc_html($prefix . ' ' . molavi_percent((float) $curve['max'])) . '</span>';
     }
 }

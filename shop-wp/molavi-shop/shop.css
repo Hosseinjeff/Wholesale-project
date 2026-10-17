@@ -61,9 +61,103 @@ body {
     stroke-linecap: round;
     stroke-linejoin: round;
 }
-.molavi-add:hover {
+.molavi-add:hover,
+.molavi-step button:hover {
     background: #c4510a;
     color: #fff;
+}
+.e-loop-item .elementor-widget-molavi-price {
+    flex: 1 1 auto;
+    width: auto;
+}
+.e-loop-item .elementor-widget-molavi-cart {
+    width: auto;
+    flex: 0 0 auto;
+}
+.e-loop-item .e-con:has(.molavi-control.is-in) {
+    --flex-wrap: wrap;
+    flex-wrap: wrap;
+}
+.elementor-widget-molavi-cart:has(.molavi-control.is-in) {
+    flex-basis: 100%;
+    width: 100%;
+    display: flex;
+    justify-content: flex-end;
+}
+.molavi-now {
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 700;
+    font-size: 1.05rem;
+}
+.molavi-amount { white-space: nowrap; }
+.molavi-sub { margin: 2px 0 0; min-height: 1.2em; }
+.molavi-was {
+    color: #157a3a;
+    text-decoration: line-through;
+    font-size: 0.8rem;
+    font-weight: 400;
+}
+.molavi-rate {
+    background: #ffd4e0;
+    color: #b4234c;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    line-height: 1.6;
+    padding: 0 6px;
+    white-space: nowrap;
+}
+.molavi-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+.molavi-step {
+    display: inline-flex;
+    direction: ltr;
+    align-items: center;
+    background: #fff1e2;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid #ffd3ae;
+}
+.molavi-step button {
+    width: 28px;
+    height: 30px;
+    border: 0;
+    background: #e86a12;
+    color: #fff;
+    font-size: 1.05rem;
+    line-height: 1;
+}
+.molavi-step b {
+    min-width: 22px;
+    text-align: center;
+    font-size: 0.9rem;
+}
+.molavi-trash {
+    width: 36px;
+    height: 36px;
+    border: 0;
+    border-radius: 12px;
+    background: #fff4ea;
+    color: #2b241e;
+    display: grid;
+    place-items: center;
+    padding: 0;
+}
+.molavi-trash svg {
+    width: 18px;
+    height: 18px;
+    fill: currentColor;
+    stroke: none;
+}
+.molavi-trash:hover {
+    background: #ffd4e0;
+    color: #b4234c;
 }
 .molavi-bar {
     display: flex;

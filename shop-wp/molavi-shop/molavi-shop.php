@@ -2,13 +2,15 @@
 /**
  * Plugin Name: مولوی‌سل
  * Description: Shop rules and Elementor pieces for the WooCommerce store.
- * Version: 0.2.0
+ * Version: 0.3.0
  */
 declare(strict_types=1);
 
 if (!defined('ABSPATH')) {
     exit;
 }
+
+require_once __DIR__ . '/includes/pricing.php';
 
 add_action('wp_enqueue_scripts', static function (): void {
     wp_enqueue_style(
@@ -17,6 +19,21 @@ add_action('wp_enqueue_scripts', static function (): void {
         [],
         (string) filemtime(__DIR__ . '/shop.css')
     );
+    if (!class_exists('WC_AJAX')) {
+        return;
+    }
+    wp_enqueue_script(
+        'molavi-shop',
+        plugins_url('shop.js', __FILE__),
+        ['jquery'],
+        (string) filemtime(__DIR__ . '/shop.js'),
+        true
+    );
+    wp_localize_script('molavi-shop', 'molaviShop', [
+        'qty' => WC_AJAX::get_endpoint('molavi_qty'),
+        'quote' => WC_AJAX::get_endpoint('molavi_quote'),
+        'nonce' => wp_create_nonce('molavi-qty'),
+    ]);
 });
 
 add_filter('loop_shop_per_page', static function (): int {
@@ -33,10 +50,12 @@ add_action('elementor/elements/categories_registered', static function ($element
 add_action('elementor/widgets/register', static function ($widgets): void {
     require_once __DIR__ . '/widgets/deal.php';
     require_once __DIR__ . '/widgets/facts.php';
+    require_once __DIR__ . '/widgets/price.php';
     require_once __DIR__ . '/widgets/cart.php';
     require_once __DIR__ . '/widgets/bar.php';
     $widgets->register(new \Molavi\Elementor\Deal());
     $widgets->register(new \Molavi\Elementor\Facts());
+    $widgets->register(new \Molavi\Elementor\Price());
     $widgets->register(new \Molavi\Elementor\Cart_Button());
     $widgets->register(new \Molavi\Elementor\Catalog_Bar());
 });
@@ -130,7 +149,11 @@ function molavi_product_min($product): int
 
 function molavi_digits(string $value): string
 {
-    return strtr($value, ['0' => '۰', '1' => '۱', '2' => '۲', '3' => '۳', '4' => '۴', '5' => '۵', '6' => '۶', '7' => '۷', '8' => '۸', '9' => '۹']);
+    return strtr($value, [
+        '0' => '۰', '1' => '۱', '2' => '۲', '3' => '۳', '4' => '۴',
+        '5' => '۵', '6' => '۶', '7' => '۷', '8' => '۸', '9' => '۹',
+        ',' => '٬',
+    ]);
 }
 
 function molavi_legacy_config(): array

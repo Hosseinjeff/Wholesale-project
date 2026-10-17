@@ -37,11 +37,6 @@ class Cart_Button extends Widget_Base
         return ['سبد', 'cart', 'add', 'molavi'];
     }
 
-    public function get_script_depends(): array
-    {
-        return ['wc-add-to-cart'];
-    }
-
     protected function register_controls(): void
     {
         $this->start_controls_section('style', [
@@ -88,9 +83,15 @@ class Cart_Button extends Widget_Base
             return;
         }
         $min = molavi_product_min($product);
-        $url = add_query_arg('quantity', $min, $product->add_to_cart_url());
-        echo '<a href="' . esc_url($url) . '" data-quantity="' . esc_attr((string) $min) . '" data-product_id="' . esc_attr((string) $product->get_id()) . '" data-product_sku="' . esc_attr($product->get_sku()) . '" class="button product_type_simple add_to_cart_button ajax_add_to_cart molavi-add" aria-label="افزودن به سبد" rel="nofollow">';
-        echo '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6h1.6l1.4 8.2a1 1 0 0 0 1 .8h7.8a1 1 0 0 0 1-.8L20 8H8"/><circle cx="10" cy="19" r="1.2"/><circle cx="17" cy="19" r="1.2"/></svg>';
-        echo '</a>';
+        $qty = molavi_cart_qty($product->get_id());
+        $class = 'molavi-control' . ($qty > 0 ? ' is-in' : '');
+        echo '<div class="' . esc_attr($class) . '" data-molavi-cart data-product="' . esc_attr((string) $product->get_id()) . '" data-min="' . esc_attr((string) $min) . '" data-qty="' . esc_attr((string) $qty) . '">';
+        if ($qty > 0) {
+            echo '<div class="molavi-actions"><div class="molavi-step"><button type="button" data-molavi-step="-1" aria-label="کم کردن">−</button><b>' . esc_html(molavi_digits((string) $qty)) . '</b><button type="button" data-molavi-step="1" aria-label="افزودن">+</button></div>';
+            echo '<button type="button" class="molavi-trash" data-molavi-clear aria-label="حذف از سبد"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" stroke="none" d="M4.4 6.15h15.2c.5 0 .9.4.9.9s-.4.9-.9.9H4.4c-.5 0-.9-.4-.9-.9s.4-.9.9-.9z"/><path fill="currentColor" stroke="none" d="M10 3.3h4c.55 0 1 .4 1 .95V6.1h-6V4.25c0-.55.45-.95 1-.95z"/><path fill="currentColor" stroke="none" fill-rule="evenodd" d="M6.35 9.2h11.3c.25 0 .45.22.43.48l-.78 10.05c-.08.85-.8 1.5-1.65 1.5H8.35c-.85 0-1.57-.65-1.65-1.5L5.92 9.68c-.02-.26.18-.48.43-.48zM9.15 12h1.4v5.15h-1.4V12zm4.3 0h1.4v5.15h-1.4V12z"/></svg></button></div>';
+        } else {
+            echo '<button type="button" class="molavi-add" data-molavi-step="1" aria-label="افزودن به سبد"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6h1.6l1.4 8.2a1 1 0 0 0 1 .8h7.8a1 1 0 0 0 1-.8L20 8H8"/><circle cx="10" cy="19" r="1.2"/><circle cx="17" cy="19" r="1.2"/></svg></button>';
+        }
+        echo '</div>';
     }
 }
