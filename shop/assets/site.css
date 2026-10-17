@@ -312,6 +312,7 @@ main { max-width: 1080px; margin: 0 auto; padding: 18px 20px 56px; }
 .sub { margin: 2px 0 0; display: flex; flex-direction: column; align-items: flex-start; gap: 1px; min-height: 2.3em; }
 .was { color: var(--green); text-decoration: line-through; font-size: .8rem; }
 .sku { color: var(--faint); font-size: .72rem; }
+.meta { margin: 4px 0 0; color: var(--muted); font-size: .75rem; line-height: 1.5; }
 .add {
     width: 36px;
     height: 36px;
@@ -705,6 +706,9 @@ th { color: var(--muted); font-weight: 400; }
 .row-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
 .row-actions select, .row-actions input[type="file"] { max-width: 100%; }
 .pill { display: inline-flex; align-items: center; gap: 6px; font-size: .85rem; }
+.stats.more { grid-template-columns: repeat(4, 1fr); }
+.banner { background: #fff7ed; border: 1px solid #fed7aa; color: #9a3412; border-radius: 14px; padding: 12px 14px; margin-bottom: 14px; }
+.account-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 @media (max-width: 720px) {
-    .stats { grid-template-columns: 1fr; }
+    .stats, .stats.more, .account-grid { grid-template-columns: 1fr; }
 }

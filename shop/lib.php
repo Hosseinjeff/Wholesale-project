@@ -152,6 +152,7 @@ function shop_fetch_sheet(): array
             'shelf' => $shelf,
             'channel' => $channel,
             'supplier' => $labels[$channel] ?? $channel,
+            'image_file_id' => $cell('Image File ID'),
         ];
     }
     usort($products, static fn(array $a, array $b): int => strcmp($a['name'], $b['name']));
@@ -247,14 +248,14 @@ function shop_b64(string $raw): string
     return rtrim(strtr(base64_encode($raw), '+/', '-_'), '=');
 }
 
-function shop_http(string $method, string $url, array $headers, string $body = ''): string
+function shop_http(string $method, string $url, array $headers, string $body = '', int $timeout = 8): string
 {
     $handle = curl_init($url);
     $options = [
         CURLOPT_CUSTOMREQUEST => $method,
         CURLOPT_HTTPHEADER => $headers,
         CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT => 8,
+        CURLOPT_TIMEOUT => $timeout,
         CURLOPT_CONNECTTIMEOUT => 5,
     ];
     if ($body !== '') {
@@ -464,6 +465,11 @@ function shop_quote(array $catalog, array $cart): array
         if ($qty < 1 || !isset($byId[$id])) {
             continue;
         }
+        $min = shop_product_min($byId[$id]);
+        if ($qty < $min) {
+            $qty = $min;
+            $_SESSION['cart'][$id] = $min;
+        }
         $product = $byId[$id];
         if (!empty($product['discountable']) && (int) $product['shelf'] > 0) {
             $measure += (int) $product['shelf'] * $qty;
@@ -504,6 +510,7 @@ function shop_quote(array $catalog, array $cart): array
             'total' => $unit * $qty,
             'discount_amount' => $saved,
             'discount_rate' => $shelf > $unit ? ($shelf - $unit) / $shelf : 0.0,
+            'min' => shop_product_min($product),
         ];
     }
     return [
@@ -528,11 +535,20 @@ function shop_add(string $id, int $qty): void
     $_SESSION['cart'][$id] = min(999, $current + $qty);
 }
 
-function shop_set(string $id, int $qty): void
+function shop_set(string $id, int $qty, int $min = 1): void
 {
+    $min = max(1, min(999, $min));
+    $current = (int) ($_SESSION['cart'][$id] ?? 0);
     if ($qty < 1) {
         unset($_SESSION['cart'][$id]);
         return;
+    }
+    if ($qty < $min) {
+        if ($current >= $min && $qty < $current) {
+            unset($_SESSION['cart'][$id]);
+            return;
+        }
+        $qty = $min;
     }
     $_SESSION['cart'][$id] = min(999, $qty);
 }

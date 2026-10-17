@@ -20,6 +20,10 @@ This project is optimized for deployment on [Railway.app](https://railway.app). 
    - `GOOGLE_WEB_APP_URL`: Legacy Apps Script URL. Used only when the service account is not set. It does not write the offer log or the current-book columns.
    - `PORT`: `8080` (Railway usually sets this automatically).
    - `RAILWAY_ENVIRONMENT`: `production`.
+   - `SHOP_NOTIFY_SECRET`: Shared secret the shop sends as `X-Shop-Token` when it registers an order.
+   - `ORDER_NOTIFY_CHAT_ID`: Optional. Comma-separated Telegram chat ids that should hear about new orders. A private chat that messages the bot is remembered as well.
+
+   The shop config (`shop/private/config.php`) needs the same secret as `notify_secret`, `bot_url` pointing at this service, and `media_base` so product photos from posts can be shown. Account recovery needs `smtp` and `public_url` there too.
 
 3. **Wait for Build**:
    Railway will automatically detect the `Dockerfile` and `railway.json`. It installs `requirements.txt` and starts one gunicorn worker. The desktop libraries (Telegram client, pandas, Discord, Slack) are not installed, and the process gives memory back after each request.

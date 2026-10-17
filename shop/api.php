@@ -36,7 +36,7 @@ try {
     if ($product === null || (!empty($product['hidden']) && $qty > 0) || (empty($product['discountable']) && $qty > 0)) {
         shop_fail($json, 'کالا پیدا نشد.');
     }
-    shop_set($id, $qty);
+    shop_set($id, $qty, $product === null ? 1 : shop_product_min($product));
     $payload = shop_public(shop_quote($catalog, $_SESSION['cart']));
     if ($json) {
         header('Content-Type: application/json; charset=utf-8');
@@ -44,7 +44,7 @@ try {
         exit;
     }
     $back = basename((string) ($body['back'] ?? 'index.php'));
-    $allowed = ['index.php', 'cart.php', 'about.php', 'contact.php'];
+    $allowed = ['index.php', 'cart.php', 'about.php', 'contact.php', 'account.php'];
     header('Location: ' . (in_array($back, $allowed, true) ? $back : 'index.php'));
 } catch (Throwable $e) {
     shop_fail($json, 'سبد به‌روز نشد.');

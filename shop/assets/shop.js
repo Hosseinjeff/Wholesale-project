@@ -50,7 +50,7 @@
             var host = step.closest("[data-pid]");
             if (!host) return;
             var id = host.dataset.pid;
-            var next = (state.cart[id] || 0) + Number(step.dataset.step);
+            var next = stepped(id, Number(step.dataset.step));
             change(id, next, (state.cart[id] || 0) === 0 && next > 0);
             return;
         }
@@ -91,7 +91,7 @@
         if (event.target.classList && event.target.classList.contains("control")) {
             event.preventDefault();
             var id = event.target.dataset.pid;
-            change(id, (state.cart[id] || 0) + 1, true);
+            change(id, stepped(id, 1), true);
         }
         if (event.target.classList && event.target.classList.contains("order")) {
             var button = event.target.querySelector("button[type=submit]");
@@ -307,7 +307,7 @@
             return '<article class="dline" data-pid="' + esc(line.id) + '">'
                 + '<img src="' + esc(line.image) + '" alt="">'
                 + '<div class="dtext"><h3>' + esc(line.name) + "</h3><p>" + rate + '<strong class="dprice"></strong> ' + was + "</p>"
-                + '<p class="sku">' + esc(line.sku) + "</p></div>"
+                + '<p class="sku">' + esc(line.sku) + " · حداقل " + digits(minimum(line.id)) + "</p></div>"
                 + stepperHtml(line.qty)
                 + "</article>";
         }).join("");
@@ -472,6 +472,23 @@
         toastTimer = setTimeout(function () { node.hidden = true; }, 1800);
     }
 
+    function minimum(id) {
+        var item = state.book[id];
+        var min = item && Number(item.min);
+        if (!(min > 0)) {
+            var card = document.querySelector('.card[data-pid="' + id + '"]');
+            min = card ? Number(card.dataset.min) : 1;
+        }
+        return min > 0 ? min : 1;
+    }
+    function stepped(id, delta) {
+        var current = state.cart[id] || 0;
+        var min = minimum(id);
+        if (delta > 0 && current < 1) return min;
+        var next = current + delta;
+        if (next < min) return 0;
+        return Math.min(999, next);
+    }
     function stepperHtml(qty) {
         return '<div class="actions"><div class="stepper"><button type="button" data-step="-1" aria-label="کم کردن">−</button><b>'
             + digits(qty) + '</b><button type="button" data-step="1" aria-label="افزودن">+</button></div>'

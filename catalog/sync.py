@@ -29,11 +29,13 @@ from catalog.extract import (
     PRODUCT_HEADERS,
     classify_message,
     extract_products,
+    minimum_purchase,
     normalize,
     parse_price,
     peel_title_pack,
     quality_check,
 )
+from catalog.media import share_album_images
 from catalog.pricing import (
     SHOP_FORMULA_ROW,
     SHOP_HEADER_ROW,
@@ -492,6 +494,7 @@ def _finalize_batch(store: MemoryStore | GoogleSheetStore, payload: dict[str, An
     written = 0
 
     if messages:
+        share_album_images(messages)
         store.ensure("MessageData", MESSAGE_HEADERS)
         headers = _headers(store, "MessageData", MESSAGE_HEADERS)
         rows = []
@@ -515,6 +518,8 @@ def _finalize_batch(store: MemoryStore | GoogleSheetStore, payload: dict[str, An
                 "Import Timestamp": imported_at,
                 "Status": classification["type"] or "imported",
                 "Batch ID": batch_id,
+                "Image File ID": message.get("image_file_id") or "",
+                "Media Group ID": message.get("media_group_id") or "",
             }))
         if rows:
             _append_at_next_row(store, "MessageData", headers, rows)
@@ -592,6 +597,7 @@ def import_product_data(store, data: dict[str, Any]) -> dict[str, Any]:
         offer_rows = []
         keys: list[tuple[str, str]] = []
         for index, product in enumerate(products):
+            product["min_qty"] = minimum_purchase(product.get("packaging") or "", product.get("name") or "")
             qa = quality_check(
                 {
                     "name": product.get("name"),
@@ -1194,6 +1200,9 @@ def _product_row(headers: list[str], product: dict[str, Any], message: dict[str,
         "Price Changed At": product.get("price_changed_at") or "",
         "Latest Offer ID": product.get("latest_offer_id") or "",
         "Offer Count": product.get("offer_count") or "",
+        "Min Qty": product.get("min_qty") or "",
+        "Image File ID": product.get("image_file_id") or "",
+        "Image File Unique ID": product.get("image_file_unique_id") or "",
     })
 
 
@@ -1366,11 +1375,22 @@ def _offer_fields(product: dict[str, Any], message: dict[str, Any], offer_id: st
         "Forwarded By": message.get("forwarded_by") or "",
         "Import Timestamp": imported_at,
         "Original Message": message.get("content") or "",
+        "Min Qty": product.get("min_qty") or minimum_purchase(product.get("packaging") or "", product.get("name") or ""),
+        "Image File ID": message.get("image_file_id") or "",
+        "Image File Unique ID": message.get("image_file_unique_id") or "",
     }
 
 
 def _product_from_offers(offers: list[dict[str, Any]]) -> dict[str, Any]:
     latest = offers[-1]
+    image_id = ""
+    image_unique = ""
+    for offer in reversed(offers):
+        candidate = str(offer.get("Image File ID") or "")
+        if candidate:
+            image_id = candidate
+            image_unique = str(offer.get("Image File Unique ID") or "")
+            break
     return {
         "name": latest.get("Product Name") or "",
         "variation_type": latest.get("Variation Type") or "",
@@ -1394,6 +1414,9 @@ def _product_from_offers(offers: list[dict[str, Any]]) -> dict[str, Any]:
         "price_changed_at": _price_changed_at(offers),
         "latest_offer_id": latest.get("Offer ID") or "",
         "offer_count": len(offers),
+        "min_qty": minimum_purchase(latest.get("Packaging") or "", latest.get("Product Name") or ""),
+        "image_file_id": image_id,
+        "image_file_unique_id": image_unique,
     }
 
 
@@ -1664,6 +1687,14 @@ def _merge_current_row(existing: list[Any] | None, headers: list[str], new_row: 
             merged[index] = current
         elif index < len(new_row):
             merged[index] = new_row[index]
+    for header in ("Image File ID", "Image File Unique ID"):
+        if header not in headers:
+            continue
+        index = headers.index(header)
+        incoming = new_row[index] if index < len(new_row) else ""
+        current = existing[index] if index < len(existing) else ""
+        if incoming in ("", None) and current not in ("", None):
+            merged[index] = current
     return merged
 
 
