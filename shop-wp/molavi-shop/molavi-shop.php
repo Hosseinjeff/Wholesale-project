@@ -2,7 +2,7 @@
 /**
  * Plugin Name: مولوی‌سل
  * Description: Shop rules and Elementor pieces for the WooCommerce store.
- * Version: 0.4.0
+ * Version: 0.5.0
  */
 declare(strict_types=1);
 
@@ -11,6 +11,7 @@ if (!defined('ABSPATH')) {
 }
 
 require_once __DIR__ . '/includes/pricing.php';
+require_once __DIR__ . '/includes/sync.php';
 
 add_action('wp_enqueue_scripts', static function (): void {
     wp_enqueue_style(
@@ -183,10 +184,16 @@ function molavi_digits(string $value): string
 
 function molavi_legacy_config(): array
 {
-    $path = ABSPATH . 'private/config.php';
-    if (!is_file($path)) {
-        return [];
+    $candidates = [
+        ABSPATH . 'private/config.php',
+        dirname(ABSPATH) . '/private/config.php',
+    ];
+    foreach ($candidates as $path) {
+        if (!is_file($path)) {
+            continue;
+        }
+        $config = require $path;
+        return is_array($config) ? $config : [];
     }
-    $config = require $path;
-    return is_array($config) ? $config : [];
+    return [];
 }

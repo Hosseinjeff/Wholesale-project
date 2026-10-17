@@ -17,6 +17,7 @@ from catalog.media import safe_file_id, stamp_inbound
 from catalog.orders import format_order_notice, operator_chat_ids, remember_operator, upsert_shop_order
 from catalog.pricing import catalog_from_records, default_settings, preview_records, resolve_quote
 from catalog.status import command_name, private_chat, reply_for_command
+from catalog.publish import publish_shop
 from catalog.sync import (
     build_store,
     finalize_batch,
@@ -33,7 +34,7 @@ app = Flask(__name__)
 WEB_APP_URL = os.getenv('GOOGLE_WEB_APP_URL')
 BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 BALE_BOT_TOKEN = os.getenv('BALE_BOT_TOKEN')
-APP_VERSION = "2026-10-09-webhook-reply"
+APP_VERSION = "2026-10-17-shop-publish"
 setup_logger(logging.INFO, log_file=None)
 logger = logging.getLogger(__name__)
 
@@ -128,6 +129,8 @@ class BatchManager:
                     data.get("processed_messages"),
                     data.get("rollback"),
                 )
+                if data.get("status") == "success":
+                    _publish_shop_quietly()
             else:
                 resp = requests.post(self.web_app_url, json=payload, timeout=60, headers={'Content-Type': 'application/json'})
                 logger.info(f"Finalize ack: {resp.status_code} {resp.text[:200]}")
@@ -517,6 +520,8 @@ def handle_inbound_update(update_json, channel):
             logger.exception("Prompt reply failed")
             outcome = {"matched": False}
         if outcome.get("matched"):
+            if outcome.get("understood"):
+                threading.Thread(target=_publish_shop_quietly, daemon=True).start()
             send_chat_text(data.get("chat_id"), outcome.get("reply") or "")
             return jsonify({"status": "resolved" if outcome.get("understood") else "needs_answer"})
     success = enqueue_message(data)
@@ -590,6 +595,31 @@ def shop_order():
             send_chat_text(chat_id, notice)
         result["notified"] = len(chats)
     return jsonify({"status": "success", **result})
+
+
+def _publish_shop_quietly(max_rounds: int = 40) -> None:
+    """Push the sheet to the shop. Failures stay in the log and do not roll back the batch."""
+    if not USE_SHEETS:
+        return
+    try:
+        publish_shop(build_store(), max_rounds=max_rounds)
+    except Exception:
+        logger.exception("Shop publish failed")
+
+
+@app.route("/shop/publish", methods=["POST"])
+def shop_publish():
+    """Publish the current sheet to the shop. Used to catch up products already on the sheet."""
+    if not _shop_token_ok():
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+    if not USE_SHEETS:
+        return jsonify({"ok": False, "error": "sheets"}), 503
+    try:
+        result = publish_shop(build_store())
+    except Exception:
+        logger.exception("Shop publish failed")
+        return jsonify({"ok": False, "error": "publish failed"}), 502
+    return jsonify(result)
 
 
 @app.route("/media/file/<file_id>", methods=["GET"])
