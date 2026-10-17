@@ -171,20 +171,50 @@ function molavi_unit_price(array $curve, float $progress): int
     return $unit;
 }
 
+function molavi_catalog_map(): array
+{
+    $map = get_transient('molavi_catalog_v1');
+    if (is_array($map)) {
+        return $map;
+    }
+    $map = [];
+    foreach (wc_get_products(['status' => 'publish', 'limit' => -1, 'return' => 'objects']) as $product) {
+        $curve = molavi_curve($product);
+        $map[(string) $product->get_id()] = [
+            'name' => $product->get_name(),
+            'min' => molavi_product_min($product),
+            'shelf' => $curve['shelf'],
+            'sale' => $curve['sale'],
+            'floor' => $curve['floor'],
+            'ceiling' => $curve['ceiling'],
+            'max' => $curve['max'],
+            'discountable' => $curve['discountable'] ? 1 : 0,
+        ];
+    }
+    set_transient('molavi_catalog_v1', $map, DAY_IN_SECONDS);
+    return $map;
+}
+
+function molavi_forget_catalog(): void
+{
+    delete_transient('molavi_catalog_v1');
+}
+
+add_action('woocommerce_update_product', 'molavi_forget_catalog');
+add_action('woocommerce_new_product', 'molavi_forget_catalog');
+add_action('update_option_molavi_price_settings', 'molavi_forget_catalog');
+
 function molavi_cart_progress(): float
 {
     if (!function_exists('WC') || !WC()->cart) {
         return 0.0;
     }
+    $map = molavi_catalog_map();
     $measure = 0;
     foreach (WC()->cart->get_cart() as $item) {
-        $product = $item['data'] instanceof WC_Product ? $item['data'] : wc_get_product((int) $item['product_id']);
-        if (!$product instanceof WC_Product) {
-            continue;
-        }
-        $curve = molavi_curve($product);
-        if ($curve['discountable'] && $curve['shelf'] > 0) {
-            $measure += $curve['shelf'] * (int) $item['quantity'];
+        $row = $map[(string) $item['product_id']] ?? null;
+        if ($row && !empty($row['discountable']) && (int) $row['shelf'] > 0) {
+            $measure += (int) $row['shelf'] * (int) $item['quantity'];
         }
     }
     $unlock = (int) molavi_price_settings()['unlock_target'];
@@ -213,17 +243,16 @@ function molavi_quote(): array
     $progress = molavi_cart_progress();
     $units = [];
     $qtys = [];
-    $products = wc_get_products([
-        'status' => 'publish',
-        'limit' => -1,
-        'return' => 'objects',
-    ]);
-    foreach ($products as $product) {
-        $id = (string) $product->get_id();
-        $units[$id] = molavi_unit_price(molavi_curve($product), $progress);
-        $qty = molavi_cart_qty($product->get_id());
-        if ($qty > 0) {
-            $qtys[$id] = $qty;
+    foreach (molavi_catalog_map() as $id => $row) {
+        $units[$id] = molavi_unit_price($row, $progress);
+    }
+    if (function_exists('WC') && WC()->cart) {
+        foreach (WC()->cart->get_cart() as $item) {
+            $id = (string) $item['product_id'];
+            $qty = (int) $item['quantity'];
+            if ($qty > 0) {
+                $qtys[$id] = ($qtys[$id] ?? 0) + $qty;
+            }
         }
     }
     return [
@@ -252,12 +281,17 @@ add_action('woocommerce_before_calculate_totals', static function ($cart): void 
         return;
     }
     $progress = molavi_cart_progress();
+    $map = molavi_catalog_map();
     foreach ($cart->get_cart() as $item) {
         $product = $item['data'] ?? null;
         if (!$product instanceof WC_Product) {
             continue;
         }
-        $product->set_price((string) molavi_unit_price(molavi_curve($product), $progress));
+        $row = $map[(string) $product->get_id()] ?? null;
+        if ($row === null) {
+            continue;
+        }
+        $product->set_price((string) molavi_unit_price($row, $progress));
     }
 }, 20);
 
@@ -266,19 +300,17 @@ function molavi_ajax_quote(): void
     wp_send_json_success(molavi_quote());
 }
 
-function molavi_ajax_qty(): void
+function molavi_set_cart_qty(int $productId, int $qty): bool
 {
-    check_ajax_referer('molavi-qty', 'nonce');
-    $product = wc_get_product((int) ($_POST['product_id'] ?? 0));
+    $product = wc_get_product($productId);
     if (!$product instanceof WC_Product || !$product->is_purchasable()) {
-        wp_send_json_error(['message' => 'کالا پیدا نشد.'], 404);
+        return false;
     }
-    $qty = (int) ($_POST['qty'] ?? 0);
+    $qty = min(999, max(0, $qty));
     $min = molavi_product_min($product);
     if ($qty > 0 && $qty < $min) {
         $qty = $min;
     }
-    $qty = min(999, max(0, $qty));
     $cart = WC()->cart;
     $found = '';
     foreach ($cart->get_cart() as $key => $item) {
@@ -291,12 +323,50 @@ function molavi_ajax_qty(): void
         if ($found !== '') {
             $cart->remove_cart_item($found);
         }
-    } elseif ($found !== '') {
-        $cart->set_quantity($found, $qty, true);
-    } else {
-        $cart->add_to_cart($product->get_id(), $qty);
+        return true;
     }
-    $cart->calculate_totals();
+    if ($found !== '') {
+        $cart->set_quantity($found, $qty, false);
+        return true;
+    }
+    return (bool) $cart->add_to_cart($product->get_id(), $qty);
+}
+
+function molavi_ajax_qty(): void
+{
+    check_ajax_referer('molavi-qty', 'nonce');
+    $cart = WC()->cart;
+    if (!$cart instanceof WC_Cart) {
+        wp_send_json_error(['message' => 'سبد در دسترس نیست.'], 500);
+    }
+    $items = [];
+    $raw = isset($_POST['items']) ? wp_unslash((string) $_POST['items']) : '';
+    if ($raw !== '') {
+        $decoded = json_decode($raw, true);
+        if (is_array($decoded)) {
+            foreach ($decoded as $id => $qty) {
+                if (!is_numeric($id) || !is_numeric($qty)) {
+                    continue;
+                }
+                $items[(int) $id] = (int) $qty;
+                if (count($items) >= 40) {
+                    break;
+                }
+            }
+        }
+    }
+    if ($items === [] && is_numeric($_POST['product_id'] ?? null)) {
+        $items[(int) $_POST['product_id']] = (int) ($_POST['qty'] ?? 0);
+    }
+    $changed = false;
+    foreach ($items as $id => $qty) {
+        if (molavi_set_cart_qty($id, $qty)) {
+            $changed = true;
+        }
+    }
+    if ($changed) {
+        $cart->calculate_totals();
+    }
     ob_start();
     woocommerce_mini_cart();
     $mini = (string) ob_get_clean();

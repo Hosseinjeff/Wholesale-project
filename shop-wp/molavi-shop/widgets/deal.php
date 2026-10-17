@@ -43,7 +43,7 @@ class Deal extends Widget_Base
         $this->add_control('prefix', [
             'label' => 'متن',
             'type' => Controls_Manager::TEXT,
-            'default' => 'تا',
+            'default' => 'تخفیف',
         ]);
         $this->end_controls_section();
 
@@ -85,9 +85,9 @@ class Deal extends Widget_Base
             return;
         }
         $prefix = trim((string) $this->get_settings_for_display('prefix'));
-        if ($prefix === '') {
-            $prefix = 'تا';
+        if ($prefix === '' || $prefix === 'تا') {
+            $prefix = 'تخفیف';
         }
-        echo '<span class="molavi-deal" dir="rtl">' . esc_html($prefix . ' ' . molavi_percent((float) $curve['max'])) . '</span>';
+        echo '<span class="molavi-deal" dir="rtl">' . esc_html(molavi_percent((float) $curve['max']) . ' ' . $prefix) . '</span>';
     }
 }

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: مولوی‌سل
  * Description: Shop rules and Elementor pieces for the WooCommerce store.
- * Version: 0.3.0
+ * Version: 0.4.0
  */
 declare(strict_types=1);
 
@@ -29,16 +29,39 @@ add_action('wp_enqueue_scripts', static function (): void {
         (string) filemtime(__DIR__ . '/shop.js'),
         true
     );
+    $catalog = [];
+    foreach (molavi_catalog_map() as $id => $row) {
+        $catalog[(string) $id] = [
+            'name' => (string) $row['name'],
+            'min' => (int) $row['min'],
+            'shelf' => (int) $row['shelf'],
+            'sale' => (int) $row['sale'],
+            'floor' => (int) $row['floor'],
+            'ceiling' => (int) $row['ceiling'],
+            'discountable' => !empty($row['discountable']) ? 1 : 0,
+        ];
+    }
+    $quote = molavi_quote();
     wp_localize_script('molavi-shop', 'molaviShop', [
         'qty' => WC_AJAX::get_endpoint('molavi_qty'),
         'quote' => WC_AJAX::get_endpoint('molavi_quote'),
         'nonce' => wp_create_nonce('molavi-qty'),
+        'unlock' => (int) molavi_price_settings()['unlock_target'],
+        'checkout' => wc_get_checkout_url(),
+        'qtys' => $quote['qtys'] === [] ? new stdClass() : $quote['qtys'],
+        'catalog' => $catalog === [] ? new stdClass() : $catalog,
     ]);
 });
 
 add_filter('loop_shop_per_page', static function (): int {
     return 24;
 });
+
+add_action('wp_head', static function (): void {
+    if (isset($GLOBALS['page']) && !is_numeric($GLOBALS['page'])) {
+        $GLOBALS['page'] = 0;
+    }
+}, 0);
 
 add_action('elementor/elements/categories_registered', static function ($elements): void {
     $elements->add_category('molavi', [
@@ -53,11 +76,13 @@ add_action('elementor/widgets/register', static function ($widgets): void {
     require_once __DIR__ . '/widgets/price.php';
     require_once __DIR__ . '/widgets/cart.php';
     require_once __DIR__ . '/widgets/bar.php';
+    require_once __DIR__ . '/widgets/basket.php';
     $widgets->register(new \Molavi\Elementor\Deal());
     $widgets->register(new \Molavi\Elementor\Facts());
     $widgets->register(new \Molavi\Elementor\Price());
     $widgets->register(new \Molavi\Elementor\Cart_Button());
     $widgets->register(new \Molavi\Elementor\Catalog_Bar());
+    $widgets->register(new \Molavi\Elementor\Basket());
 });
 
 add_filter('woocommerce_quantity_input_args', static function (array $args, $product): array {
