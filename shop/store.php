@@ -57,8 +57,14 @@ function shop_migrate(SQLite3 $db): void
         'phone' => '',
         'address' => '',
         'hours' => 'هر روز، ۹ تا ۱۸',
-        'about' => 'مولوی‌سل مواد غذایی بسته‌بندی را مستقیم از بنکدار عرضه می‌کند. قیمت روی هر کارت از قیمت مصرف شروع می‌شود و با بزرگ‌تر شدن سبد به قیمت فروش تأمین‌کننده نزدیک می‌شود.',
+        'about' => 'مولوی‌سل مواد غذایی بسته‌بندی را مستقیم از بنکدار عرضه می‌کند.',
     ];
+    $replace = $db->prepare('UPDATE settings SET value = :next WHERE key = :k AND value = :prev');
+    $replace->bindValue(':k', 'about', SQLITE3_TEXT);
+    $replace->bindValue(':prev', 'مولوی‌سل مواد غذایی بسته‌بندی را مستقیم از بنکدار عرضه می‌کند. قیمت روی هر کارت از قیمت مصرف شروع می‌شود و با بزرگ‌تر شدن سبد به قیمت فروش تأمین‌کننده نزدیک می‌شود.', SQLITE3_TEXT);
+    $replace->bindValue(':next', $defaults['about'], SQLITE3_TEXT);
+    $replace->execute();
+    $replace->close();
     $insert = $db->prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (:k, :v)');
     foreach ($defaults as $key => $value) {
         $insert->bindValue(':k', $key, SQLITE3_TEXT);
@@ -258,6 +264,7 @@ function shop_meta_map(): array
 function shop_present(): array
 {
     $catalog = shop_catalog();
+    $settings = shop_settings($catalog);
     $meta = shop_meta_map();
     $products = [];
     $index = 0;
@@ -273,6 +280,13 @@ function shop_present(): array
         $product['image'] = shop_image_src($id, (string) ($row['image'] ?? ''), $product);
         $product['sku'] = 'MS-' . strtoupper(substr($id, 0, 6));
         $product['index'] = $index;
+        $band = shop_band((int) $product['sale'], (int) $product['shelf'], $settings);
+        $product['floor'] = $band['floor'];
+        $product['ceiling'] = $band['ceiling'];
+        $product['opening'] = $band['opening'];
+        $product['depth'] = $band['depth'];
+        $product['max'] = $band['max'];
+        $product['discountable'] = $band['discountable'] ? 1 : 0;
         $index++;
         $products[] = $product;
     }
@@ -293,7 +307,7 @@ function shop_visible(array $catalog): array
 {
     return array_values(array_filter(
         $catalog['products'] ?? [],
-        static fn(array $product): bool => empty($product['hidden'])
+        static fn(array $product): bool => empty($product['hidden']) && !empty($product['discountable'])
     ));
 }
 
@@ -309,7 +323,6 @@ function shop_find(array $catalog, string $id): ?array
 
 function shop_public(array $quote): array
 {
-    $reference = $quote['reference'] ?? null;
     $count = 0;
     $lines = [];
     foreach ($quote['lines'] as $line) {
@@ -320,8 +333,9 @@ function shop_public(array $quote): array
             'qty' => (int) $line['qty'],
             'unit' => (int) $line['unit'],
             'shelf' => (int) $line['shelf'],
-            'sale' => (int) $line['sale'],
             'total' => (int) $line['total'],
+            'discount_amount' => (int) ($line['discount_amount'] ?? 0),
+            'discount_rate' => (float) ($line['discount_rate'] ?? 0),
             'image' => (string) ($line['image'] ?? ''),
             'sku' => (string) ($line['sku'] ?? ''),
         ];
@@ -335,10 +349,10 @@ function shop_public(array $quote): array
         'count' => $count,
         'total' => (int) $quote['total'],
         'measure' => (int) $quote['measure'],
+        'discount_total' => (int) ($quote['discount_total'] ?? 0),
+        'discount_rate' => (float) ($quote['discount_rate'] ?? 0),
         'progress' => (float) $quote['progress'],
-        'floor' => (int) ($reference['floor'] ?? 0),
-        'ceiling' => (int) ($reference['ceiling'] ?? 0),
-        'reference' => (string) ($reference['name'] ?? ''),
+        'unlock' => (int) ($quote['unlock'] ?? 0),
         'units' => $units,
         'lines' => $lines,
     ];
@@ -352,13 +366,23 @@ function shop_boot(array $catalog, array $quote): array
     foreach ($catalog['products'] ?? [] as $product) {
         $id = (string) $product['id'];
         $inCart = !empty($_SESSION['cart'][$id]);
-        if (!empty($product['hidden']) && !$inCart) {
+        if ((empty($product['discountable']) || !empty($product['hidden'])) && !$inCart) {
             continue;
+        }
+        $shelf = (int) $product['shelf'];
+        $floor = (int) $product['floor'];
+        $ceiling = (int) $product['ceiling'];
+        if (empty($product['discountable'])) {
+            $flat = $shelf > 0 ? $shelf : (int) $product['sale'];
+            $shelf = $flat;
+            $floor = $flat;
+            $ceiling = $flat;
         }
         $book[$id] = [
             'name' => (string) $product['name'],
-            'sale' => (int) $product['sale'],
-            'shelf' => (int) $product['shelf'],
+            'shelf' => $shelf,
+            'floor' => $floor,
+            'ceiling' => $ceiling,
             'image' => (string) $product['image'],
             'sku' => (string) $product['sku'],
             'category' => (string) $product['category'],

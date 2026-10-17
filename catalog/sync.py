@@ -34,6 +34,16 @@ from catalog.extract import (
     peel_title_pack,
     quality_check,
 )
+from catalog.pricing import (
+    SHOP_FORMULA_ROW,
+    SHOP_HEADER_ROW,
+    SHOP_HEADERS,
+    catalog_from_records,
+    formula_separator,
+    settings_from_rows,
+    shop_formulas,
+    shop_setting_rows,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +85,8 @@ class MemoryStore:
         self.sheets.setdefault(name, [])
         self.sheets[name].extend(rows)
 
-    def write_rows(self, name: str, start_row: int, rows: list[list[Any]]) -> None:
+    def write_rows(self, name: str, start_row: int, rows: list[list[Any]], value_input: str = "RAW") -> None:
+        del value_input
         table = self.sheets.setdefault(name, [])
         for offset, row in enumerate(rows):
             index = start_row - 1 + offset
@@ -224,6 +235,7 @@ class GoogleSheetStore:
         self._sheet_ids: dict[str, int] = {}
         self._grids: dict[str, dict[str, int]] = {}
         self._values: dict[str, list[list[Any]]] = {}
+        self._locale: str | None = None
 
     def _api(self) -> SheetsRest:
         if self._http is None:
@@ -283,7 +295,7 @@ class GoogleSheetStore:
         if cached is not None:
             cached.extend(_copy_table(rows))
 
-    def write_rows(self, name: str, start_row: int, rows: list[list[Any]]) -> None:
+    def write_rows(self, name: str, start_row: int, rows: list[list[Any]], value_input: str = "RAW") -> None:
         if not rows:
             return
         width = max(len(row) for row in rows)
@@ -291,7 +303,7 @@ class GoogleSheetStore:
         self._ensure_grid(name, end, width)
         self._api().values_update(
             f"{_quote(name)}!A{start_row}:{_column(width)}{end}",
-            "RAW",
+            value_input,
             {"values": rows},
         )
         cached = self._values.get(name)
@@ -357,6 +369,17 @@ class GoogleSheetStore:
                 grid["columnCount"] += growth["length"]
         self._grids[name] = grid
 
+    def spreadsheet_locale(self) -> str:
+        if self._locale is not None:
+            return self._locale
+        try:
+            meta = self._api().get_spreadsheet("properties.locale")
+            self._locale = str((meta.get("properties") or {}).get("locale") or "")
+        except Exception:
+            logger.exception("Could not read spreadsheet locale")
+            self._locale = ""
+        return self._locale
+
 
 def grid_growth(row_count: int, column_count: int, min_rows: int, min_cols: int) -> tuple[int, int]:
     return max(0, min_rows - row_count), max(0, min_cols - column_count)
@@ -409,6 +432,52 @@ def load_service_account_info() -> dict[str, Any]:
 
 def build_store() -> GoogleSheetStore:
     return GoogleSheetStore(os.environ["GOOGLE_SHEET_ID"], load_service_account_info())
+
+
+def ensure_shop_sheet(store: MemoryStore | GoogleSheetStore) -> None:
+    """Write the pricing curve. Column B keeps a number the operator already set."""
+    store.ensure("Shop", ["Min Margin"])
+    existing = _read_sheet_if_present(store, "Shop")
+    locale = ""
+    reader = getattr(store, "spreadsheet_locale", None)
+    if callable(reader):
+        try:
+            locale = reader() or ""
+        except Exception:
+            logger.exception("Shop sheet locale was not available")
+    store.write_rows("Shop", 1, shop_setting_rows(existing), "USER_ENTERED")
+    store.write_rows("Shop", 10, [[
+        "Edit column B. The shop and the cart read these cells. The rows below follow the same rules.",
+    ]], "USER_ENTERED")
+    store.write_rows("Shop", SHOP_HEADER_ROW, [SHOP_HEADERS], "USER_ENTERED")
+    store.write_rows("Shop", SHOP_FORMULA_ROW, [shop_formulas(formula_separator(locale))], "USER_ENTERED")
+
+
+def _shop_setting_rows(store: MemoryStore | GoogleSheetStore) -> list[list[Any]]:
+    """Settings already on the Shop sheet. A sheet that does not exist yet uses defaults."""
+    if isinstance(store, MemoryStore):
+        if "Shop" not in store.sheets:
+            return []
+        return store.read("Shop")
+    try:
+        if not store._sheet_ids:
+            store._refresh_sheet_ids()
+        if "Shop" not in store._sheet_ids:
+            return []
+    except Exception:
+        logger.exception("Could not list sheets for the shop")
+        return []
+    return _read_sheet_if_present(store, "Shop")
+
+
+def shop_catalog(store: MemoryStore | GoogleSheetStore) -> dict[str, Any]:
+    """Products the site can sell, priced from the Shop sheet settings."""
+    settings = settings_from_rows(_shop_setting_rows(store))
+    _headers, records = _records(_read_sheet_if_present(store, "Products"))
+    return {
+        "settings": settings.as_dict(),
+        "products": catalog_from_records(records, settings),
+    }
 
 
 def finalize_batch(store: MemoryStore | GoogleSheetStore, payload: dict[str, Any]) -> dict[str, Any]:
@@ -471,6 +540,10 @@ def _finalize_batch(store: MemoryStore | GoogleSheetStore, payload: dict[str, An
         desk = refresh_buying_desk(store, messages, batch_id)
     except Exception:
         logger.exception("Buying desk refresh failed")
+    try:
+        ensure_shop_sheet(store)
+    except Exception:
+        logger.exception("Shop sheet refresh failed")
     return {
         "status": "success",
         "ack": "ingestion_complete",

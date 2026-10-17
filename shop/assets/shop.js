@@ -26,11 +26,22 @@
     var drawerNote = document.getElementById("drawer-note");
     var live = document.getElementById("live");
     var catalog = document.querySelector(".catalog");
+    var armed = false;
+    var wave = [];
+    var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
     document.addEventListener("click", function (event) {
         var wish = event.target.closest(".heart");
         if (wish) {
             toggleWish(wish.closest(".card").dataset.pid);
+            return;
+        }
+        var wipe = event.target.closest("[data-clear]");
+        if (wipe) {
+            event.preventDefault();
+            var wiped = wipe.closest("[data-pid]");
+            if (!wiped) return;
+            change(wiped.dataset.pid, 0);
             return;
         }
         var step = event.target.closest("[data-step]");
@@ -159,8 +170,9 @@
         state.total = data.total;
         state.measure = data.measure;
         state.progress = data.progress;
-        state.floor = data.floor;
-        state.ceiling = data.ceiling;
+        state.unlock = data.unlock;
+        state.discount_total = data.discount_total || 0;
+        state.discount_rate = data.discount_rate || 0;
         state.count = data.count;
         paint();
     }
@@ -170,35 +182,41 @@
         Object.keys(state.cart).forEach(function (id) {
             var item = state.book[id];
             if (!item) return;
-            var basis = item.shelf > 0 ? item.shelf : item.sale;
-            measure += basis * state.cart[id];
+            if (Number(item.shelf) > Number(item.floor)) {
+                measure += Number(item.shelf) * state.cart[id];
+            }
         });
         state.measure = measure;
-        state.progress = progressOf(measure, state.floor, state.ceiling);
+        state.progress = progressOf(measure, state.unlock);
         state.units = {};
         state.total = 0;
+        state.discount_total = 0;
         state.lines = [];
         Object.keys(state.book).forEach(function (id) {
             var item = state.book[id];
-            var unit = priceOf(item.sale, item.shelf, state.progress);
+            var unit = priceOf(item, state.progress);
             state.units[id] = unit;
             var qty = state.cart[id] || 0;
             if (qty > 0) {
+                var saved = Number(item.shelf) > unit ? (Number(item.shelf) - unit) * qty : 0;
                 state.total += unit * qty;
+                state.discount_total += saved;
                 state.lines.push({
                     id: id,
                     name: item.name,
                     qty: qty,
                     unit: unit,
                     shelf: item.shelf,
-                    sale: item.sale,
                     total: unit * qty,
+                    discount_amount: saved,
+                    discount_rate: Number(item.shelf) > unit ? (Number(item.shelf) - unit) / Number(item.shelf) : 0,
                     image: item.image,
                     sku: item.sku
                 });
             }
         });
         state.count = state.lines.reduce(function (sum, line) { return sum + line.qty; }, 0);
+        state.discount_rate = state.measure > 0 ? state.discount_total / state.measure : 0;
     }
 
     function paint() {
@@ -207,8 +225,17 @@
             var unit = state.units[id];
             if (unit == null) return;
             var now = card.querySelector(".now");
-            now.textContent = toman(unit);
+            var amount = now.querySelector(".amount");
+            if (amount) present(amount, unit, toman(unit), "shop");
+            else present(now, unit, toman(unit), "shop");
             now.dataset.unit = String(unit);
+            var rateNode = now.querySelector(".rate");
+            var shelfPrice = Number(card.dataset.shelf);
+            var current = shelfPrice > unit ? (shelfPrice - unit) / shelfPrice : 0;
+            if (rateNode) {
+                rateNode.hidden = current <= 0;
+                if (current > 0) present(rateNode, Math.round(current * 100), "\u2212" + percent(current), "shop");
+            }
             var was = card.querySelector(".was");
             var shelf = Number(card.dataset.shelf);
             if (shelf > unit) {
@@ -219,17 +246,21 @@
             }
             var control = card.querySelector(".control");
             var qty = state.cart[id] || 0;
+            var qtyNode = control.querySelector(".stepper b");
+            var prevQty = qtyNode ? qtyNode.dataset.n : (control.querySelector(".add") ? "0" : null);
+            var prevQtyText = qtyNode ? (qtyNode.dataset.t || qtyNode.textContent) : digits(0);
             control.innerHTML = qty > 0 ? stepperHtml(qty) : addHtml();
+            var nextQty = control.querySelector(".stepper b");
+            if (nextQty) present(nextQty, qty, digits(qty), "shop", prevQty, prevQtyText);
             var heart = card.querySelector(".heart");
-            var saved = state.wishes.indexOf(id) !== -1;
-            heart.classList.toggle("on", saved);
-            heart.setAttribute("aria-pressed", saved ? "true" : "false");
+            if (heart) {
+                var saved = state.wishes.indexOf(id) !== -1;
+                heart.classList.toggle("on", saved);
+                heart.setAttribute("aria-pressed", saved ? "true" : "false");
+            }
         });
         renderLines(drawerLines, true);
         renderLines(document.getElementById("checkout-lines"), false);
-        var checkoutTotal = document.getElementById("checkout-total");
-        if (checkoutTotal) checkoutTotal.textContent = toman(state.total || 0);
-        if (pay) pay.textContent = toman(state.total || 0);
         var emptyCart = (state.count || 0) < 1;
         var footGo = document.querySelector(".drawer-foot .go");
         var footPay = document.querySelector(".drawer-foot .payline");
@@ -240,53 +271,107 @@
         if (catalog && document.getElementById("sort") && document.getElementById("sort").value !== "new") {
             sortCards();
         }
+        flushWave();
+        armed = true;
+    }
+
+    function lineSnap(node) {
+        var map = {};
+        if (!node) return map;
+        node.querySelectorAll(".dline").forEach(function (line) {
+            var strong = line.querySelector(".dprice");
+            var rate = line.querySelector(".rate");
+            var qty = line.querySelector(".stepper b");
+            map[line.dataset.pid] = {
+                unit: strong ? strong.dataset.n : null,
+                unitText: strong ? (strong.dataset.t || strong.textContent) : "",
+                rate: rate ? rate.dataset.n : null,
+                rateText: rate ? (rate.dataset.t || rate.textContent) : "",
+                qty: qty ? qty.dataset.n : null,
+                qtyText: qty ? (qty.dataset.t || qty.textContent) : ""
+            };
+        });
+        return map;
     }
 
     function renderLines(node, emptyCopy) {
         if (!node) return;
+        var previous = lineSnap(node);
         if (!state.lines.length) {
             node.innerHTML = emptyCopy ? '<p class="note">سبد خالی است.</p>' : "";
             return;
         }
         node.innerHTML = state.lines.map(function (line) {
             var was = line.shelf > line.unit ? '<s class="was">' + toman(line.shelf) + "</s>" : "";
+            var rate = line.shelf > line.unit ? '<span class="rate" dir="ltr"></span>' : "";
             return '<article class="dline" data-pid="' + esc(line.id) + '">'
                 + '<img src="' + esc(line.image) + '" alt="">'
-                + '<div class="dtext"><h3>' + esc(line.name) + "</h3><p><strong>" + toman(line.unit) + "</strong> " + was + "</p>"
+                + '<div class="dtext"><h3>' + esc(line.name) + "</h3><p>" + rate + '<strong class="dprice"></strong> ' + was + "</p>"
                 + '<p class="sku">' + esc(line.sku) + "</p></div>"
                 + stepperHtml(line.qty)
                 + "</article>";
         }).join("");
+        node.querySelectorAll(".dline").forEach(function (line) {
+            var id = line.dataset.pid;
+            var data = null;
+            state.lines.forEach(function (item) { if (item.id === id) data = item; });
+            if (!data) return;
+            var prior = previous[id] || {};
+            var price = line.querySelector(".dprice");
+            present(price, data.unit, toman(data.unit), "cart", prior.unit, prior.unitText);
+            var rateNode = line.querySelector(".rate");
+            if (rateNode) {
+                present(rateNode, Math.round(data.discount_rate * 100), "\u2212" + percent(data.discount_rate), "cart", prior.rate, prior.rateText);
+            }
+            var qtyNode = line.querySelector(".stepper b");
+            present(qtyNode, data.qty, digits(data.qty), "cart", prior.qty, prior.qtyText);
+        });
     }
 
     function renderMeter() {
         var count = state.count || 0;
+        var saved = state.discount_total || 0;
+        var hasSave = saved > 0;
         if (meter) meter.hidden = count < 1;
-        var percent = Math.round((state.progress || 0) * 100);
-        if (meterBar) meterBar.style.width = percent + "%";
-        var text = meterTextFor(percent);
-        if (meterText) meterText.textContent = text;
-        if (drawerNote) drawerNote.textContent = text;
+        var progress = Math.round((state.progress || 0) * 100);
+        if (meterBar) meterBar.style.width = progress + "%";
+        if (meterText) meterText.textContent = meterTextFor();
+        var saving = document.getElementById("drawer-saving");
+        if (saving) saving.hidden = !hasSave;
+        if (drawerNote) {
+            drawerNote.hidden = hasSave || count < 1;
+            drawerNote.textContent = (!hasSave && count > 0) ? "تخفیف سبد هنوز باز نشده است." : "";
+        }
+        if (hasSave) {
+            present(document.getElementById("drawer-rate"), Math.round((state.discount_rate || 0) * 100), percent(state.discount_rate || 0), "cart");
+            present(document.getElementById("drawer-save"), saved, toman(saved), "cart");
+        }
+        var checkoutRate = document.getElementById("discount-rate");
+        var checkoutSave = document.getElementById("discount-total");
+        if (checkoutRate) present(checkoutRate, Math.round((state.discount_rate || 0) * 100), percent(state.discount_rate || 0), "cart");
+        if (checkoutSave) present(checkoutSave, saved, toman(saved), "cart");
+        if (pay) present(pay, state.total || 0, toman(state.total || 0), "cart");
+        var checkoutTotal = document.getElementById("checkout-total");
+        if (checkoutTotal) present(checkoutTotal, state.total || 0, toman(state.total || 0), "cart");
     }
 
-    function meterTextFor(percent) {
+    function discountText() {
+        return percent(state.discount_rate || 0) + " · " + toman(state.discount_total || 0);
+    }
+    function meterTextFor() {
         if ((state.count || 0) < 1) return "";
-        if (!state.floor) return "جمع سبد " + toman(state.total || 0);
-        if ((state.measure || 0) <= state.floor) {
-            return "تخفیف از جمع " + toman(state.floor) + " با قیمت مصرف شروع می‌شود. الان " + toman(state.measure || 0) + " است.";
-        }
-        if (percent >= 100) return "قیمت فروش تأمین‌کننده روی این سبد اعمال شده است.";
-        return percent + "٪ از راه تا قیمت فروش تأمین‌کننده. سقف این تخفیف " + toman(state.ceiling) + " است.";
+        if ((state.discount_total || 0) < 1) return "تخفیف سبد هنوز باز نشده است.";
+        return "تخفیف سبد " + discountText();
     }
 
     function renderBadges() {
         var count = state.count || 0;
         cartBadge.hidden = count < 1;
-        cartBadge.textContent = count > 99 ? "99+" : String(count);
+        present(cartBadge, count, count > 99 ? digits(99) + "+" : digits(count), "shop");
         var known = state.wishes.filter(function (id) { return state.book[id]; });
         wishBadge.hidden = known.length < 1;
-        wishBadge.textContent = String(known.length);
-        if (live) live.textContent = count ? ("سبد، " + count + " عدد، " + toman(state.total || 0)) : "سبد خالی است";
+        wishBadge.textContent = digits(known.length);
+        if (live) live.textContent = count ? ("سبد، " + digits(count) + " عدد، " + toman(state.total || 0)) : "سبد خالی است";
     }
 
     function applyFilters() {
@@ -305,7 +390,7 @@
             var ok = (!query || norm(card.dataset.name).indexOf(query) !== -1)
                 && (!cat || card.dataset.cat === cat)
                 && (!suppliers.length || suppliers.indexOf(card.dataset.supplier) !== -1)
-                && (!shelfOnly || Number(card.dataset.shelf) > Number(card.dataset.sale))
+                && (!shelfOnly || Number(card.dataset.shelf) > 0)
                 && (!state.wishOnly || state.wishes.indexOf(card.dataset.pid) !== -1);
             card.hidden = !ok;
             if (ok) shown += 1;
@@ -313,7 +398,7 @@
         var countNode = document.getElementById("count");
         if (countNode) {
             countNode.textContent = shown
-                ? "نمایش ۱ تا " + shown + " از " + total + " محصول"
+                ? "نمایش " + digits(1) + " تا " + digits(shown) + " از " + digits(total) + " محصول"
                 : "کالایی با این مشخصات پیدا نشد";
         }
         document.querySelectorAll(".chips button").forEach(function (button) {
@@ -388,8 +473,9 @@
     }
 
     function stepperHtml(qty) {
-        return '<div class="stepper"><button type="button" data-step="-1" aria-label="کم کردن">−</button><b>'
-            + qty + '</b><button type="button" data-step="1" aria-label="افزودن">+</button></div>';
+        return '<div class="actions"><div class="stepper"><button type="button" data-step="-1" aria-label="کم کردن">−</button><b>'
+            + digits(qty) + '</b><button type="button" data-step="1" aria-label="افزودن">+</button></div>'
+            + '<button type="button" class="trash" data-clear aria-label="حذف از سبد">' + trashSvg() + "</button></div>";
     }
     function addHtml() {
         return '<button type="button" class="add" data-step="1" aria-label="افزودن به سبد">' + cartSvg() + "</button>";
@@ -397,23 +483,143 @@
     function cartSvg() {
         return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6h1.6l1.4 8.2a1 1 0 0 0 1 .8h7.8a1 1 0 0 0 1-.8L20 8H8"></path><circle cx="10" cy="19" r="1.2"></circle><circle cx="17" cy="19" r="1.2"></circle></svg>';
     }
+    function digits(value) {
+        return String(value).replace(/\d/g, function (d) {
+            return "۰۱۲۳۴۵۶۷۸۹"[d];
+        }).replace(/,/g, "٬");
+    }
     function toman(amount) {
-        return Number(amount || 0).toLocaleString("en-US") + " تومان";
+        return digits(Number(amount || 0).toLocaleString("en-US")) + " تومان";
     }
-    function priceOf(sale, shelf, progress) {
-        sale = Number(sale);
-        shelf = Number(shelf);
-        if (shelf > sale) {
-            var unit = Math.round((shelf - progress * (shelf - sale)) / 1000) * 1000;
-            return Math.max(sale, Math.min(shelf, unit));
-        }
-        return sale;
+    function priceOf(item, progress) {
+        var shelf = Number(item.shelf);
+        var ceiling = Number(item.ceiling);
+        var floor = Number(item.floor);
+        if (!(shelf > 0)) return 0;
+        var unit = halfUp(ceiling + (floor - ceiling) * progress);
+        var low = Math.min(floor, ceiling);
+        var high = Math.min(Math.max(floor, ceiling, low), shelf);
+        if (unit < low) unit = low;
+        if (unit > high) unit = high;
+        return unit;
     }
-    function progressOf(measure, floor, ceiling) {
-        if (floor > 0 && ceiling > floor && measure > floor) {
-            return Math.min(1, (measure - floor) / (ceiling - floor));
-        }
+    function progressOf(measure, unlock) {
+        if (measure > 0 && unlock > 0) return Math.min(1, measure / unlock);
         return 0;
+    }
+    function halfUp(value) {
+        var nearest = Math.round(value * 1e8) / 1e8;
+        var whole = Math.trunc(nearest);
+        if (nearest - whole >= 0.5 - 1e-8) return whole + 1;
+        return whole;
+    }
+    function percent(rate) {
+        return digits(Math.round(rate * 100)) + "٪";
+    }
+    function trashSvg() {
+        return '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" stroke="none" d="M4.4 6.15h15.2c.5 0 .9.4.9.9s-.4.9-.9.9H4.4c-.5 0-.9-.4-.9-.9s.4-.9.9-.9z"></path><path fill="currentColor" stroke="none" d="M10 3.3h4c.55 0 1 .4 1 .95V6.1h-6V4.25c0-.55.45-.95 1-.95z"></path><path fill="currentColor" stroke="none" fill-rule="evenodd" d="M6.35 9.2h11.3c.25 0 .45.22.43.48l-.78 10.05c-.08.85-.8 1.5-1.65 1.5H8.35c-.85 0-1.57-.65-1.65-1.5L5.92 9.68c-.02-.26.18-.48.43-.48zM9.15 12h1.4v5.15h-1.4V12zm4.3 0h1.4v5.15h-1.4V12z"></path></svg>';
+    }
+    function present(el, key, text, scope, prevKey, prevText) {
+        if (!el) return;
+        var nextKey = String(key);
+        var priorKey = prevKey != null ? String(prevKey) : el.dataset.n;
+        var priorText = prevText != null && prevText !== "" ? prevText : (el.dataset.t || el.textContent);
+        el.dataset.n = nextKey;
+        el.dataset.t = text;
+        if (!armed || reduceMotion || priorKey == null || priorKey === "" || priorKey === nextKey) {
+            if (!el.querySelector(".tick")) el.textContent = text;
+            return;
+        }
+        wave.push({ el: el, from: priorText, to: text, scope: scope });
+    }
+    function flushWave() {
+        var batch = wave;
+        wave = [];
+        var groups = {};
+        batch.forEach(function (item) {
+            if (!groups[item.scope]) groups[item.scope] = [];
+            groups[item.scope].push(item);
+        });
+        Object.keys(groups).forEach(function (scope) {
+            var list = groups[scope].filter(function (item) {
+                return item.el.getClientRects().length > 0;
+            });
+            groups[scope].forEach(function (item) {
+                if (item.el.getClientRects().length === 0) item.el.textContent = item.to;
+            });
+            if (!list.length) return;
+            var tops = list.map(function (item) { return item.el.getBoundingClientRect().top; });
+            var min = Math.min.apply(null, tops);
+            var max = Math.max.apply(null, tops);
+            var span = Math.max(1, max - min);
+            list.forEach(function (item) {
+                var delay = Math.round(((item.el.getBoundingClientRect().top - min) / span) * 180);
+                startReel(item.el, item.from, item.to, delay);
+            });
+        });
+    }
+    function startReel(el, fromText, toText, delay) {
+        var to = Array.from(toText || "");
+        var fromDigits = [];
+        Array.from(fromText || "").forEach(function (ch) {
+            if (digitChar(ch)) fromDigits.push(ch);
+        });
+        var toPlaces = [];
+        to.forEach(function (ch, index) {
+            if (digitChar(ch)) toPlaces.push(index);
+        });
+        var oldAt = {};
+        toPlaces.forEach(function (index, place) {
+            var fromPlace = fromDigits.length - toPlaces.length + place;
+            oldAt[index] = fromPlace >= 0 ? fromDigits[fromPlace] : "";
+        });
+        var changed = toPlaces.some(function (index) { return oldAt[index] !== to[index]; });
+        if (!changed) {
+            el.textContent = toText;
+            return;
+        }
+        var lastDigit = -1;
+        to.forEach(function (ch, index) {
+            if (digitChar(ch)) lastDigit = index;
+        });
+        var body = to.slice(0, lastDigit + 1);
+        var suffix = to.slice(lastDigit + 1).join("");
+        var token = (el._roll || 0) + 1;
+        el._roll = token;
+        var root = document.createElement("span");
+        root.className = "tick";
+        root.dir = "ltr";
+        var pending = 0;
+        body.forEach(function (ch, index) {
+            if (!digitChar(ch) || oldAt[index] === ch) {
+                root.appendChild(document.createTextNode(ch));
+                return;
+            }
+            var cell = document.createElement("i");
+            var strip = document.createElement("b");
+            strip.style.animationDelay = delay + "ms";
+            var next = document.createElement("span");
+            next.textContent = ch;
+            var prev = document.createElement("span");
+            prev.textContent = oldAt[index] || "\u2007";
+            strip.appendChild(next);
+            strip.appendChild(prev);
+            cell.appendChild(strip);
+            root.appendChild(cell);
+            pending++;
+            strip.addEventListener("animationend", function () {
+                if (el._roll !== token) return;
+                pending--;
+                if (pending <= 0) el.textContent = toText;
+            }, { once: true });
+        });
+        el.textContent = "";
+        el.appendChild(root);
+        if (suffix) el.appendChild(document.createTextNode(suffix));
+        if (pending === 0) el.textContent = toText;
+    }
+    function digitChar(ch) {
+        return /[0-9۰-۹]/.test(ch);
     }
     function norm(value) {
         return String(value || "").replace(/ي/g, "ی").replace(/ك/g, "ک").replace(/کارتن/g, " ").replace(/درب/g, " ").replace(/\s+/g, " ").trim().toLowerCase();

@@ -12,6 +12,7 @@ function shop_svg(string $name): string
         'filter' => '<path d="M4 6h16l-6 7v5l-4 2v-7z"/>',
         'grid' => '<rect x="4" y="4" width="6.5" height="6.5" rx="1.2"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.2"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.2"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.2"/>',
         'list' => '<path d="M9 7h11M9 12h11M9 17h11"/><circle cx="5.5" cy="7" r="1"/><circle cx="5.5" cy="12" r="1"/><circle cx="5.5" cy="17" r="1"/>',
+        'trash' => '<path fill="currentColor" stroke="none" d="M4.4 6.15h15.2c.5 0 .9.4.9.9s-.4.9-.9.9H4.4c-.5 0-.9-.4-.9-.9s.4-.9.9-.9z"/><path fill="currentColor" stroke="none" d="M10 3.3h4c.55 0 1 .4 1 .95V6.1h-6V4.25c0-.55.45-.95 1-.95z"/><path fill="currentColor" stroke="none" fill-rule="evenodd" d="M6.35 9.2h11.3c.25 0 .45.22.43.48l-.78 10.05c-.08.85-.8 1.5-1.65 1.5H8.35c-.85 0-1.57-.65-1.65-1.5L5.92 9.68c-.02-.26.18-.48.43-.48zM9.15 12h1.4v5.15h-1.4V12zm4.3 0h1.4v5.15h-1.4V12z"/>',
     ];
     $body = $icons[$name] ?? '';
     return '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' . $body . '</svg>';
@@ -22,17 +23,11 @@ function shop_meter_text(array $boot): string
     if ((int) ($boot['count'] ?? 0) < 1) {
         return '';
     }
-    $percent = (int) round(((float) ($boot['progress'] ?? 0)) * 100);
-    if (empty($boot['floor'])) {
-        return 'جمع سبد ' . shop_toman((int) ($boot['total'] ?? 0));
+    $amount = (int) ($boot['discount_total'] ?? 0);
+    if ($amount < 1) {
+        return 'تخفیف سبد هنوز باز نشده است.';
     }
-    if ((int) ($boot['measure'] ?? 0) <= (int) $boot['floor']) {
-        return 'تخفیف از جمع ' . shop_toman((int) $boot['floor']) . ' با قیمت مصرف شروع می‌شود. الان ' . shop_toman((int) ($boot['measure'] ?? 0)) . ' است.';
-    }
-    if ($percent >= 100) {
-        return 'قیمت فروش تأمین‌کننده روی این سبد اعمال شده است.';
-    }
-    return $percent . '٪ از راه تا قیمت فروش تأمین‌کننده. سقف این تخفیف ' . shop_toman((int) $boot['ceiling']) . ' است.';
+    return 'تخفیف سبد ' . shop_percent((float) ($boot['discount_rate'] ?? 0)) . ' · ' . shop_toman($amount);
 }
 
 function shop_json(array $data): string
@@ -62,7 +57,7 @@ function shop_header(string $title, string $active, array $boot): void
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title><?= shop_h($title) ?></title>
     <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="assets/site.css">
+    <link rel="stylesheet" href="assets/site.css?v=<?= (int) @filemtime(__DIR__ . '/assets/site.css') ?>">
 </head>
 <body>
 <header class="bar">
@@ -102,7 +97,11 @@ function shop_header(string $title, string $active, array $boot): void
     </div>
     <div class="drawer-body" id="drawer-lines"></div>
     <div class="drawer-foot">
-        <p class="fine" id="drawer-note"></p>
+        <div class="saving" id="drawer-saving" hidden>
+            <div class="saving-copy"><span>تخفیف سبد</span> <b class="saving-rate" id="drawer-rate"></b></div>
+            <strong class="saving-amount" id="drawer-save"></strong>
+        </div>
+        <p class="fine" id="drawer-note" hidden></p>
         <div class="payline"><span>قابل پرداخت</span><strong id="pay">۰</strong></div>
         <a class="go" href="cart.php">ثبت سفارش</a>
     </div>
@@ -123,7 +122,7 @@ function shop_footer(array $boot): void
     ?>
 </main>
 <script id="shop-boot" type="application/json"><?= shop_json($boot) ?></script>
-<script src="assets/shop.js"></script>
+<script src="assets/shop.js?v=<?= (int) @filemtime(__DIR__ . '/assets/shop.js') ?>"></script>
 </body>
 </html>
     <?php
@@ -135,8 +134,9 @@ function shop_control(string $id, int $qty, string $back): string
     $id = shop_h($id);
     $back = shop_h($back);
     if ($qty > 0) {
-        $inner = '<div class="stepper"><button type="button" data-step="-1" aria-label="کم کردن">−</button><b>'
-            . $qty . '</b><button type="button" data-step="1" aria-label="افزودن">+</button></div>';
+        $inner = '<div class="actions"><div class="stepper"><button type="button" data-step="-1" aria-label="کم کردن">−</button><b>'
+            . shop_h(shop_digits((string) $qty)) . '</b><button type="button" data-step="1" aria-label="افزودن">+</button></div>'
+            . '<button type="button" class="trash" data-clear aria-label="حذف از سبد">' . shop_svg('trash') . '</button></div>';
     } else {
         $inner = '<button class="add" type="submit" aria-label="افزودن به سبد">' . shop_svg('cart') . '</button>';
     }

@@ -33,7 +33,7 @@ try {
         shop_fail($json, 'کالا پیدا نشد.');
     }
     $product = shop_find($catalog, $id);
-    if ($product === null || (!empty($product['hidden']) && $qty > 0)) {
+    if ($product === null || (!empty($product['hidden']) && $qty > 0) || (empty($product['discountable']) && $qty > 0)) {
         shop_fail($json, 'کالا پیدا نشد.');
     }
     shop_set($id, $qty);
