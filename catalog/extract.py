@@ -27,6 +27,8 @@ MESSAGE_HEADERS = [
     "Import Timestamp",
     "Status",
     "Batch ID",
+    "Image File ID",
+    "Media Group ID",
 ]
 
 PRODUCT_HEADERS = [
@@ -65,6 +67,9 @@ PRODUCT_HEADERS = [
     "Price Changed At",
     "Latest Offer ID",
     "Offer Count",
+    "Min Qty",
+    "Image File ID",
+    "Image File Unique ID",
 ]
 
 OFFER_HEADERS = [
@@ -95,6 +100,9 @@ OFFER_HEADERS = [
     "Import Timestamp",
     "Original Message",
     "Package Price",
+    "Min Qty",
+    "Image File ID",
+    "Image File Unique ID",
 ]
 
 ITEM_HEADERS = [
@@ -282,6 +290,38 @@ _FLAVOR_LINE = re.compile(r"^طعم\s*[:：]?\s*(.+)$")
 def extract_volume(text: str) -> str:
     match = _VOLUME_TEXT.search(text or "")
     return match.group(0) if match else ""
+
+
+_SHELL_COUNTS = {6, 12, 24}
+_OUTER_PACK = re.compile(r"(?:کارتن|باکس|شیرینگ|shell|شل(?![\u0600-\u06FF]))\s*(\d+)", re.I)
+_COUNT_PACK = re.compile(r"(\d+)\s*(?:عددی|عدد|تایی)")
+
+
+def pack_count(packaging: str, name: str = "") -> int | None:
+    """Carton size from a shell clause, otherwise the last unit count.
+
+    ``بسته ۲۵ عدد و کارتن ۲۴ بسته`` is 24. A bare ``۶ عددی`` is 6.
+    ``شلغم`` is a word, not a shell.
+    """
+    text = normalize(f"{packaging or ''} {name or ''}")
+    outer = _OUTER_PACK.findall(text)
+    if outer:
+        return int(outer[-1])
+    counts = _COUNT_PACK.findall(text)
+    if counts:
+        return int(counts[-1])
+    return None
+
+
+def minimum_purchase(packaging: str, name: str = "") -> int:
+    """Smallest quantity the shop will sell.
+
+    A shell of 6, 12, or 24 sells from 6. Anything else starts at 1.
+    A later override can replace this number.
+    """
+    if pack_count(packaging, name) in _SHELL_COUNTS:
+        return 6
+    return 1
 
 
 def peel_title_pack(line: str) -> tuple[str, str]:

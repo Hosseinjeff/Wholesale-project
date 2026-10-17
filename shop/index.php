@@ -56,7 +56,7 @@ shop_header('مولوی‌سل', 'shop', $boot);
                 <?php endforeach; ?>
             </select>
         </label>
-        <p class="count" id="count">نمایش ۱ تا <?= $total ?> از <?= $total ?> محصول</p>
+        <p class="count" id="count">نمایش <?= shop_h(shop_digits('1')) ?> تا <?= shop_h(shop_digits((string) $total)) ?> از <?= shop_h(shop_digits((string) $total)) ?> محصول</p>
     </div>
 </div>
 <div class="chips" id="cats">
@@ -77,24 +77,32 @@ shop_header('مولوی‌سل', 'shop', $boot);
                  data-name="<?= shop_h($product['name']) ?>"
                  data-cat="<?= shop_h($product['category']) ?>"
                  data-supplier="<?= shop_h($product['supplier']) ?>"
-                 data-sale="<?= (int) $product['sale'] ?>"
                  data-shelf="<?= $shelf ?>"
+                 data-min="<?= (int) $product['min'] ?>"
                  data-index="<?= (int) $product['index'] ?>">
             <div class="photo">
                 <img src="<?= shop_h($product['image']) ?>" alt="<?= shop_h($product['name']) ?>">
+                <?php if ((float) $product['max'] > 0): ?>
+                    <span class="deal" dir="rtl"><?= shop_h(shop_upto((float) $product['max'])) ?></span>
+                <?php endif; ?>
                 <button type="button" class="heart" aria-label="نشان کردن" aria-pressed="false"><?= shop_svg('heart') ?></button>
             </div>
             <div class="info">
                 <h2><?= shop_h($product['name']) ?></h2>
+                <p class="meta"><?= shop_h(shop_product_facts($product)) ?></p>
                 <div class="buy">
-                    <div>
-                        <p class="now" data-unit="<?= $unit ?>"><?= shop_h(shop_toman($unit)) ?></p>
+                    <div class="offer">
+                        <?php $rate = $shelf > $unit ? ($shelf - $unit) / $shelf : 0; ?>
+                        <p class="now" data-unit="<?= $unit ?>">
+                            <span class="rate" dir="ltr"<?= $rate > 0 ? '' : ' hidden' ?>><?= shop_h('−' . shop_percent((float) $rate)) ?></span>
+                            <span class="amount"><?= shop_h(shop_toman($unit)) ?></span>
+                        </p>
                         <p class="sub">
                             <span class="was"<?= $shelf > $unit ? '' : ' hidden' ?>><?= shop_h(shop_toman($shelf)) ?></span>
                             <span class="sku"><?= shop_h($product['sku']) ?></span>
                         </p>
                     </div>
-                    <?= shop_control($product['id'], $qty, 'index.php') ?>
+                    <?= shop_control($product['id'], $qty, 'index.php', (int) $product['min']) ?>
                 </div>
             </div>
         </article>

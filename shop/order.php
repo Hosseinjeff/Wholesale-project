@@ -18,13 +18,14 @@ shop_header('سفارش · مولوی‌سل', 'shop', $boot);
         <h1>سفارش ثبت شد.</h1>
         <p>شماره سفارش <strong><?= shop_h((string) $order['id']) ?></strong> است. جمع <?= shop_h(shop_toman((int) $order['total'])) ?>.</p>
         <p class="note">خرید از تأمین‌کننده جدا از این ثبت است و بعد از تأیید انجام می‌شود.</p>
+        <?php if (!empty($_SESSION['customer_id'])): ?><p><a href="account.php">سفارش در حساب شما ثبت شد.</a></p><?php endif; ?>
         <div>
             <?php foreach ($order['lines'] as $line): ?>
                 <article class="dline">
                     <?php if (!empty($line['image'])): ?><img src="<?= shop_h((string) $line['image']) ?>" alt=""><?php endif; ?>
                     <div class="dtext">
                         <h3><?= shop_h((string) $line['name']) ?></h3>
-                        <p><?= (int) $line['qty'] ?> عدد · <?= shop_h(shop_toman((int) $line['total'])) ?></p>
+                        <p><?= shop_h(shop_digits((string) (int) $line['qty'])) ?> عدد · <?= shop_h(shop_toman((int) $line['total'])) ?></p>
                     </div>
                 </article>
             <?php endforeach; ?>

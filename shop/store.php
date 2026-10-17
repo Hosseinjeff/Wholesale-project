@@ -57,8 +57,14 @@ function shop_migrate(SQLite3 $db): void
         'phone' => '',
         'address' => '',
         'hours' => 'هر روز، ۹ تا ۱۸',
-        'about' => 'مولوی‌سل مواد غذایی بسته‌بندی را مستقیم از بنکدار عرضه می‌کند. قیمت روی هر کارت از قیمت مصرف شروع می‌شود و با بزرگ‌تر شدن سبد به قیمت فروش تأمین‌کننده نزدیک می‌شود.',
+        'about' => 'مولوی‌سل مواد غذایی بسته‌بندی را مستقیم از بنکدار عرضه می‌کند.',
     ];
+    $replace = $db->prepare('UPDATE settings SET value = :next WHERE key = :k AND value = :prev');
+    $replace->bindValue(':k', 'about', SQLITE3_TEXT);
+    $replace->bindValue(':prev', 'مولوی‌سل مواد غذایی بسته‌بندی را مستقیم از بنکدار عرضه می‌کند. قیمت روی هر کارت از قیمت مصرف شروع می‌شود و با بزرگ‌تر شدن سبد به قیمت فروش تأمین‌کننده نزدیک می‌شود.', SQLITE3_TEXT);
+    $replace->bindValue(':next', $defaults['about'], SQLITE3_TEXT);
+    $replace->execute();
+    $replace->close();
     $insert = $db->prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (:k, :v)');
     foreach ($defaults as $key => $value) {
         $insert->bindValue(':k', $key, SQLITE3_TEXT);
@@ -80,6 +86,7 @@ function shop_migrate(SQLite3 $db): void
             }
         }
     }
+    shop_migrate_accounts($db);
     shop_import_json_orders($db);
 }
 
@@ -146,6 +153,10 @@ function shop_db_exec(string $sql, array $params = []): void
 function shop_bind(SQLite3Stmt $stmt, array $params): void
 {
     foreach ($params as $key => $value) {
+        if ($value === null) {
+            $stmt->bindValue($key, null, SQLITE3_NULL);
+            continue;
+        }
         if (is_int($value)) {
             $type = SQLITE3_INTEGER;
         } elseif (is_float($value)) {
@@ -244,7 +255,7 @@ function shop_stock_image(array $product): string
 function shop_meta_map(): array
 {
     try {
-        $rows = shop_db_all('SELECT id, hidden, category, image FROM product_meta');
+        $rows = shop_db_all('SELECT id, hidden, category, image, min_qty FROM product_meta');
     } catch (Throwable $e) {
         return [];
     }
@@ -258,6 +269,7 @@ function shop_meta_map(): array
 function shop_present(): array
 {
     $catalog = shop_catalog();
+    $settings = shop_settings($catalog);
     $meta = shop_meta_map();
     $products = [];
     $index = 0;
@@ -270,9 +282,22 @@ function shop_present(): array
         $custom = (string) ($row['category'] ?? '');
         $product['category'] = $custom !== '' ? $custom : shop_guess_category($product);
         $product['hidden'] = (int) ($row['hidden'] ?? 0) === 1 ? 1 : 0;
+        $autoMin = shop_auto_min($product);
+        $override = $row['min_qty'] ?? null;
+        $product['min'] = ($override !== null && $override !== '' && (int) $override > 0)
+            ? min(999, (int) $override)
+            : $autoMin;
+        $product['min_auto'] = $autoMin;
         $product['image'] = shop_image_src($id, (string) ($row['image'] ?? ''), $product);
         $product['sku'] = 'MS-' . strtoupper(substr($id, 0, 6));
         $product['index'] = $index;
+        $band = shop_band((int) $product['sale'], (int) $product['shelf'], $settings);
+        $product['floor'] = $band['floor'];
+        $product['ceiling'] = $band['ceiling'];
+        $product['opening'] = $band['opening'];
+        $product['depth'] = $band['depth'];
+        $product['max'] = $band['max'];
+        $product['discountable'] = $band['discountable'] ? 1 : 0;
         $index++;
         $products[] = $product;
     }
@@ -286,6 +311,11 @@ function shop_image_src(string $id, string $custom, array $product): string
         && is_file(__DIR__ . '/' . $custom)) {
         return $custom;
     }
+    $fileId = (string) ($product['image_file_id'] ?? '');
+    $base = rtrim((string) (shop_config()['media_base'] ?? ''), '/');
+    if ($fileId !== '' && $base !== '' && preg_match('/^[A-Za-z0-9_-]{8,300}$/', $fileId)) {
+        return $base . '/media/file/' . rawurlencode($fileId);
+    }
     return shop_stock_image($product);
 }
 
@@ -293,7 +323,7 @@ function shop_visible(array $catalog): array
 {
     return array_values(array_filter(
         $catalog['products'] ?? [],
-        static fn(array $product): bool => empty($product['hidden'])
+        static fn(array $product): bool => empty($product['hidden']) && !empty($product['discountable'])
     ));
 }
 
@@ -309,7 +339,6 @@ function shop_find(array $catalog, string $id): ?array
 
 function shop_public(array $quote): array
 {
-    $reference = $quote['reference'] ?? null;
     $count = 0;
     $lines = [];
     foreach ($quote['lines'] as $line) {
@@ -320,8 +349,9 @@ function shop_public(array $quote): array
             'qty' => (int) $line['qty'],
             'unit' => (int) $line['unit'],
             'shelf' => (int) $line['shelf'],
-            'sale' => (int) $line['sale'],
             'total' => (int) $line['total'],
+            'discount_amount' => (int) ($line['discount_amount'] ?? 0),
+            'discount_rate' => (float) ($line['discount_rate'] ?? 0),
             'image' => (string) ($line['image'] ?? ''),
             'sku' => (string) ($line['sku'] ?? ''),
         ];
@@ -335,10 +365,10 @@ function shop_public(array $quote): array
         'count' => $count,
         'total' => (int) $quote['total'],
         'measure' => (int) $quote['measure'],
+        'discount_total' => (int) ($quote['discount_total'] ?? 0),
+        'discount_rate' => (float) ($quote['discount_rate'] ?? 0),
         'progress' => (float) $quote['progress'],
-        'floor' => (int) ($reference['floor'] ?? 0),
-        'ceiling' => (int) ($reference['ceiling'] ?? 0),
-        'reference' => (string) ($reference['name'] ?? ''),
+        'unlock' => (int) ($quote['unlock'] ?? 0),
         'units' => $units,
         'lines' => $lines,
     ];
@@ -352,17 +382,29 @@ function shop_boot(array $catalog, array $quote): array
     foreach ($catalog['products'] ?? [] as $product) {
         $id = (string) $product['id'];
         $inCart = !empty($_SESSION['cart'][$id]);
-        if (!empty($product['hidden']) && !$inCart) {
+        if ((empty($product['discountable']) || !empty($product['hidden'])) && !$inCart) {
             continue;
+        }
+        $shelf = (int) $product['shelf'];
+        $floor = (int) $product['floor'];
+        $ceiling = (int) $product['ceiling'];
+        if (empty($product['discountable'])) {
+            $flat = $shelf > 0 ? $shelf : (int) $product['sale'];
+            $shelf = $flat;
+            $floor = $flat;
+            $ceiling = $flat;
         }
         $book[$id] = [
             'name' => (string) $product['name'],
-            'sale' => (int) $product['sale'],
-            'shelf' => (int) $product['shelf'],
+            'shelf' => $shelf,
+            'floor' => $floor,
+            'ceiling' => $ceiling,
             'image' => (string) $product['image'],
             'sku' => (string) $product['sku'],
             'category' => (string) $product['category'],
             'supplier' => (string) ($product['supplier'] ?? ''),
+            'min' => shop_product_min($product),
+            'packaging' => (string) ($product['packaging'] ?? ''),
         ];
     }
     $boot['book'] = $book;
@@ -372,8 +414,8 @@ function shop_boot(array $catalog, array $quote): array
 function shop_save_order(array $order): void
 {
     shop_db_exec(
-        'INSERT INTO orders (id, created_at, name, phone, note, progress, total, status, lines_json)
-         VALUES (:id, :at, :name, :phone, :note, :progress, :total, :status, :lines)',
+        'INSERT INTO orders (id, created_at, name, phone, note, progress, total, status, lines_json, customer_id, email, address, username, published)
+         VALUES (:id, :at, :name, :phone, :note, :progress, :total, :status, :lines, :customer, :email, :address, :username, 0)',
         [
             ':id' => (string) $order['id'],
             ':at' => (string) $order['at'],
@@ -384,6 +426,10 @@ function shop_save_order(array $order): void
             ':total' => (int) $order['total'],
             ':status' => 'new',
             ':lines' => json_encode($order['lines'], JSON_UNESCAPED_UNICODE),
+            ':customer' => (int) ($order['customer_id'] ?? 0),
+            ':email' => (string) ($order['email'] ?? ''),
+            ':address' => (string) ($order['address'] ?? ''),
+            ':username' => (string) ($order['username'] ?? ''),
         ]
     );
 }
@@ -425,6 +471,14 @@ function shop_set_status(string $id, string $status): void
         ':status' => $status,
         ':id' => $id,
     ]);
+    try {
+        $order = shop_find_order($id);
+        if ($order !== [] && shop_publish_order($order, false)) {
+            shop_mark_published($id);
+        }
+    } catch (Throwable $e) {
+        shop_db_exec('UPDATE orders SET published = 0 WHERE id = :id', [':id' => $id]);
+    }
 }
 
 function shop_status_label(string $status): string
@@ -437,18 +491,19 @@ function shop_status_label(string $status): string
     ][$status] ?? $status;
 }
 
-function shop_save_product(string $id, int $hidden, string $category, ?string $image): void
+function shop_save_product(string $id, int $hidden, string $category, ?string $image, ?int $minQty): void
 {
     $current = shop_db_one('SELECT image FROM product_meta WHERE id = :id', [':id' => $id]);
     $kept = $image !== null ? $image : (string) ($current['image'] ?? '');
     shop_db_exec(
-        'INSERT INTO product_meta (id, hidden, category, image) VALUES (:id, :hidden, :category, :image)
-         ON CONFLICT(id) DO UPDATE SET hidden = :hidden, category = :category, image = :image',
+        'INSERT INTO product_meta (id, hidden, category, image, min_qty) VALUES (:id, :hidden, :category, :image, :min)
+         ON CONFLICT(id) DO UPDATE SET hidden = :hidden, category = :category, image = :image, min_qty = :min',
         [
             ':id' => $id,
             ':hidden' => $hidden ? 1 : 0,
             ':category' => $category,
             ':image' => $kept,
+            ':min' => $minQty,
         ]
     );
 }
@@ -461,29 +516,7 @@ function shop_save_setting(string $key, string $value): void
     );
 }
 
-function shop_check_password(string $password): bool
-{
-    $row = shop_db_one('SELECT password_hash FROM admin WHERE id = 1');
-    return $row !== null && password_verify($password, (string) $row['password_hash']);
-}
-
-function shop_admin_login(string $password): bool
-{
-    if (!shop_check_password($password)) {
-        return false;
-    }
-    session_regenerate_id(true);
-    $_SESSION['admin'] = 1;
-    $_SESSION['admin_fails'] = 0;
-    return true;
-}
-
-function shop_set_password(string $password): void
-{
-    shop_db_exec('UPDATE admin SET password_hash = :hash WHERE id = 1', [
-        ':hash' => password_hash($password, PASSWORD_DEFAULT),
-    ]);
-}
+require_once __DIR__ . '/accounts.php';
 
 function shop_store_image(string $id, array $file): string
 {

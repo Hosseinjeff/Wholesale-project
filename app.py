@@ -3,7 +3,8 @@
 Flask app for Railway/Render deployment with Telegram webhooks.
 """
 
-from flask import Flask, request, jsonify
+from flask import Flask, Response, request, jsonify
+import hmac
 import logging
 import requests
 import os
@@ -11,6 +12,12 @@ import time
 import threading
 from urllib.parse import urlparse
 from utils.logger import setup_logger
+
+from catalog.media import safe_file_id, stamp_inbound
+from catalog.orders import format_order_notice, operator_chat_ids, remember_operator, upsert_shop_order
+from catalog.pricing import catalog_from_records, default_settings, preview_records, resolve_quote
+from catalog.status import command_name, private_chat, reply_for_command
+from catalog.publish import publish_shop
 from catalog.sync import (
     build_store,
     finalize_batch,
@@ -18,6 +25,7 @@ from catalog.sync import (
     release_idle_memory,
     resolve_prompt,
     sheets_configured,
+    shop_catalog,
 )
 
 app = Flask(__name__)
@@ -26,7 +34,7 @@ app = Flask(__name__)
 WEB_APP_URL = os.getenv('GOOGLE_WEB_APP_URL')
 BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 BALE_BOT_TOKEN = os.getenv('BALE_BOT_TOKEN')
-APP_VERSION = "2026-10-09-webhook-reply"
+APP_VERSION = "2026-10-17-shop-publish"
 setup_logger(logging.INFO, log_file=None)
 logger = logging.getLogger(__name__)
 
@@ -121,6 +129,8 @@ class BatchManager:
                     data.get("processed_messages"),
                     data.get("rollback"),
                 )
+                if data.get("status") == "success":
+                    _publish_shop_quietly()
             else:
                 resp = requests.post(self.web_app_url, json=payload, timeout=60, headers={'Content-Type': 'application/json'})
                 logger.info(f"Finalize ack: {resp.status_code} {resp.text[:200]}")
@@ -291,10 +301,31 @@ def register_telegram_webhook():
             body.get("ok"),
             body.get("description"),
         )
-        return response.status_code == 200 and bool(body.get("ok"))
+        if response.status_code == 200 and body.get("ok"):
+            _register_bot_commands()
+            return True
+        return False
     except Exception:
         logger.exception("setWebhook failed")
         return False
+
+
+def _register_bot_commands():
+    """Show the three store reports in Telegram's command menu."""
+    if not BOT_TOKEN:
+        return
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/setMyCommands",
+            json={"commands": [
+                {"command": "store", "description": "وضعیت کلی فروشگاه"},
+                {"command": "orders", "description": "وضعیت سفارش‌ها"},
+                {"command": "products", "description": "وضعیت کالاها"},
+            ]},
+            timeout=15,
+        )
+    except Exception:
+        logger.exception("setMyCommands failed")
 
 
 _webhook_registered = False
@@ -440,6 +471,7 @@ def inbound_payload(message, channel):
 
     if not data.get('chat_id'):
         data['chat_id'] = (message.get('chat') or {}).get('id')
+    stamp_inbound(data, message)
     return data, source
 
 
@@ -451,6 +483,16 @@ def update_message(update_json):
     return None
 
 
+def _remember_quiet(data):
+    if not USE_SHEETS or not private_chat(data):
+        return
+    try:
+        sender = data.get("forwarded_by") or data.get("author") or ""
+        remember_operator(build_store(), data.get("chat_id"), sender, sender)
+    except Exception:
+        logger.exception("Could not remember operator chat")
+
+
 def handle_inbound_update(update_json, channel):
     message = update_message(update_json)
     if not message:
@@ -458,6 +500,19 @@ def handle_inbound_update(update_json, channel):
     data, source = inbound_payload(message, channel)
     if not data:
         return jsonify({'status': 'ignored'})
+    command = command_name(data.get("content") or "") if source == "direct" else None
+    if command:
+        _remember_quiet(data)
+        store = None
+        if USE_SHEETS:
+            try:
+                store = build_store()
+            except Exception:
+                logger.exception("Status store failed")
+                store = None
+        send_chat_text(data.get("chat_id"), reply_for_command(command, store))
+        return jsonify({"status": "command", "command": command})
+    _remember_quiet(data)
     if source == "direct" and USE_SHEETS:
         try:
             outcome = resolve_prompt(build_store(), data.get("chat_id"), data.get("content") or "")
@@ -465,6 +520,8 @@ def handle_inbound_update(update_json, channel):
             logger.exception("Prompt reply failed")
             outcome = {"matched": False}
         if outcome.get("matched"):
+            if outcome.get("understood"):
+                threading.Thread(target=_publish_shop_quietly, daemon=True).start()
             send_chat_text(data.get("chat_id"), outcome.get("reply") or "")
             return jsonify({"status": "resolved" if outcome.get("understood") else "needs_answer"})
     success = enqueue_message(data)
@@ -505,6 +562,102 @@ def bale_webhook():
         logger.error(f"Bale webhook error: {str(e)}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
+def _shop_token_ok() -> bool:
+    secret = os.getenv("SHOP_NOTIFY_SECRET") or ""
+    sent = request.headers.get("X-Shop-Token") or ""
+    if not secret or not sent:
+        return False
+    return hmac.compare_digest(sent, secret)
+
+
+@app.route("/shop/order", methods=["POST"])
+def shop_order():
+    """Write one shop order into the sheet and, when asked, tell the bot chats."""
+    if not _shop_token_ok():
+        return jsonify({"status": "error", "message": "unauthorized"}), 401
+    body = request.get_json(silent=True) or {}
+    order = body.get("order") if isinstance(body, dict) else None
+    if not isinstance(order, dict) or not str(order.get("id") or "").strip():
+        return jsonify({"status": "error", "message": "missing order"}), 400
+    result = {"written": False, "notified": 0}
+    store = None
+    if USE_SHEETS:
+        try:
+            store = build_store()
+            result.update(upsert_shop_order(store, order))
+        except Exception:
+            logger.exception("Order sheet write failed")
+            return jsonify({"status": "error", "message": "sheet write failed"}), 502
+    if body.get("notify"):
+        notice = format_order_notice(order)
+        chats = operator_chat_ids(store)
+        for chat_id in chats:
+            send_chat_text(chat_id, notice)
+        result["notified"] = len(chats)
+    return jsonify({"status": "success", **result})
+
+
+def _publish_shop_quietly(max_rounds: int = 40) -> None:
+    """Push the sheet to the shop. Failures stay in the log and do not roll back the batch."""
+    if not USE_SHEETS:
+        return
+    try:
+        publish_shop(build_store(), max_rounds=max_rounds)
+    except Exception:
+        logger.exception("Shop publish failed")
+
+
+@app.route("/shop/publish", methods=["POST"])
+def shop_publish():
+    """Publish the current sheet to the shop. Used to catch up products already on the sheet."""
+    if not _shop_token_ok():
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+    if not USE_SHEETS:
+        return jsonify({"ok": False, "error": "sheets"}), 503
+    try:
+        body = request.get_json(silent=True) or {}
+        images_only = bool(body.get("images_only")) if isinstance(body, dict) else False
+        result = publish_shop(build_store(), max_rounds=12, images_only=images_only)
+    except Exception:
+        logger.exception("Shop publish failed")
+        return jsonify({"ok": False, "error": "publish failed"}), 502
+    return jsonify(result)
+
+
+@app.route("/media/file/<file_id>", methods=["GET"])
+def media_file(file_id):
+    """Stream a product photo that was sent to the bot. The token stays on this host."""
+    file_id = safe_file_id(file_id)
+    if not file_id or not BOT_TOKEN:
+        return jsonify({"status": "error"}), 404
+    try:
+        info = requests.get(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/getFile",
+            params={"file_id": file_id},
+            timeout=15,
+        )
+        body = info.json()
+        path = ((body.get("result") or {}).get("file_path") or "") if info.status_code == 200 else ""
+        if not path or ".." in path or path.startswith("/"):
+            return jsonify({"status": "error"}), 404
+        upstream = requests.get(
+            f"https://api.telegram.org/file/bot{BOT_TOKEN}/{path}",
+            timeout=20,
+        )
+        if upstream.status_code != 200 or len(upstream.content) > 8_000_000:
+            return jsonify({"status": "error"}), 404
+        kind = "image/jpeg"
+        lower = path.lower()
+        if lower.endswith(".png"):
+            kind = "image/png"
+        elif lower.endswith(".webp"):
+            kind = "image/webp"
+        return Response(upstream.content, mimetype=kind, headers={"Cache-Control": "public, max-age=86400"})
+    except Exception:
+        logger.exception("Product photo failed")
+        return jsonify({"status": "error"}), 404
+
+
 @app.route('/desk/refresh', methods=['POST'])
 def refresh_desk():
     """Rebuild the buying list after a person edits Items in the sheet."""
@@ -516,6 +669,47 @@ def refresh_desk():
     except Exception as exc:
         logger.exception("Desk refresh failed")
         return jsonify({'status': 'error', 'message': exc.__class__.__name__}), 500
+
+
+def shop_source(preview: bool) -> dict:
+    """The live sheet when it is configured, otherwise the preview catalog."""
+    if USE_SHEETS:
+        return shop_catalog(build_store())
+    if preview or os.getenv("SHOP_PREVIEW") == "1":
+        settings = default_settings()
+        return {
+            "settings": settings.as_dict(),
+            "products": catalog_from_records(preview_records(), settings),
+        }
+    settings = default_settings()
+    return {"settings": settings.as_dict(), "products": []}
+
+
+@app.route("/api/shop", methods=["GET"])
+def shop_api():
+    preview = request.args.get("preview") == "1"
+    try:
+        return jsonify(shop_source(preview))
+    except Exception:
+        logger.exception("Shop catalog failed")
+        return jsonify({"status": "error", "products": [], "settings": {}}), 500
+
+
+@app.route("/api/cart", methods=["POST"])
+def cart_api():
+    """Reprice every line and the aggregate discount for the cart as it stands."""
+    preview = request.args.get("preview") == "1"
+    body = request.get_json(silent=True) or {}
+    lines = body.get("lines") if isinstance(body, dict) else None
+    if not isinstance(lines, list):
+        return jsonify({"status": "error", "message": "lines must be a list"}), 400
+    try:
+        catalog = shop_source(preview)
+        unlock = int(catalog["settings"]["unlock_target"])
+        return jsonify(resolve_quote(catalog["products"], lines, unlock))
+    except Exception:
+        logger.exception("Cart quote failed")
+        return jsonify({"status": "error"}), 500
 
 
 @app.route('/health', methods=['GET'])

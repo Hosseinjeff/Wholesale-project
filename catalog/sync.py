@@ -29,10 +29,22 @@ from catalog.extract import (
     PRODUCT_HEADERS,
     classify_message,
     extract_products,
+    minimum_purchase,
     normalize,
     parse_price,
     peel_title_pack,
     quality_check,
+)
+from catalog.media import share_album_images
+from catalog.pricing import (
+    SHOP_FORMULA_ROW,
+    SHOP_HEADER_ROW,
+    SHOP_HEADERS,
+    catalog_from_records,
+    formula_separator,
+    settings_from_rows,
+    shop_formulas,
+    shop_setting_rows,
 )
 
 logger = logging.getLogger(__name__)
@@ -75,7 +87,8 @@ class MemoryStore:
         self.sheets.setdefault(name, [])
         self.sheets[name].extend(rows)
 
-    def write_rows(self, name: str, start_row: int, rows: list[list[Any]]) -> None:
+    def write_rows(self, name: str, start_row: int, rows: list[list[Any]], value_input: str = "RAW") -> None:
+        del value_input
         table = self.sheets.setdefault(name, [])
         for offset, row in enumerate(rows):
             index = start_row - 1 + offset
@@ -224,6 +237,7 @@ class GoogleSheetStore:
         self._sheet_ids: dict[str, int] = {}
         self._grids: dict[str, dict[str, int]] = {}
         self._values: dict[str, list[list[Any]]] = {}
+        self._locale: str | None = None
 
     def _api(self) -> SheetsRest:
         if self._http is None:
@@ -283,7 +297,7 @@ class GoogleSheetStore:
         if cached is not None:
             cached.extend(_copy_table(rows))
 
-    def write_rows(self, name: str, start_row: int, rows: list[list[Any]]) -> None:
+    def write_rows(self, name: str, start_row: int, rows: list[list[Any]], value_input: str = "RAW") -> None:
         if not rows:
             return
         width = max(len(row) for row in rows)
@@ -291,7 +305,7 @@ class GoogleSheetStore:
         self._ensure_grid(name, end, width)
         self._api().values_update(
             f"{_quote(name)}!A{start_row}:{_column(width)}{end}",
-            "RAW",
+            value_input,
             {"values": rows},
         )
         cached = self._values.get(name)
@@ -357,6 +371,17 @@ class GoogleSheetStore:
                 grid["columnCount"] += growth["length"]
         self._grids[name] = grid
 
+    def spreadsheet_locale(self) -> str:
+        if self._locale is not None:
+            return self._locale
+        try:
+            meta = self._api().get_spreadsheet("properties.locale")
+            self._locale = str((meta.get("properties") or {}).get("locale") or "")
+        except Exception:
+            logger.exception("Could not read spreadsheet locale")
+            self._locale = ""
+        return self._locale
+
 
 def grid_growth(row_count: int, column_count: int, min_rows: int, min_cols: int) -> tuple[int, int]:
     return max(0, min_rows - row_count), max(0, min_cols - column_count)
@@ -411,6 +436,52 @@ def build_store() -> GoogleSheetStore:
     return GoogleSheetStore(os.environ["GOOGLE_SHEET_ID"], load_service_account_info())
 
 
+def ensure_shop_sheet(store: MemoryStore | GoogleSheetStore) -> None:
+    """Write the pricing curve. Column B keeps a number the operator already set."""
+    store.ensure("Shop", ["Min Margin"])
+    existing = _read_sheet_if_present(store, "Shop")
+    locale = ""
+    reader = getattr(store, "spreadsheet_locale", None)
+    if callable(reader):
+        try:
+            locale = reader() or ""
+        except Exception:
+            logger.exception("Shop sheet locale was not available")
+    store.write_rows("Shop", 1, shop_setting_rows(existing), "USER_ENTERED")
+    store.write_rows("Shop", 10, [[
+        "Edit column B. The shop and the cart read these cells. The rows below follow the same rules.",
+    ]], "USER_ENTERED")
+    store.write_rows("Shop", SHOP_HEADER_ROW, [SHOP_HEADERS], "USER_ENTERED")
+    store.write_rows("Shop", SHOP_FORMULA_ROW, [shop_formulas(formula_separator(locale))], "USER_ENTERED")
+
+
+def _shop_setting_rows(store: MemoryStore | GoogleSheetStore) -> list[list[Any]]:
+    """Settings already on the Shop sheet. A sheet that does not exist yet uses defaults."""
+    if isinstance(store, MemoryStore):
+        if "Shop" not in store.sheets:
+            return []
+        return store.read("Shop")
+    try:
+        if not store._sheet_ids:
+            store._refresh_sheet_ids()
+        if "Shop" not in store._sheet_ids:
+            return []
+    except Exception:
+        logger.exception("Could not list sheets for the shop")
+        return []
+    return _read_sheet_if_present(store, "Shop")
+
+
+def shop_catalog(store: MemoryStore | GoogleSheetStore) -> dict[str, Any]:
+    """Products the site can sell, priced from the Shop sheet settings."""
+    settings = settings_from_rows(_shop_setting_rows(store))
+    _headers, records = _records(_read_sheet_if_present(store, "Products"))
+    return {
+        "settings": settings.as_dict(),
+        "products": catalog_from_records(records, settings),
+    }
+
+
 def finalize_batch(store: MemoryStore | GoogleSheetStore, payload: dict[str, Any]) -> dict[str, Any]:
     with _WRITE_LOCK:
         return _finalize_batch(store, payload)
@@ -423,6 +494,7 @@ def _finalize_batch(store: MemoryStore | GoogleSheetStore, payload: dict[str, An
     written = 0
 
     if messages:
+        share_album_images(messages)
         store.ensure("MessageData", MESSAGE_HEADERS)
         headers = _headers(store, "MessageData", MESSAGE_HEADERS)
         rows = []
@@ -446,6 +518,8 @@ def _finalize_batch(store: MemoryStore | GoogleSheetStore, payload: dict[str, An
                 "Import Timestamp": imported_at,
                 "Status": classification["type"] or "imported",
                 "Batch ID": batch_id,
+                "Image File ID": message.get("image_file_id") or "",
+                "Media Group ID": message.get("media_group_id") or "",
             }))
         if rows:
             _append_at_next_row(store, "MessageData", headers, rows)
@@ -471,6 +545,10 @@ def _finalize_batch(store: MemoryStore | GoogleSheetStore, payload: dict[str, An
         desk = refresh_buying_desk(store, messages, batch_id)
     except Exception:
         logger.exception("Buying desk refresh failed")
+    try:
+        ensure_shop_sheet(store)
+    except Exception:
+        logger.exception("Shop sheet refresh failed")
     return {
         "status": "success",
         "ack": "ingestion_complete",
@@ -519,6 +597,7 @@ def import_product_data(store, data: dict[str, Any]) -> dict[str, Any]:
         offer_rows = []
         keys: list[tuple[str, str]] = []
         for index, product in enumerate(products):
+            product["min_qty"] = minimum_purchase(product.get("packaging") or "", product.get("name") or "")
             qa = quality_check(
                 {
                     "name": product.get("name"),
@@ -1121,6 +1200,9 @@ def _product_row(headers: list[str], product: dict[str, Any], message: dict[str,
         "Price Changed At": product.get("price_changed_at") or "",
         "Latest Offer ID": product.get("latest_offer_id") or "",
         "Offer Count": product.get("offer_count") or "",
+        "Min Qty": product.get("min_qty") or "",
+        "Image File ID": product.get("image_file_id") or "",
+        "Image File Unique ID": product.get("image_file_unique_id") or "",
     })
 
 
@@ -1293,11 +1375,22 @@ def _offer_fields(product: dict[str, Any], message: dict[str, Any], offer_id: st
         "Forwarded By": message.get("forwarded_by") or "",
         "Import Timestamp": imported_at,
         "Original Message": message.get("content") or "",
+        "Min Qty": product.get("min_qty") or minimum_purchase(product.get("packaging") or "", product.get("name") or ""),
+        "Image File ID": message.get("image_file_id") or "",
+        "Image File Unique ID": message.get("image_file_unique_id") or "",
     }
 
 
 def _product_from_offers(offers: list[dict[str, Any]]) -> dict[str, Any]:
     latest = offers[-1]
+    image_id = ""
+    image_unique = ""
+    for offer in reversed(offers):
+        candidate = str(offer.get("Image File ID") or "")
+        if candidate:
+            image_id = candidate
+            image_unique = str(offer.get("Image File Unique ID") or "")
+            break
     return {
         "name": latest.get("Product Name") or "",
         "variation_type": latest.get("Variation Type") or "",
@@ -1321,6 +1414,9 @@ def _product_from_offers(offers: list[dict[str, Any]]) -> dict[str, Any]:
         "price_changed_at": _price_changed_at(offers),
         "latest_offer_id": latest.get("Offer ID") or "",
         "offer_count": len(offers),
+        "min_qty": minimum_purchase(latest.get("Packaging") or "", latest.get("Product Name") or ""),
+        "image_file_id": image_id,
+        "image_file_unique_id": image_unique,
     }
 
 
@@ -1591,6 +1687,14 @@ def _merge_current_row(existing: list[Any] | None, headers: list[str], new_row: 
             merged[index] = current
         elif index < len(new_row):
             merged[index] = new_row[index]
+    for header in ("Image File ID", "Image File Unique ID"):
+        if header not in headers:
+            continue
+        index = headers.index(header)
+        incoming = new_row[index] if index < len(new_row) else ""
+        current = existing[index] if index < len(existing) else ""
+        if incoming in ("", None) and current not in ("", None):
+            merged[index] = current
     return merged
 
 
