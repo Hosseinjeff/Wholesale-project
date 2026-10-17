@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: مولوی‌سل
- * Description: Shop rules and the market look for the WooCommerce store.
- * Version: 0.1.0
+ * Description: Shop rules and Elementor pieces for the WooCommerce store.
+ * Version: 0.2.0
  */
 declare(strict_types=1);
 
@@ -17,6 +17,28 @@ add_action('wp_enqueue_scripts', static function (): void {
         [],
         (string) filemtime(__DIR__ . '/shop.css')
     );
+});
+
+add_filter('loop_shop_per_page', static function (): int {
+    return 24;
+});
+
+add_action('elementor/elements/categories_registered', static function ($elements): void {
+    $elements->add_category('molavi', [
+        'title' => 'مولوی‌سل',
+        'icon' => 'fa fa-shopping-bag',
+    ]);
+});
+
+add_action('elementor/widgets/register', static function ($widgets): void {
+    require_once __DIR__ . '/widgets/deal.php';
+    require_once __DIR__ . '/widgets/facts.php';
+    require_once __DIR__ . '/widgets/cart.php';
+    require_once __DIR__ . '/widgets/bar.php';
+    $widgets->register(new \Molavi\Elementor\Deal());
+    $widgets->register(new \Molavi\Elementor\Facts());
+    $widgets->register(new \Molavi\Elementor\Cart_Button());
+    $widgets->register(new \Molavi\Elementor\Catalog_Bar());
 });
 
 add_filter('woocommerce_quantity_input_args', static function (array $args, $product): array {
