@@ -249,7 +249,9 @@
             var qtyNode = control.querySelector(".stepper b");
             var prevQty = qtyNode ? qtyNode.dataset.n : (control.querySelector(".add") ? "0" : null);
             var prevQtyText = qtyNode ? (qtyNode.dataset.t || qtyNode.textContent) : digits(0);
-            control.innerHTML = qty > 0 ? stepperHtml(qty) : addHtml();
+            // Replacing the stepper on every paint drops a reel that just started
+            // when the server echoes the same quantity a moment later.
+            if ((qty > 0) !== !!qtyNode) control.innerHTML = qty > 0 ? stepperHtml(qty) : addHtml();
             var nextQty = control.querySelector(".stepper b");
             if (nextQty) present(nextQty, qty, digits(qty), "shop", prevQty, prevQtyText);
             var heart = card.querySelector(".heart");
@@ -301,9 +303,16 @@
             node.innerHTML = emptyCopy ? '<p class="note">سبد خالی است.</p>' : "";
             return;
         }
-        node.innerHTML = state.lines.map(function (line) {
+        var existing = Array.prototype.slice.call(node.querySelectorAll(".dline"));
+        var sameLines = existing.length === state.lines.length && existing.every(function (el, index) {
+            var line = state.lines[index];
+            return el.dataset.pid === line.id && !!el.querySelector(".rate") === (line.shelf > line.unit);
+        });
+        if (!sameLines) node.innerHTML = state.lines.map(function (line) {
             var was = line.shelf > line.unit ? '<s class="was">' + toman(line.shelf) + "</s>" : "";
-            var rate = line.shelf > line.unit ? '<span class="rate" dir="ltr"></span>' : "";
+            var rate = line.shelf > line.unit
+                ? '<span class="rate" dir="ltr">' + esc("\u2212" + percent(line.discount_rate)) + "</span>"
+                : "";
             return '<article class="dline" data-pid="' + esc(line.id) + '">'
                 + '<img src="' + esc(line.image) + '" alt="">'
                 + '<div class="dtext"><h3>' + esc(line.name) + "</h3><p>" + rate + '<strong class="dprice"></strong> ' + was + "</p>"
@@ -534,7 +543,7 @@
         return digits(Math.round(rate * 100)) + "٪";
     }
     function trashSvg() {
-        return '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" stroke="none" d="M4.4 6.15h15.2c.5 0 .9.4.9.9s-.4.9-.9.9H4.4c-.5 0-.9-.4-.9-.9s.4-.9.9-.9z"></path><path fill="currentColor" stroke="none" d="M10 3.3h4c.55 0 1 .4 1 .95V6.1h-6V4.25c0-.55.45-.95 1-.95z"></path><path fill="currentColor" stroke="none" fill-rule="evenodd" d="M6.35 9.2h11.3c.25 0 .45.22.43.48l-.78 10.05c-.08.85-.8 1.5-1.65 1.5H8.35c-.85 0-1.57-.65-1.65-1.5L5.92 9.68c-.02-.26.18-.48.43-.48zM9.15 12h1.4v5.15h-1.4V12zm4.3 0h1.4v5.15h-1.4V12z"></path></svg>';
+        return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14"></path><path d="M9.5 7V5.4A1.4 1.4 0 0 1 10.9 4h2.2a1.4 1.4 0 0 1 1.4 1.4V7"></path><path d="M7.2 7.4l.7 11a1.2 1.2 0 0 0 1.2 1.1h5.8a1.2 1.2 0 0 0 1.2-1.1l.7-11"></path><path d="M10.2 11v5"></path><path d="M13.8 11v5"></path></svg>';
     }
     function present(el, key, text, scope, prevKey, prevText) {
         if (!el) return;

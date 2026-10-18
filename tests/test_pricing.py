@@ -2,7 +2,10 @@ import unittest
 
 import app
 from catalog.pricing import (
+    CEILING_UNLOCK,
     PricingSettings,
+    ceiling_unlock,
+    default_settings,
     price_band,
     quote_lines,
     settings_from_rows,
@@ -62,6 +65,16 @@ class BandTests(unittest.TestCase):
         band = price_band(90000, 100000)
         self.assertFalse(band["discountable"])
         self.assertEqual(band["max_discount"], 0)
+
+    def test_four_shells_of_a_common_tuna_can_are_the_ceiling(self):
+        self.assertEqual(200_000 * 24, 4_800_000)
+        self.assertEqual(ceiling_unlock(200_000), 19_200_000)
+        self.assertEqual(CEILING_UNLOCK, 19_200_000)
+        self.assertEqual(default_settings().unlock_target, 19_200_000)
+        for can in (185_000, 200_000, 210_000):
+            reached = ceiling_unlock(can)
+            self.assertGreaterEqual(reached, 16_000_000)
+            self.assertLessEqual(reached, 21_000_000)
 
     def test_percent_typed_as_a_whole_number_is_read_as_a_rate(self):
         settings = settings_from_rows([["Min Margin", "18"], ["Unlock Target", "250000"]])

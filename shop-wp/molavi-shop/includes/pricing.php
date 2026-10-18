@@ -16,7 +16,7 @@ function molavi_price_settings(): array
         'profit_share_high' => 0.35,
         'opening_share_low' => 0.20,
         'opening_share_high' => 0.25,
-        'unlock_target' => 2000000,
+        'unlock_target' => 19200000,
     ];
     $given = get_option('molavi_price_settings');
     if (!is_array($given)) {
@@ -189,6 +189,7 @@ function molavi_catalog_map(): array
             'ceiling' => $curve['ceiling'],
             'max' => $curve['max'],
             'discountable' => $curve['discountable'] ? 1 : 0,
+            'image' => (string) (wp_get_attachment_image_url((int) $product->get_image_id(), 'woocommerce_thumbnail') ?: ''),
         ];
     }
     set_transient('molavi_catalog_v1', $map, DAY_IN_SECONDS);

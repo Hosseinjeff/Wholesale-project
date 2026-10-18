@@ -282,7 +282,7 @@ function shop_default_settings(): array
         'profit_share_high' => 0.35,
         'opening_share_low' => 0.20,
         'opening_share_high' => 0.25,
-        'unlock_target' => 2000000,
+        'unlock_target' => 19200000,
     ];
 }
 

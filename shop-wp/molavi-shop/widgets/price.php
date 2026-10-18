@@ -80,7 +80,8 @@ class Price extends Widget_Base
         $unit = molavi_unit_price($curve, molavi_cart_progress());
         $shelf = (int) $curve['shelf'];
         $rate = $shelf > $unit ? ($shelf - $unit) / $shelf : 0.0;
-        echo '<div class="molavi-offer" data-molavi-price data-product="' . esc_attr((string) $product->get_id()) . '" data-name="' . esc_attr($product->get_name()) . '" data-discountable="' . ($curve['discountable'] ? '1' : '0') . '" data-shelf="' . esc_attr((string) $shelf) . '" data-floor="' . esc_attr((string) $curve['floor']) . '" data-ceiling="' . esc_attr((string) $curve['ceiling']) . '" data-sale="' . esc_attr((string) $curve['sale']) . '" data-unit="' . esc_attr((string) $unit) . '">';
+        $image = (string) (wp_get_attachment_image_url((int) $product->get_image_id(), 'woocommerce_thumbnail') ?: '');
+        echo '<div class="molavi-offer" data-molavi-price data-product="' . esc_attr((string) $product->get_id()) . '" data-name="' . esc_attr($product->get_name()) . '" data-image="' . esc_attr($image) . '" data-discountable="' . ($curve['discountable'] ? '1' : '0') . '" data-shelf="' . esc_attr((string) $shelf) . '" data-floor="' . esc_attr((string) $curve['floor']) . '" data-ceiling="' . esc_attr((string) $curve['ceiling']) . '" data-sale="' . esc_attr((string) $curve['sale']) . '" data-unit="' . esc_attr((string) $unit) . '">';
         echo '<p class="molavi-now">';
         echo '<span class="molavi-rate" dir="ltr"' . ($rate > 0 ? '' : ' hidden') . '>' . esc_html('−' . molavi_percent($rate)) . '</span>';
         echo '<span class="molavi-amount">' . esc_html(molavi_toman($unit)) . '</span>';

@@ -40,6 +40,7 @@ add_action('wp_enqueue_scripts', static function (): void {
             'floor' => (int) $row['floor'],
             'ceiling' => (int) $row['ceiling'],
             'discountable' => !empty($row['discountable']) ? 1 : 0,
+            'image' => (string) ($row['image'] ?? ''),
         ];
     }
     $quote = molavi_quote();
