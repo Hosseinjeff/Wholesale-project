@@ -2,7 +2,7 @@
 /**
  * Plugin Name: مولوی‌سل
  * Description: Shop rules and Elementor pieces for the WooCommerce store.
- * Version: 0.5.0
+ * Version: 0.6.0
  */
 declare(strict_types=1);
 
@@ -12,6 +12,7 @@ if (!defined('ABSPATH')) {
 
 require_once __DIR__ . '/includes/pricing.php';
 require_once __DIR__ . '/includes/sync.php';
+require_once __DIR__ . '/includes/basket-view.php';
 
 add_action('wp_enqueue_scripts', static function (): void {
     wp_enqueue_style(
@@ -34,6 +35,7 @@ add_action('wp_enqueue_scripts', static function (): void {
     foreach (molavi_catalog_map() as $id => $row) {
         $catalog[(string) $id] = [
             'name' => (string) $row['name'],
+            'image' => (string) ($row['image'] ?? ''),
             'min' => (int) $row['min'],
             'shelf' => (int) $row['shelf'],
             'sale' => (int) $row['sale'],
@@ -56,6 +58,21 @@ add_action('wp_enqueue_scripts', static function (): void {
 
 add_filter('loop_shop_per_page', static function (): int {
     return 24;
+});
+
+add_filter('render_block', static function (string $content, array $block): string {
+    if (($block['blockName'] ?? '') !== 'woocommerce/cart' || !function_exists('is_cart') || !is_cart()) {
+        return $content;
+    }
+    ob_start();
+    echo '<div class="molavi-cart-page">';
+    molavi_render_basket();
+    echo '</div>';
+    return (string) ob_get_clean();
+}, 10, 2);
+
+add_action('wp_footer', static function (): void {
+    echo '<div class="molavi-shade" data-molavi-cart-close hidden></div>';
 });
 
 add_action('wp_head', static function (): void {

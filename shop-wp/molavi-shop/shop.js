@@ -9,6 +9,25 @@
     var retries = 0;
 
     document.addEventListener("click", function (event) {
+        var toggle = event.target.closest("#elementor-menu-cart__toggle_button");
+        if (toggle && window.matchMedia("(max-width: 767px)").matches && document.querySelector(".molavi-basket-col [data-molavi-basket]")) {
+            event.preventDefault();
+            event.stopPropagation();
+            document.body.classList.toggle("molavi-cart-open");
+            return;
+        }
+        if (toggle && document.querySelector(".molavi-cart-page")) {
+            event.preventDefault();
+            event.stopPropagation();
+            document.querySelector(".molavi-cart-page").scrollIntoView({ behavior: "smooth", block: "start" });
+            return;
+        }
+        if (event.target.closest("[data-molavi-cart-close]")) {
+            document.body.classList.remove("molavi-cart-open");
+        }
+    }, true);
+
+    document.addEventListener("click", function (event) {
         var button = event.target.closest("[data-molavi-step], [data-molavi-clear]");
         if (!button) return;
         var host = button.closest("[data-product]");
@@ -66,6 +85,7 @@
         if (!node) return null;
         return {
             name: node.getAttribute("data-name") || "",
+            image: node.getAttribute("data-image") || "",
             min: 1,
             shelf: Number(node.getAttribute("data-shelf")) || 0,
             sale: Number(node.getAttribute("data-sale")) || 0,
@@ -202,9 +222,12 @@
             saved += shelf > unit ? (shelf - unit) * qty : 0;
             total += unit * qty;
             kinds += 1;
-            html += '<article class="molavi-bline" data-product="' + escapeHtml(id) + '" data-min="' + min + '" data-qty="' + qty + '">'
-                + '<div class="molavi-bline-copy"><h3>' + escapeHtml(row.name || "") + "</h3><p><strong>"
-                + toman(unit) + "</strong>" + (shelf > unit ? " <s>" + toman(shelf) + "</s>" : "") + "</p></div>"
+            var rate = shelf > unit ? (shelf - unit) / shelf : 0;
+            html += '<article class="molavi-bline' + (row.image ? " has-photo" : "") + '" data-product="' + escapeHtml(id) + '" data-min="' + min + '" data-qty="' + qty + '">'
+                + (row.image ? '<img src="' + escapeHtml(row.image) + '" alt="">' : "")
+                + '<div class="molavi-bline-copy"><h3>' + escapeHtml(row.name || "") + "</h3><p>"
+                + (rate > 0 ? '<span class="molavi-rate" dir="ltr">\u2212' + percent(rate) + "</span> " : "")
+                + "<strong>" + toman(unit) + "</strong>" + (shelf > unit ? " <s>" + toman(shelf) + "</s>" : "") + "</p></div>"
                 + stepper(qty) + "</article>";
         });
         lines.innerHTML = html || '<p class="molavi-basket-empty">سبد خالی است.</p>';
