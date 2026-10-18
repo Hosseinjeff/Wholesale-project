@@ -133,6 +133,29 @@ body {
     font-size: 1.05rem;
     line-height: 1;
 }
+.woocommerce .molavi-basket .molavi-step button,
+.woocommerce-page .molavi-basket .molavi-step button {
+    background: #e86a12 !important;
+    color: #fff !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    padding: 0 !important;
+    width: 28px !important;
+    height: 30px !important;
+    min-height: 0 !important;
+    line-height: 1 !important;
+}
+.woocommerce .molavi-basket .molavi-trash,
+.woocommerce-page .molavi-basket .molavi-trash {
+    background: #fff4ea !important;
+    color: #2b241e !important;
+    border: 0 !important;
+    width: 36px !important;
+    height: 36px !important;
+    min-height: 0 !important;
+    padding: 0 !important;
+    border-radius: 12px !important;
+}
 .molavi-step b {
     min-width: 22px;
     text-align: center;
@@ -242,21 +265,22 @@ body {
 }
 .molavi-basket-head {
     display: flex;
-    justify-content: space-between;
+    justify-content: flex-start;
     align-items: center;
     gap: 8px;
     margin-bottom: 12px;
 }
 .molavi-cart-close {
-    display: none;
+    display: none !important;
     width: 36px;
     height: 36px;
     border: 0;
     border-radius: 12px;
-    background: #fff4ea;
-    color: #2b241e;
+    background: #fff4ea !important;
+    color: #2b241e !important;
     font-size: 1.4rem;
     line-height: 1;
+    padding: 0;
     margin-inline-start: auto;
 }
 .molavi-shade {
@@ -445,7 +469,10 @@ body.molavi-cart-open { overflow: hidden; }
         box-shadow: -12px 0 40px rgba(0, 0, 0, 0.08);
     }
     body.molavi-cart-open .molavi-basket-col .molavi-basket { transform: none; }
-    .molavi-basket-col .molavi-cart-close { display: grid; place-items: center; }
+    .molavi-basket-col .molavi-cart-close {
+        display: grid !important;
+        place-items: center;
+    }
     .molavi-basket-col .molavi-bline.has-photo { grid-template-columns: 88px minmax(0, 1fr); }
     .molavi-basket-col .molavi-bline.has-photo img,
     .molavi-cart-page .molavi-bline.has-photo img {
@@ -459,20 +486,71 @@ body.molavi-cart-open { overflow: hidden; }
         padding-inline: 10px !important;
     }
     .elementor-location-header .elementor-widget-heading,
-    .elementor-location-header .elementor-widget-nav-menu,
     .elementor-location-header .elementor-widget-woocommerce-menu-cart {
         width: auto !important;
         flex: 0 0 auto !important;
     }
+    .elementor-location-header .elementor-widget-nav-menu {
+        position: relative;
+        width: 44px !important;
+        max-width: 44px !important;
+        flex: 0 0 44px !important;
+        overflow: visible;
+    }
+    .elementor-location-header .elementor-menu-toggle {
+        margin: 0 !important;
+        width: 44px;
+        height: 44px;
+        background: #fff;
+        border: 1px solid #f0e2d2;
+        border-radius: 12px;
+    }
+    .elementor-location-header .elementor-nav-menu--dropdown {
+        position: absolute !important;
+        top: calc(100% + 8px);
+        inset-inline-end: 0;
+        width: max-content;
+        min-width: 168px;
+        margin-top: 0 !important;
+        background: #fffdfb;
+        border: 1px solid #f0e2d2;
+        border-radius: 14px;
+        box-shadow: 0 10px 28px rgba(62, 40, 18, 0.07);
+        z-index: 40;
+        padding: 6px;
+    }
+    .elementor-location-header .elementor-nav-menu--dropdown .elementor-item {
+        border-radius: 10px;
+        color: #2b241e !important;
+        background: transparent !important;
+    }
+    .elementor-location-header .elementor-nav-menu--dropdown .elementor-item-active,
+    .elementor-location-header .elementor-nav-menu--dropdown .elementor-item:hover {
+        background: #fff4ea !important;
+        color: #e86a12 !important;
+    }
     .elementor-location-header .elementor-widget-search-form {
-        flex: 1 1 auto !important;
+        --width: auto;
+        --container-widget-width: 100%;
+        flex: 1 1 0 !important;
         width: auto !important;
-        min-width: 0;
+        max-width: none !important;
+        min-width: 0 !important;
+    }
+    .elementor-location-header .elementor-search-form,
+    .elementor-location-header .elementor-search-form__container,
+    .elementor-location-header .elementor-search-form__input {
+        width: 100% !important;
+        min-width: 0 !important;
     }
     .elementor-location-header .elementor-search-form__container {
-        background: #fff4ea;
-        border-radius: 999px;
-        min-height: 42px;
+        background: #fff4ea !important;
+        border-radius: 999px !important;
+        min-height: 42px !important;
+        height: 42px;
+    }
+    .elementor-location-header .elementor-search-form__input {
+        font-size: 0.85rem;
     }
     .elementor-menu-cart__toggle_button .elementor-button-text { display: none !important; }
     .elementor-menu-cart__toggle_button {
@@ -489,7 +567,11 @@ body.molavi-cart-open { overflow: hidden; }
     }
     .woocommerce-result-count { display: none !important; }
     .elementor-widget-loop-grid .e-loop-item > .e-con {
+        --flex-direction: row;
+        --flex-wrap: nowrap;
+        --flex-wrap-mobile: nowrap;
         flex-direction: row !important;
+        flex-wrap: nowrap !important;
         align-items: stretch !important;
         gap: 0 !important;
         padding: 10px !important;
@@ -514,9 +596,11 @@ body.molavi-cart-open { overflow: hidden; }
         margin: 0 !important;
     }
     .elementor-widget-loop-grid .e-loop-item > .e-con > .e-con:nth-child(2) {
-        flex: 1 1 auto !important;
+        --width: auto;
+        flex: 1 1 0 !important;
         width: auto !important;
-        min-width: 0;
+        min-width: 0 !important;
+        max-width: calc(100% - 120px);
         padding: 2px 10px 2px 2px !important;
         justify-content: flex-start !important;
     }
@@ -535,7 +619,7 @@ body.molavi-cart-open { overflow: hidden; }
         font-size: 0.78rem;
         padding: 1px 8px;
     }
-    .elementor-widget-loop-grid .e-loop-item .e-con:has(.molavi-offer) {
+    .elementor-widget-loop-grid .e-loop-item .e-con:has(> .elementor-widget-molavi-price) {
         flex-direction: column !important;
         align-items: flex-start !important;
         gap: 8px !important;
