@@ -103,6 +103,11 @@ class Basket extends Widget_Base
             }
         }
         $count = count($lines);
+        $shelfTotal = 0;
+        foreach ($lines as $line) {
+            $shelfTotal += (int) $line['shelf'] * (int) $line['qty'];
+        }
+        $cartRate = $shelfTotal > 0 ? $saved / $shelfTotal : 0;
         echo '<aside class="molavi-basket" data-molavi-basket>';
         echo '<div class="molavi-basket-head"><h2>' . esc_html($title) . '</h2><span data-molavi-basket-count>' . esc_html($count > 0 ? '(' . molavi_digits((string) $count) . ' محصول)' : '') . '</span></div>';
         echo '<div class="molavi-basket-lines" data-molavi-basket-lines>';
@@ -112,18 +117,23 @@ class Basket extends Widget_Base
         foreach ($lines as $line) {
             $row = $line['row'];
             echo '<article class="molavi-bline" data-product="' . esc_attr($line['id']) . '" data-min="' . esc_attr((string) $row['min']) . '" data-qty="' . esc_attr((string) $line['qty']) . '">';
+            $lineRate = $line['shelf'] > $line['unit'] ? ($line['shelf'] - $line['unit']) / $line['shelf'] : 0;
             echo '<div class="molavi-bline-copy"><h3>' . esc_html((string) $row['name']) . '</h3>';
-            echo '<p><strong>' . esc_html(molavi_toman((int) $line['unit'])) . '</strong>';
+            echo '<p>';
+            if ($lineRate > 0) {
+                echo '<span class="molavi-rate" dir="ltr">' . esc_html('−' . molavi_percent($lineRate)) . '</span> ';
+            }
+            echo '<strong data-n="' . (int) $line['unit'] . '">' . esc_html(molavi_toman((int) $line['unit'])) . '</strong>';
             if ($line['shelf'] > $line['unit']) {
                 echo ' <s>' . esc_html(molavi_toman((int) $line['shelf'])) . '</s>';
             }
             echo '</p></div>';
-            echo '<div class="molavi-actions"><div class="molavi-step"><button type="button" data-molavi-step="-1" aria-label="کم کردن">−</button><b>' . esc_html(molavi_digits((string) $line['qty'])) . '</b><button type="button" data-molavi-step="1" aria-label="افزودن">+</button></div>';
+            echo '<div class="molavi-actions"><div class="molavi-step"><button type="button" data-molavi-step="-1" aria-label="کم کردن">−</button><b data-n="' . (int) $line['qty'] . '">' . esc_html(molavi_digits((string) $line['qty'])) . '</b><button type="button" data-molavi-step="1" aria-label="افزودن">+</button></div>';
             echo '<button type="button" class="molavi-trash" data-molavi-clear aria-label="حذف از سبد">' . molavi_basket_trash_svg() . '</button></div>';
             echo '</article>';
         }
         echo '</div>';
-        echo '<div class="molavi-basket-save"' . ($saved > 0 ? '' : ' hidden') . ' data-molavi-basket-save><span>' . esc_html($saveLabel) . '</span><b data-molavi-basket-save-amount>' . esc_html(molavi_toman($saved)) . '</b></div>';
+        echo '<div class="molavi-basket-save"' . ($saved > 0 ? '' : ' hidden') . ' data-molavi-basket-save><span>' . esc_html($saveLabel) . '</span><b class="molavi-rate" data-molavi-basket-save-rate>' . esc_html(molavi_percent($cartRate)) . '</b><b data-molavi-basket-save-amount>' . esc_html(molavi_toman($saved)) . '</b></div>';
         echo '<div class="molavi-basket-total"><span>' . esc_html($totalLabel) . '</span><strong data-molavi-basket-total>' . esc_html(molavi_toman($total)) . '</strong></div>';
         echo '<a class="molavi-checkout" data-molavi-checkout href="' . esc_url(function_exists('wc_get_checkout_url') ? wc_get_checkout_url() : '#') . '"' . ($count > 0 ? '' : ' hidden') . '>' . molavi_basket_lock_svg() . '<span>' . esc_html($button) . '</span></a>';
         echo '<ul class="molavi-trust"><li>' . molavi_basket_shield_svg() . '<span>تضمین کیفیت</span></li><li>' . molavi_basket_lock_svg() . '<span>پرداخت امن</span></li><li>' . molavi_basket_truck_svg() . '<span>ارسال سریع</span></li></ul>';
@@ -133,7 +143,7 @@ class Basket extends Widget_Base
 
 function molavi_basket_trash_svg(): string
 {
-    return '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" stroke="none" d="M4.4 6.15h15.2c.5 0 .9.4.9.9s-.4.9-.9.9H4.4c-.5 0-.9-.4-.9-.9s.4-.9.9-.9z"/><path fill="currentColor" stroke="none" d="M10 3.3h4c.55 0 1 .4 1 .95V6.1h-6V4.25c0-.55.45-.95 1-.95z"/><path fill="currentColor" stroke="none" d="M6.35 9.2h11.3c.25 0 .45.22.43.48l-.78 10.05c-.08.85-.8 1.5-1.65 1.5H8.35c-.85 0-1.57-.65-1.65-1.5L5.92 9.68c-.02-.26.18-.48.43-.48z"/></svg>';
+    return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14"/><path d="M9.5 7V5.4A1.4 1.4 0 0 1 10.9 4h2.2a1.4 1.4 0 0 1 1.4 1.4V7"/><path d="M7.2 7.4l.7 11a1.2 1.2 0 0 0 1.2 1.1h5.8a1.2 1.2 0 0 0 1.2-1.1l.7-11"/><path d="M10.2 11v5"/><path d="M13.8 11v5"/></svg>';
 }
 
 function molavi_basket_lock_svg(): string

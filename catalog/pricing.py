@@ -18,6 +18,13 @@ from typing import Any
 from catalog.extract import PRODUCT_HEADERS
 
 
+# A common tuna can is offered near 200,000 toman. A shell is 24 cans,
+# about 4,800,000. The cart reaches the ceiling discount at four shells.
+CANS_PER_SHELL = 24
+SHELLS_TO_CEILING = 4
+COMMON_TUNA_CAN = 200_000
+CEILING_UNLOCK = COMMON_TUNA_CAN * CANS_PER_SHELL * SHELLS_TO_CEILING
+
 SETTING_FIELDS = (
     ("Min Margin", "min_margin", 0.12, True),
     ("Min Profit", "min_profit", 5000, False),
@@ -27,7 +34,7 @@ SETTING_FIELDS = (
     ("Profit Share High", "profit_share_high", 0.35, True),
     ("Opening Share Low", "opening_share_low", 0.20, True),
     ("Opening Share High", "opening_share_high", 0.25, True),
-    ("Unlock Target", "unlock_target", 2_000_000, False),
+    ("Unlock Target", "unlock_target", CEILING_UNLOCK, False),
 )
 
 SHOP_HEADERS = [
@@ -76,7 +83,7 @@ class PricingSettings:
         profit_share_high: float = 0.35,
         opening_share_low: float = 0.20,
         opening_share_high: float = 0.25,
-        unlock_target: int = 2_000_000,
+        unlock_target: int = CEILING_UNLOCK,
     ) -> None:
         self.min_margin = float(min_margin)
         self.min_profit = int(min_profit)
@@ -100,6 +107,14 @@ class PricingSettings:
             "opening_share_high": self.opening_share_high,
             "unlock_target": self.unlock_target,
         }
+
+
+def ceiling_unlock(can_price: int = COMMON_TUNA_CAN) -> int:
+    """Shelf total at which the cart is on the ceiling discount.
+
+    ``can_price`` is one tuna can. A shell is 24 cans. Four shells open the ceiling.
+    """
+    return int(can_price) * CANS_PER_SHELL * SHELLS_TO_CEILING
 
 
 def default_settings() -> PricingSettings:
