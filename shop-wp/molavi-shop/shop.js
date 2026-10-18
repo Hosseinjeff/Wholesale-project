@@ -12,6 +12,25 @@
     var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
     document.addEventListener("click", function (event) {
+        var toggle = event.target.closest("#elementor-menu-cart__toggle_button");
+        if (toggle && window.matchMedia("(max-width: 767px)").matches && document.querySelector(".molavi-basket-col [data-molavi-basket]")) {
+            event.preventDefault();
+            event.stopPropagation();
+            document.body.classList.toggle("molavi-cart-open");
+            return;
+        }
+        if (toggle && document.querySelector(".molavi-cart-page")) {
+            event.preventDefault();
+            event.stopPropagation();
+            document.querySelector(".molavi-cart-page").scrollIntoView({ behavior: "smooth", block: "start" });
+            return;
+        }
+        if (event.target.closest("[data-molavi-cart-close]")) {
+            document.body.classList.remove("molavi-cart-open");
+        }
+    }, true);
+
+    document.addEventListener("click", function (event) {
         var button = event.target.closest("[data-molavi-step], [data-molavi-clear]");
         if (!button) return;
         var host = button.closest("[data-product]");
@@ -69,6 +88,7 @@
         if (!node) return null;
         return {
             name: node.getAttribute("data-name") || "",
+            image: node.getAttribute("data-image") || "",
             min: 1,
             shelf: Number(node.getAttribute("data-shelf")) || 0,
             sale: Number(node.getAttribute("data-sale")) || 0,
@@ -202,15 +222,15 @@
         var previous = {};
         lines.querySelectorAll(".molavi-bline").forEach(function (line) {
             var strong = line.querySelector("strong");
-            var rate = line.querySelector(".molavi-rate");
-            var qty = line.querySelector(".molavi-step b");
+            var rateNode = line.querySelector(".molavi-rate");
+            var qtyNode = line.querySelector(".molavi-step b");
             previous[line.getAttribute("data-product")] = {
                 unit: strong ? strong.dataset.n : null,
                 unitText: strong ? (strong.dataset.t || strong.textContent) : "",
-                rate: rate ? rate.dataset.n : null,
-                rateText: rate ? (rate.dataset.t || rate.textContent) : "",
-                qty: qty ? qty.dataset.n : null,
-                qtyText: qty ? (qty.dataset.t || qty.textContent) : ""
+                rate: rateNode ? rateNode.dataset.n : null,
+                rateText: rateNode ? (rateNode.dataset.t || rateNode.textContent) : "",
+                qty: qtyNode ? qtyNode.dataset.n : null,
+                qtyText: qtyNode ? (qtyNode.dataset.t || qtyNode.textContent) : ""
             };
         });
         var saved = 0;
@@ -237,7 +257,8 @@
         });
         if (!sameLines) {
             var html = built.map(function (item) {
-                return '<article class="molavi-bline" data-product="' + escapeHtml(item.id) + '" data-min="' + item.min + '" data-qty="' + item.qty + '">'
+                return '<article class="molavi-bline' + (item.row.image ? " has-photo" : "") + '" data-product="' + escapeHtml(item.id) + '" data-min="' + item.min + '" data-qty="' + item.qty + '">'
+                    + (item.row.image ? '<img src="' + escapeHtml(item.row.image) + '" alt="">' : "")
                     + '<div class="molavi-bline-copy"><h3>' + escapeHtml(item.row.name || "") + "</h3><p>"
                     + (item.lineRate > 0 ? '<span class="molavi-rate" dir="ltr"></span> ' : "")
                     + "<strong></strong>" + (item.shelf > item.unit ? " <s>" + toman(item.shelf) + "</s>" : "") + "</p></div>"
@@ -253,17 +274,14 @@
         var kinds = built.length;
         lines.querySelectorAll(".molavi-bline").forEach(function (line) {
             var id = line.getAttribute("data-product");
-            var row = rowOf(id);
-            var unit = Number(units[id]);
-            var shelf = row ? Number(row.shelf) || 0 : 0;
-            var lineRate = shelf > unit ? (shelf - unit) / shelf : 0;
+            var item = null;
+            built.forEach(function (row) { if (row.id === id) item = row; });
+            if (!item) return;
             var prior = previous[id] || {};
-            var price = line.querySelector("strong");
-            present(price, unit, toman(unit), "cart", prior.unit, prior.unitText);
+            present(line.querySelector("strong"), item.unit, toman(item.unit), "cart", prior.unit, prior.unitText);
             var rateNode = line.querySelector(".molavi-rate");
-            if (rateNode) present(rateNode, Math.round(lineRate * 100), "\u2212" + percent(lineRate), "cart", prior.rate, prior.rateText);
-            var qtyNode = line.querySelector(".molavi-step b");
-            present(qtyNode, Number(line.getAttribute("data-qty")), digits(line.getAttribute("data-qty")), "cart", prior.qty, prior.qtyText);
+            if (rateNode) present(rateNode, Math.round(item.lineRate * 100), "\u2212" + percent(item.lineRate), "cart", prior.rate, prior.rateText);
+            present(line.querySelector(".molavi-step b"), item.qty, digits(item.qty), "cart", prior.qty, prior.qtyText);
         });
         var save = document.querySelector("[data-molavi-basket-save]");
         if (save) {
@@ -371,13 +389,15 @@
         to.forEach(function (ch, index) {
             if (digitChar(ch)) lastDigit = index;
         });
+        var body = to.slice(0, lastDigit + 1);
+        var suffix = to.slice(lastDigit + 1).join("");
+        var token = (el._roll || 0) + 1;
+        el._roll = token;
         var root = document.createElement("span");
         root.className = "tick";
         root.dir = "ltr";
         var pending = 0;
-        var token = (el._roll || 0) + 1;
-        el._roll = token;
-        to.slice(0, lastDigit + 1).forEach(function (ch, index) {
+        body.forEach(function (ch, index) {
             if (!digitChar(ch) || oldAt[index] === ch) {
                 root.appendChild(document.createTextNode(ch));
                 return;
@@ -402,7 +422,6 @@
         });
         el.textContent = "";
         el.appendChild(root);
-        var suffix = to.slice(lastDigit + 1).join("");
         if (suffix) el.appendChild(document.createTextNode(suffix));
         if (pending === 0) el.textContent = toText;
     }

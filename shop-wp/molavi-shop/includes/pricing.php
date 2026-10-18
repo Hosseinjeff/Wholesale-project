@@ -189,6 +189,7 @@ function molavi_catalog_map(): array
             'ceiling' => $curve['ceiling'],
             'max' => $curve['max'],
             'discountable' => $curve['discountable'] ? 1 : 0,
+            'image' => (string) (wp_get_attachment_image_url((int) $product->get_image_id(), 'woocommerce_thumbnail') ?: ''),
         ];
     }
     set_transient('molavi_catalog_v1', $map, DAY_IN_SECONDS);
