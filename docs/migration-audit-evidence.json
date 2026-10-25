@@ -1,0 +1,174 @@
+{
+  "scope": "offline mocked reproductions and selected fixture comparison; no production mutation",
+  "existing_tests": {
+    "run": 64,
+    "failures": 0,
+    "errors": 0,
+    "successful": true
+  },
+  "behaviors": {
+    "reference_prices": {
+      "seeded": true,
+      "read_by_current_pipeline": false,
+      "sheet_names_read": [
+        "BatchStatus",
+        "Decisions",
+        "ExecutionLogs",
+        "Items",
+        "MessageData",
+        "Offers",
+        "Products",
+        "Prompts",
+        "Shop"
+      ],
+      "reference_schema": "synthetic; actual schema not established"
+    },
+    "out_of_stock_publication": {
+      "source_stock_status": "Out of Stock",
+      "published_status": "sell",
+      "stock_status_forwarded": false
+    },
+    "same_batch_replay": {
+      "message_rows": 2,
+      "offer_rows": 1,
+      "expected_unique_messages": 1
+    },
+    "new_batch_same_message": {
+      "message_rows": 3,
+      "offer_rows": 2,
+      "expected_unique_source_message": 1
+    },
+    "failed_extraction_ack": {
+      "status": "success",
+      "ack": "ingestion_complete",
+      "extraction_status": "error",
+      "processed_messages": 0,
+      "rollback": true
+    },
+    "publish_after_rollback": {
+      "publish_attempted": true
+    },
+    "order_without_sheets": {
+      "http": 200,
+      "status": "success",
+      "written": false,
+      "notified": 1
+    },
+    "partial_photo_sync": {
+      "ok": true,
+      "pushed": true,
+      "images_left": 1,
+      "attached": null,
+      "status": null
+    }
+  },
+  "extraction_comparison": [
+    {
+      "fixture": "BONAKDAR",
+      "gas_count": 1,
+      "python_count": 1,
+      "differences": [
+        {
+          "product": 0,
+          "field": "price_type",
+          "gas": null,
+          "python": "unit"
+        },
+        {
+          "product": 0,
+          "field": "volume",
+          "gas": null,
+          "python": "180 گرم"
+        }
+      ]
+    },
+    {
+      "fixture": "TOP_SHOP",
+      "gas_count": 1,
+      "python_count": 1,
+      "differences": [
+        {
+          "product": 0,
+          "field": "price_type",
+          "gas": null,
+          "python": "pack"
+        },
+        {
+          "product": 0,
+          "field": "volume",
+          "gas": null,
+          "python": ""
+        }
+      ]
+    },
+    {
+      "fixture": "NOBEL",
+      "gas_count": 1,
+      "python_count": 1,
+      "differences": []
+    },
+    {
+      "fixture": "universal",
+      "gas_count": 1,
+      "python_count": 1,
+      "differences": []
+    },
+    {
+      "fixture": "carton_title",
+      "gas_count": 1,
+      "python_count": 1,
+      "differences": [
+        {
+          "product": 0,
+          "field": "name",
+          "gas": "نمونه محصول،",
+          "python": "نمونه محصول"
+        },
+        {
+          "product": 0,
+          "field": "price_type",
+          "gas": null,
+          "python": "unit"
+        },
+        {
+          "product": 0,
+          "field": "packaging",
+          "gas": "نمونه محصول،کارتن ۳۶ عددی",
+          "python": "کارتن ۳۶ عددی"
+        },
+        {
+          "product": 0,
+          "field": "volume",
+          "gas": null,
+          "python": ""
+        }
+      ]
+    },
+    {
+      "fixture": "nobel_missing_consumer",
+      "gas_count": 1,
+      "python_count": 1,
+      "differences": []
+    },
+    {
+      "fixture": "out_of_stock",
+      "gas_count": 1,
+      "python_count": 1,
+      "differences": []
+    },
+    {
+      "fixture": "persian_prices",
+      "gas_count": 0,
+      "python_count": 0,
+      "differences": []
+    }
+  ],
+  "gas_readback": {
+    "configured_url_found": true,
+    "read_only": true,
+    "http": 404,
+    "content_type": "text/html; charset=utf-8",
+    "google_login_redirect": false,
+    "json_response": false
+  }
+}

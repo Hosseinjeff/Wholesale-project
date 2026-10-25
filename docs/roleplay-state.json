@@ -1,0 +1,133 @@
+{
+  "schema_version": 1,
+  "snapshot_version": "4.0",
+  "updated_at_local_date": "2026-10-25",
+  "timezone": "Asia/Tehran",
+  "shared_brief_url": "https://www.molavisale.ir/molavi-workflow-e73014a831.html",
+  "shared_markdown_url": "https://www.molavisale.ir/molavi-workflow-e73014a831.md",
+  "project": "MolaviSale",
+  "scope": "Entire operating stream: supplier data entry, processing, pricing, site publication and efficient UI, durable order receipt, order management, fulfillment, and follow-up",
+  "current_scene": "WF-00",
+  "status": "recovered_gas_audited_upstream_bindings_pending",
+  "completed_scenes": [],
+  "persona": {
+    "first": "household_bulk",
+    "second": "small_retailer",
+    "description": "Both: household buying groceries in bulk first, small shop buying stock second",
+    "confirmed_by_user": true
+  },
+  "pending_question": null,
+  "scene_order": [
+    "WF-00",
+    "WF-01",
+    "WF-02",
+    "WF-03",
+    "WF-04",
+    "WF-05",
+    "WF-06",
+    "WF-07",
+    "WF-08",
+    "WF-09",
+    "WF-10",
+    "WF-11"
+  ],
+  "confirmed_requirement_ids": [
+    "U-01",
+    "U-02",
+    "U-03",
+    "U-04",
+    "U-05",
+    "U-06",
+    "U-07",
+    "U-08",
+    "U-09",
+    "U-10",
+    "U-11",
+    "U-12",
+    "U-13"
+  ],
+  "recorded_decision_ids": [
+    "D-001",
+    "D-002",
+    "D-003",
+    "D-004",
+    "D-005",
+    "D-006"
+  ],
+  "working_proposal_ids": [
+    "P-01",
+    "P-02",
+    "P-03",
+    "P-04"
+  ],
+  "mockup_v2": {
+    "source_exists": true,
+    "bundle_built": true,
+    "syntax_checked": true,
+    "browser_checks_completed": false,
+    "published": false,
+    "approved": false
+  },
+  "production_change_authorized": false,
+  "deferred": [
+    "Iran payment provider selection and integration"
+  ],
+  "next_action": "Locate the separate reference-refresh server source and configuration metadata plus manifest/installed trigger/deployment bindings. Select catalog/inventory/pricing ownership before implementing migration or continuing whole-stream acceptance. Do not request the already supplied GAS archive or restart Google sign-in.",
+  "continuity": "Published snapshot must be updated explicitly after decisions; chats do not synchronize automatically.",
+  "legacy_scene_order": "RP-00 through RP-08 is superseded; no previous scene was completed.",
+  "intake_model": {
+    "primary": "Forwarded messages to bot, analyzed and saved to Sheets",
+    "reference_anchor": "Separate well-known-wholesaler source used to help correct extraction",
+    "status": "GAS reference source recovered; current Python integration missing; active upstream/bindings unverified",
+    "anchor_identity": "Legacy PDF: Rezvan Pakhsh; delegated Store API source identity unverified",
+    "anchor_retrieval": "Main GAS handler delegates to REFERENCE_REFRESH_SERVER_URL; legacy PDF/Gemini path also present",
+    "anchor_field_authority": "unresolved",
+    "separate_anchor_integration_verified": false,
+    "reference_sheet": "ReferencePrices"
+  },
+  "migration_audit": {
+    "repository_history_commits": 66,
+    "gas_file_revisions": 12,
+    "gas_named_functions_classified": 67,
+    "existing_offline_tests_passed": 64,
+    "differential_fixtures": 8,
+    "reference_sheet_read_by_current_python": false,
+    "configured_gas_readback_http": 404,
+    "complete_signoff": false,
+    "production_fixes_applied": false,
+    "report": "docs/gas-migration-audit.md",
+    "recovered_gas_files": 8,
+    "recovered_gas_named_functions": 176,
+    "recovered_offline_observation_groups": 18,
+    "recovered_report": "docs/recovered-gas-audit.md",
+    "recovered_source_preserved": true,
+    "source_committed": true,
+    "source_pushed": true
+  },
+  "reference_script": {
+    "user_provided_id": "1rGG6NvN06vtZ1yigBOrNrL6FnVbGdAKlNE4YMflNxrxf-1zDFkBze7-U",
+    "source_read": true,
+    "unauthenticated_fetch": "redirect_to_google_landing_page",
+    "authorization": "Source supplied by upload; no Google sign-in required for source audit",
+    "access_checkpoint": "docs/reference-source-access.md",
+    "source_provenance": "User gas.rar upload; archive/member hashes preserved",
+    "source_directory": "legacy-gas/recovered-2026-10-25",
+    "live_project_linkage_verified": false,
+    "manifest_included": false,
+    "installed_trigger_list_included": false,
+    "refresh_server_source_included": false
+  },
+  "next_dependencies": [
+    "Separate reference-refresh server implementation and safe configuration metadata",
+    "Apps Script manifest/timezone/scopes plus installed triggers and active deployment bindings",
+    "Authoritative inventory/catalog, review and pricing/publication contracts"
+  ],
+  "source_of_truth": {
+    "repository": "Hosseinjeff/Wholesale-project",
+    "branch": "main",
+    "path": "legacy-gas/recovered-2026-10-25",
+    "entrypoint": "legacy-gas/README.md",
+    "authority": "Original user-supplied export, not verified active deployment"
+  },
+  "inspection_preference": "Use inventory and targeted reads; reuse existing evidence for unchanged files; avoid full archive reloads, broad repeated checks and large tool output."
+}

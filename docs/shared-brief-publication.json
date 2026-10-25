@@ -1,0 +1,37 @@
+{
+  "snapshot_version": "4.0",
+  "scope": "Whole workflow plus historical and recovered GAS migration audits",
+  "verified_local_date": "2026-10-25",
+  "timezone": "Asia/Tehran",
+  "files": [
+    {
+      "url": "https://www.molavisale.ir/molavi-workflow-e73014a831.html",
+      "http": 200,
+      "verified": true,
+      "sha256": "8bb01307206356d7966de98a1c1157db944f9339fe590ea2fcd80b7a680fd370"
+    },
+    {
+      "url": "https://www.molavisale.ir/molavi-workflow-e73014a831.md",
+      "http": 200,
+      "verified": true,
+      "sha256": "122d87572b05fb3a5281ac6324d228adee5a91788eb08d908f444c38cfd70dcc"
+    },
+    {
+      "url": "https://www.molavisale.ir/molavi-workflow-e73014a831.json",
+      "http": 200,
+      "verified": true,
+      "sha256": "c85fa5219dceeb00bae4a4b87238841c9ae35b9182bf4a606f7fc2ee60e8649c"
+    },
+    {
+      "url": "https://www.molavisale.ir/molavi-workflow-e73014a831-v4-0.md",
+      "http": 200,
+      "verified": true,
+      "sha256": "122d87572b05fb3a5281ac6324d228adee5a91788eb08d908f444c38cfd70dcc"
+    }
+  ],
+  "latest_decision_checkpoint": "D-005: uploaded GAS recovered, inventoried and audited",
+  "current_scene": "WF-00",
+  "audit_signoff": false,
+  "next_dependency": "Separate reference-refresh server source/configuration metadata plus manifest, installed triggers and deployment bindings",
+  "note": "All four public documentation artifacts verified HTTP 200 and exact content hashes. Raw GAS source is local only; no commit/push or production logic changes."
+}

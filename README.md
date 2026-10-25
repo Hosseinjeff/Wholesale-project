@@ -6,6 +6,41 @@ The live process is the Railway service in `app.py`. Telegram delivers a forward
 
 Cloudflare Workers is not part of this system. Railway builds the container from the `Dockerfile`.
 
+## Storefront and business documentation
+
+The project also includes the WordPress/WooCommerce shop and an older PHP storefront.
+The ingestion setup below is not a complete specification of the shopping experience.
+
+- [Business flow and pricing rules](docs/business-flow.md): current code behavior,
+  proposed first-release ordering flow, and unresolved business decisions.
+- [Start here in another chat](docs/project-handoff.md): project context and the current checkpoint.
+- [Whole operating-stream roleplay](docs/workflow-roleplay.md): supplier data entry,
+  processing, review, pricing, publication, customer UI, order receipt, management,
+  fulfillment, and follow-up. [Customer-journey appendix](docs/roleplay-plan.md).
+- [Decision log](docs/decisions.md) and [roleplay state](docs/roleplay-state.json):
+  explicit requirements, open proposals, and where to resume.
+- [GAS-to-bot migration audit](docs/gas-migration-audit.md) and
+  [GAS function inventory](docs/gas-migration-inventory.md): reproduced transition
+  gaps in the repository versions. Migration is not signed off.
+- [Recovered GAS audit](docs/recovered-gas-audit.md) and
+  [176-function inventory](docs/recovered-gas-inventory.md): the user-supplied
+  `ReferencePrices`, AI, inventory and storefront implementation, its migration
+  differences and reproduced defects. [Original local snapshot](legacy-gas/).
+- [Storefront design decisions](docs/design-decisions.md): mockup revisions, desktop/phone
+  layouts, maximum versus current discounts, and validation boundaries.
+- The interactive mockup remains a local draft; its status and limitations are recorded
+  in the design notes. It does not submit orders or replace the live shop.
+
+### GAS source of truth for future chats
+
+The user-supplied export is versioned in
+[legacy-gas/recovered-2026-10-25](legacy-gas/recovered-2026-10-25/), with original-file
+hashes in its manifest. Start with [the source guide](legacy-gas/README.md), then use
+the function inventory to inspect only the needed code. This is the source of truth
+for that supplied snapshot; the active deployed version is still unverified. The root
+`google_apps_script.js` is an older implementation. No repeat upload is needed when
+the chat has access to this repository.
+
 ## Features
 
 - **Multi-platform support**: Telegram, Bale, Discord, and Slack channels

@@ -1,0 +1,54 @@
+{
+  "archive_sha256": "bb8d09dab050b6af07bee81dd7d55a1c5c9ef2cf1d6395a605516278d085cefe",
+  "files": [
+    {
+      "path": "10_google_apps_script.js",
+      "bytes": 59800,
+      "sha256": "bc819287f979ecbcfc325ed572475d5902294fad0916481eeca39bdbee3c1d80"
+    },
+    {
+      "path": "20_inventory_reference_matching.js",
+      "bytes": 33072,
+      "sha256": "5b61effe3afe78bb3ed942021e7f8119ac7cd11facaeacbec65cbcc2025ce342"
+    },
+    {
+      "path": "30_reference_prices.js",
+      "bytes": 44272,
+      "sha256": "b424389d7799ae0ee98c4156ceb60d04a5b677c08b0bf9c8aeb6f14c43af4a1b"
+    },
+    {
+      "path": "40_storefront.js",
+      "bytes": 13232,
+      "sha256": "fac689daf5e94295dfed10b68e17454e3210c7ccdf504318a7c9f27539c5766e"
+    },
+    {
+      "path": "50_ingestion_batches.js",
+      "bytes": 27406,
+      "sha256": "6eced1b2b9e94a4b0ff42e055e0f6ebb442be9611a751214ff501a2e2726ed9e"
+    },
+    {
+      "path": "60_extraction_ai.js",
+      "bytes": 83461,
+      "sha256": "3f29ca8a6d7ca03510cc4e192d61897c10c4b78513f92571512f926b55b7b1fa"
+    },
+    {
+      "path": "70_sheets_admin_debug.js",
+      "bytes": 25120,
+      "sha256": "f3fd50db814319e48765e88b952f365bb10bee49c178a90253cbcbc7f4638c4f"
+    },
+    {
+      "path": "00_core_config_helpers.js",
+      "bytes": 16207,
+      "sha256": "2cbfaef8b39d912df8df66a530e5020940bd7d7b560e046c4044a46f392af346"
+    }
+  ],
+  "total_bytes": 302570,
+  "provenance": "User-supplied gas.rar; upload date, not script revision date",
+  "received_date": "2026-10-25",
+  "timezone": "Asia/Tehran",
+  "script_identity": "User-associated project; not authenticated or independently tied to this export",
+  "manifest_included": false,
+  "script_properties_included": false,
+  "installed_trigger_list_included": false,
+  "deployment_bindings_verified": false
+}

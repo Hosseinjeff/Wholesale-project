@@ -1,0 +1,71 @@
+{
+  "function_count": 176,
+  "root_function_count": 67,
+  "shared_names": 62,
+  "additional_names": 114,
+  "old_names_absent": [
+    "createProductRow",
+    "extractVolumeAndPackaging",
+    "findExistingProduct",
+    "generateProductId",
+    "updateProduct"
+  ],
+  "files": [
+    {
+      "file": "00_core_config_helpers.js",
+      "bytes": 16207,
+      "sha256": "2cbfaef8b39d912df8df66a530e5020940bd7d7b560e046c4044a46f392af346",
+      "function_count": 12,
+      "exact_blob_in_fetched_history": false
+    },
+    {
+      "file": "10_google_apps_script.js",
+      "bytes": 59800,
+      "sha256": "bc819287f979ecbcfc325ed572475d5902294fad0916481eeca39bdbee3c1d80",
+      "function_count": 7,
+      "exact_blob_in_fetched_history": false
+    },
+    {
+      "file": "20_inventory_reference_matching.js",
+      "bytes": 33072,
+      "sha256": "5b61effe3afe78bb3ed942021e7f8119ac7cd11facaeacbec65cbcc2025ce342",
+      "function_count": 36,
+      "exact_blob_in_fetched_history": false
+    },
+    {
+      "file": "30_reference_prices.js",
+      "bytes": 44272,
+      "sha256": "b424389d7799ae0ee98c4156ceb60d04a5b677c08b0bf9c8aeb6f14c43af4a1b",
+      "function_count": 30,
+      "exact_blob_in_fetched_history": false
+    },
+    {
+      "file": "40_storefront.js",
+      "bytes": 13232,
+      "sha256": "fac689daf5e94295dfed10b68e17454e3210c7ccdf504318a7c9f27539c5766e",
+      "function_count": 16,
+      "exact_blob_in_fetched_history": false
+    },
+    {
+      "file": "50_ingestion_batches.js",
+      "bytes": 27406,
+      "sha256": "6eced1b2b9e94a4b0ff42e055e0f6ebb442be9611a751214ff501a2e2726ed9e",
+      "function_count": 17,
+      "exact_blob_in_fetched_history": false
+    },
+    {
+      "file": "60_extraction_ai.js",
+      "bytes": 83461,
+      "sha256": "3f29ca8a6d7ca03510cc4e192d61897c10c4b78513f92571512f926b55b7b1fa",
+      "function_count": 37,
+      "exact_blob_in_fetched_history": false
+    },
+    {
+      "file": "70_sheets_admin_debug.js",
+      "bytes": 25120,
+      "sha256": "f3fd50db814319e48765e88b952f365bb10bee49c178a90253cbcbc7f4638c4f",
+      "function_count": 21,
+      "exact_blob_in_fetched_history": false
+    }
+  ]
+}

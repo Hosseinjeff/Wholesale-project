@@ -1,0 +1,545 @@
+{
+  "schema_version": 1,
+  "source": "user gas.rar, received 2026-10-25 Asia/Tehran",
+  "method": "Compiled eight original files together; isolated VM with local-only doubles and synthetic fixtures",
+  "live_calls": 0,
+  "production_changes": false,
+  "signoff": false,
+  "files": [
+    {
+      "name": "00_core_config_helpers.js",
+      "sha256": "2cbfaef8b39d912df8df66a530e5020940bd7d7b560e046c4044a46f392af346"
+    },
+    {
+      "name": "10_google_apps_script.js",
+      "sha256": "bc819287f979ecbcfc325ed572475d5902294fad0916481eeca39bdbee3c1d80"
+    },
+    {
+      "name": "20_inventory_reference_matching.js",
+      "sha256": "5b61effe3afe78bb3ed942021e7f8119ac7cd11facaeacbec65cbcc2025ce342"
+    },
+    {
+      "name": "30_reference_prices.js",
+      "sha256": "b424389d7799ae0ee98c4156ceb60d04a5b677c08b0bf9c8aeb6f14c43af4a1b"
+    },
+    {
+      "name": "40_storefront.js",
+      "sha256": "fac689daf5e94295dfed10b68e17454e3210c7ccdf504318a7c9f27539c5766e"
+    },
+    {
+      "name": "50_ingestion_batches.js",
+      "sha256": "6eced1b2b9e94a4b0ff42e055e0f6ebb442be9611a751214ff501a2e2726ed9e"
+    },
+    {
+      "name": "60_extraction_ai.js",
+      "sha256": "3f29ca8a6d7ca03510cc4e192d61897c10c4b78513f92571512f926b55b7b1fa"
+    },
+    {
+      "name": "70_sheets_admin_debug.js",
+      "sha256": "f3fd50db814319e48765e88b952f365bb10bee49c178a90253cbcbc7f4638c4f"
+    }
+  ],
+  "assertions_completed": 18,
+  "cases": [
+    {
+      "id": "R01-package-price-role",
+      "observed": {
+        "certain": true,
+        "action": "reference_package_price",
+        "reason": "Detected price matches reference package price",
+        "detected_price": 600000,
+        "suggested_unit_price": 50000,
+        "suggested_package_price": 600000,
+        "package_count": 12,
+        "reference_unit_price": 50000,
+        "reference_package_price": 600000,
+        "reference_source": "synthetic",
+        "referenceMatch": {
+          "name": "Sample tea",
+          "clean_name": "Sample tea",
+          "reference_id": "SYN-TEA",
+          "package_count": 12,
+          "unit_price": 50000,
+          "package_price": 600000,
+          "category": "tea",
+          "source": "synthetic",
+          "last_updated": "2026-10-25",
+          "match_score": 1,
+          "match_components": {
+            "total": 1,
+            "name": 1,
+            "category": 1,
+            "brand": 0,
+            "variant": 0,
+            "volume": 0,
+            "weight": 0,
+            "package_count": 1
+          }
+        }
+      }
+    },
+    {
+      "id": "R02-unit-price-role",
+      "observed": {
+        "certain": true,
+        "action": "reference_unit_price",
+        "reason": "Detected price matches reference unit price",
+        "detected_price": 50000,
+        "suggested_unit_price": 50000,
+        "suggested_package_price": 600000,
+        "package_count": 12,
+        "reference_unit_price": 50000,
+        "reference_package_price": 600000,
+        "reference_source": "synthetic",
+        "referenceMatch": {
+          "name": "Sample tea",
+          "clean_name": "Sample tea",
+          "reference_id": "SYN-TEA",
+          "package_count": 12,
+          "unit_price": 50000,
+          "package_price": 600000,
+          "category": "tea",
+          "source": "synthetic",
+          "last_updated": "2026-10-25",
+          "match_score": 1,
+          "match_components": {
+            "total": 1,
+            "name": 1,
+            "category": 1,
+            "brand": 0,
+            "variant": 0,
+            "volume": 0,
+            "weight": 0,
+            "package_count": 1
+          }
+        }
+      }
+    },
+    {
+      "id": "R03-explicit-price-takes-precedence",
+      "observed": {
+        "certain": true,
+        "action": "none",
+        "referenceMatch": {
+          "name": "Sample tea",
+          "clean_name": "Sample tea",
+          "reference_id": "SYN-TEA",
+          "package_count": 12,
+          "unit_price": 50000,
+          "package_price": 600000,
+          "category": "tea",
+          "source": "synthetic",
+          "last_updated": "2026-10-25",
+          "match_score": 1,
+          "match_components": {
+            "total": 1,
+            "name": 1,
+            "category": 1,
+            "brand": 0,
+            "variant": 0,
+            "volume": 0,
+            "weight": 0,
+            "package_count": 1
+          }
+        }
+      }
+    },
+    {
+      "id": "R04-no-reference-needs-confirmation",
+      "observed": {
+        "certain": false,
+        "action": "confirm_price_scale",
+        "reason": "Pack count is detected but sale price role is not explicit",
+        "detected_price": 600000,
+        "suggested_unit_price": 50000,
+        "suggested_package_price": 600000,
+        "package_count": 12,
+        "historical_median_unit_price": "",
+        "referenceMatch": null
+      }
+    },
+    {
+      "id": "R05-stale-reference-still-used",
+      "observed": {
+        "certain": true,
+        "action": "reference_package_price",
+        "reason": "Detected price matches reference package price",
+        "detected_price": 600000,
+        "suggested_unit_price": 50000,
+        "suggested_package_price": 600000,
+        "package_count": 12,
+        "reference_unit_price": 50000,
+        "reference_package_price": 600000,
+        "reference_source": "synthetic",
+        "referenceMatch": {
+          "name": "Sample tea",
+          "clean_name": "Sample tea",
+          "reference_id": "SYN-TEA",
+          "package_count": 12,
+          "unit_price": 50000,
+          "package_price": 600000,
+          "category": "tea",
+          "source": "synthetic",
+          "last_updated": "2000-01-01",
+          "match_score": 1,
+          "match_components": {
+            "total": 1,
+            "name": 1,
+            "category": 1,
+            "brand": 0,
+            "variant": 0,
+            "volume": 0,
+            "weight": 0,
+            "package_count": 1
+          }
+        }
+      }
+    },
+    {
+      "id": "R06-brand-conflict-not-vetoed",
+      "observed": {
+        "certain": true,
+        "action": "reference_package_price",
+        "reason": "Detected price matches reference package price",
+        "detected_price": 600000,
+        "suggested_unit_price": 50000,
+        "suggested_package_price": 600000,
+        "package_count": 12,
+        "reference_unit_price": 50000,
+        "reference_package_price": 600000,
+        "reference_source": "synthetic",
+        "referenceMatch": {
+          "name": "Sample tea",
+          "clean_name": "Sample tea",
+          "reference_id": "SYN-TEA",
+          "package_count": 12,
+          "unit_price": 50000,
+          "package_price": 600000,
+          "category": "tea",
+          "source": "synthetic",
+          "last_updated": "2026-10-25",
+          "brand": "Brand B",
+          "match_score": 0.8205128205128206,
+          "match_components": {
+            "total": 0.8205128205128206,
+            "name": 1,
+            "category": 1,
+            "brand": 0,
+            "variant": 0,
+            "volume": 0,
+            "weight": 0,
+            "package_count": 1
+          }
+        }
+      }
+    },
+    {
+      "id": "R07-persisted-match",
+      "observed": {
+        "name": "Unrelated item",
+        "clean_name": "Unrelated item",
+        "reference_id": "SYN-OTHER",
+        "package_count": 12,
+        "unit_price": 50000,
+        "package_price": 600000,
+        "category": "tea",
+        "source": "synthetic",
+        "last_updated": "2026-10-25",
+        "match_score": 1,
+        "match_components": {
+          "persisted_reference": 1
+        },
+        "persisted_reference": true
+      }
+    },
+    {
+      "id": "R08-category-median-fallback",
+      "observed": {
+        "certain": true,
+        "action": "reference_package_price",
+        "reason": "Detected price matches category median package price",
+        "detected_price": 600000,
+        "suggested_unit_price": 50000,
+        "suggested_package_price": 600000,
+        "package_count": 12,
+        "reference_unit_price": 50000,
+        "reference_package_price": 600000,
+        "reference_source": "category_median",
+        "reference_anchor_id": "SYN-TEA",
+        "reference_anchor_name": "Category median: tea [Alpha | Beta | Gamma]",
+        "reference_anchor_score": 0.29687499999999994,
+        "referenceMatch": null
+      }
+    },
+    {
+      "id": "R09-confirmed-history-fallback",
+      "observed": {
+        "certain": true,
+        "action": "history_package_price",
+        "confirmation_method": "history_confirmed_package",
+        "reason": "Detected sale price matches the package total implied by confirmed unit-price history",
+        "detected_price": 600000,
+        "suggested_unit_price": 50000,
+        "suggested_package_price": 600000,
+        "package_count": 12,
+        "historical_median_unit_price": 50000,
+        "history_anchor_id": "SYN-HISTORY",
+        "history_anchor_name": "Sample tea",
+        "history_match_score": 1,
+        "current_ratio": 11,
+        "divided_ratio": 0,
+        "referenceMatch": null
+      }
+    },
+    {
+      "id": "R10-refresh-delegates-to-server",
+      "observed": {
+        "result": {
+          "status": "success",
+          "reference_count": 2,
+          "trigger_source": "gas_reference_daily_trigger"
+        },
+        "request": {
+          "url": "https://reference.invalid/refresh?source=store&sync=true&token=synthetic-test-token",
+          "options": {
+            "method": "get",
+            "muteHttpExceptions": true,
+            "followRedirects": true
+          }
+        },
+        "sheetWrites": 0
+      }
+    },
+    {
+      "id": "R11-refresh-html-acknowledges-success",
+      "observed": {
+        "status": "success",
+        "message": "Server Store API reference refresh completed but response was not JSON",
+        "http_status": 200,
+        "response_preview": "<html>not a refresh receipt</html>",
+        "timestamp": "2026-10-24T22:17:41.828Z"
+      }
+    },
+    {
+      "id": "R12-reference-trigger-definition",
+      "observed": {
+        "handler": "referencePriceDailyTrigger",
+        "days": 1,
+        "hour": 4
+      }
+    },
+    {
+      "id": "R13-reference-sheet-roundtrip",
+      "observed": {
+        "count": 1,
+        "headers": [
+          "Product Name",
+          "Clean Product Name",
+          "Normalized Key",
+          "Reference Package Price",
+          "Reference Unit Price",
+          "Consumer Unit Price",
+          "Package Count",
+          "Unit Label",
+          "Volume",
+          "Weight",
+          "Set Count",
+          "Variant",
+          "Brand",
+          "Category",
+          "Raw Name Details",
+          "PDF Row Number",
+          "Product Code",
+          "Currency",
+          "Source",
+          "Source URL",
+          "Last Updated"
+        ],
+        "read": [
+          {
+            "name": "Sample tea",
+            "clean_name": "Sample tea",
+            "key": "sample tea",
+            "reference_id": "SYN-TEA",
+            "product_code": "SYN-TEA",
+            "pdf_row_number": "",
+            "unit_label": "",
+            "variant": "",
+            "brand": "",
+            "category": "",
+            "raw_name_details": "",
+            "unit_price": 50000,
+            "package_price": 600000,
+            "consumer_unit_price": 0,
+            "package_count": 12,
+            "volume": "",
+            "weight": "",
+            "set_count": 0,
+            "source": "synthetic",
+            "last_updated": "2026-10-24T22:17:41.829Z"
+          }
+        ]
+      }
+    },
+    {
+      "id": "R14-confirmation-affects-all-message-products",
+      "observed": {
+        "result": {
+          "updated": 2,
+          "matched": 2
+        },
+        "rows": [
+          {
+            "OK?": "",
+            "Product Name": "Sample tea",
+            "Import Timestamp": "",
+            "Original Post Date": "",
+            "Product ID": "",
+            "Action": "",
+            "Status": "for sale",
+            "Owner": "",
+            "Exp. span": "",
+            "prod. Date": "",
+            "Count": "",
+            "unit": "",
+            "Variation Type": "",
+            "Brand": "",
+            "Category": "",
+            "Packaging": 12,
+            "هزینه (تومان)": "",
+            "Exp. date": "",
+            "Exp. Warning": "",
+            "Sale Price": 600000,
+            "Sale Unit Price": 50000,
+            "Regular Package Price": "",
+            "Regular Unit Price": "",
+            "Source Sheet": "",
+            "Channel Username": "",
+            "Message ID (Platform)": "SYN-MULTI",
+            "Message Link": "",
+            "Original Message": "",
+            "Volume": "",
+            "Weight": "",
+            "Extraction Confidence Score": "",
+            "Extraction Status": "user_confirmed_sale_package",
+            "Anchor Type": "",
+            "Anchor ID": "",
+            "Anchor Name": "",
+            "Anchor Score": "",
+            "Detected Price": 600000,
+            "Batch ID": ""
+          },
+          {
+            "OK?": "",
+            "Product Name": "Sample rice",
+            "Import Timestamp": "",
+            "Original Post Date": "",
+            "Product ID": "",
+            "Action": "",
+            "Status": "for sale",
+            "Owner": "",
+            "Exp. span": "",
+            "prod. Date": "",
+            "Count": "",
+            "unit": "",
+            "Variation Type": "",
+            "Brand": "",
+            "Category": "",
+            "Packaging": 12,
+            "هزینه (تومان)": "",
+            "Exp. date": "",
+            "Exp. Warning": "",
+            "Sale Price": 600000,
+            "Sale Unit Price": 50000,
+            "Regular Package Price": "",
+            "Regular Unit Price": "",
+            "Source Sheet": "",
+            "Channel Username": "",
+            "Message ID (Platform)": "SYN-MULTI",
+            "Message Link": "",
+            "Original Message": "",
+            "Volume": "",
+            "Weight": "",
+            "Extraction Confidence Score": "",
+            "Extraction Status": "user_confirmed_sale_package",
+            "Anchor Type": "",
+            "Anchor ID": "",
+            "Anchor Name": "",
+            "Anchor Score": "",
+            "Detected Price": 600000,
+            "Batch ID": ""
+          }
+        ]
+      }
+    },
+    {
+      "id": "R15-storefront-price-does-not-follow-selected-supplier",
+      "observed": {
+        "Product ID": "SYN-SAME",
+        "Product Name": "Sample tea",
+        "Variation Type": "",
+        "Brand": "",
+        "Category": "",
+        "Packaging": 12,
+        "Count": 12,
+        "unit": "",
+        "Volume": "",
+        "Weight": "",
+        "Current Quantity": 0,
+        "Total In": 0,
+        "Total Out": 0,
+        "Selected Supplier": "A",
+        "Channel Username": "A",
+        "Sale Price": 80000,
+        "Regular Price": "",
+        "Sale Package Price": 960000,
+        "Regular Package Price": "",
+        "Source Unit Cost": 80000,
+        "Source Package Cost": 960000,
+        "Storefront Unit Price": 92000,
+        "Storefront Package Price": 1104000,
+        "Pricing Rule": "supplier_markup",
+        "Fulfillment Source": "supplier_offer",
+        "Visibility": "visible",
+        "Status": "for sale",
+        "Original Post Date": "",
+        "Import Timestamp": "2026-10-24T10:00:00Z",
+        "Message ID (Platform)": "",
+        "Message Link": "",
+        "Extraction Status": "user_confirmed",
+        "Anchor Type": "",
+        "Anchor ID": "",
+        "Anchor Name": "",
+        "Anchor Score": "",
+        "Storefront Updated At": "2026-10-24T22:17:41.832Z"
+      }
+    },
+    {
+      "id": "R16-waiting-status-lost-in-inventory-mapping",
+      "observed": {
+        "status": "for sale",
+        "extraction": "waiting_user_confirmation",
+        "storefrontEligible": false
+      }
+    },
+    {
+      "id": "R17-recovered-ingestion-requires-token",
+      "observed": {
+        "rejected": {
+          "status": "error",
+          "message": "Invalid or missing ingestion token"
+        },
+        "accepted": null
+      }
+    },
+    {
+      "id": "R18-review-warning-does-not-block-storefront-helper",
+      "observed": {
+        "status": "for sale",
+        "ok": false,
+        "warning": "Synthetic unresolved concern",
+        "storefrontEligible": true
+      }
+    }
+  ]
+}
