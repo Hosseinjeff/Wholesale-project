@@ -96,16 +96,17 @@ or customer role in every scene. Use sample data only.
 
 - v1 desktop image: `https://www.molavisale.ir/molavi-design-preview-e73014a831.html`.
   The user could open this browser link; inline images/local file links failed to display.
-- Local v2 draft: `design/mockup-v2/` contains an interactive responsive storefront with
+- Versioned v2 draft: `design/mockup-v2/` contains an interactive responsive storefront with
   separate maximum/current discounts, price changes, basket editing, phone bottom sheet,
   search/filter/sort, and demonstration guest request. Sample prices come from existing code.
 - Local bundle: `/workspace/scratch/mockup-v2/`. JavaScript syntax checked; browser tests
   did not finish because Chromium launch was permission-blocked and the retry interrupted.
   Do not claim completed UI verification, screenshots, a published v2, or design approval.
-- Source/docs changes remain local unless a later checkpoint records a commit/push.
+- GAS source, audit/continuity docs and the v2 mockup source are preserved in GitHub.
 - The user has now authorized repository preservation of the GAS source and audit/
   continuity docs. Start at `legacy-gas/README.md` in GitHub; use the inventory and
-  targeted source ranges to conserve usage. The mockup source remains a local draft.
+  targeted source ranges to conserve usage. The user subsequently authorized pushing
+  the six mockup source files too; they remain an unapproved, unverified design draft.
 - No real order/payment was submitted and no storefront theme change was published.
 - Historical WordPress/cPanel access was verified. Recheck current readiness through
   configured tools; never include credentials, private customer data, or live supplier

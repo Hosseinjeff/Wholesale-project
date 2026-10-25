@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="robots" content="noindex,nofollow,noarchive">
+    <meta name="theme-color" content="#d94419">
+    <title>مولوی‌سل · پیش‌نمایش دوم فروشگاه</title>
+    <link rel="stylesheet" href="store.css">
+</head>
+<body>
+<a class="skip" href="#catalog">رفتن به کالاها</a>
+<div class="demo-strip"><span>پیش‌نمایش تعاملی</span><span>کالاها و قیمت‌ها نمونه‌اند؛ سفارشی ثبت نمی‌شود.</span><button type="button" id="reset-demo">بازنشانی سبد نمونه ↺</button></div>
+<header class="site-header">
+    <div class="header-inner shell">
+        <a href="#" class="brand" aria-label="مولوی‌سل، ابتدای صفحه"><span class="brand-mark" aria-hidden="true">م<span>•</span></span><span><strong>مولوی‌سل</strong><small>هر سبد، یک فرصت بهتر</small></span></a>
+        <form class="search" role="search" id="search-form"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></svg><input id="search" type="search" placeholder="چی برای سبدت لازم داری؟" aria-label="جستجوی نام کالا یا تأمین‌کننده"><button type="submit" aria-label="جستجو">جستجو</button></form>
+        <div class="header-actions"><button class="account-link" type="button" data-account><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.5"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/></svg><span>حساب من</span></button><button class="cart-link" type="button" data-open-cart><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h14l1 13H4L5 8Z"/><path d="M8 9V6a4 4 0 0 1 8 0v3"/></svg><span>سبد من</span><b data-count>۱۴</b></button></div>
+    </div>
+</header>
+<main>
+    <section class="hero shell" aria-labelledby="hero-title">
+        <div class="hero-copy"><span class="eyebrow"><i></i>خرید آگاهانه، قیمت منصفانه</span><h1 id="hero-title">سبدت بزرگ‌تر،<br><span>تخفیفت بیشتر.</span></h1><p>با هر انتخاب، قیمت کالاهای سبدت کمتر می‌شود.<br>تخفیف همین حالا و بیشترین تخفیف را شفاف ببین.</p><a href="#catalog" class="hero-link">انتخاب کالاها <span aria-hidden="true">←</span></a></div>
+        <div class="hero-art" aria-hidden="true"><div class="hero-shape"></div><div class="hero-percent">٪</div><img class="hero-tea" src="../../shop/assets/products/tea.jpg" alt=""><img class="hero-drink" src="../../shop/assets/products/energy-liter.jpg" alt=""><div class="hero-note"><span>با هم، به‌صرفه‌تر</span><b>هر کالا، سقف تخفیف خودش را دارد.</b></div><span class="spark spark-one">✳</span><span class="spark spark-two">✳</span></div>
+    </section>
+    <section class="how-strip shell" aria-label="راهنمای تخفیف"><div><span class="max-key">تا …٪</span><span>بیشترین تخفیف هر کالا</span></div><div><span class="current-key">اکنون …٪</span><span>تخفیف اعمال‌شده در قیمت فعلی</span></div><button type="button" data-help>تخفیف چطور حساب می‌شود؟ <span>ⓘ</span></button></section>
+    <section class="catalog-section shell" id="catalog" aria-label="فروشگاه">
+        <nav class="categories" aria-label="دسته‌بندی کالاها" id="categories"></nav>
+        <div class="shop-layout">
+            <section class="products-area" aria-labelledby="products-title"><div class="catalog-heading"><div><h2 id="products-title">برای سبد امروزت</h2><span id="results-count">۸ کالای نمونه</span></div><label class="sort"><span>مرتب‌سازی</span><select id="sort" aria-label="مرتب‌سازی کالاها"><option value="default">پیشنهادی</option><option value="price">کمترین قیمت فعلی</option><option value="maximum">بیشترین سقف تخفیف</option></select></label></div><div class="product-grid" id="products"></div><div class="no-results" id="no-results" hidden><h3>کالایی پیدا نشد.</h3><p>یک نام دیگر را امتحان کن یا همه کالاها را ببین.</p><button type="button" id="clear-search">نمایش همه کالاها</button></div></section>
+            <aside class="basket" id="basket" aria-labelledby="basket-title"><div class="basket-heading"><div><span class="eyebrow">انتخاب‌های خوبت</span><h2 id="basket-title">سبد خرید شما <span data-kinds></span></h2></div><button class="close-basket icon-button" type="button" data-close-cart aria-label="بستن سبد">×</button></div><div class="unlock-box"><div class="unlock-heading"><b data-progress-title>در مسیر بیشترین تخفیف</b><span data-progress-percent>۵۰٪</span></div><progress id="progress" max="100" value="50" aria-label="پیشرفت تا بیشترین تخفیف"></progress><p data-progress-description></p><button type="button" data-help class="basis-link">مبنا: قیمت مصرفِ کالاهای تخفیف‌دار ⓘ</button></div><div id="basket-lines" class="basket-lines"></div><div class="basket-summary"><div class="regular-row"><span>جمع با قیمت مصرف</span><span data-regular></span></div><div class="saving-row"><span>تخفیف فعلی سبد <b data-average></b></span><strong data-saved></strong></div><div class="total-row"><span>جمع پس از تخفیف</span><strong data-total></strong></div><button type="button" class="continue-button" data-review>بررسی و ادامه <span aria-hidden="true">←</span></button><p class="basket-caption">هزینه و روش ارسال در مرحله بعد مشخص می‌شود.</p></div></aside>
+        </div>
+    </section>
+    <section class="mini-faq shell" aria-label="پرسش‌های خرید"><div><span class="eyebrow">شفاف، از انتخاب تا سفارش</span><h2>خرید با خیال روشن.</h2></div><details><summary>دو درصد روی هر کالا چه فرقی دارند؟</summary><p>«تا …٪» سقف تخفیف همان کالا است. «اکنون …٪» تخفیفی است که همین حالا در قیمت آن حساب شده. با تغییر سبد، تخفیف فعلی همه کالاها دوباره محاسبه می‌شود.</p></details><details><summary>با کم کردن کالا، تخفیف چه می‌شود؟</summary><p>تخفیف با ارزش سبد تغییر می‌کند. اگر از سبد کم کنی، تخفیف فعلی ممکن است کمتر شود و قیمت بقیه کالاها بالا برود. جمع نهایی را همیشه پیش از ادامه می‌بینی.</p></details><details><summary>حداقل خرید برای همه کالاها یکسان است؟</summary><p>خیر. حداقل خرید زیر نام هر کالا نوشته شده است. اولین افزودن، همان تعداد را وارد سبد می‌کند؛ تعداد بعد از آن تک‌تک تغییر می‌کند.</p></details></section>
+</main>
+<footer class="shell footer"><a class="brand" href="#"><span class="brand-mark small" aria-hidden="true">م<span>•</span></span><strong>مولوی‌سل</strong></a><span>انتخاب ساده. تخفیف شفاف.</span><button type="button" data-help>راهنمای خرید</button></footer>
+<div class="mobile-cart" id="mobile-cart"><div><span>جمع پس از تخفیف</span><strong data-total></strong><small>صرفه‌جویی <b data-saved></b></small></div><button type="button" data-open-cart>مشاهده سبد <b data-count></b><span>←</span></button></div>
+<div class="basket-overlay" id="basket-overlay" hidden></div>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<dialog id="help-dialog" class="modal"><button class="modal-close icon-button" type="button" data-close-dialog aria-label="بستن راهنما">×</button><span class="eyebrow">راهنمای تخفیف</span><h2>یک سبد؛ تخفیف‌های متفاوت.</h2><ol><li><b>بیشترین تخفیف</b><p>نشان صورتی روی هر عکس، بیشترین تخفیف قابل‌دستیابی همان کالا است.</p></li><li><b>تخفیف فعلی</b><p>درصد سبز کنار قیمت، همین حالا در قیمت حساب شده؛ درصد صورتی دوباره از آن کم نمی‌شود.</p></li><li><b>سبد کامل‌تر، قیمت کمتر</b><p>پیشرفت بر اساس جمع قیمت مصرف کالاهای تخفیف‌دار است. در این نمونه با رسیدن به ۲ میلیون تومان، هر کالا به سقف تخفیف خودش می‌رسد؛ مبلغ پرداختی کمتر از این مبنا است.</p></li></ol><p class="modal-note">حتی با سبد خالی، قیمت آغازین می‌تواند تخفیف داشته باشد. کالای قیمت‌ثابت در پیشرفت تخفیف حساب نمی‌شود.</p><button type="button" class="continue-button" data-close-dialog>متوجه شدم، بریم خرید</button></dialog>
+<dialog id="review-dialog" class="modal"><button class="modal-close icon-button" type="button" data-close-dialog aria-label="بستن بررسی سبد">×</button><span class="eyebrow">ثبت درخواست · بدون نیاز به حساب</span><h2>انتخاب‌هایت آماده‌اند.</h2><div id="review-lines"></div><div class="total-row"><span>جمع پس از تخفیف</span><strong data-total></strong></div><div class="request-form"><label for="demo-name">نام شما<input id="demo-name" type="text" placeholder="نام و نام خانوادگی" autocomplete="off" maxlength="80"></label><label for="demo-phone">شماره موبایل<input id="demo-phone" type="tel" inputmode="tel" placeholder="۰۹…" dir="ltr" autocomplete="off" maxlength="20"></label><button type="button" class="continue-button" id="demo-submit">ثبت درخواست <span>←</span></button></div><p class="modal-note">ابتدا موجودی، قیمت نهایی و ارسال تأیید می‌شود؛ پرداخت پس از هماهنگی. در این ماکت هیچ اطلاعاتی ارسال یا ذخیره نمی‌شود؛ برای امتحان، اطلاعات واقعی وارد نکن.</p><p id="request-result" class="request-result" role="status" hidden>این فقط تأیید نمونه است؛ در نسخه نهایی درخواست شما برای هماهنگی ارسال می‌شود. در این ماکت سفارشی ثبت نشد.</p></dialog>
+<noscript><p class="noscript">برای امتحان کردن سبد و تخفیف‌ها، جاوااسکریپت مرورگر را فعال کنید.</p></noscript>
+<script id="demo-data" type="application/json">__DEMO_DATA__</script>
+<script src="pricing.js"></script><script src="store.js"></script>
+</body></html>

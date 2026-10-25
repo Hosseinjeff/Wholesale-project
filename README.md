@@ -25,11 +25,12 @@ The ingestion setup below is not a complete specification of the shopping experi
 - [Recovered GAS audit](docs/recovered-gas-audit.md) and
   [176-function inventory](docs/recovered-gas-inventory.md): the user-supplied
   `ReferencePrices`, AI, inventory and storefront implementation, its migration
-  differences and reproduced defects. [Original local snapshot](legacy-gas/).
+  differences and reproduced defects. [Original source snapshot](legacy-gas/).
 - [Storefront design decisions](docs/design-decisions.md): mockup revisions, desktop/phone
   layouts, maximum versus current discounts, and validation boundaries.
-- The interactive mockup remains a local draft; its status and limitations are recorded
-  in the design notes. It does not submit orders or replace the live shop.
+- [Interactive mockup v2](design/mockup-v2/): versioned, unapproved design draft.
+  Its status and limitations are recorded in the design notes. It does not submit
+  orders or replace the live shop.
 
 ### GAS source of truth for future chats
 
