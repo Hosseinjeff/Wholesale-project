@@ -5,6 +5,16 @@ This supplements the Git-history audit in `gas-migration-audit.md`.
 **Source recovered; deployment and migration sign-off remain open.** No live function,
 sheet mutation, AI request, supplier fetch, bot message, or storefront change was made.
 
+## Updated interpretation — D-008
+
+The user describes Rezvan Pakhsh data interpreted with a Google API. The recovered
+PDF → Gemini → ReferencePrices path matches that description. Active execution remains
+unverified, but this is a concrete implementation available for server migration.
+The separate delegated refresh wrapper's presence does not establish a configured or
+running refresh service. Its upstream source is a required dependency only if actual
+configuration/use proves that path matters. Earlier unconditional closure wording is
+superseded by this clarification; do not stall the migration on a presumed service.
+
 ## What was recovered
 
 Eight JavaScript files, 302,570 uncompressed bytes, **176 named top-level functions**.
@@ -189,7 +199,8 @@ evidence; they were not rerun or expanded into end-to-end live validation by thi
 
 Still required before sign-off:
 
-1. Locate the separate reference-refresh server's source and its safe configuration
+1. If actual configuration/use establishes the delegated refresh path, locate that
+   service's source and its safe configuration
    metadata (URL/owner/source, never token values). Audit extraction, units, full-snapshot
    replacement, callback authorization and failure handling.
 2. Obtain `appsscript.json` or equivalent project timezone/scopes/library metadata,

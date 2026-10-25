@@ -53,7 +53,8 @@
     "D-004",
     "D-005",
     "D-006",
-    "D-007"
+    "D-007",
+    "D-008"
   ],
   "working_proposal_ids": [
     "P-01",
@@ -76,15 +77,15 @@
   "deferred": [
     "Iran payment provider selection and integration"
   ],
-  "next_action": "Locate the existing reference-refresh service and migrate all required reference, extraction, review and processing behavior to the server. Use supplied GAS properties as migration inputs, not a reason to reinstate GAS. Continue independent workflow/design work while tracking unresolved dependencies.",
+  "next_action": "Continue the server migration using the recovered Rezvan Pakhsh PDF → Gemini → ReferencePrices implementation as the source-backed candidate matching the user's Google-inference description. Verify active settings/schedule and output correctness. Do not block on finding a separate refresh server unless configuration or execution evidence establishes that the delegated path was actually used.",
   "continuity": "Published snapshot must be updated explicitly after decisions; chats do not synchronize automatically.",
   "legacy_scene_order": "RP-00 through RP-08 is superseded; no previous scene was completed.",
   "intake_model": {
     "primary": "Forwarded messages to bot, analyzed and saved to Sheets",
     "reference_anchor": "Separate well-known-wholesaler source used to help correct extraction",
     "status": "GAS reference source recovered; current Python integration missing; active upstream/bindings unverified",
-    "anchor_identity": "Legacy PDF: Rezvan Pakhsh; delegated Store API source identity unverified",
-    "anchor_retrieval": "Main GAS handler delegates to REFERENCE_REFRESH_SERVER_URL; legacy PDF/Gemini path also present",
+    "anchor_identity": "Rezvan Pakhsh reference source plus Google inference described by user; supplied PDF importer uses Gemini",
+    "anchor_retrieval": "Recovered PDF → Gemini → ReferencePrices path. Separate REFERENCE_REFRESH_SERVER_URL delegation exists in code but actual configuration/use is unverified.",
     "anchor_field_authority": "unresolved",
     "separate_anchor_integration_verified": false,
     "reference_sheet": "ReferencePrices"
@@ -119,12 +120,14 @@
     "live_project_linkage_verified": false,
     "manifest_included": false,
     "installed_trigger_list_included": false,
-    "refresh_server_source_included": false
+    "refresh_server_source_included": false,
+    "delegated_refresh_path_usage_verified": false,
+    "refresh_server_discovery_required": "Conditional: only if actual configuration/use establishes a dependency; declaration in code alone is insufficient"
   },
   "next_dependencies": [
-    "Separate reference-refresh server implementation and safe configuration metadata",
-    "Apps Script manifest/timezone/scopes plus installed triggers and active deployment bindings",
-    "Authoritative inventory/catalog, review and pricing/publication contracts"
+    "Verify active reference path, model/settings and schedule against user-described Rezvan Pakhsh/Google-inference process",
+    "Configure required server secrets/settings and validate extracted reference rows and failure behavior",
+    "Preserve matching/review contracts and reconcile authoritative inventory/pricing ownership"
   ],
   "source_of_truth": {
     "repository": "Hosseinjeff/Wholesale-project",

@@ -16,7 +16,17 @@ is no longer needed to inspect those files. Do not ask the user to export them a
 - Audit: `recovered-gas-audit.md`. The archive is user-associated with this project;
   authenticated linkage to the editor/deployed revision was not independently verified.
 
-## Remaining evidence
+## Latest clarification — D-008
+
+The user identifies Google inference as the mechanism used with the Rezvan Pakhsh
+reference source. The export's PDF importer calls Gemini using AI_API_KEY and AI_MODEL.
+That implementation is already recovered. REFERENCE_REFRESH_SERVER_URL is a separate
+delegation wrapper; its existence does not prove a separately configured/running helper.
+Discovery of such a helper is conditional on evidence of its use, not a prerequisite
+for continuing the server migration. Earlier unconditional requests for its source
+were too strong. Check active path/settings and schedule without reopening the server target.
+
+## Remaining evidence (apply the clarification above)
 
 1. The main refresh reads `REFERENCE_REFRESH_SERVER_URL` from Script Properties and
    delegates to a separate server. The actual property value and server implementation

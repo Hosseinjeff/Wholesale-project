@@ -162,3 +162,19 @@ Do not record suggested options, silence, or previously inferred preferences as 
 - Existing refresh service source/location and active bindings remain unresolved. Track
   those dependencies while progressing with independent workflow/design work. Do not
   repeatedly reopen the server-versus-GAS execution-target decision.
+
+### D-008 — Reference path clarification; external helper is conditional
+
+- User clarification: if the missing endpoint is not Rezvan Pakhsh itself, the process
+  they used was Google API inference for reference prices.
+- Source evidence: refreshReferencePricesFromPdfLegacy reads Rezvan Pakhsh's PDF;
+  refreshReferencePricesFromPdf and callGeminiWithInlinePdf use Google's Gemini API,
+  AI_API_KEY and AI_MODEL, then write ReferencePrices. This implementation is recovered.
+- Boundary: active execution/settings still need verification. The separate
+  REFERENCE_REFRESH_SERVER_URL wrapper exists in source but its configured use and a
+  separate running service have never been established. Declared code is not live proof.
+- Correction: treating an external refresh server's location/source as a mandatory
+  prerequisite was too strong. Make it conditional on evidence of actual use; proceed
+  with the source-backed PDF/Gemini path and independent migration/workflow work.
+- Target remains server execution under D-007. Keep required settings/secrets in server
+  configuration; preserve useful GAS behavior and address audited defects before retirement.

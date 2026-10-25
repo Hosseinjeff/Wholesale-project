@@ -1,8 +1,20 @@
 # MolaviSale — whole-workflow handoff for another chat
 
 Snapshot 4.0. Updated 2026-10-25, Asia/Tehran.
-Active stage: WF-00; uploaded GAS recovered and audited. Upstream refresh-server source,
+Active stage: WF-00; uploaded GAS recovered and audited. Active reference-path settings,
 installed triggers and deployment bindings remain open. No complete migration sign-off.
+
+## Reference acquisition clarification — D-008
+
+The user describes Rezvan Pakhsh reference data interpreted using a Google API. The
+supplied source contains exactly a PDF → Gemini → ReferencePrices implementation.
+Use it as the source-backed candidate for server migration, while verifying active
+settings and job bindings. The separately named REFERENCE_REFRESH_SERVER_URL path
+exists in source, but its configuration/use and an external service's existence were
+never verified. Earlier text treating discovery of that server as mandatory is superseded:
+only investigate it as a required dependency if configuration or execution evidence
+establishes its actual use. Do not block independent migration/workflow work or ask the
+user to locate a presumed service merely because the wrapper exists in code.
 
 ## Confirmed execution target
 
