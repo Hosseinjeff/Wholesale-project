@@ -255,13 +255,12 @@ main { max-width: 1080px; margin: 0 auto; padding: 18px 20px 56px; }
 .card h2 { min-height: 3em; }
 .buy {
     margin-top: auto;
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 36px;
-    column-gap: 10px;
-    row-gap: 8px;
-    align-items: end;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
 }
-.offer { grid-column: 1; grid-row: 1; min-width: 0; }
+.offer { min-width: 0; flex: 1 1 auto; }
 .now { margin: 0; font-weight: 700; font-size: 1.12rem; display: flex; align-items: center; flex-wrap: nowrap; gap: 6px; }
 .amount { white-space: nowrap; }
 .tick {
@@ -346,13 +345,12 @@ main { max-width: 1080px; margin: 0 auto; padding: 18px 20px 56px; }
     line-height: 1;
 }
 .stepper b { min-width: 22px; text-align: center; font-size: .9rem; }
-.buy .control { margin: 0; grid-column: 2; grid-row: 1; justify-self: end; }
-.buy .control:has(.actions) {
-    grid-column: 1 / -1;
-    grid-row: 2;
-    justify-self: stretch;
+.buy .control {
+    margin: 0;
+    margin-inline-start: auto;
+    flex: none;
     display: flex;
-    justify-content: flex-end;
+    align-items: flex-start;
 }
 .actions { display: inline-flex; align-items: center; gap: 6px; }
 .trash {
@@ -367,8 +365,7 @@ main { max-width: 1080px; margin: 0 auto; padding: 18px 20px 56px; }
     padding: 0;
     flex: none;
 }
-.trash svg { width: 18px; height: 18px; fill: currentColor; stroke: none; }
-.trash svg path { fill: currentColor; stroke: none; }
+.trash svg { width: 18px; height: 18px; }
 .trash:hover { background: var(--rose-s); color: var(--rose-d); }
 .empty {
     background: #fff;
@@ -506,24 +503,26 @@ main { max-width: 1080px; margin: 0 auto; padding: 18px 20px 56px; }
 body.locked .toast { bottom: 196px; }
 .split { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(280px, .9fr); gap: 16px; align-items: start; }
 .panel, .summary, .prose {
-    background: #fff;
+    background: var(--card);
     border: 1px solid var(--line);
     border-radius: var(--radius);
     box-shadow: var(--shadow);
     padding: 18px;
 }
+.summary { position: sticky; top: 82px; }
+#checkout-lines .dline:first-child { border-top: 0; padding-top: 0; }
 .panel h1, .prose h1, .summary h1 { margin: 0 0 8px; font-size: 1.4rem; }
 .field { display: block; margin: 12px 0; }
 .field span { display: block; margin-bottom: 4px; font-size: .88rem; color: var(--muted); }
 .field input, .field textarea, .field select, .admin input[type="text"], .admin input[type="password"], .admin textarea, .admin select {
     width: 100%;
     border: 1px solid var(--line);
-    background: #fff;
+    background: var(--paper);
     border-radius: 12px;
     padding: 10px 12px;
     outline: none;
 }
-.field input:focus, .field textarea:focus { border-color: #ffb15a; }
+.field input:focus, .field textarea:focus { background: #fff; border-color: #ffb15a; }
 .note { color: var(--muted); }
 .error { background: #fff1f2; color: #9f1239; padding: 10px 12px; border-radius: 12px; }
 .ok-mark {
@@ -552,7 +551,7 @@ body.locked { overflow: hidden; }
     .summary { order: -1; }
 }
 @media (max-width: 680px) {
-    .bar-inner { gap: 8px; padding: 0 10px; }
+    .bar-inner { gap: 8px; padding: 0 12px; }
     main { padding: 12px 12px 48px; }
     .search { flex: none; width: 42px; padding: 0; background: transparent; }
     .search input { display: none; }
@@ -607,21 +606,7 @@ body.locked { overflow: hidden; }
     .catalog.view-grid .sub,
     .catalog.view-list .sub { min-height: 0; }
     .catalog .now { font-size: 1.02rem; }
-    .catalog .buy {
-        grid-template-columns: minmax(0, 1fr);
-        row-gap: 8px;
-        align-items: start;
-    }
-    .catalog .offer { grid-column: 1; grid-row: 1; }
-    .catalog .buy .control,
-    .catalog .buy .control:has(.actions) {
-        grid-column: 1;
-        grid-row: 2;
-        justify-self: start;
-        width: auto;
-        display: flex;
-        justify-content: flex-start;
-    }
+    .catalog .buy { align-items: flex-start; }
     .catalog .buy .add,
     .catalog .buy .trash { width: 36px; height: 36px; }
     .catalog .buy .stepper button { height: 34px; }
@@ -646,10 +631,10 @@ body.locked { overflow: hidden; }
     .dline > .control:has(.actions) {
         grid-column: 2;
         grid-row: 2;
-        justify-self: start;
+        justify-self: end;
         width: auto;
         display: flex;
-        justify-content: flex-start;
+        justify-content: flex-end;
     }
     .dtext h3 { line-height: 1.45; }
     .payline strong { white-space: nowrap; }

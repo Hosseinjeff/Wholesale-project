@@ -7,6 +7,28 @@
     var sending = false;
     var dirty = false;
     var retries = 0;
+    var armed = false;
+    var wave = [];
+    var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    document.addEventListener("click", function (event) {
+        var toggle = event.target.closest("#elementor-menu-cart__toggle_button");
+        if (toggle && window.matchMedia("(max-width: 767px)").matches && document.querySelector(".molavi-basket-col [data-molavi-basket]")) {
+            event.preventDefault();
+            event.stopPropagation();
+            document.body.classList.toggle("molavi-cart-open");
+            return;
+        }
+        if (toggle && document.querySelector(".molavi-cart-page")) {
+            event.preventDefault();
+            event.stopPropagation();
+            document.querySelector(".molavi-cart-page").scrollIntoView({ behavior: "smooth", block: "start" });
+            return;
+        }
+        if (event.target.closest("[data-molavi-cart-close]")) {
+            document.body.classList.remove("molavi-cart-open");
+        }
+    }, true);
 
     document.addEventListener("click", function (event) {
         var button = event.target.closest("[data-molavi-step], [data-molavi-clear]");
@@ -66,6 +88,7 @@
         if (!node) return null;
         return {
             name: node.getAttribute("data-name") || "",
+            image: node.getAttribute("data-image") || "",
             min: 1,
             shelf: Number(node.getAttribute("data-shelf")) || 0,
             sale: Number(node.getAttribute("data-sale")) || 0,
@@ -155,13 +178,13 @@
             var unit = Number(units[id]);
             var shelf = Number(node.getAttribute("data-shelf")) || 0;
             var amount = node.querySelector(".molavi-amount");
-            if (amount) amount.textContent = toman(unit);
+            if (amount) present(amount, unit, toman(unit), "shop");
             node.setAttribute("data-unit", String(unit));
             var rate = shelf > unit ? (shelf - unit) / shelf : 0;
             var rateNode = node.querySelector(".molavi-rate");
             if (rateNode) {
                 rateNode.hidden = rate <= 0;
-                if (rate > 0) rateNode.textContent = "\u2212" + percent(rate);
+                if (rate > 0) present(rateNode, Math.round(rate * 100), "\u2212" + percent(rate), "shop");
             }
             var was = node.querySelector(".molavi-was");
             if (was) {
@@ -169,29 +192,51 @@
                 if (shelf > unit) was.textContent = toman(shelf);
             }
         });
-        document.querySelectorAll(".e-loop-item [data-molavi-cart]").forEach(function (node) {
+        document.querySelectorAll("[data-molavi-cart]").forEach(function (node) {
+            if (node.closest("[data-molavi-basket-lines]")) return;
             var id = node.getAttribute("data-product");
             var qty = Number(counts[id] || 0);
+            var prev = node.querySelector(".molavi-step b");
+            var prevKey = prev ? prev.dataset.n : (node.querySelector(".molavi-add") ? "0" : null);
+            var prevText = prev ? (prev.dataset.t || prev.textContent) : digits(0);
             node.setAttribute("data-qty", String(qty));
             node.classList.toggle("is-in", qty > 0);
-            node.innerHTML = qty > 0 ? stepper(qty) : addButton();
+            if ((qty > 0) !== !!prev) node.innerHTML = qty > 0 ? stepper(qty) : addButton();
+            var next = node.querySelector(".molavi-step b");
+            if (next) present(next, qty, digits(qty), "shop", prevKey, prevText);
         });
         paintBasket(units, counts);
         var count = 0;
         Object.keys(counts).forEach(function (id) { count += Number(counts[id]) || 0; });
         document.querySelectorAll(".elementor-button-icon-qty").forEach(function (badge) {
-            badge.textContent = digits(count);
+            present(badge, count, digits(count), "shop");
             badge.setAttribute("data-counter", String(count));
         });
+        flushWave();
+        armed = true;
     }
 
     function paintBasket(units, counts) {
         var lines = document.querySelector("[data-molavi-basket-lines]");
         if (!lines) return;
+        var previous = {};
+        lines.querySelectorAll(".molavi-bline").forEach(function (line) {
+            var strong = line.querySelector("strong");
+            var rateNode = line.querySelector(".molavi-rate");
+            var qtyNode = line.querySelector(".molavi-step b");
+            previous[line.getAttribute("data-product")] = {
+                unit: strong ? strong.dataset.n : null,
+                unitText: strong ? (strong.dataset.t || strong.textContent) : "",
+                rate: rateNode ? rateNode.dataset.n : null,
+                rateText: rateNode ? (rateNode.dataset.t || rateNode.textContent) : "",
+                qty: qtyNode ? qtyNode.dataset.n : null,
+                qtyText: qtyNode ? (qtyNode.dataset.t || qtyNode.textContent) : ""
+            };
+        });
         var saved = 0;
+        var shelfTotal = 0;
         var total = 0;
-        var kinds = 0;
-        var html = "";
+        var built = [];
         Object.keys(counts).forEach(function (id) {
             var qty = Number(counts[id] || 0);
             var row = rowOf(id);
@@ -199,23 +244,55 @@
             var unit = Number(units[id]);
             var shelf = Number(row.shelf) || 0;
             var min = Number(row.min) || 1;
+            var lineRate = shelf > unit ? (shelf - unit) / shelf : 0;
             saved += shelf > unit ? (shelf - unit) * qty : 0;
+            shelfTotal += shelf * qty;
             total += unit * qty;
-            kinds += 1;
-            html += '<article class="molavi-bline" data-product="' + escapeHtml(id) + '" data-min="' + min + '" data-qty="' + qty + '">'
-                + '<div class="molavi-bline-copy"><h3>' + escapeHtml(row.name || "") + "</h3><p><strong>"
-                + toman(unit) + "</strong>" + (shelf > unit ? " <s>" + toman(shelf) + "</s>" : "") + "</p></div>"
-                + stepper(qty) + "</article>";
+            built.push({ id: id, qty: qty, min: min, row: row, unit: unit, shelf: shelf, lineRate: lineRate });
         });
-        lines.innerHTML = html || '<p class="molavi-basket-empty">سبد خالی است.</p>';
+        var existing = Array.prototype.slice.call(lines.querySelectorAll(".molavi-bline"));
+        var sameLines = existing.length === built.length && existing.every(function (el, index) {
+            var item = built[index];
+            return el.getAttribute("data-product") === item.id && !!el.querySelector(".molavi-rate") === (item.lineRate > 0);
+        });
+        if (!sameLines) {
+            var html = built.map(function (item) {
+                return '<article class="molavi-bline' + (item.row.image ? " has-photo" : "") + '" data-product="' + escapeHtml(item.id) + '" data-min="' + item.min + '" data-qty="' + item.qty + '">'
+                    + (item.row.image ? '<img src="' + escapeHtml(item.row.image) + '" alt="">' : "")
+                    + '<div class="molavi-bline-copy"><h3>' + escapeHtml(item.row.name || "") + "</h3><p>"
+                    + (item.lineRate > 0 ? '<span class="molavi-rate" dir="ltr"></span> ' : "")
+                    + "<strong></strong>" + (item.shelf > item.unit ? " <s>" + toman(item.shelf) + "</s>" : "") + "</p></div>"
+                    + stepper(item.qty) + "</article>";
+            }).join("");
+            lines.innerHTML = html || '<p class="molavi-basket-empty">سبد خالی است.</p>';
+        } else {
+            existing.forEach(function (el, index) {
+                el.setAttribute("data-qty", String(built[index].qty));
+                el.setAttribute("data-min", String(built[index].min));
+            });
+        }
+        var kinds = built.length;
+        lines.querySelectorAll(".molavi-bline").forEach(function (line) {
+            var id = line.getAttribute("data-product");
+            var item = null;
+            built.forEach(function (row) { if (row.id === id) item = row; });
+            if (!item) return;
+            var prior = previous[id] || {};
+            present(line.querySelector("strong"), item.unit, toman(item.unit), "cart", prior.unit, prior.unitText);
+            var rateNode = line.querySelector(".molavi-rate");
+            if (rateNode) present(rateNode, Math.round(item.lineRate * 100), "\u2212" + percent(item.lineRate), "cart", prior.rate, prior.rateText);
+            present(line.querySelector(".molavi-step b"), item.qty, digits(item.qty), "cart", prior.qty, prior.qtyText);
+        });
         var save = document.querySelector("[data-molavi-basket-save]");
         if (save) {
             save.hidden = saved < 1;
             var amount = save.querySelector("[data-molavi-basket-save-amount]");
-            if (amount) amount.textContent = toman(saved);
+            if (amount) present(amount, saved, toman(saved), "cart");
+            var saveRate = save.querySelector("[data-molavi-basket-save-rate]");
+            if (saveRate && shelfTotal > 0) present(saveRate, Math.round(saved / shelfTotal * 100), percent(saved / shelfTotal), "cart");
         }
         var totalNode = document.querySelector("[data-molavi-basket-total]");
-        if (totalNode) totalNode.textContent = toman(total);
+        if (totalNode) present(totalNode, total, toman(total), "cart");
         var countNode = document.querySelector("[data-molavi-basket-count]");
         if (countNode) countNode.textContent = kinds > 0 ? "(" + digits(kinds) + " محصول)" : "";
         var checkout = document.querySelector("[data-molavi-checkout]");
@@ -245,7 +322,112 @@
     }
 
     function trash() {
-        return '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" stroke="none" d="M4.4 6.15h15.2c.5 0 .9.4.9.9s-.4.9-.9.9H4.4c-.5 0-.9-.4-.9-.9s.4-.9.9-.9z"/><path fill="currentColor" stroke="none" d="M10 3.3h4c.55 0 1 .4 1 .95V6.1h-6V4.25c0-.55.45-.95 1-.95z"/><path fill="currentColor" stroke="none" d="M6.35 9.2h11.3c.25 0 .45.22.43.48l-.78 10.05c-.08.85-.8 1.5-1.65 1.5H8.35c-.85 0-1.57-.65-1.65-1.5L5.92 9.68c-.02-.26.18-.48.43-.48z"/></svg>';
+        return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14"></path><path d="M9.5 7V5.4A1.4 1.4 0 0 1 10.9 4h2.2a1.4 1.4 0 0 1 1.4 1.4V7"></path><path d="M7.2 7.4l.7 11a1.2 1.2 0 0 0 1.2 1.1h5.8a1.2 1.2 0 0 0 1.2-1.1l.7-11"></path><path d="M10.2 11v5"></path><path d="M13.8 11v5"></path></svg>';
+    }
+
+    function present(el, key, text, scope, prevKey, prevText) {
+        if (!el) return;
+        var nextKey = String(key);
+        var priorKey = prevKey != null ? String(prevKey) : el.dataset.n;
+        var priorText = prevText != null && prevText !== "" ? prevText : (el.dataset.t || el.textContent);
+        el.dataset.n = nextKey;
+        el.dataset.t = text;
+        if (!armed || reduceMotion || priorKey == null || priorKey === "" || priorKey === nextKey) {
+            if (!el.querySelector(".tick")) el.textContent = text;
+            return;
+        }
+        wave.push({ el: el, from: priorText, to: text, scope: scope });
+    }
+
+    function flushWave() {
+        var batch = wave;
+        wave = [];
+        var groups = {};
+        batch.forEach(function (item) {
+            if (!groups[item.scope]) groups[item.scope] = [];
+            groups[item.scope].push(item);
+        });
+        Object.keys(groups).forEach(function (scope) {
+            var list = groups[scope].filter(function (item) {
+                return item.el.getClientRects().length > 0;
+            });
+            groups[scope].forEach(function (item) {
+                if (item.el.getClientRects().length === 0) item.el.textContent = item.to;
+            });
+            if (!list.length) return;
+            var tops = list.map(function (item) { return item.el.getBoundingClientRect().top; });
+            var min = Math.min.apply(null, tops);
+            var max = Math.max.apply(null, tops);
+            var span = Math.max(1, max - min);
+            list.forEach(function (item) {
+                var delay = Math.round(((item.el.getBoundingClientRect().top - min) / span) * 180);
+                startReel(item.el, item.from, item.to, delay);
+            });
+        });
+    }
+
+    function startReel(el, fromText, toText, delay) {
+        var to = Array.from(toText || "");
+        var fromDigits = [];
+        Array.from(fromText || "").forEach(function (ch) {
+            if (digitChar(ch)) fromDigits.push(ch);
+        });
+        var toPlaces = [];
+        to.forEach(function (ch, index) {
+            if (digitChar(ch)) toPlaces.push(index);
+        });
+        var oldAt = {};
+        toPlaces.forEach(function (index, place) {
+            var fromPlace = fromDigits.length - toPlaces.length + place;
+            oldAt[index] = fromPlace >= 0 ? fromDigits[fromPlace] : "";
+        });
+        if (!toPlaces.some(function (index) { return oldAt[index] !== to[index]; })) {
+            el.textContent = toText;
+            return;
+        }
+        var lastDigit = -1;
+        to.forEach(function (ch, index) {
+            if (digitChar(ch)) lastDigit = index;
+        });
+        var body = to.slice(0, lastDigit + 1);
+        var suffix = to.slice(lastDigit + 1).join("");
+        var token = (el._roll || 0) + 1;
+        el._roll = token;
+        var root = document.createElement("span");
+        root.className = "tick";
+        root.dir = "ltr";
+        var pending = 0;
+        body.forEach(function (ch, index) {
+            if (!digitChar(ch) || oldAt[index] === ch) {
+                root.appendChild(document.createTextNode(ch));
+                return;
+            }
+            var cell = document.createElement("i");
+            var strip = document.createElement("b");
+            strip.style.animationDelay = delay + "ms";
+            var next = document.createElement("span");
+            next.textContent = ch;
+            var prev = document.createElement("span");
+            prev.textContent = oldAt[index] || "\u2007";
+            strip.appendChild(next);
+            strip.appendChild(prev);
+            cell.appendChild(strip);
+            root.appendChild(cell);
+            pending++;
+            strip.addEventListener("animationend", function () {
+                if (el._roll !== token) return;
+                pending--;
+                if (pending <= 0) el.textContent = toText;
+            }, { once: true });
+        });
+        el.textContent = "";
+        el.appendChild(root);
+        if (suffix) el.appendChild(document.createTextNode(suffix));
+        if (pending === 0) el.textContent = toText;
+    }
+
+    function digitChar(ch) {
+        return /[0-9۰-۹]/.test(ch);
     }
 
     function digits(value) {
@@ -272,4 +454,27 @@
         if (window.CSS && CSS.escape) return CSS.escape(value);
         return String(value).replace(/"/g, "");
     }
+
+    document.querySelectorAll("[data-molavi-price]").forEach(function (node) {
+        var amount = node.querySelector(".molavi-amount");
+        if (amount) {
+            amount.dataset.n = node.getAttribute("data-unit") || "";
+            amount.dataset.t = amount.textContent;
+        }
+        var rateNode = node.querySelector(".molavi-rate");
+        if (rateNode) {
+            rateNode.dataset.t = rateNode.textContent;
+            rateNode.dataset.n = rateNode.textContent.replace(/[^\d۰-۹]/g, "");
+        }
+    });
+    document.querySelectorAll("[data-molavi-cart], .molavi-bline").forEach(function (node) {
+        var qty = node.querySelector(".molavi-step b");
+        if (qty) {
+            qty.dataset.n = node.getAttribute("data-qty") || "0";
+            qty.dataset.t = qty.textContent;
+        }
+        var strong = node.querySelector("strong");
+        if (strong && !strong.dataset.n) strong.dataset.t = strong.textContent;
+    });
+    armed = true;
 })();
