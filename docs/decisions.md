@@ -146,3 +146,19 @@ Exceptions / remaining dependency:
 ```
 
 Do not record suggested options, silence, or previously inferred preferences as confirmed answers.
+
+### D-007 — Server owns the migrated GAS functionality
+
+- User reconfirmation: the goal is to move GAS functionality onto the server, not return
+  to GAS as the operating architecture.
+- Status: confirmed direction. The recovered export remains the reference for preservation,
+  comparisons and audit; it is not a selected ongoing runtime or fallback.
+- Scope: migrate required reference acquisition/matching, extraction, review/confirmation,
+  records, schedules and processing behavior, with explicit disposition of old helpers
+  and defects. This does not approve every legacy rule or establish completed migration.
+- Configuration: existing GAS properties are migration inputs. Transfer required settings
+  to server environment/secret storage; never commit secret values. A server environment
+  variable and a GAS Script Property are separate settings.
+- Existing refresh service source/location and active bindings remain unresolved. Track
+  those dependencies while progressing with independent workflow/design work. Do not
+  repeatedly reopen the server-versus-GAS execution-target decision.

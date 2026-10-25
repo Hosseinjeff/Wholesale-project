@@ -4,6 +4,16 @@ Snapshot 4.0. Updated 2026-10-25, Asia/Tehran.
 Active stage: WF-00; uploaded GAS recovered and audited. Upstream refresh-server source,
 installed triggers and deployment bindings remain open. No complete migration sign-off.
 
+## Confirmed execution target
+
+The user explicitly reconfirmed that required GAS functionality belongs on the server.
+GAS is the preserved reference implementation, not a planned ongoing runtime or fallback.
+Use its properties to discover existing dependencies and migrate settings into server
+configuration/secret storage. Do not send the user back to GAS as the target architecture.
+Preserve required behavior and resolve migration findings before retiring active jobs;
+server migration and live end-to-end parity are not yet complete. Continue independent
+workflow/design work while unresolved external dependencies are tracked. See D-007.
+
 ## Start here
 
 The user means the **whole operating stream**, not only the customer website:

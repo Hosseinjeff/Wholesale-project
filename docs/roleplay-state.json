@@ -52,7 +52,8 @@
     "D-003",
     "D-004",
     "D-005",
-    "D-006"
+    "D-006",
+    "D-007"
   ],
   "working_proposal_ids": [
     "P-01",
@@ -75,7 +76,7 @@
   "deferred": [
     "Iran payment provider selection and integration"
   ],
-  "next_action": "Locate the separate reference-refresh server source and configuration metadata plus manifest/installed trigger/deployment bindings. Select catalog/inventory/pricing ownership before implementing migration or continuing whole-stream acceptance. Do not request the already supplied GAS archive or restart Google sign-in.",
+  "next_action": "Locate the existing reference-refresh service and migrate all required reference, extraction, review and processing behavior to the server. Use supplied GAS properties as migration inputs, not a reason to reinstate GAS. Continue independent workflow/design work while tracking unresolved dependencies.",
   "continuity": "Published snapshot must be updated explicitly after decisions; chats do not synchronize automatically.",
   "legacy_scene_order": "RP-00 through RP-08 is superseded; no previous scene was completed.",
   "intake_model": {
@@ -132,5 +133,12 @@
     "entrypoint": "legacy-gas/README.md",
     "authority": "Original user-supplied export, not verified active deployment"
   },
-  "inspection_preference": "Use inventory and targeted reads; reuse existing evidence for unchanged files; avoid full archive reloads, broad repeated checks and large tool output."
+  "inspection_preference": "Use inventory and targeted reads; reuse existing evidence for unchanged files; avoid full archive reloads, broad repeated checks and large tool output.",
+  "target_architecture": {
+    "execution_owner": "server",
+    "gas_role": "Immutable reference snapshot for migration audit; no planned ongoing GAS runtime dependency",
+    "preservation_requirement": "Port or explicitly disposition every required GAS behavior before retirement",
+    "configuration": "Migrate required settings and secrets to server environment/secret storage; never commit secret values",
+    "verification": "Migration and live end-to-end parity remain incomplete"
+  }
 }
