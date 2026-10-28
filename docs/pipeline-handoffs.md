@@ -2,18 +2,22 @@
 
 ## Latest production checkpoint — 2026-10-28
 
-The user authorized whole-plan deployment. Commit `813d9c4d703f3d6249d1cc959f9a8a36c4ce165a`
-is deployed to `wholesale-project-production.up.railway.app`. Railway mounts a 500 MB
-volume at `/data` and runs the web process and pipeline worker under Supervisor. The
-existing MolaviShop plugin screens and private bridge config are installed; owner
-identity is WordPress user 3. The production refresh fetched the Rezvan PDF and reached
-Gemini, but Google returned `API_KEY_INVALID`. No reference candidate was staged or
-activated, and no `ReferencePrices` projection, customer order or payment occurred.
-The owner retry form is available in WooCommerce → Reference Prices. Replace the
-Railway key, retry, review the candidate, then verify its projection before activation.
-The service uses a free plan with sleep enabled, and no separate Railway staging
-environment exists. Local verification passes 245 Python tests and 100 disposable
-WordPress/WooCommerce runtime assertions; the full connected stream is not signed off.
+The user authorized whole-plan deployment. Commit
+`e531b37dbe2f24d4651f0a3578fee863f0de4b96` is deployed successfully to
+`wholesale-project-production.up.railway.app` (deployment
+`5474efe4-a221-4cbf-8f2a-84f5b757153a`). Railway mounts a 500 MB volume at `/data` and
+runs the web process and pipeline worker under Supervisor. The existing MolaviShop
+plugin screens and private bridge config are installed; owner identity is WordPress user
+3. After the user replaced the Railway Gemini key, the owner-authorized production
+refresh fetched the Rezvan PDF and Gemini staged snapshot
+`3adf331cfe5877a05b0637774f8dbdb1e02422a1da1cc7437880f62893edcca4` with 10 rows.
+The Woo owner page shows an 8-row preview. The candidate remains unactivated; the active
+snapshot is null and no `ReferencePrices` projection, customer order or payment occurred.
+Next: review the product/package identities and prices in WooCommerce → Reference
+Prices, then explicitly approve activation and verify the projection. The service uses
+a free plan with sleep enabled, and no separate Railway staging environment exists.
+Local verification passes 246 Python tests and 100 disposable WordPress/WooCommerce
+runtime assertions; the full connected stream is not signed off.
 
 The section below is the historical local implementation record; no production change
 or end-to-end validation was claimed at its original checkpoint.
@@ -173,8 +177,8 @@ after cancellation, and the rendered Woo screens.
 
 At the original local checkpoint, the order and inventory ledgers were SQLite-only and
 production had no persistent volume or bridge. The current deployment above now stores
-them on `/data`; they are still not mirrored into Sheets. The live Gemini request has
-confirmed `API_KEY_INVALID`, while checkout, payment callback, customer contact and
+them on `/data`; they are still not mirrored into Sheets. Live Gemini extraction now
+succeeds, while checkout, payment callback, customer contact and
 refund execution remain unverified. Exercise the checkout-to-aftercare flow in a
 connected staging boundary before claiming full release readiness. Customer contact and
 refund execution remain owner actions until their channels and installed gateway
@@ -239,10 +243,9 @@ override and Sheets mirroring remain unresolved or unimplemented. `docs/clearanc
 records the candidate model and boundaries.
 
 At this local checkpoint, 235 offline Python tests and 93 disposable WordPress
-7.1.3/WooCommerce 11.2.1 assertions passed. Current validation is 245 Python tests and
-100 disposable runtime assertions. These are synthetic checks; live key validity,
-Sheets reconciliation, plugin/browser compatibility and whole-stream staging remain
-unverified.
+7.1.3/WooCommerce 11.2.1 assertions passed. Current validation is 246 Python tests and
+100 disposable runtime assertions. These are synthetic checks; Sheets reconciliation,
+plugin/browser compatibility and whole-stream staging remain unverified.
 
 ### 2026-10-28 audited inventory continuation
 

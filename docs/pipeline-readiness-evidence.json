@@ -1,6 +1,6 @@
 {
-  "date": "2026-10-25",
-  "mode": "read-only; no test order/import/publication",
+  "date": "2026-10-28",
+  "mode": "live read-only verification plus one owner-authorized candidate refresh; no activation/projection/order/payment",
   "results": {
     "health": {
       "http": 200,
@@ -43,7 +43,8 @@
     "project": "stellar-solace",
     "environment": "production",
     "service": "Wholesale-project",
-    "commit": "813d9c4d703f3d6249d1cc959f9a8a36c4ce165a",
+    "commit": "e531b37dbe2f24d4651f0a3578fee863f0de4b96",
+    "deployment_id": "5474efe4-a221-4cbf-8f2a-84f5b757153a",
     "deployment_status": "SUCCESS",
     "health_http": 200,
     "service_domain": "https://wholesale-project-production.up.railway.app",
@@ -64,13 +65,21 @@
     "mime_type": "application/pdf",
     "size_bytes": 1411828,
     "gemini_reached": true,
-    "gemini_result": "API_KEY_INVALID",
-    "safe_refresh_error_code": "gemini_key_invalid",
-    "candidate_staged": false,
+    "gemini_result": "extraction_succeeded",
+    "model": "gemini-3.1-flash-lite",
+    "refresh_state": "staged",
+    "refresh_last_attempt_at": "2026-10-28T20:53:11.165732+00:00",
+    "snapshot_id": "3adf331cfe5877a05b0637774f8dbdb1e02422a1da1cc7437880f62893edcca4",
+    "row_count": 10,
+    "owner_dashboard_preview_rows": 8,
+    "candidate_staged": true,
     "active_snapshot_id": null,
     "referenceprices_write_performed": false,
+    "owner_review_required_before_activation": true,
     "owner_retry_screen_installed": true,
-    "owner_wordpress_user_id": 3
+    "owner_wordpress_user_id": 3,
+    "wordpress_preview_file_matches_local": true,
+    "wordpress_preview_file_sha256": "2d96f576f07bca37aeb07d55994b156ffe91bc238a8291c8eb80f2f2c35536fd"
   },
   "production_actions": {
     "reference_snapshot_activated": false,
@@ -80,7 +89,7 @@
     "wordpress_runtime_config_path": "wp-content/plugins/molavi-shop/includes/runtime-config.php"
   },
   "latest_local_validation": {
-    "python_tests": 245,
+    "python_tests": 246,
     "wordpress_woocommerce_runtime_assertions": 100
   }
 }

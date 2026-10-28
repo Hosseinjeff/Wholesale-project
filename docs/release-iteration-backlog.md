@@ -2,9 +2,10 @@
 
 2026-10-28, Asia/Tehran. The user asked to execute/deploy the plan as a whole and
 record any remaining items for later iterations. The server, production volume, and
-existing MolaviShop plugin integration are deployed. The live PDF/Gemini sample is
-blocked because Google returned `API_KEY_INVALID`; no reference candidate or sheet
-projection exists yet. This file distinguishes incomplete release connections from
+existing MolaviShop plugin integration are deployed. The live Rezvan/Gemini sample now
+stages a 10-row candidate and displays an 8-row Woo owner preview. Owner review,
+activation and the `ReferencePrices` projection are pending. This file distinguishes
+incomplete release connections from
 optional business settings; mockup v2 remains unapproved and no credentials are stored.
 
 ## Cross-cutting requirement — current site plugins (D-032)
@@ -33,10 +34,11 @@ to make integration easy.
    owner dashboard records reconciliation and explicitly queues that batch for replay.
    Reference activation and app publication share cross-process locks. This cannot
    fence legacy/GAS writers that bypass the server locks, so cutover remains required.
-   The production worker fetched the Rezvan PDF and called Gemini; the API rejected
-   the configured key as invalid. Replace the Railway key, retry from the Woo owner
-   dashboard, review the staged candidate, then verify `ReferencePrices`. Do not presume
-   an external refresh server (D-008).
+   The production worker fetched the Rezvan PDF and Gemini staged a 10-row candidate;
+   the owner dashboard exposes the first 8 rows for review. Review item identity and
+   package price interpretation, explicitly approve activation, then verify the
+   `ReferencePrices` projection. Treat stale/missing refreshes according to the agreed
+   owner-review gate; do not presume an external refresh server (D-008).
 2. Validate the local bidirectional Products-sheet adapter in connected staging.
    It handles every normalized non-provenance product column, performs three-way
    reconciliation on supplier updates, preserves source posts, records owner-visible
@@ -107,7 +109,7 @@ to make integration easy.
 
 ## Current test/readiness evidence
 
-- 245 local Python tests pass using synthetic inputs/mocks, including every editable
+- 246 local Python tests pass using synthetic inputs/mocks, including every editable
   Products field, two-sided supplier/Sheet conflict and resolution, quote/Woo holds,
   supplier price revision, warning/block, owner verification, delivery boundaries,
   owned-lot reservations and fixed-pack proposal paths.
@@ -120,9 +122,9 @@ to make integration easy.
   substitution and customer decisions, refund/payment receipts, packing, dispatch,
   aftercare and closure. Its SQLite database is persistent on Railway `/data`, but the
   connected gateway, customer contact, Sheets mirroring and real order flow are unverified.
-- Railway deployment `813d9c4` is healthy; web and worker run against `/data`. The live
-  refresh failed with safe code `gemini_key_invalid`; the owner retry is available in
-  Woo. The separate `FollowUP-bot` pending approval was left untouched.
+- Railway deployment `e531b37` is healthy; web and worker run against `/data`. The live
+  candidate is staged in Woo for review; activation and `ReferencePrices` projection
+  have not happened. The separate `FollowUP-bot` pending approval was left untouched.
 - Historical test evidence and the partial live sample are not whole-stream staging or
   proof of live data correctness. Resolve release integrations above before claiming
   full readiness.

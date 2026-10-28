@@ -5,11 +5,12 @@
 The updated MolaviShop plugin files and owner bridge configuration are installed on
 the existing WordPress site. The private bridge config is stored at
 `includes/runtime-config.php`, outside Git; it binds the HTTPS Railway service and
-owner user 3. The production server and persistent volume are live. Its first Rezvan
-PDF request reached Gemini, which returned `API_KEY_INVALID`; no candidate was staged
-and no `ReferencePrices` write occurred. The Woo admin exposes a nonce-protected retry
-after a failed refresh, followed by owner review and explicit activation. The plugin's
-remote admin page and active-plugin/browser interactions still need a live UI check.
+owner user 3. The production server and persistent volume are live. After the user
+replaced the Gemini key, the live Rezvan PDF refresh staged a 10-row candidate; the Woo
+admin exposes an 8-row preview, followed by owner review and explicit activation. The
+active snapshot remains null and no `ReferencePrices` write has occurred. The deployed
+preview file matches the tested local file byte-for-byte. The plugin's remote admin page
+and active-plugin/browser interactions still need a visual live UI check.
 
 Confirmed: owner decisions belong in the private WordPress dashboard, integrated with
 current WordPress functionality/plugins. Not Telegram as the decision surface.
@@ -73,8 +74,8 @@ No visual browser or Elementor/Wordfence compatibility pass is claimed.
 
 The deployed plugin also contains separate owner screens for supplier-price verification,
 crash recovery, AI confirmations, reference item decisions, reference refresh retry and
-snapshot review/activation. Real end-to-end transport is configured, but the invalid
-Gemini API key blocks candidate staging. Read-only decision history and
+snapshot review/activation. Real end-to-end transport now stages the live candidate.
+Read-only decision history and
 browser/Elementor/Wordfence layout remain open. Supplier price age uses the original
 source timestamp or an owner-audited manual verification; a refresh/import timestamp
 alone does not reset age.
@@ -97,8 +98,8 @@ owner choice remains required when the exact resolver cannot safely decide. Loca
 now includes category/history price-scale fallback, the owner AI confirmation state
 machine, scheduled PDF/Gemini candidate staging, and owner-controlled activation and
 `ReferencePrices` projection. The owner bridge and storage are deployed; live Gemini
-has returned `API_KEY_INVALID`, while live Sheets edits/projection and connected checkout
-remain unverified. Latest local validation is 245 Python tests and 100 disposable
+extraction succeeds, while live Sheets edits/projection and connected checkout remain
+unverified. Latest local validation is 246 Python tests and 100 disposable
 WordPress 7.1.3/WooCommerce 11.2.1 assertions. Browser and active-plugin compatibility
 remain unverified.
 

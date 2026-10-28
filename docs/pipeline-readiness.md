@@ -1,18 +1,19 @@
 # Whole-pipeline readiness — 2026-10-28
 
-**Result: the server worker, persistent storage and owner dashboard bridge are deployed,
-but the live reference sample is blocked by an invalid Gemini API key.** Production
-commit `813d9c4` is healthy at `wholesale-project-production.up.railway.app`; the
-500 MB `/data` volume is mounted and both supervised processes start. The worker fetched
-the real Rezvan PDF, but Google returned `API_KEY_INVALID`. No reference candidate was
-staged or activated, and no `ReferencePrices` write, customer order or payment occurred.
-The Woo owner dashboard has a nonce-protected retry after failure. Railway's free-plan
-sleep setting can pause scheduled work while the service is idle.
+**Result: a live Rezvan → Gemini candidate is staged for owner review.** Production
+commit `e531b37dbe2f24d4651f0a3578fee863f0de4b96` is healthy at
+`wholesale-project-production.up.railway.app`; the 500 MB `/data` volume is mounted and
+both supervised processes start. The owner-authorized refresh extracted 10 rows from
+the real Rezvan PDF using `gemini-3.1-flash-lite`; WooCommerce → Reference Prices shows
+an 8-row preview. Snapshot `3adf331cfe5877a05b0637774f8dbdb1e02422a1da1cc7437880f62893edcca4`
+is staged, with no active snapshot and no `ReferencePrices` write. Owner review and
+explicit activation remain required. No customer order or payment occurred. Railway's
+free-plan sleep setting can pause scheduled work while the service is idle.
 
 | Handoff | Evidence and readiness |
 |---|---|
 | Supplier → bot/server | Production has a persistent SQLite volume and supervised web/worker processes. The 60-second Products/Shop polling worker starts; a verified bilateral edit/reconciliation receipt is still outstanding. |
-| Reference → extraction/review | The production worker reached Rezvan's PDF and Gemini. Gemini rejected the configured key (`gemini_key_invalid`), so no candidate or sheet write exists yet. Existing MolaviShop Woo admin has an owner-only manual retry, candidate review, activation and verified `ReferencePrices` projection. The bridge is configured for WordPress user 3. |
+| Reference → extraction/review | Production fetched Rezvan's PDF and Gemini staged a 10-row candidate; the existing MolaviShop Woo owner page exposes the first 8 rows for review. The authenticated bridge is configured for WordPress user 3. Candidate review, explicit activation and connected `ReferencePrices` projection are still outstanding. |
 | Offers → pricing/catalog | Production server and MolaviShop files are deployed. The 7/14-day freshness gates, fixed-pack purchasing, lot reservations, audited inventory changes and clearance proposals have local tests; live catalog reconciliation and the clearance alert/price formula still need connected validation. |
 | Catalog → WordPress/basket | Updated files are installed in the existing MolaviShop plugin. Woo delivery uses 250,000 toman below the 5,000,000-toman goods threshold in local checks. Admin/browser compatibility and full checkout have not been replayed on the live site. |
 | Checkout → operator work | Owner dashboards cover stale-price review, reference refresh retry, publication recovery, Sheets conflicts and order follow-up. No production checkout or payment was run, and the installed payment callback remains unverified. |
@@ -34,9 +35,10 @@ not proof of failure of the deployed server's sheet credentials.
 
 ## Remaining work before a release-ready verdict
 
-1. Replace the invalid `GOOGLE_API_KEY` in Railway, then use WooCommerce → Reference
-   Prices → retry to stage one Gemini candidate. Review it in WordPress before any
-   activation and verify the resulting `ReferencePrices` projection.
+1. Review the staged 10-row candidate in WooCommerce → Reference Prices, including
+   product identity, package sizes and unit/package prices. Activate only after owner
+   approval, then verify the resulting `ReferencePrices` projection and record its
+   receipt. If review finds a questionable item, correct or hold it before activation.
 2. Validate the polling worker and bidirectional Products-sheet reconciliation on
    the connected staging Sheet, including direct edits without a supplier post,
    invalid cells, row moves, freshness invalidation and WordPress publication cadence.
@@ -72,14 +74,15 @@ No roleplay scene is marked complete until the integrated stream is validated.
 The implementation includes field-level Sheets reconciliation,
 owner conflict review, reference item correction, category/history price-scale fallback,
 AI confirmation, scheduled PDF/Gemini candidate staging and the paid-order follow-up
-described in `pipeline-handoffs.md`. 245 offline Python tests and 100 disposable
+described in `pipeline-handoffs.md`. 246 offline Python tests and 100 disposable
 WordPress/WooCommerce assertions pass, including the owner operations dashboard,
 clearance proposals and revision-bound stock adjustment/hold screens. These synthetic
 checks do not make the proposal formula
 approved or connect it to customer prices.
-Railway's deployment is live with its volume and worker variables; `GOOGLE_API_KEY` is
-present but rejected by Google's API. The user-reported service-account value remains
-redacted. WordPress bridge config is stored outside Git under the existing plugin and
-the production retry screen is installed. No staging environment exists. No reference
-activation, customer order or payment occurred; the whole-pipeline verdict remains
+Railway's deployment is live with its volume and worker variables; the replacement
+`GOOGLE_API_KEY` was accepted by Gemini for the sample extraction and remains redacted.
+The service-account value remains redacted. WordPress bridge config is stored outside Git
+under the existing plugin; its live snapshot-preview file matches the tested local file.
+No staging environment exists. The candidate awaits owner review; no reference
+activation, customer order or payment occurred. The whole-pipeline verdict remains
 incomplete.
