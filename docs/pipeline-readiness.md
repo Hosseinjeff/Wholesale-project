@@ -15,9 +15,12 @@ free-plan sleep setting can pause scheduled work while the service is idle.
 `wp-blog-header.php` (`Call to undefined function wp()`). The production
 `public_html/wp-config.php` is zero bytes; the Railway backend remains healthy. The
 accessible cPanel account has no backup feature and its `wordpress-backups` directory is
-empty. The database remains listed, but no database password/table prefix or prior config
-copy is available in the configured credentials. Restore the original config from the
-hosting provider before using the WordPress dashboard; do not reconstruct it from guesses.
+empty. The only cPanel-listed database (`h434558_Salesman`) has no tables; the original
+config may have pointed to an external database. The only archive found is an Elementor
+Pro plugin zip, with no config or SQL backup. No database password/table prefix or prior
+config copy is available in the configured credentials. Restore the original config and
+its referenced database from the hosting provider; do not reconstruct from guesses or
+start a blank WordPress installation.
 
 | Handoff | Evidence and readiness |
 |---|---|

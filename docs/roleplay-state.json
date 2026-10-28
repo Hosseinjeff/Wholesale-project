@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "snapshot_version": "4.47-live-wordpress-bootstrap-empty",
+  "snapshot_version": "4.48-live-site-no-recovery-source",
   "updated_at_local_date": "2026-10-29",
   "timezone": "Asia/Tehran",
   "shared_brief_url": "https://www.molavisale.ir/molavi-workflow-e73014a831.html",
@@ -105,7 +105,7 @@
     "Iran payment provider selection and integration",
     "Supplier/reference price-difference review policy question; unanswered, deprioritized by latest user steering"
   ],
-  "next_action": "Restore the original public_html/wp-config.php from a hosting backup or known-good copy, then verify the public site, wp-admin and Woo dashboard. The accessible cPanel account reports backups disabled and no saved copy is present; do not fabricate DB credentials or change database access. Once the dashboard is reachable, review the staged 10-row Rezvan candidate before any activation.",
+  "next_action": "The public WordPress site cannot be restored from available account files: wp-config.php is zero bytes; cPanel backups are disabled; the only listed local database has no tables; the only archive is an Elementor Pro plugin zip. Obtain a host restore of the original wp-config.php and the database it references, or a known-good backup. Do not create a blank install or guess credentials. Then verify the storefront/admin and review the still-staged Rezvan candidate.",
   "continuity": "Published snapshot must be updated explicitly after decisions; chats do not synchronize automatically.",
   "legacy_scene_order": "RP-00 through RP-08 is superseded; no previous scene was completed.",
   "intake_model": {
@@ -153,7 +153,7 @@
     "refresh_server_discovery_required": "Conditional: only if actual configuration/use establishes a dependency; declaration in code alone is insufficient"
   },
   "next_dependencies": [
-    "Restore the prior public_html/wp-config.php from a hosting backup or known-good copy. The accessible cPanel account has no backup feature and the WP DB password/table prefix are unavailable; do not reconstruct from guessed values. Then verify the site and Woo dashboard before owner review of the staged reference candidate.",
+    "Obtain a host restore or known-good backup of the original public_html/wp-config.php and the database it referenced. cPanel backups are disabled; the only listed local DB has no tables and the available archive is plugin-only. Do not create a blank site, guess credentials, or alter DB access. Verify WordPress before reviewing the staged reference candidate.",
     "Verify an owner-approved candidate projects to ReferencePrices and test live Products-sheet edits/conflicts with row-level receipts.",
     "Cut over legacy/GAS writers only after guarded server parity is verified; this Railway project has no isolated staging environment.",
     "Test installed payment callbacks and checkout-to-aftercare without a real customer charge until the gateway behavior is confirmed.",
@@ -201,7 +201,7 @@
     "report": "docs/pipeline-readiness.md",
     "evidence": "docs/pipeline-readiness-evidence.json",
     "whole_stream_gaps": [
-      "The public WordPress storefront is currently blocked by a zero-byte public_html/wp-config.php; host backup restoration or a known-good config is required before dashboard review. The live 10-row Rezvan/Gemini candidate remains staged in Railway; owner review, activation and ReferencePrices projection are pending.",
+      "The public WordPress storefront is blocked by a zero-byte public_html/wp-config.php. cPanel backups are disabled, the only local DB has no tables, and the only archive is an Elementor Pro plugin zip. Restore the original config and referenced DB from the hosting provider or a known-good backup before dashboard review. The live Rezvan/Gemini candidate remains staged in Railway.",
       "Live two-way Products-sheet reconciliation, full Woo publication cadence and cutover of legacy/GAS writers remain unverified.",
       "Paid-order inventory is persisted on Railway volume but is not mirrored to Sheets; connected checkout/gateway and fulfillment are untested.",
       "Clearance formula approval, near-cost threshold and proactive recalculation, customer UI compatibility and full operator roleplay remain open; mockup v2 is unapproved."
@@ -231,7 +231,15 @@
       "wordpress_dashboard_reachable": false,
       "railway_backend_healthy": true,
       "database_listed_in_cpanel": true,
-      "database_password_or_prior_config_available": false
+      "database_password_or_prior_config_available": false,
+      "database": "h434558_Salesman",
+      "database_schema_table_count": 0,
+      "original_config_may_reference_remote_database": true,
+      "available_archive": "abrha_backup_elementor-pro_2026-10-17_16-41-35.zip",
+      "archive_bytes": 4391609,
+      "archive_contains_wp_config": false,
+      "archive_contains_sql_backup": false,
+      "recovery_source_found": false
     }
   },
   "working_preference": "Prioritize whole-project handoffs and roleplay; defer component-level micro-policy questions unless blocking a scene",
@@ -397,7 +405,7 @@
     "reference_refresh": "Production worker downloaded the Rezvan PDF and Gemini staged 10 candidate rows (snapshot 3adf331cfe5877a05b0637774f8dbdb1e02422a1da1cc7437880f62893edcca4). Woo owner dashboard preview exposes 8 rows. The candidate is not active and no ReferencePrices row was written; owner review and explicit activation remain outstanding.",
     "deployed_commit": "e531b37dbe2f24d4651f0a3578fee863f0de4b96",
     "supervised_worker": "Production web and pipeline-worker processes start against the mounted 500 MB /data volume. Railway free-plan sleep remains enabled; exact scheduled refresh time is not guaranteed.",
-    "live_site_incident": "2026-10-29 Asia/Tehran: molavisale.ir and www.molavisale.ir return a PHP fatal from wp-blog-header.php because public_html/wp-config.php is zero bytes (mtime 2026-10-28 23:20 Tehran). Railway /health is HTTP 200. cPanel backup feature is unavailable and wordpress-backups is empty; no config/database credentials changed. Restore a known-good config before dashboard review."
+    "live_site_incident": "2026-10-29 Asia/Tehran: both domains return a PHP fatal because public_html/wp-config.php is zero bytes. Railway /health returns 200. cPanel backup feature is disabled, .trash/.wp-toolkit/backups/wordpress-backups are empty, and the only archive is a 4.39 MB Elementor Pro zip with no config or SQL. The only cPanel-listed database h434558_Salesman has no tables; original config may have referenced a remote DB. No site or DB files changed. Host restore of original config and associated DB is required."
   },
   "site_integration_requirement": {
     "coordination_with_existing_plugins": true,
@@ -422,7 +430,7 @@
     "REFERENCE_OWNER_IDS": "wp:3; private WordPress user 3 confirmed as owner",
     "separate_followup_bot_touched": false,
     "deployment_or_configuration_mutation_by_agent": true,
-    "latest_user_report": "The public WordPress storefront fails during bootstrap because public_html/wp-config.php is zero bytes. Railway /health remains HTTP 200 and the staged reference candidate persists. cPanel backups are unavailable; no database or production site files were changed during diagnosis.",
+    "latest_user_report": "WordPress remains broken due to zero-byte wp-config.php. cPanel has no backup feature or config archive; the only local DB is empty, and the available Elementor Pro zip contains no config or SQL. Railway backend and staged reference candidate remain healthy/preserved. No site or DB changes were made during diagnosis.",
     "GOOGLE_API_KEY": "present; replacement accepted by Google Gemini for the live Rezvan extraction; secret remains redacted",
     "REFERENCE_STORE_PATH": "/data/reference.sqlite",
     "volumes_attached": true,
@@ -436,7 +444,7 @@
     "volume_mount": "/data (500 MB)"
   },
   "whole_stream_gaps": [
-    "The live WordPress storefront is unavailable because public_html/wp-config.php is zero bytes. Restore its original config before owner dashboard review. The live Rezvan/Gemini candidate remains staged and unactivated; owner review and ReferencePrices projection are still pending.",
+    "The live WordPress storefront cannot be recovered from available account files: wp-config.php is zero bytes, cPanel backups are unavailable, the only listed local database has no tables, and the found archive is plugin-only. Restore the original config and referenced database from the host before dashboard review; the live reference candidate remains staged.",
     "Paid-order inventory, audited lot corrections and workflow are local SQLite only; persistent staging storage and Sheets mirroring are not enabled",
     "Paid-order lifecycle passes offline and synthetic Woo runtime tests but has not been exercised with connected staging checkout/gateway",
     "Clearance formula approval, near-cost threshold and proactive recalculation, customer UI compatibility and full operator roleplay remain release or later-iteration work; unified held/failed work view is locally implemented"

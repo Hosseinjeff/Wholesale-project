@@ -23,8 +23,10 @@ The public WordPress storefront is currently broken: both apex and `www` return 
 fatal error because `public_html/wp-config.php` is zero bytes. Railway remains healthy
 and the staged reference candidate persists on `/data`, but the owner cannot review it
 until the original config is restored. cPanel backups are unavailable on this account;
-the host or an owner-supplied prior config is needed. Do not invent DB credentials or
-change database access as part of this recovery.
+the only listed local database is empty, and the only archive is an Elementor Pro plugin
+zip. The host must restore the original config and the database it references, or the
+owner must provide a known-good copy. Do not invent DB credentials, create a blank site,
+or change database access as part of this recovery.
 
 The section below is the historical local implementation record; no production change
 or end-to-end validation was claimed at its original checkpoint.

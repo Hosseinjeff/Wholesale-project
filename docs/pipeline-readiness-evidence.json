@@ -37,7 +37,7 @@
     }
   },
   "sheets_note": "Direct executor read could not parse configured service-account data; this does not establish a failure of the deployed server credentials. Server independently reports service_account writer and returns catalog data.",
-  "limits": "The live reference sample is staged but WordPress owner review is currently blocked by a zero-byte wp-config.php. cPanel backups are unavailable. Restore a known-good config before review; connected Sheets row reconciliation, ReferencePrices projection, checkout/payment and the full supplier-to-aftercare stream remain unverified. The Railway worker can sleep on the free plan.",
+  "limits": "The live reference sample is staged but WordPress owner review is blocked: wp-config.php is zero bytes, accessible cPanel backups are disabled, the only listed local database has no tables, and the only archive is an Elementor Pro plugin zip. The original config may reference a remote DB. Restore the original config and associated DB before dashboard review. Connected Sheets reconciliation, ReferencePrices projection, checkout/payment and the full supplier-to-aftercare stream remain unverified.",
   "latest_deployment_checkpoint": {
     "date": "2026-10-28",
     "project": "stellar-solace",
@@ -111,6 +111,14 @@
     "database_password_or_table_prefix_available": false,
     "railway_backend_health_http": 200,
     "repair_performed": false,
-    "reason": "No authoritative config backup or database credentials available; guessing would risk site data/access."
+    "reason": "No authoritative config backup or database credentials available; guessing would risk site data/access.",
+    "only_cpanel_database": "h434558_Salesman",
+    "only_cpanel_database_table_count": 0,
+    "config_may_reference_remote_database": true,
+    "available_archive": "abrha_backup_elementor-pro_2026-10-17_16-41-35.zip",
+    "archive_bytes": 4391609,
+    "archive_contains_wp_config": false,
+    "archive_contains_sql_backup": false,
+    "recovery_source_found": false
   }
 }
