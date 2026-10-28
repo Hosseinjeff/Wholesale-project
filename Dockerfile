@@ -22,16 +22,14 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY . .
+COPY container-entrypoint.sh /usr/local/bin/molavi-entrypoint
 
 # Set permissions
-RUN chown -R app:app /app
-
-# Switch to non-root user
-USER app
+RUN chown -R app:app /app && chmod 755 /usr/local/bin/molavi-entrypoint
 
 # Expose port (Railway will override this with $PORT)
 EXPOSE 8080
 
 # Keep the HTTP API and the durable Sheet/reference worker under one supervisor
 # so the shared SQLite database stays on one Railway volume.
-CMD ["/usr/local/bin/supervisord", "-n", "-c", "/app/supervisord.conf"]
+CMD ["/usr/local/bin/molavi-entrypoint"]
