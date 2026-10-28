@@ -85,6 +85,7 @@ class ReferenceSnapshotRouteTests(unittest.TestCase):
                 listing=client.get('/reference/snapshots',headers=headers)
                 self.assertEqual(listing.status_code,200)
                 self.assertEqual(listing.get_json()['snapshots'][0]['snapshot_id'],snapshot_id)
+                self.assertEqual(listing.get_json()['snapshots'][0]['preview'][0]['product_name'],'چای نمونه')
                 review={'action':'review','snapshot_id':snapshot_id,'note':'Coverage and prices checked',
                     'expected_active_id':None}
                 self.assertEqual(client.post('/reference/snapshots',json=review,headers=headers).status_code,200)

@@ -85,9 +85,18 @@ class ReferenceStore(ReferenceDecisions):
         result=[]
         for row in rows:
             candidate=json.loads(row['payload'])
+            preview=[]
+            for values in candidate.get('rows',[])[:8]:
+                if not isinstance(values,list) or len(values)!=len(HEADERS):
+                    continue
+                preview.append({'product_name':values[0],'product_code':values[16],
+                    'package_price':values[3],'unit_price':values[4],
+                    'consumer_unit_price':values[5],'package_count':values[6],
+                    'unit_label':values[7],'pdf_row_number':values[15]})
             result.append({'snapshot_id':row['snapshot_id'],'extracted_at':candidate.get('extracted_at'),
                 'row_count':candidate.get('row_count'),'pdf_sha256':candidate.get('pdf_sha256'),
                 'model':candidate.get('model'),'source_url':candidate.get('source_url'),
+                'preview':preview,
                 'reviewed_by':row['reviewed_by'],'review_note':row['review_note'],
                 'reviewed_at':row['reviewed_at'],'active':row['snapshot_id']==active_id})
         return {'active_snapshot_id':active_id,'snapshots':result}

@@ -42,6 +42,15 @@ class ReferenceImportTests(unittest.TestCase):
             with self.subTest(text=text), self.assertRaises(ImportFailure):
                 parse_rows(text, 'now')
 
+    def test_repeated_product_code_with_distinct_pack_is_not_a_duplicate(self):
+        first=self.item();first.update(clean_name='چای',package_count=12,package_price=480000,
+            unit_price=40000,pdf_row_number='1')
+        second={**first,'raw_name':'چای ۲۴ عددی','package_count':24,'package_price':840000,
+            'unit_price':35000,'pdf_row_number':'2'}
+        rows=parse_rows(json.dumps([first,second],ensure_ascii=False),'2026-10-25T00:00:00+00:00')
+        self.assertEqual(len(rows),2)
+        self.assertEqual([row[6] for row in rows],[12,24])
+
     def session(self, finish='STOP', pdf=b'%PDF-test'):
         session = MagicMock()
         download = session.get.return_value.__enter__.return_value

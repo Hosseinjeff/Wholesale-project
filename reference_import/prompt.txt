@@ -8,6 +8,7 @@ Important PDF layout rules:
 5) Product names may contain attributes. Extract them into separate fields instead of keeping everything inside clean_name.
 6) Package count is the number of sellable units in carton/package. Only set package_count when explicitly shown in the product text, like 12ع, 24ع, 6عددی, کارتن 12, or a clearly labeled count column for the SAME product block.
 7) If package_count is known, derive unit_price = round(package_price / package_count). If package_count is unknown, leave unit_price 0. Never copy package_price into unit_price.
+8) Return each distinct visible product block exactly once. A product code may repeat for different pack counts, variants, weights, or volumes; preserve each distinct block with its own row number and attributes. Do not duplicate page-overlap rows or add headings, subtotals, or totals as products.
 Each item must have these keys:
 product_code: numeric/string product code from the same product block, otherwise empty string,
 pdf_row_number: row number shown for the same product block, otherwise empty string,

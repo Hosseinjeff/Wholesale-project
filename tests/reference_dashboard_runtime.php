@@ -56,7 +56,9 @@ $ai_case=['case_id'=>'ai:' . str_repeat('d',64),'offer_id'=>'runtime-ai-offer:1'
 $reference_snapshot=['snapshot_id'=>str_repeat('a',64),'extracted_at'=>'2026-10-28T10:00:00+00:00',
     'row_count'=>1,'pdf_sha256'=>str_repeat('b',64),'model'=>'gemini-3.1-flash-lite',
     'source_url'=>'https://rezvanpakhsh.com/pdf/price-list.pdf','reviewed_by'=>null,
-    'review_note'=>null,'active'=>false];
+    'review_note'=>null,'active'=>false,'preview'=>[['product_name'=>'نمونه زنده',
+        'product_code'=>'REF-1','package_price'=>120000,'unit_price'=>10000,
+        'consumer_unit_price'=>'','package_count'=>12,'unit_label'=>'عدد','pdf_row_number'=>'1']]];
 $operations_snapshot=['actionable_count'=>2,'attention_count'=>1,
     'by_state'=>['queued'=>1,'needs_review'=>1],'publication_holds'=>1,'sheet_conflicts'=>2,
     'items'=>[['id'=>'batch:runtime-1','kind'=>'batch','state'=>'needs_review','attempts'=>2,
@@ -264,8 +266,9 @@ ref_assert(strpos($snapshot_html,substr($reference_snapshot['snapshot_id'],0,12)
     && strpos($snapshot_html,'_wpnonce')!==false,
     'PDF/Gemini snapshot review appears in private Woo admin with nonce-bound actions');
 ref_assert(strpos($snapshot_html,'تعداد ردیف: 1')!==false
+    && strpos($snapshot_html,'نمونه زنده')!==false
     && strpos($snapshot_html,MOLAVI_REFERENCE_BRIDGE_TOKEN)===false,
-    'reference candidate displays coverage metadata without exposing the bridge token');
+    'reference candidate shows sample price rows without exposing the bridge token');
 $snapshot_review=['action'=>'review','snapshot_id'=>$reference_snapshot['snapshot_id'],
     'note'=>'Reviewed coverage and sample prices','expected_active_id'=>null];
 $http_mode='snapshot_bad_receipt'; ref_assert(is_wp_error(molavi_reference_snapshots_request('POST',$snapshot_review)),

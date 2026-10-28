@@ -82,6 +82,22 @@ function molavi_reference_snapshots_screen(): void {
             . 'مدل: ' . (string)($snapshot['model'] ?? '')) . '</p>';
         echo '<p>' . esc_html('هش PDF: ' . substr((string)($snapshot['pdf_sha256'] ?? ''),0,16)
             . ' · وضعیت: ' . (!empty($snapshot['active']) ? 'فعال' : (!empty($snapshot['reviewed_by']) ? 'بررسی‌شده' : 'در انتظار بررسی'))) . '</p>';
+        $preview=is_array($snapshot['preview'] ?? null) ? array_slice($snapshot['preview'],0,8) : [];
+        if ($preview!==[]) {
+            echo '<h3>' . esc_html('نمونه ردیف‌های استخراج‌شده') . '</h3><ul>';
+            foreach ($preview as $item) {
+                if (!is_array($item)) { continue; }
+                $line=(string)($item['product_name'] ?? '') . ' · '
+                    . 'قیمت بسته: ' . (string)($item['package_price'] ?? '') . ' · '
+                    . 'قیمت واحد: ' . (string)($item['unit_price'] ?? '') . ' · '
+                    . 'تعداد بسته: ' . (string)($item['package_count'] ?? '') . ' '
+                    . (string)($item['unit_label'] ?? '') . ' · '
+                    . 'کد: ' . (string)($item['product_code'] ?? '') . ' · '
+                    . 'ردیف PDF: ' . (string)($item['pdf_row_number'] ?? '');
+                echo '<li>' . esc_html($line) . '</li>';
+            }
+            echo '</ul>';
+        }
         if (!empty($snapshot['reviewed_by'])) {
             echo '<p>' . esc_html('بررسی مالک: ' . (string)$snapshot['reviewed_by'] . ' · '
                 . (string)($snapshot['review_note'] ?? '')) . '</p>';

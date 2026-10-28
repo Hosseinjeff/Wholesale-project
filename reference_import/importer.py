@@ -111,8 +111,11 @@ def parse_rows(ai_text, timestamp):
             consumer = retail
         code = str(item.get('product_code') or '').strip()
         key = normalize_name(clean)
-        identity = ('code', code) if code else ('attributes', key, str(count),
-                    *(str(item.get(k) or '') for k in ('brand', 'variant', 'volume', 'weight')))
+        attributes=(key,str(count),str(set_count),str(item.get('unit_label') or ''),
+                    *(str(item.get(k) or '') for k in ('brand','variant','volume','weight')))
+        # A supplier code can cover distinct pack sizes/variants; use it as one
+        # identity component instead of treating it as globally unique.
+        identity=('code',code,*attributes) if code else ('attributes',*attributes)
         if identity in seen:
             raise ImportFailure('Duplicate reference identity', code='extraction_duplicate_identity')
         seen.add(identity)
