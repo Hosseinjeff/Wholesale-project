@@ -85,6 +85,17 @@ class ReferenceImportTests(unittest.TestCase):
         with self.assertRaises(ImportFailure):
             extract_pdf(self.session(), 'key', 'model', max_pdf_bytes=2)
 
+    def test_gemini_http_failure_exposes_only_safe_error_category(self):
+        session=self.session()
+        session.post.return_value.status_code=400
+        session.post.return_value.json.return_value={'error':{
+            'status':'INVALID_ARGUMENT','message':'API key not valid: secret-detail',
+            'details':[{'reason':'API_KEY_INVALID'}]}}
+        with self.assertRaises(ImportFailure) as caught:
+            extract_pdf(session,'synthetic-key','explicit-model')
+        self.assertEqual(caught.exception.code,'gemini_key_invalid')
+        self.assertNotIn('secret-detail',str(caught.exception))
+
     def test_atomic_candidate_does_not_overwrite(self):
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory) / 'candidate.json'

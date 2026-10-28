@@ -42,6 +42,29 @@ def normalize_name(value):
     return re.sub(r'\s+', ' ', re.sub(r'[^\w\s]', ' ', text)).strip().lower()
 
 
+def _gemini_http_error_code(response):
+    status_code=getattr(response,'status_code',0)
+    code=f'gemini_http_{status_code}' if isinstance(status_code,int) and 100<=status_code<=599 else 'gemini_http_error'
+    try:
+        error=response.json().get('error',{})
+        status=str(error.get('status') or '').upper()
+        message=str(error.get('message') or '').lower()
+        reasons={str(item.get('reason') or '').upper() for item in error.get('details',[])
+                 if isinstance(item,dict)}
+    except (AttributeError,TypeError,ValueError):
+        return code
+    if ('API_KEY_INVALID' in reasons or 'API_KEY_INVALID' in status
+            or ('api key' in message and ('invalid' in message or 'not valid' in message))):
+        return 'gemini_key_invalid'
+    mapped={'RESOURCE_EXHAUSTED':'gemini_rate_limited','PERMISSION_DENIED':'gemini_permission_denied',
+        'NOT_FOUND':'gemini_model_not_found','INVALID_ARGUMENT':'gemini_invalid_argument',
+        'FAILED_PRECONDITION':'gemini_precondition_failed'}
+    for reason in reasons:
+        if reason in {'API_KEY_SERVICE_BLOCKED','SERVICE_DISABLED'}:
+            return 'gemini_service_disabled'
+    return mapped.get(status,code)
+
+
 def parse_rows(ai_text, timestamp):
     """Fail the whole candidate on invalid rows; never silently drop a product."""
     try:
@@ -133,7 +156,7 @@ def extract_pdf(session, api_key=None, model=None, *, max_pdf_bytes=15_000_000):
             'mime_type': 'application/pdf', 'data': base64.b64encode(pdf).decode()}}]}],
               'generationConfig': {'temperature': 0, 'responseMimeType': 'application/json'}})
     if response.status_code != 200:
-        raise ImportFailure('Gemini request failed', code=f'gemini_http_{response.status_code}')
+        raise ImportFailure('Gemini request failed', code=_gemini_http_error_code(response))
     try:
         candidates = response.json()['candidates']
         if len(candidates) != 1 or candidates[0].get('finishReason') != 'STOP':
