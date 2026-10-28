@@ -10,6 +10,15 @@ is staged, with no active snapshot and no `ReferencePrices` write. Owner review 
 explicit activation remain required. No customer order or payment occurred. Railway's
 free-plan sleep setting can pause scheduled work while the service is idle.
 
+**WordPress storefront incident — 2026-10-29 (Asia/Tehran):** both
+`molavisale.ir` and `www.molavisale.ir` return a PHP fatal error in
+`wp-blog-header.php` (`Call to undefined function wp()`). The production
+`public_html/wp-config.php` is zero bytes; the Railway backend remains healthy. The
+accessible cPanel account has no backup feature and its `wordpress-backups` directory is
+empty. The database remains listed, but no database password/table prefix or prior config
+copy is available in the configured credentials. Restore the original config from the
+hosting provider before using the WordPress dashboard; do not reconstruct it from guesses.
+
 | Handoff | Evidence and readiness |
 |---|---|
 | Supplier → bot/server | Production has a persistent SQLite volume and supervised web/worker processes. The 60-second Products/Shop polling worker starts; a verified bilateral edit/reconciliation receipt is still outstanding. |
@@ -35,10 +44,10 @@ not proof of failure of the deployed server's sheet credentials.
 
 ## Remaining work before a release-ready verdict
 
-1. Review the staged 10-row candidate in WooCommerce → Reference Prices, including
-   product identity, package sizes and unit/package prices. Activate only after owner
-   approval, then verify the resulting `ReferencePrices` projection and record its
-   receipt. If review finds a questionable item, correct or hold it before activation.
+1. Restore `public_html/wp-config.php` from a hosting backup and verify the storefront,
+   WordPress admin and Woo dashboard. Then review the staged 10-row candidate in
+   WooCommerce → Reference Prices, including product identity, package sizes and prices.
+   Activate only after owner approval and verify the `ReferencePrices` projection.
 2. Validate the polling worker and bidirectional Products-sheet reconciliation on
    the connected staging Sheet, including direct edits without a supplier post,
    invalid cells, row moves, freshness invalidation and WordPress publication cadence.

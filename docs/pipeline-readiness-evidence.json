@@ -1,6 +1,6 @@
 {
-  "date": "2026-10-28",
-  "mode": "live read-only verification plus one owner-authorized candidate refresh; no activation/projection/order/payment",
+  "date": "2026-10-29",
+  "mode": "live read-only outage diagnosis; no site or database changes",
   "results": {
     "health": {
       "http": 200,
@@ -37,7 +37,7 @@
     }
   },
   "sheets_note": "Direct executor read could not parse configured service-account data; this does not establish a failure of the deployed server credentials. Server independently reports service_account writer and returns catalog data.",
-  "limits": "The original read-only probe above remains historical evidence. The current service has no isolated staging environment; its scheduled worker can sleep on the free plan. Live Sheets row reconciliation, ReferencePrices projection, checkout/payment and the complete supplier-to-aftercare stream remain unverified.",
+  "limits": "The live reference sample is staged but WordPress owner review is currently blocked by a zero-byte wp-config.php. cPanel backups are unavailable. Restore a known-good config before review; connected Sheets row reconciliation, ReferencePrices projection, checkout/payment and the full supplier-to-aftercare stream remain unverified. The Railway worker can sleep on the free plan.",
   "latest_deployment_checkpoint": {
     "date": "2026-10-28",
     "project": "stellar-solace",
@@ -86,10 +86,31 @@
     "customer_orders_or_payments": false,
     "followup_bot_changed": false,
     "bridge_secret_stored_outside_git": true,
-    "wordpress_runtime_config_path": "wp-content/plugins/molavi-shop/includes/runtime-config.php"
+    "wordpress_runtime_config_path": "wp-content/plugins/molavi-shop/includes/runtime-config.php",
+    "wordpress_config_modified": false,
+    "wordpress_database_modified": false
   },
   "latest_local_validation": {
     "python_tests": 246,
     "wordpress_woocommerce_runtime_assertions": 100
+  },
+  "live_wordpress_site": {
+    "date": "2026-10-29",
+    "domains": [
+      "https://molavisale.ir/",
+      "https://www.molavisale.ir/"
+    ],
+    "http_status": 200,
+    "response": "PHP fatal: Call to undefined function wp() at /home/h434558/public_html/wp-blog-header.php:16",
+    "root_config_path": "public_html/wp-config.php",
+    "root_config_bytes": 0,
+    "root_config_mtime_utc": "2026-10-28T19:50:21+00:00",
+    "cPanel_backup_feature_available": false,
+    "account_wordpress_backups_directory_empty": true,
+    "database_listed": true,
+    "database_password_or_table_prefix_available": false,
+    "railway_backend_health_http": 200,
+    "repair_performed": false,
+    "reason": "No authoritative config backup or database credentials available; guessing would risk site data/access."
   }
 }

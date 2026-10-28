@@ -12,6 +12,12 @@ active snapshot remains null and no `ReferencePrices` write has occurred. The de
 preview file matches the tested local file byte-for-byte. The plugin's remote admin page
 and active-plugin/browser interactions still need a visual live UI check.
 
+**Current outage (2026-10-29, Asia/Tehran):** the public WordPress entry point now fails
+before plugins load because `public_html/wp-config.php` is zero bytes. The Railway API
+and staged candidate remain available, but Woo admin review cannot be reached until the
+hosting provider restores the original config. The accessible cPanel account exposes no
+backup feature or saved copy; database credentials are not present in the environment.
+
 Confirmed: owner decisions belong in the private WordPress dashboard, integrated with
 current WordPress functionality/plugins. Not Telegram as the decision surface.
 

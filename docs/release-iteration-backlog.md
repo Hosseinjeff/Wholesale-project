@@ -8,6 +8,11 @@ activation and the `ReferencePrices` projection are pending. This file distingui
 incomplete release connections from
 optional business settings; mockup v2 remains unapproved and no credentials are stored.
 
+**Blocking production incident — 2026-10-29:** the WordPress site currently fails during
+bootstrap because its root `wp-config.php` is zero bytes. The Railway API is healthy and
+the live reference candidate is preserved, but dashboard review and the rest of the live
+site workflow wait on restoring that file from a host backup or a known-good copy.
+
 ## Cross-cutting requirement — current site plugins (D-032)
 
 Coordinate with the actual active WordPress plugins/configuration, including

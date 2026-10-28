@@ -1,6 +1,6 @@
 # Whole-flow handoff implementation record — 2026-10-26 onward (Asia/Tehran)
 
-## Latest production checkpoint — 2026-10-28
+## Latest production checkpoint — 2026-10-29
 
 The user authorized whole-plan deployment. Commit
 `e531b37dbe2f24d4651f0a3578fee863f0de4b96` is deployed successfully to
@@ -18,6 +18,13 @@ Prices, then explicitly approve activation and verify the projection. The servic
 a free plan with sleep enabled, and no separate Railway staging environment exists.
 Local verification passes 246 Python tests and 100 disposable WordPress/WooCommerce
 runtime assertions; the full connected stream is not signed off.
+
+The public WordPress storefront is currently broken: both apex and `www` return a PHP
+fatal error because `public_html/wp-config.php` is zero bytes. Railway remains healthy
+and the staged reference candidate persists on `/data`, but the owner cannot review it
+until the original config is restored. cPanel backups are unavailable on this account;
+the host or an owner-supplied prior config is needed. Do not invent DB credentials or
+change database access as part of this recovery.
 
 The section below is the historical local implementation record; no production change
 or end-to-end validation was claimed at its original checkpoint.
