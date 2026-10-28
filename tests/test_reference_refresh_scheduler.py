@@ -4,7 +4,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from reference_import.importer import SOURCE_URL, parse_rows
+from reference_import.importer import ImportFailure, SOURCE_URL, parse_rows
 from reference_import.refresh_scheduler import ReferenceRefreshScheduler
 from reference_import.snapshots import ReferenceStore
 
@@ -38,14 +38,33 @@ class ReferenceRefreshSchedulerTests(unittest.TestCase):
         self.assertEqual(next_run['state'],'staged')
 
     def test_each_refresh_failure_opens_durable_owner_incident(self):
-        failure=self.scheduler.run_if_due(lambda:(_ for _ in ()).throw(RuntimeError('private detail')),
+        failure=self.scheduler.run_if_due(lambda:(_ for _ in ()).throw(
+            ImportFailure('private detail',code='gemini_http_403')),
             now=self.now)
         self.assertEqual(failure['state'],'failed')
-        self.assertEqual(failure['error_code'],'RuntimeError')
+        self.assertEqual(failure['error_code'],'gemini_http_403')
         events=self.scheduler.store.pending()
         self.assertEqual(events[0]['reason'],'refresh_failed')
         self.assertTrue(events[0]['event_id'].startswith('refresh:'))
         self.assertNotIn('private detail',json.dumps(events))
+        self.assertNotIn('private detail',json.dumps(self.scheduler.state()))
+
+    def test_owner_retry_bypasses_daily_interval_after_failure_with_cooldown(self):
+        self.scheduler.run_if_due(lambda:(_ for _ in ()).throw(
+            ImportFailure('private detail',code='gemini_http_403')),now=self.now)
+        early=self.scheduler.run_if_due(lambda:candidate(self.now+timedelta(seconds=30)),
+            now=self.now+timedelta(seconds=30),force=True)
+        self.assertEqual(early['state'],'cooldown')
+        retry=self.scheduler.run_if_due(lambda:candidate(self.now+timedelta(seconds=61)),
+            now=self.now+timedelta(seconds=61),force=True)
+        self.assertEqual(retry['state'],'staged')
+
+    def test_owner_retry_cannot_replace_a_staged_candidate(self):
+        first=self.scheduler.run_if_due(lambda:candidate(self.now),now=self.now)
+        retry=self.scheduler.run_if_due(lambda:candidate(self.now+timedelta(minutes=2)),
+            now=self.now+timedelta(minutes=2),force=True)
+        self.assertEqual(retry['state'],'not_due')
+        self.assertEqual(self.scheduler.store.snapshots()['snapshots'][0]['snapshot_id'],first['snapshot_id'])
 
     def test_worker_crash_is_recorded_before_recovery_attempt(self):
         with self.scheduler._connect() as db:

@@ -155,13 +155,24 @@ add_filter('pre_http_request', static function ($pre, $args, $url) use (&$http_m
     if (str_ends_with($url, '/reference/snapshots')) {
         $payload=json_decode($args['body'] ?? '{}',true);
         if ($args['method']==='POST') {
-            $body=['ok'=>true,'action'=>$payload['action'],'snapshot_id'=>$payload['snapshot_id']];
-            if ($payload['action']==='review') { $body['reviewed_by']='wp:' . $GLOBALS['current_user']->ID; }
-            else { $body += ['active_snapshot_id'=>$payload['snapshot_id'],'projection_state'=>'written','row_count'=>1]; }
-            if ($http_mode==='snapshot_bad_receipt') { $body['snapshot_id']=str_repeat('c',64); }
+            if (($payload['action'] ?? '')==='refresh') {
+                $body=['ok'=>true,'action'=>'refresh','state'=>'failed',
+                    'last_attempt_at'=>$payload['expected_last_attempt_at'] ?? '2026-10-28T10:00:00+00:00',
+                    'error_code'=>'gemini_http_404'];
+                if ($http_mode==='snapshot_bad_receipt') { $body['state']='unknown'; }
+            } else {
+                $body=['ok'=>true,'action'=>$payload['action'],'snapshot_id'=>$payload['snapshot_id']];
+                if ($payload['action']==='review') { $body['reviewed_by']='wp:' . $GLOBALS['current_user']->ID; }
+                else { $body += ['active_snapshot_id'=>$payload['snapshot_id'],'projection_state'=>'written','row_count'=>1]; }
+                if ($http_mode==='snapshot_bad_receipt') { $body['snapshot_id']=str_repeat('c',64); }
+            }
         } else {
             $body=['ok'=>true,'active_snapshot_id'=>null,'snapshots'=>[$reference_snapshot],
                 'refresh_state'=>['state'=>'staged','last_attempt_at'=>'2026-10-28T10:00:00+00:00']];
+            if ($http_mode==='snapshot_refresh_failed') {
+                $body['refresh_state']=['state'=>'failed','last_attempt_at'=>'2026-10-28T10:00:00+00:00',
+                    'error_code'=>'gemini_http_404'];
+            }
         }
         if ($http_mode==='offline') { return new WP_Error('timeout','synthetic timeout'); }
         return ['headers'=>[], 'body'=>wp_json_encode($body), 'response'=>['code'=>200,'message'=>'OK'], 'cookies'=>[]];
@@ -265,6 +276,16 @@ $snapshot_activate=['action'=>'activate','snapshot_id'=>$reference_snapshot['sna
     'expected_active_id'=>null];
 ref_assert(!is_wp_error(molavi_reference_snapshots_request('POST',$snapshot_activate)),
     'activation requires a matching ReferencePrices row receipt');
+$snapshot_refresh=['action'=>'refresh','expected_last_attempt_at'=>'2026-10-28T10:00:00+00:00'];
+$http_mode='accepted'; ref_assert(!is_wp_error(molavi_reference_snapshots_request('POST',$snapshot_refresh)),
+    'manual reference retry accepts only a matching owner receipt');
+$http_mode='snapshot_bad_receipt'; ref_assert(is_wp_error(molavi_reference_snapshots_request('POST',$snapshot_refresh)),
+    'manual reference retry rejects an invalid server receipt');
+$http_mode='snapshot_refresh_failed'; ob_start(); molavi_reference_snapshots_screen(); $failed_snapshot_html=ob_get_clean();
+ref_assert(strpos($failed_snapshot_html,'gemini_http_404')!==false
+    && strpos($failed_snapshot_html,'تلاش دوباره برای دریافت و بررسی PDF')!==false
+    && strpos($failed_snapshot_html,'_wpnonce')!==false,
+    'failed PDF/Gemini refresh exposes safe error code and nonce-bound owner retry');
 $http_mode='queue';
 $http_mode='offline';
 add_filter('wp_die_handler', static function () { return static function () { throw new RuntimeException('wp_die'); }; });

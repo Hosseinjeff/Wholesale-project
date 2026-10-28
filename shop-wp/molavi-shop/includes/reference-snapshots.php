@@ -11,7 +11,8 @@ function molavi_reference_snapshots_request(string $method, ?array $payload = nu
         || wp_parse_url($base,PHP_URL_SCHEME)!=='https') {
         return new WP_Error('config','اتصال تازه‌سازی فهرست مرجع تنظیم نشده است.');
     }
-    $args=['method'=>$method,'timeout'=>30,'redirection'=>0,
+    $timeout=$method==='POST' && ($payload['action'] ?? '')==='refresh' ? 150 : 30;
+    $args=['method'=>$method,'timeout'=>$timeout,'redirection'=>0,
         'headers'=>['X-Molavi-Reference-Token'=>$token,
             'X-Molavi-Actor'=>'wp:' . get_current_user_id(),'Content-Type'=>'application/json']];
     if ($payload!==null) { $args['body']=wp_json_encode($payload); }
@@ -26,7 +27,13 @@ function molavi_reference_snapshots_request(string $method, ?array $payload = nu
         || !(is_null($body['refresh_state'] ?? null) || is_array($body['refresh_state'])))) {
         return new WP_Error('receipt','وضعیت فهرست مرجع معتبر نیست.');
     }
-    if ($method==='POST' && ($payload===null
+    if ($method==='POST' && ($payload['action'] ?? '')==='refresh') {
+        if (($body['action'] ?? null)!=='refresh'
+            || !in_array($body['state'] ?? '',['staged','failed'],true)
+            || !is_string($body['last_attempt_at'] ?? null)) {
+            return new WP_Error('receipt','رسید تلاش تازه‌سازی معتبر نیست.');
+        }
+    } elseif ($method==='POST' && ($payload===null
         || ($body['action'] ?? null)!==$payload['action']
         || ($body['snapshot_id'] ?? null)!==$payload['snapshot_id'])) {
         return new WP_Error('receipt','رسید سرور با نسخه انتخاب‌شده مطابقت ندارد.');
@@ -57,7 +64,11 @@ function molavi_reference_snapshots_screen(): void {
     $refresh=$result['refresh_state'];
     if (is_array($refresh)) {
         echo '<p>' . esc_html('وضعیت آخرین تلاش: ' . (string)($refresh['state'] ?? 'نامشخص') . ' · '
-            . (string)($refresh['last_attempt_at'] ?? 'هنوز اجرا نشده')) . '</p>';
+            . (string)($refresh['last_attempt_at'] ?? 'هنوز اجرا نشده')
+            . (!empty($refresh['error_code']) ? ' · کد خطا: ' . (string)$refresh['error_code'] : '')) . '</p>';
+        if (($refresh['state'] ?? '')==='failed') {
+            molavi_reference_snapshot_refresh_form((string)($refresh['last_attempt_at'] ?? ''));
+        }
     }
     $snapshots=$result['snapshots'];
     if ($snapshots===[]) { echo '<p>' . esc_html('نسخه استخراج‌شده‌ای در انتظار بررسی نیست.') . '</p>'; }
@@ -85,6 +96,16 @@ function molavi_reference_snapshots_screen(): void {
     echo '</div>';
 }
 
+function molavi_reference_snapshot_refresh_form(string $lastAttempt): void {
+    echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
+    wp_nonce_field('molavi_reference_snapshot:refresh:' . $lastAttempt);
+    echo '<input type="hidden" name="action" value="molavi_reference_snapshot_choice">';
+    echo '<input type="hidden" name="choice" value="refresh">';
+    echo '<input type="hidden" name="expected_last_attempt_at" value="' . esc_attr($lastAttempt) . '">';
+    echo '<button class="button" type="submit">' . esc_html('تلاش دوباره برای دریافت و بررسی PDF') . '</button>';
+    echo '</form>';
+}
+
 function molavi_reference_snapshot_form(string $snapshotId,string $choice,?string $activeId): void {
     echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
     wp_nonce_field('molavi_reference_snapshot:' . $snapshotId . ':' . $choice);
@@ -105,10 +126,24 @@ function molavi_reference_snapshot_form(string $snapshotId,string $choice,?strin
 add_action('admin_post_molavi_reference_snapshot_choice', static function (): void {
     if (!molavi_reference_owner()) { wp_die('دسترسی مجاز نیست.','',['response'=>403]); }
     if (($_SERVER['REQUEST_METHOD'] ?? '')!=='POST') { wp_die('درخواست نامعتبر است.','',['response'=>405]); }
+    $choice=isset($_POST['choice']) && is_string($_POST['choice']) ? wp_unslash($_POST['choice']) : '';
+    if ($choice==='refresh') {
+        if (!isset($_POST['expected_last_attempt_at']) || !is_string($_POST['expected_last_attempt_at'])) {
+            wp_die('وضعیت تلاش نامعتبر است.','',['response'=>400]);
+        }
+        $expectedLast=wp_unslash($_POST['expected_last_attempt_at']);
+        if (strlen($expectedLast)>80) { wp_die('وضعیت تلاش نامعتبر است.','',['response'=>400]); }
+        check_admin_referer('molavi_reference_snapshot:refresh:' . $expectedLast);
+        $result=molavi_reference_snapshots_request('POST',[
+            'action'=>'refresh','expected_last_attempt_at'=>$expectedLast===''?null:$expectedLast]);
+        if (is_wp_error($result)) { wp_die(esc_html($result->get_error_message()),'',['response'=>503]); }
+        wp_safe_redirect(admin_url('admin.php?page=molavi-reference-snapshots&saved=1'));
+        exit;
+    }
     foreach (['choice','snapshot_id','expected_active_id'] as $field) {
         if (!isset($_POST[$field]) || !is_string($_POST[$field])) { wp_die('درخواست نامعتبر است.','',['response'=>400]); }
     }
-    $choice=wp_unslash($_POST['choice']);$snapshotId=wp_unslash($_POST['snapshot_id']);
+    $snapshotId=wp_unslash($_POST['snapshot_id']);
     if (!in_array($choice,['review','activate'],true) || !preg_match('/^[a-f0-9]{64}$/',$snapshotId)) {
         wp_die('انتخاب نسخه نامعتبر است.','',['response'=>400]);
     }

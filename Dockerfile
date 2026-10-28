@@ -8,6 +8,7 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     MALLOC_ARENA_MAX=2 \
     MALLOC_TRIM_THRESHOLD_=131072 \
+    HOME=/home/app \
     PORT=8080
 
 # Create app directory

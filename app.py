@@ -1355,8 +1355,36 @@ def reference_snapshots_route():
             response.headers['Cache-Control']='no-store'
             return response
         body=request.get_json(silent=True)
-        if not isinstance(body,dict) or body.get('action') not in {'review','activate'}:
+        if not isinstance(body,dict) or body.get('action') not in {'review','activate','refresh'}:
             return jsonify({'ok':False,'error':'invalid_body'}),400
+        if body.get('action')=='refresh':
+            if set(body)!={'action','expected_last_attempt_at'}:
+                return jsonify({'ok':False,'error':'invalid_body'}),400
+            expected_last=body.get('expected_last_attempt_at')
+            if expected_last is not None and (not isinstance(expected_last,str) or len(expected_last)>80):
+                return jsonify({'ok':False,'error':'invalid_fields'}),400
+            from reference_import.refresh_scheduler import ReferenceRefreshScheduler
+            interval=int(os.getenv('REFERENCE_REFRESH_INTERVAL_HOURS','24'))*3600
+            scheduler=ReferenceRefreshScheduler(path,owner_ids=owners,interval_seconds=interval)
+            current=scheduler.state() or {}
+            if expected_last!=current.get('last_attempt_at'):
+                return jsonify({'ok':False,'error':'refresh_state_changed'}),409
+            outcome=scheduler.run_if_due(force=True)
+            if outcome.get('state')=='cooldown':
+                return jsonify({'ok':False,'error':'refresh_cooldown',
+                    'retry_after_seconds':outcome.get('retry_after_seconds')}),429
+            if outcome.get('state')=='not_due':
+                return jsonify({'ok':False,'error':'refresh_not_retryable'}),409
+            state=scheduler.state() or {}
+            result={'ok':True,'action':'refresh','state':state.get('state'),
+                'last_attempt_at':state.get('last_attempt_at'),'error_code':state.get('error_code')}
+            if state.get('snapshot_id'):
+                result['snapshot_id']=state['snapshot_id']
+            if outcome.get('row_count'):
+                result['row_count']=outcome['row_count']
+            response=jsonify(result)
+            response.headers['Cache-Control']='no-store'
+            return response
         expected_keys=({'action','snapshot_id','note','expected_active_id'}
                        if body.get('action')=='review' else {'action','snapshot_id','expected_active_id'})
         if set(body)!=expected_keys:

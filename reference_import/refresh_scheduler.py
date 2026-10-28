@@ -50,7 +50,7 @@ class ReferenceRefreshScheduler:
             row=db.execute('SELECT * FROM reference_refresh_state WHERE singleton=1').fetchone()
         return dict(row) if row else None
 
-    def run_if_due(self, refresh=None, *, now=None):
+    def run_if_due(self, refresh=None, *, now=None, force=False):
         now=now or datetime.now(timezone.utc)
         if now.tzinfo is None:
             raise ValueError('Timezone-aware refresh clock required')
@@ -59,12 +59,23 @@ class ReferenceRefreshScheduler:
             last=previous.get('last_attempt_at')
             running_crash=previous.get('state')=='running'
             due=True
+            elapsed=self.interval_seconds
             if last and not running_crash:
                 try:
                     elapsed=(now-datetime.fromisoformat(last)).total_seconds()
                     due=elapsed>=self.interval_seconds
                 except (TypeError,ValueError):
+                    elapsed=self.interval_seconds
                     due=True
+            if force:
+                if previous.get('state') not in (None, 'failed', 'running'):
+                    due = False
+                else:
+                    due = True
+                    if last and not running_crash:
+                        retry_wait = max(0, 60 - int(elapsed))
+                        if retry_wait:
+                            return {'state':'cooldown','retry_after_seconds':retry_wait}
             if not due:
                 return {'state':'not_due','next_check_seconds':max(0,self.interval_seconds-int(elapsed))}
             if running_crash and previous.get('occurrence_id'):
@@ -84,10 +95,14 @@ class ReferenceRefreshScheduler:
                         'row_count':candidate.get('row_count')}
             except Exception as exc:
                 self.store.record_refresh_failure(occurrence)
+                error_code = getattr(exc, 'code', None) or type(exc).__name__
+                if not isinstance(error_code, str) or not error_code.replace('_','').isalnum():
+                    error_code = 'refresh_failed'
+                error_code = error_code[:80]
                 with self._connect() as db:
                     db.execute('''UPDATE reference_refresh_state SET state='failed',error_code=?
-                        WHERE singleton=1 AND occurrence_id=?''',(type(exc).__name__,occurrence))
-                return {'state':'failed','occurrence_id':occurrence,'error_code':type(exc).__name__}
+                        WHERE singleton=1 AND occurrence_id=?''',(error_code,occurrence))
+                return {'state':'failed','occurrence_id':occurrence,'error_code':error_code}
 
     @staticmethod
     def _refresh_pdf():

@@ -2,14 +2,15 @@ import json
 import os
 import tempfile
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
 from catalog.sync import MemoryStore
-from reference_import.importer import SOURCE_URL, HEADERS, parse_rows
+from reference_import.importer import ImportFailure, SOURCE_URL, HEADERS, parse_rows
 from reference_import.projection import project_reference_prices
 from reference_import.snapshots import ReferenceStore
+from reference_import.refresh_scheduler import ReferenceRefreshScheduler
 
 
 def staged_candidate():
@@ -23,6 +24,32 @@ def staged_candidate():
 
 
 class ReferenceSnapshotRouteTests(unittest.TestCase):
+    def test_owner_can_retry_failed_refresh_without_activating_or_replaying_stale_state(self):
+        from importlib import import_module
+        server=import_module('app')
+        with tempfile.TemporaryDirectory() as tmp:
+            path=str(Path(tmp)/'reference.sqlite')
+            scheduler=ReferenceRefreshScheduler(path,owner_ids=['wp:7'])
+            now=datetime.now(timezone.utc)
+            failure=scheduler.run_if_due(lambda:(_ for _ in ()).throw(
+                ImportFailure('private response detail',code='gemini_http_404')),
+                now=now-timedelta(minutes=2))
+            self.assertEqual(failure['error_code'],'gemini_http_404')
+            payload={'action':'refresh','expected_last_attempt_at':scheduler.state()['last_attempt_at']}
+            with patch.dict(os.environ,{'REFERENCE_STORE_PATH':path,'REFERENCE_BRIDGE_TOKEN':'z'*40,
+                    'REFERENCE_OWNER_IDS':'wp:7','REFERENCE_REFRESH_INTERVAL_HOURS':'24'}), \
+                    patch.object(ReferenceRefreshScheduler,'_refresh_pdf',return_value=staged_candidate()), \
+                    patch.object(server,'ensure_telegram_webhook',return_value=None):
+                client=server.app.test_client()
+                headers={'X-Molavi-Reference-Token':'z'*40,'X-Molavi-Actor':'wp:7'}
+                result=client.post('/reference/snapshots',json=payload,headers=headers)
+                self.assertEqual(result.status_code,200,result.get_json())
+                self.assertEqual(result.get_json()['state'],'staged')
+                self.assertEqual(result.get_json()['row_count'],1)
+                self.assertIsNone(ReferenceStore(path,owner_ids=['wp:7']).active_snapshot())
+                conflict=client.post('/reference/snapshots',json=payload,headers=headers)
+                self.assertEqual(conflict.status_code,409)
+
     def test_projection_replaces_shorter_snapshot_and_clears_old_managed_rows(self):
         rows=parse_rows(json.dumps([{'raw_name':'New reference','clean_name':'New reference',
             'package_price':100000,'package_count':1,'unit_price':100000,
