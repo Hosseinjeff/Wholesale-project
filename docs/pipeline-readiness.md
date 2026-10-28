@@ -1,100 +1,83 @@
-# Whole-pipeline readiness — 2026-10-28
+# Whole-pipeline readiness — 2026-10-29
 
-**Result: a live Rezvan → Gemini candidate is staged for owner review.** Production
-commit `e531b37dbe2f24d4651f0a3578fee863f0de4b96` is healthy at
-`wholesale-project-production.up.railway.app`; the 500 MB `/data` volume is mounted and
-both supervised processes start. The owner-authorized refresh extracted 10 rows from
-the real Rezvan PDF using `gemini-3.1-flash-lite`; WooCommerce → Reference Prices shows
-an 8-row preview. Snapshot `3adf331cfe5877a05b0637774f8dbdb1e02422a1da1cc7437880f62893edcca4`
-is staged, with no active snapshot and no `ReferencePrices` write. Owner review and
-explicit activation remain required. No customer order or payment occurred. Railway's
-free-plan sleep setting can pause scheduled work while the service is idle.
+**State: the Railway service and protected Woo catalog sync are working; the customer
+release is still blocked by payment setup and the WordPress host's outbound network.**
+The latest `Wholesale-project` deployment is healthy, with one running replica, the
+500 MB `/data` volume, no staged Railway changes and no active service warnings. The
+production `/health`, `/health/detailed` and `/api/shop` routes return HTTP 200. The
+service-account reader returns the two current Products rows from Sheets. No customer
+order, charge, refund or supplier purchase was made.
 
-**WordPress storefront incident — 2026-10-29 (Asia/Tehran):** both
-`molavisale.ir` and `www.molavisale.ir` return a PHP fatal error in
-`wp-blog-header.php` (`Call to undefined function wp()`). The production
-`public_html/wp-config.php` is zero bytes; the Railway backend remains healthy. The
-accessible cPanel account has no backup feature and its `wordpress-backups` directory is
-empty. The only cPanel-listed database (`h434558_Salesman`) has no tables; the original
-config may have pointed to an external database. The only archive found is an Elementor
-Pro plugin zip, with no config or SQL backup. No database password/table prefix or prior
-config copy is available in the configured credentials. Restore the original config and
-its referenced database from the hosting provider; do not reconstruct from guesses or
-start a blank WordPress installation.
+## Fresh WordPress and live catalog
 
-| Handoff | Evidence and readiness |
+WordPress/WooCommerce runs on the user's fresh `h434558_Salesman` database. The
+document root backup remains at `/home/h434558/public_html_recovery_20261029`; legacy
+catalog, orders and media were not restored. The Shop page is WooCommerce page 7 and
+now contains the native `[products]` listing. The fresh Woo site is still in
+**Coming soon** mode, so visitors see its coming-soon page. The unapproved mockup was
+not published.
+
+Railway's Woo publish credential was rotated and matched on the private WordPress side.
+The authenticated `/shop/publish` call succeeded, updating the two existing products.
+Woo's public Store API now reports customer prices in toman (`IRT`): 73,320 and 71,850,
+with regular market prices of 85,000 and 75,000. Supplier costs remain in private
+product metadata; they no longer appear as the public Woo sale prices.
+
+A disposable guest-cart check confirmed the dynamic price and Tehran delivery rules:
+requesting one unit of the first product resolves to its six-unit minimum; the live
+cart priced each unit at 72,847 toman, goods subtotal 437,082, plus the configured
+250,000-toman delivery fee. A 100-unit test basket totalled 6,542,900 toman and got
+free delivery. Both carts were cleared. No order was submitted. Woo checkout reports
+no enabled payment methods, so the shop remains in Coming soon mode.
+
+## Whole-stream handoffs
+
+| Handoff | Current evidence and status |
 |---|---|
-| Supplier → bot/server | Production has a persistent SQLite volume and supervised web/worker processes. The 60-second Products/Shop polling worker starts; a verified bilateral edit/reconciliation receipt is still outstanding. |
-| Reference → extraction/review | Production fetched Rezvan's PDF and Gemini staged a 10-row candidate; the existing MolaviShop Woo owner page exposes the first 8 rows for review. The authenticated bridge is configured for WordPress user 3. Candidate review, explicit activation and connected `ReferencePrices` projection are still outstanding. |
-| Offers → pricing/catalog | Production server and MolaviShop files are deployed. The 7/14-day freshness gates, fixed-pack purchasing, lot reservations, audited inventory changes and clearance proposals have local tests; live catalog reconciliation and the clearance alert/price formula still need connected validation. |
-| Catalog → WordPress/basket | Updated files are installed in the existing MolaviShop plugin. Woo delivery uses 250,000 toman below the 5,000,000-toman goods threshold in local checks. Admin/browser compatibility and full checkout have not been replayed on the live site. |
-| Checkout → operator work | Owner dashboards cover stale-price review, reference refresh retry, publication recovery, Sheets conflicts and order follow-up. No production checkout or payment was run, and the installed payment callback remains unverified. |
-| Payment → fulfillment/follow-up | The complete paid-order workflow is implemented and synthetic-tested, but its inventory ledger is still SQLite-only and no real/test order or payment was submitted. |
-| Daily reconciliation/recovery | Persistent worker and owner review surfaces are live. Legacy/GAS writers can bypass the server locks, so migration cutover and whole-stream recovery remain open. |
+| Supplier → bot/server | Railway and its worker are online. The live Sheets-backed catalog returns two products. Row-level bilateral edits, conflict receipts and publication cadence still need connected verification. |
+| Reference → extraction/review | The real Rezvan PDF → Gemini path staged 10 rows in snapshot `3adf331cfe5877a05b0637774f8dbdb1e02422a1da1cc7437880f62893edcca4`. It is not active and has written nothing to `ReferencePrices`. Owner approval remains required. |
+| Offers → pricing/catalog | Woo now publishes the customer price band and keeps supplier cost private. Freshness gating and fixed-pack minimums are active. Clearance formula, near-cost alert behavior and connected recalculation still need review. |
+| Catalog → WordPress/basket | Two products are synced in IRT; dynamic cart price and Tehran fixed/free delivery were exercised without placing an order. Shop visibility remains Coming soon. |
+| Checkout → operator work | Woo reports no enabled payment methods. The dashboard pages load, but their authenticated server bridge cannot reach Railway from the CloudyLink PHP host. |
+| Payment → fulfillment/follow-up | Paid-order lifecycle is synthetic-tested. No live payment callback or order was run; inventory/workflow ledger remains on Railway SQLite and is not mirrored to Sheets. |
+| Daily reconciliation/recovery | The server worker and owner review surfaces exist. Bilateral Sheet edits and cutover of legacy/GAS writers remain unverified; legacy writers can bypass server locks. |
 
-## Previous read-only observations — 2026-10-25
+## Current external and owner gates
 
-Server health and detailed health: HTTP 200, version 2026-10-17-shop-publish.
-Server reports service_account sheet writer. Catalog endpoint returns 32 products.
-Public WooCommerce Store API responds 200. Telegram webhook reports no pending
-updates or last delivery error. These show the existing system is running.
+1. The live WordPress PHP host's `wp_remote_get` to
+   `https://wholesale-project-production.up.railway.app/health` returns
+   `http_request_failed`. The same endpoint responds from the managed workspace. The
+   owner reference dashboards therefore show a server-connection error. CloudyLink
+   needs to allow outbound HTTPS from the WordPress host to the Railway service
+   hostname (currently resolving to `69.46.46.40:443`), or provide a supported route.
+   This is a host-network restriction, not evidence that the separate
+   `REFERENCE_REFRESH_SERVER_URL` service exists or is required.
+2. Select and configure the full-prepayment gateway and its credentials/account
+   details. No Woo payment method is enabled, and the provider was not selected in the
+   saved plan. Keep the shop in Coming soon mode until checkout can collect the full
+   confirmed amount.
+3. Restore the WordPress-to-Railway owner bridge, review the staged reference sample,
+   and activate it only after owner approval and a matching `ReferencePrices` write
+   receipt.
+4. Verify live two-way Products-sheet reconciliation, conflict handling and Woo
+   publication with direct Sheet edits; then cut over legacy/GAS writers after a
+   guarded replay. This Railway project has no isolated staging environment.
+5. Mirror inventory/workflow ledgers to an owner-visible governed store, finish the
+   clearance and near-cost alert policy, and run the whole supplier-to-aftercare
+   roleplay after checkout and the owner screens work end to end.
 
-Detailed health calls its GAS connection unreachable. GAS is not the intended future
-runtime under D-007; that result alone must not block independent server work or
-be misrepresented as the complete system being down. Direct executor Sheets metadata
-read failed parsing configured service-account JSON. This is an executor check failure,
-not proof of failure of the deployed server's sheet credentials.
+The local Products-sheet path covers normalized non-provenance fields, preserves
+source evidence, blocks conflicted products and polls Sheet-only changes every 60
+seconds. Synthetic coverage is not evidence of connected reconciliation. The earlier
+source audits remain in `gas-migration-audit.md` and `recovered-gas-audit.md`; no broad
+historical audit was repeated. Mockup v2 remains unapproved and no roleplay scene is
+marked complete.
 
-## Remaining work before a release-ready verdict
+## Verification record
 
-1. Restore `public_html/wp-config.php` from a hosting backup and verify the storefront,
-   WordPress admin and Woo dashboard. Then review the staged 10-row candidate in
-   WooCommerce → Reference Prices, including product identity, package sizes and prices.
-   Activate only after owner approval and verify the `ReferencePrices` projection.
-2. Validate the polling worker and bidirectional Products-sheet reconciliation on
-   the connected staging Sheet, including direct edits without a supplier post,
-   invalid cells, row moves, freshness invalidation and WordPress publication cadence.
-   Google Sheets has no cross-system transaction; the local path uses fresh rereads
-   and records unresolved races for owner review.
-3. Mirror inventory/workflow ledgers to Sheets or another governed owner-visible
-   store. Approve the clearance curve and proximity threshold; connect recalculation
-   and owner alerts to live batch and market data before customer price integration.
-4. Verify installed payment callbacks and complete checkout, substitution/refund,
-   delivery, dispatch and aftercare in an isolated integrated staging environment.
-5. Cut over legacy/GAS writers after staging replay. The project has no isolated Railway
-   staging environment; the deployed service is on a sleep-enabled free plan. Mockup v2
-   remains unapproved.
-
-The local Products-sheet path covers all normalized non-provenance product fields,
-preserves source evidence, surfaces owner choices in WordPress, blocks conflicted
-products from quotes/publication and polls for Sheet-only changes every 60 seconds by
-default. Its synthetic tests do not prove live Sheet access or end-to-end staging readiness.
-Use gas-migration-audit.md and recovered-gas-audit.md for existing defect evidence;
-no broad historical audit was rerun here.
-
-## Working direction
-
-User clarified: prioritize the whole project, coordinate with existing WordPress
-plugins and continue implementation. The user explicitly authorized whole-plan
-deployment and the implementation is deployed to the existing production service. Do
-not label the incomplete live sample or local synthetic evidence as full-pipeline
-readiness. Preserve unresolved policy decisions in the backlog.
-No roleplay scene is marked complete until the integrated stream is validated.
-
-## Current deployment checkpoint — 2026-10-28
-
-The implementation includes field-level Sheets reconciliation,
-owner conflict review, reference item correction, category/history price-scale fallback,
-AI confirmation, scheduled PDF/Gemini candidate staging and the paid-order follow-up
-described in `pipeline-handoffs.md`. 246 offline Python tests and 100 disposable
-WordPress/WooCommerce assertions pass, including the owner operations dashboard,
-clearance proposals and revision-bound stock adjustment/hold screens. These synthetic
-checks do not make the proposal formula
-approved or connect it to customer prices.
-Railway's deployment is live with its volume and worker variables; the replacement
-`GOOGLE_API_KEY` was accepted by Gemini for the sample extraction and remains redacted.
-The service-account value remains redacted. WordPress bridge config is stored outside Git
-under the existing plugin; its live snapshot-preview file matches the tested local file.
-No staging environment exists. The candidate awaits owner review; no reference
-activation, customer order or payment occurred. The whole-pipeline verdict remains
-incomplete.
+The latest disposable WordPress 7.1.3/WooCommerce 11.2.1 runtime run passed 102
+assertions, including the new regression checks that customer-facing Woo prices use
+the calculated band while supplier cost remains private and continues driving the
+cart formula. The previous 246 offline Python tests remain the applicable server
+baseline. Railway deployment `75b43fb6-8cd9-49f7-9c0a-4666ff3ff7cd` is successful;
+the separate `FollowUP-bot` service was not changed.

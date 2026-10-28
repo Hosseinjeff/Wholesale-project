@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "snapshot_version": "4.48-live-site-no-recovery-source",
+  "snapshot_version": "4.50-live-store-sync-and-release-gates",
   "updated_at_local_date": "2026-10-29",
   "timezone": "Asia/Tehran",
   "shared_brief_url": "https://www.molavisale.ir/molavi-workflow-e73014a831.html",
@@ -8,7 +8,7 @@
   "project": "MolaviSale",
   "scope": "Entire operating stream: supplier data entry, processing, pricing, site publication and efficient UI, durable order receipt, order management, fulfillment, and follow-up",
   "current_scene": "WF-00",
-  "status": "whole_plan_execution_in_progress_not_release_ready",
+  "status": "backend_live_catalog_synced_payment_and_owner_bridge_blocked",
   "completed_scenes": [],
   "persona": {
     "first": "household_bulk",
@@ -105,7 +105,7 @@
     "Iran payment provider selection and integration",
     "Supplier/reference price-difference review policy question; unanswered, deprioritized by latest user steering"
   ],
-  "next_action": "The public WordPress site cannot be restored from available account files: wp-config.php is zero bytes; cPanel backups are disabled; the only listed local database has no tables; the only archive is an Elementor Pro plugin zip. Obtain a host restore of the original wp-config.php and the database it references, or a known-good backup. Do not create a blank install or guess credentials. Then verify the storefront/admin and review the still-staged Rezvan candidate.",
+  "next_action": "Keep WooCommerce in Coming soon mode until a full-prepayment gateway is configured. Restore outbound HTTPS from the CloudyLink PHP host to Railway so the owner dashboard can review the staged Rezvan/Gemini candidate. Then approve/reference-project it and verify live Sheet reconciliation before completing WF-00.",
   "continuity": "Published snapshot must be updated explicitly after decisions; chats do not synchronize automatically.",
   "legacy_scene_order": "RP-00 through RP-08 is superseded; no previous scene was completed.",
   "intake_model": {
@@ -153,11 +153,11 @@
     "refresh_server_discovery_required": "Conditional: only if actual configuration/use establishes a dependency; declaration in code alone is insufficient"
   },
   "next_dependencies": [
-    "Obtain a host restore or known-good backup of the original public_html/wp-config.php and the database it referenced. cPanel backups are disabled; the only listed local DB has no tables and the available archive is plugin-only. Do not create a blank site, guess credentials, or alter DB access. Verify WordPress before reviewing the staged reference candidate.",
-    "Verify an owner-approved candidate projects to ReferencePrices and test live Products-sheet edits/conflicts with row-level receipts.",
-    "Cut over legacy/GAS writers only after guarded server parity is verified; this Railway project has no isolated staging environment.",
-    "Test installed payment callbacks and checkout-to-aftercare without a real customer charge until the gateway behavior is confirmed.",
-    "Mirror inventory/workflow ledgers to an owner-visible store and resolve the clearance curve, near-cost threshold and proactive alert cadence."
+    "CloudyLink WordPress PHP host must allow outbound HTTPS to wholesale-project-production.up.railway.app (currently resolving to 69.46.46.40:443); current wp_remote_get returns http_request_failed, blocking owner reference and operations screens.",
+    "Choose and configure a full-prepayment WooCommerce gateway with its provider credentials/account details. No payment methods are enabled; Woo remains in Coming soon mode.",
+    "Restore the WordPress-to-Railway owner bridge, review the staged 10-row Rezvan/Gemini snapshot, and activate only after explicit owner approval and a matching ReferencePrices write receipt.",
+    "Verify direct Products-sheet edits, row-level conflict receipts and Woo publication; then cut over legacy/GAS writers after a guarded replay. No isolated Railway staging environment exists.",
+    "Mirror the inventory/workflow ledger to an owner-visible governed store and finish clearance/near-cost alerts, customer UI review and full supplier-to-aftercare roleplay."
   ],
   "source_of_truth": {
     "repository": "Hosseinjeff/Wholesale-project",
@@ -195,16 +195,17 @@
   "pipeline_readiness": {
     "complete": false,
     "live_server_responds": true,
-    "live_catalog_products_returned": 32,
+    "live_catalog_products_returned": 2,
     "telegram_webhook_responds": true,
     "end_to_end_verified": false,
     "report": "docs/pipeline-readiness.md",
     "evidence": "docs/pipeline-readiness-evidence.json",
     "whole_stream_gaps": [
-      "The public WordPress storefront is blocked by a zero-byte public_html/wp-config.php. cPanel backups are disabled, the only local DB has no tables, and the only archive is an Elementor Pro plugin zip. Restore the original config and referenced DB from the hosting provider or a known-good backup before dashboard review. The live Rezvan/Gemini candidate remains staged in Railway.",
-      "Live two-way Products-sheet reconciliation, full Woo publication cadence and cutover of legacy/GAS writers remain unverified.",
-      "Paid-order inventory is persisted on Railway volume but is not mirrored to Sheets; connected checkout/gateway and fulfillment are untested.",
-      "Clearance formula approval, near-cost threshold and proactive recalculation, customer UI compatibility and full operator roleplay remain open; mockup v2 is unapproved."
+      "Fresh WordPress/WooCommerce is live on h434558_Salesman, but the public site is in Coming soon mode. Two current Sheet products are synced with customer-facing IRT prices; legacy products, orders and media were not restored.",
+      "The WordPress PHP host cannot reach Railway over outbound HTTPS, so authenticated owner dashboards cannot load reference, operations or workflow data.",
+      "No Woo payment methods are enabled. Connected checkout/payment callback, a live order and fulfillment have not been verified.",
+      "Bilateral Products-sheet edits/conflicts and legacy/GAS writer cutover remain unverified; the server worker reads two current products from Sheets.",
+      "Paid-order inventory/workflow remains in persistent Railway SQLite and is not mirrored to Sheets; clearance and near-cost alert behavior still needs connected review."
     ],
     "local_handoff_implementation": "docs/pipeline-handoffs.md",
     "live_reference_sample": {
@@ -214,32 +215,38 @@
       "model": "gemini-3.1-flash-lite",
       "snapshot_id": "3adf331cfe5877a05b0637774f8dbdb1e02422a1da1cc7437880f62893edcca4",
       "row_count": 10,
-      "owner_dashboard_preview_rows": 8,
+      "last_known_dashboard_preview_rows": 8,
       "candidate_staged": true,
       "active_snapshot_id": null,
       "referenceprices_written": false,
       "owner_review_required_before_activation": true,
-      "owner_retry_available_in_woo": true
+      "owner_dashboard_bridge_currently_reachable": false,
+      "owner_review_screen_installed": true
     },
     "live_wordpress_site": {
       "apex_http": 200,
       "www_http": 200,
-      "content": "PHP fatal: Call to undefined function wp() at wp-blog-header.php line 16",
-      "root_wp_config_bytes": 0,
-      "cPanel_backup_feature_available": false,
-      "backup_directory_empty": true,
-      "wordpress_dashboard_reachable": false,
+      "root_wp_config_bytes": 1550,
+      "wordpress_admin_login_verified": true,
+      "owner_pages_backend_bridge_verified": false,
+      "owner_pages_error": "http_request_failed from the live PHP host to Railway HTTPS",
       "railway_backend_healthy": true,
-      "database_listed_in_cpanel": true,
-      "database_password_or_prior_config_available": false,
       "database": "h434558_Salesman",
-      "database_schema_table_count": 0,
-      "original_config_may_reference_remote_database": true,
-      "available_archive": "abrha_backup_elementor-pro_2026-10-17_16-41-35.zip",
-      "archive_bytes": 4391609,
-      "archive_contains_wp_config": false,
-      "archive_contains_sql_backup": false,
-      "recovery_source_found": false
+      "woocommerce_active": true,
+      "molavi_shop_active": true,
+      "elementor_active": true,
+      "wordfence_active": true,
+      "woocommerce_coming_soon_mode": true,
+      "woocommerce_shop_page_id": 7,
+      "shop_page_products_shortcode_present": true,
+      "shop_page_shortcode_renders_products": 2,
+      "store_api_products": 2,
+      "store_api_currency": "IRT",
+      "enabled_payment_methods": [],
+      "original_site_files_preserved": "/home/h434558/public_html_recovery_20261029",
+      "legacy_products_orders_media_restored": false,
+      "owner_pages_http_reachable": true,
+      "owner_pages_functional": false
     }
   },
   "working_preference": "Prioritize whole-project handoffs and roleplay; defer component-level micro-policy questions unless blocking a scene",
@@ -249,10 +256,10 @@
     "worker": "tools/run_pipeline_handoffs.py",
     "report": "docs/pipeline-handoffs.md",
     "full_offline_tests_passed": 246,
-    "wordpress_runtime_assertions_passed": 100,
+    "wordpress_runtime_assertions_passed": 102,
     "synthetic_supplier_to_quote_to_order_replay_passed": true,
     "live_end_to_end_verified": false,
-    "production_deployment": "Commit e531b37dbe2f24d4651f0a3578fee863f0de4b96 deployed successfully; live Rezvan/Gemini candidate is staged for Woo owner review. Activation, ReferencePrices projection and whole-stream connected validation remain outstanding."
+    "production_deployment": "Railway app remains healthy on a1a6fb3; Woo customer-price privacy fix fc0a7b2 was deployed to the fresh WordPress plugin and the two live products were republished. Owner review and full end-to-end validation remain blocked/open."
   },
   "master_plan": {
     "path": "docs/master-execution-plan.md",
@@ -299,7 +306,7 @@
     "customer_amount": "full_confirmed_amount",
     "must_be_verified_before": "supplier_purchase_commitment",
     "confirmed_by_user": true,
-    "payment_method": "normal store checkout; installed gateway readiness to verify; no new provider selected",
+    "payment_method": "Full prepayment is confirmed; provider not selected/configured. Woo currently has no enabled methods.",
     "verification_owner": "unresolved",
     "deposit_and_pay_on_delivery": "not_first_release_procurement_flow"
   },
@@ -307,7 +314,7 @@
     "flow": "cart to normal checkout/payment; no routine manual order/quote reconfirmation",
     "confirmed_by_user": true,
     "account_email_policy": "Guest checkout: name, mobile and delivery address; account and email optional",
-    "payment_integration": "verify installed integration; no live charges",
+    "payment_integration": "No Woo payment methods are enabled. Configure a full-prepayment gateway before leaving Coming soon mode; no live charge made.",
     "below_threshold_delivery_fee": "250,000 toman; free from 5,000,000-toman discounted goods subtotal; no manual quote",
     "guest_checkout_confirmed": true
   },
@@ -376,20 +383,20 @@
     "implementation_verified": true,
     "worker_projection_poll_seconds": 60,
     "live_sheet_and_automatic_edit_feed_verified": false,
-    "read_only_live_sheet_check": "The earlier managed-executor credential probe failed before its Sheets API call. Production service-account access initializes in Railway, but row-level Products edits, conflict receipts and publication have not been verified.",
+    "read_only_live_sheet_check": "Railway service-account reader and /api/shop returned two current Products rows. Direct owner edits, conflict receipts and automatic publication cadence remain unverified.",
     "conflict_policy_confirmed": true
   },
   "implementation_progress": {
     "python_tests_passed": 246,
-    "isolated_wordpress_assertions_passed": 100,
-    "operations_dashboard": "Existing MolaviShop plugin dashboard screens and private server bridge config installed; owner identity is WordPress user 3. Live page/browser compatibility remains unverified.",
+    "isolated_wordpress_assertions_passed": 102,
+    "operations_dashboard": "WordPress admin login is verified and owner IDs 1 and 2 are allowlisted. Owner pages load, but their authenticated PHP bridge request to Railway fails with http_request_failed because the CloudyLink host cannot reach the Railway HTTPS endpoint.",
     "supplier_out_of_stock_projection": "explicit supplier-unavailable rows are excluded from server quotes and projected unavailable to Woo; owned-stock and alternate-supplier eligibility remain unconnected",
     "reference_publication_recovery": "persistent cross-process publication hold, coordinated reference activation lock, private Woo owner review and audited explicit replay; legacy/GAS writers bypassing these server locks still require cutover control",
     "bidirectional_sheet_conflict_logic": "all normalized non-provenance Products columns; source-aware three-way reconciliation; durable owner review in Woo dashboard; conflicted products blocked from server quotes and Woo projection; supervised worker polls Products/Shop every 60 seconds by default and queues Woo publication; live staging remains unverified",
     "delivery_and_price_age_rules": "7/14-day source-revision checks now gate server quotes and Woo purchasability; owner dashboard logs manual verification and queues guarded republish; delivery method is synthetic-tested but not configured live",
     "production_deployed": true,
     "railway_context": "Existing production project identified; separate FollowUP-bot pending approval untouched",
-    "delivery": "Native Woo method tested through synthetic zone assignment, discount threshold and IRT/IRR; live configuration and full checkout unverified",
+    "delivery": "Live Woo Tehran zone uses 250,000 toman below the 5,000,000-toman goods threshold; disposable guest carts verified the fee and free-delivery cases in IRT. Both carts were cleared without orders.",
     "inventory": "Owner-only Woo dashboard records audited lots and revision-bound adjustments/holds. Railway now persists the SQLite workflow database on /data; stock and order ledgers are not mirrored to Sheets.",
     "clearance_proposal": "Private Woo owner screen calculates and audits receipt-bound proposals from batch dates/cost, same-basket normal price and current comparable market input; stale/missing inputs hold; no Woo price write; formula, proximity threshold, scheduled recalculation and proactive alerts remain open",
     "supplier_freshness": "Local durable ledger binds source offer and cost revision to source timestamp; day-7 dashboard warning, day-14 quote/Woo block, owner verification and guarded republish connected; direct Sheet values are read live and the supervised worker queues Woo publication after detected edits; connected payment staging remains open",
@@ -400,12 +407,12 @@
     "order_payment_handoff": "Woo payment_complete sends receipt-checked paid snapshots with transaction/time, SKU and exact supplier offer provenance; cancellation/refund/failure snapshots release open lot reservations; Action Scheduler/WP-Cron retries pass synthetic runtime. Persistent /data storage is deployed, while installed gateway, live amount/callback and connected checkout remain unverified.",
     "paid_order_fulfillment": "Owner dashboard workflow covers assignment, supplier purchase recording/receipts, unavailable lines, substitutions/customer choices, refunds/additional-payment receipts, packing, dispatch/tracking, aftercare and closure. The SQLite database is persistent on Railway /data, not mirrored to Sheets. No automated supplier purchase, refund or extra charge is sent.",
     "reference_item_review": "Private Woo owner screen and authenticated /reference/item-reviews API are deployed; ranked suggestions, explicit reference/price-role choice, no-match hold, audited corrections, Products projection update and guarded publication are implemented. Live Sheet reconciliation and a usable active reference snapshot remain unverified.",
-    "google_sheets_readonly_probe": "The managed executor probe failed before the Sheets API call because its local GOOGLE_SERVICE_ACCOUNT_JSON did not parse. No sheet data was read or changed. This does not establish validity of Railway credentials; the user later reported updating the Railway GOOGLE_SERVICE_ACCOUNT_JSON, which remains unverified.",
+    "google_sheets_readonly_probe": "Railway service-account reader and the production /api/shop returned two current Products rows. Row-level Sheet edits, reconciliation and conflict receipts remain unverified.",
     "ai_confirmation": "Owner-only Woo review can confirm extracted offer fields or mark a message not-a-product; decisions persist idempotently, append derived Offers rather than modifying supplier source rows, refresh MessageData AI status and queue guarded publication. Tested locally with mocks; connected extraction and dashboard staging remain unverified.",
-    "reference_refresh": "Production worker downloaded the Rezvan PDF and Gemini staged 10 candidate rows (snapshot 3adf331cfe5877a05b0637774f8dbdb1e02422a1da1cc7437880f62893edcca4). Woo owner dashboard preview exposes 8 rows. The candidate is not active and no ReferencePrices row was written; owner review and explicit activation remain outstanding.",
+    "reference_refresh": "Production fetched Rezvan PDF and Gemini staged 10 candidate rows in snapshot 3adf331cfe5877a05b0637774f8dbdb1e02422a1da1cc7437880f62893edcca4. Candidate remains inactive with no ReferencePrices write. Last known Woo preview had 8 rows; current WordPress-to-Railway egress failure blocks owner review.",
     "deployed_commit": "e531b37dbe2f24d4651f0a3578fee863f0de4b96",
-    "supervised_worker": "Production web and pipeline-worker processes start against the mounted 500 MB /data volume. Railway free-plan sleep remains enabled; exact scheduled refresh time is not guaranteed.",
-    "live_site_incident": "2026-10-29 Asia/Tehran: both domains return a PHP fatal because public_html/wp-config.php is zero bytes. Railway /health returns 200. cPanel backup feature is disabled, .trash/.wp-toolkit/backups/wordpress-backups are empty, and the only archive is a 4.39 MB Elementor Pro zip with no config or SQL. The only cPanel-listed database h434558_Salesman has no tables; original config may have referenced a remote DB. No site or DB files changed. Host restore of original config and associated DB is required."
+    "supervised_worker": "Production web and pipeline-worker are online on a 500 MB /data volume. Latest Railway deployment 75b43fb6-8cd9-49f7-9c0a-4666ff3ff7cd succeeded; free-plan sleep remains enabled.",
+    "live_site_incident": "2026-10-28/29: Fresh WordPress uses h434558_Salesman and existing MolaviShop/Woo. Two live Sheet products are published with customer-facing IRT prices and private supplier cost. Shop page 7 has a Woo products shortcode but the site is in Coming soon mode; no payment method is enabled. The user-created admin login works. Original site files are preserved outside public_html; legacy catalog/orders/media were not restored."
   },
   "site_integration_requirement": {
     "coordination_with_existing_plugins": true,
@@ -415,22 +422,22 @@
     "do_not_assume_payment_gateway_works_from_activation": true
   },
   "railway_readonly_check": {
-    "checked_at_local_date": "2026-10-28",
+    "checked_at_local_date": "2026-10-29",
     "environment": "production",
     "project": "stellar-solace",
     "service": "Wholesale-project",
-    "service_state": "deployed",
+    "service_state": "online; latest deployment SUCCESS; no pending Railway changes",
     "latest_deployment_state": "SUCCESS",
     "staged_change_count": 0,
-    "staged_change": "No Railway configuration changes are staged; the new code is deployed. A separate live reference candidate is staged in the reference review workflow for owner approval.",
+    "staged_change": "No Railway config work is pending; the independent Rezvan/Gemini reference candidate remains staged for owner approval.",
     "GOOGLE_SERVICE_ACCOUNT_JSON": "present and redacted; service-account sheet writer initializes; bilateral edit reconciliation not verified",
     "GOOGLE_SHEET_ID": "present; value not read",
     "PIPELINE_DB_PATH": "/data/pipeline.sqlite",
     "REFERENCE_BRIDGE_TOKEN": "present in Railway and private WordPress includes/runtime-config.php",
-    "REFERENCE_OWNER_IDS": "wp:3; private WordPress user 3 confirmed as owner",
+    "REFERENCE_OWNER_IDS": "wp:1,wp:2",
     "separate_followup_bot_touched": false,
     "deployment_or_configuration_mutation_by_agent": true,
-    "latest_user_report": "WordPress remains broken due to zero-byte wp-config.php. cPanel has no backup feature or config archive; the only local DB is empty, and the available Elementor Pro zip contains no config or SQL. Railway backend and staged reference candidate remain healthy/preserved. No site or DB changes were made during diagnosis.",
+    "latest_user_report": "User chose a fresh WordPress setup and provided h434558_Salesman. Fresh WordPress was installed against that database; cPanel-managed DB user h434558_mvsf1029 has access, config is 1550 bytes, admin login and core storefront routes were verified. Original site files are preserved outside public_html; legacy products/orders/media are not restored.",
     "GOOGLE_API_KEY": "present; replacement accepted by Google Gemini for the live Rezvan extraction; secret remains redacted",
     "REFERENCE_STORE_PATH": "/data/reference.sqlite",
     "volumes_attached": true,
@@ -441,12 +448,17 @@
     "latest_deployment_commit": "e531b37dbe2f24d4651f0a3578fee863f0de4b96",
     "supervised_processes": "web and pipeline-worker start successfully; worker recorded the failed reference refresh",
     "sleep_application": true,
-    "volume_mount": "/data (500 MB)"
+    "volume_mount": "/data (500 MB)",
+    "live_site_incident": "2026-10-28/29: Fresh WordPress uses h434558_Salesman and existing MolaviShop/Woo. Two live Sheet products are published with customer-facing IRT prices and private supplier cost. Shop page 7 has a Woo products shortcode but the site is in Coming soon mode; no payment method is enabled. The user-created admin login works. Original site files are preserved outside public_html; legacy catalog/orders/media were not restored.",
+    "latest_deployment_id": "75b43fb6-8cd9-49f7-9c0a-4666ff3ff7cd",
+    "SHOP_SITE_URL": "https://molavisale.ir",
+    "SHOP_NOTIFY_SECRET": "rotated and paired with private WordPress config; value redacted"
   },
   "whole_stream_gaps": [
-    "The live WordPress storefront cannot be recovered from available account files: wp-config.php is zero bytes, cPanel backups are unavailable, the only listed local database has no tables, and the found archive is plugin-only. Restore the original config and referenced database from the host before dashboard review; the live reference candidate remains staged.",
-    "Paid-order inventory, audited lot corrections and workflow are local SQLite only; persistent staging storage and Sheets mirroring are not enabled",
-    "Paid-order lifecycle passes offline and synthetic Woo runtime tests but has not been exercised with connected staging checkout/gateway",
-    "Clearance formula approval, near-cost threshold and proactive recalculation, customer UI compatibility and full operator roleplay remain release or later-iteration work; unified held/failed work view is locally implemented"
+    "Fresh WordPress/WooCommerce is live on h434558_Salesman, but the public site is in Coming soon mode. Two current Sheet products are synced with customer-facing IRT prices; legacy products, orders and media were not restored.",
+    "The WordPress PHP host cannot reach Railway over outbound HTTPS, so authenticated owner dashboards cannot load reference, operations or workflow data.",
+    "No Woo payment methods are enabled. Connected checkout/payment callback, a live order and fulfillment have not been verified.",
+    "Bilateral Products-sheet edits/conflicts and legacy/GAS writer cutover remain unverified; the server worker reads two current products from Sheets.",
+    "Paid-order inventory/workflow remains in persistent Railway SQLite and is not mirrored to Sheets; clearance and near-cost alert behavior still needs connected review."
   ]
 }

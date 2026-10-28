@@ -1,6 +1,6 @@
 {
   "date": "2026-10-29",
-  "mode": "live read-only outage diagnosis; no site or database changes",
+  "mode": "Live pipeline verification and safe Woo catalog setup; no customer order/payment",
   "results": {
     "health": {
       "http": 200,
@@ -11,40 +11,79 @@
       "http": 200,
       "status": "healthy",
       "version": "2026-10-17-shop-publish",
-      "sheet_writer": "service_account",
-      "google_apps_script": "unreachable"
+      "sheet_writer": "service_account"
     },
-    "catalog": {
+    "api_shop": {
       "http": 200,
-      "status": null,
-      "returned_products": 32
+      "returned_products": 2,
+      "sheet_backed": true
     },
-    "storefront": {
-      "http": 200,
-      "json": true,
-      "returned_products": 1
-    },
-    "telegram": {
+    "shop_publish": {
       "http": 200,
       "ok": true,
-      "webhook_configured": true,
-      "pending_updates": 0,
-      "last_error_present": false,
-      "last_error_date": null
+      "created": 0,
+      "updated": 2,
+      "hidden": 0,
+      "images_left": 0
     },
-    "sheets": {
-      "error": "JSONDecodeError"
+    "woocommerce_store_api": {
+      "http": 200,
+      "currency": "IRT",
+      "products": [
+        {
+          "name": "ویتامین سی برنتین",
+          "regular_toman": 85000,
+          "customer_price_toman": 73320
+        },
+        {
+          "name": "ترشیکس قوطی",
+          "regular_toman": 75000,
+          "customer_price_toman": 71850
+        }
+      ],
+      "supplier_cost_publicly_exposed": false
+    },
+    "shop_page": {
+      "http": 200,
+      "page_id": 7,
+      "shortcode_product_cards": 2,
+      "coming_soon_mode": true
+    },
+    "cart_delivery": {
+      "currency": "IRT",
+      "minimum_quantity_test": 6,
+      "unit_price_toman": 72847,
+      "goods_subtotal_toman": 437082,
+      "delivery_toman": 250000,
+      "bulk_quantity": 100,
+      "bulk_goods_subtotal_toman": 6542900,
+      "bulk_delivery_toman": 0,
+      "cart_cleared": true
+    },
+    "checkout": {
+      "http": 200,
+      "enabled_payment_methods": []
+    },
+    "wordpress_to_railway_bridge": {
+      "wordpress_host_wp_remote_get_error": "http_request_failed",
+      "target": "wholesale-project-production.up.railway.app:443"
+    },
+    "historical_telegram_check_2026_10_25": {
+      "http": 200,
+      "ok": true,
+      "pending_updates": 0,
+      "last_error_present": false
     }
   },
-  "sheets_note": "Direct executor read could not parse configured service-account data; this does not establish a failure of the deployed server credentials. Server independently reports service_account writer and returns catalog data.",
-  "limits": "The live reference sample is staged but WordPress owner review is blocked: wp-config.php is zero bytes, accessible cPanel backups are disabled, the only listed local database has no tables, and the only archive is an Elementor Pro plugin zip. The original config may reference a remote DB. Restore the original config and associated DB before dashboard review. Connected Sheets reconciliation, ReferencePrices projection, checkout/payment and the full supplier-to-aftercare stream remain unverified.",
+  "sheets_note": "Railway reports a service-account writer and /api/shop returns the two live Products rows. Bilateral edits, conflict receipts and automatic publication cadence are not verified.",
+  "limits": "Release is blocked by the CloudyLink PHP host failing outbound HTTPS to Railway and by the absence of an enabled full-prepayment gateway. Woo remains in Coming soon mode. The 10-row Rezvan/Gemini candidate is staged, inactive and has not been written to ReferencePrices; owner review and the complete order-to-aftercare flow remain open.",
   "latest_deployment_checkpoint": {
-    "date": "2026-10-28",
+    "date": "2026-10-29",
     "project": "stellar-solace",
     "environment": "production",
     "service": "Wholesale-project",
     "commit": "e531b37dbe2f24d4651f0a3578fee863f0de4b96",
-    "deployment_id": "5474efe4-a221-4cbf-8f2a-84f5b757153a",
+    "deployment_id": "75b43fb6-8cd9-49f7-9c0a-4666ff3ff7cd",
     "deployment_status": "SUCCESS",
     "health_http": 200,
     "service_domain": "https://wholesale-project-production.up.railway.app",
@@ -57,7 +96,8 @@
       "pipeline-worker"
     ],
     "sleep_enabled": true,
-    "isolated_staging_environment": false
+    "isolated_staging_environment": false,
+    "pending_railway_changes": 0
   },
   "live_reference_sample": {
     "source": "https://rezvanpakhsh.com/pdf/price-list.pdf",
@@ -79,20 +119,33 @@
     "owner_retry_screen_installed": true,
     "owner_wordpress_user_id": 3,
     "wordpress_preview_file_matches_local": true,
-    "wordpress_preview_file_sha256": "2d96f576f07bca37aeb07d55994b156ffe91bc238a8291c8eb80f2f2c35536fd"
+    "wordpress_preview_file_sha256": "2d96f576f07bca37aeb07d55994b156ffe91bc238a8291c8eb80f2f2c35536fd",
+    "owner_wordpress_user_ids": [
+      1,
+      2
+    ],
+    "owner_dashboard_bridge_reachable": false,
+    "owner_dashboard_last_error": "http_request_failed from CloudyLink PHP host"
   },
   "production_actions": {
     "reference_snapshot_activated": false,
     "customer_orders_or_payments": false,
     "followup_bot_changed": false,
-    "bridge_secret_stored_outside_git": true,
-    "wordpress_runtime_config_path": "wp-content/plugins/molavi-shop/includes/runtime-config.php",
-    "wordpress_config_modified": false,
-    "wordpress_database_modified": false
+    "shop_sync_secret_rotated_and_paired": true,
+    "wordpress_runtime_config_path": "/home/h434558/private/config.php",
+    "wordpress_runtime_config_modified": true,
+    "wordpress_database_modified": true,
+    "wordpress_database_change": "Shop page 7 content set to native Woo products shortcode",
+    "shop_products_updated": 2,
+    "customer_store_opened": false,
+    "temporary_probe_files_removed": true,
+    "production_plugin_files_updated": true,
+    "plugin_source_commit": "fc0a7b2"
   },
   "latest_local_validation": {
     "python_tests": 246,
-    "wordpress_woocommerce_runtime_assertions": 100
+    "wordpress_woocommerce_runtime_assertions": 102,
+    "wordpress_runtime": "WordPress 7.1.3; WooCommerce 11.2.1"
   },
   "live_wordpress_site": {
     "date": "2026-10-29",
@@ -100,25 +153,28 @@
       "https://molavisale.ir/",
       "https://www.molavisale.ir/"
     ],
-    "http_status": 200,
-    "response": "PHP fatal: Call to undefined function wp() at /home/h434558/public_html/wp-blog-header.php:16",
-    "root_config_path": "public_html/wp-config.php",
-    "root_config_bytes": 0,
-    "root_config_mtime_utc": "2026-10-28T19:50:21+00:00",
-    "cPanel_backup_feature_available": false,
-    "account_wordpress_backups_directory_empty": true,
-    "database_listed": true,
-    "database_password_or_table_prefix_available": false,
-    "railway_backend_health_http": 200,
-    "repair_performed": false,
-    "reason": "No authoritative config backup or database credentials available; guessing would risk site data/access.",
-    "only_cpanel_database": "h434558_Salesman",
-    "only_cpanel_database_table_count": 0,
-    "config_may_reference_remote_database": true,
-    "available_archive": "abrha_backup_elementor-pro_2026-10-17_16-41-35.zip",
-    "archive_bytes": 4391609,
-    "archive_contains_wp_config": false,
-    "archive_contains_sql_backup": false,
-    "recovery_source_found": false
+    "root_http": 200,
+    "shop_http": 200,
+    "root_wp_config_path": "public_html/wp-config.php",
+    "root_wp_config_bytes": 1550,
+    "database": "h434558_Salesman",
+    "database_host": "localhost",
+    "database_prefix": "mvs_",
+    "wordpress_admin_login_verified": true,
+    "woocommerce_active": true,
+    "molavi_shop_active": true,
+    "elementor_active": true,
+    "wordfence_active": true,
+    "coming_soon_mode": true,
+    "shop_page_id": 7,
+    "shop_page_assigned_to_woocommerce": true,
+    "shop_page_products_shortcode": true,
+    "products_in_store_api": 2,
+    "customer_prices_currency": "IRT",
+    "payment_methods_enabled": [],
+    "original_site_files_preserved": "/home/h434558/public_html_recovery_20261029",
+    "legacy_products_orders_media_restored": false,
+    "wordpress_to_railway_bridge_error": "http_request_failed",
+    "original_wp_docroot_backup_feature_available": false
   }
 }

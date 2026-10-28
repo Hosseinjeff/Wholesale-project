@@ -1,8 +1,24 @@
-# MolaviSale — whole-workflow handoff for another chat
+# MolaviSale — whole-workflow handoff
 
-Snapshot 4.1 local draft (public brief unchanged). Updated 2026-10-25, Asia/Tehran.
-Active stage: WF-00; uploaded GAS recovered and audited. Active reference-path settings,
-installed triggers and deployment bindings remain open. No complete migration sign-off.
+Snapshot 4.50. Updated 2026-10-29, Asia/Tehran. The canonical roleplay decisions are in
+`roleplay-state.json`; current live evidence and release gates are in
+`pipeline-readiness.md` and `pipeline-readiness-evidence.json`.
+
+## Current live checkpoint — 2026-10-29
+
+Railway is healthy and its Sheet-backed catalog currently returns two products. Their
+public Woo prices now use the customer price band while supplier costs stay private.
+The Tehran 250,000-toman fee and free-delivery threshold were checked using disposable
+carts. WordPress is fresh on `h434558_Salesman`, and its Woo Shop page has a native
+product listing, but Woo remains in Coming soon mode because no full-prepayment gateway
+is enabled. The authenticated WordPress host also times out reaching Railway, which
+blocks the owner dashboards' live data requests. The Rezvan → Gemini candidate remains
+staged and unapproved; no `ReferencePrices` write or customer order/payment occurred.
+
+The next blockers are to restore CloudyLink-host outbound HTTPS to Railway, configure a
+full-prepayment gateway, then review and approve the staged reference candidate and
+verify the remaining live handoffs. Do not mark a roleplay scene complete until the
+integrated stream is validated.
 
 ## Reference acquisition clarification — D-008
 
