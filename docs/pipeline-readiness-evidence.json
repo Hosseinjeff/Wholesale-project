@@ -37,5 +37,50 @@
     }
   },
   "sheets_note": "Direct executor read could not parse configured service-account data; this does not establish a failure of the deployed server credentials. Server independently reports service_account writer and returns catalog data.",
-  "limits": "Health and read endpoints do not establish successful intake, writes, fulfillment or end-to-end reliability."
+  "limits": "The original read-only probe above remains historical evidence. The current service has no isolated staging environment; its scheduled worker can sleep on the free plan. Live Sheets row reconciliation, ReferencePrices projection, checkout/payment and the complete supplier-to-aftercare stream remain unverified.",
+  "latest_deployment_checkpoint": {
+    "date": "2026-10-28",
+    "project": "stellar-solace",
+    "environment": "production",
+    "service": "Wholesale-project",
+    "commit": "813d9c4d703f3d6249d1cc959f9a8a36c4ce165a",
+    "deployment_status": "SUCCESS",
+    "health_http": 200,
+    "service_domain": "https://wholesale-project-production.up.railway.app",
+    "persistent_volume": {
+      "mount_path": "/data",
+      "size_mb": 500
+    },
+    "supervised_processes": [
+      "web",
+      "pipeline-worker"
+    ],
+    "sleep_enabled": true,
+    "isolated_staging_environment": false
+  },
+  "live_reference_sample": {
+    "source": "https://rezvanpakhsh.com/pdf/price-list.pdf",
+    "source_pdf_http": 200,
+    "mime_type": "application/pdf",
+    "size_bytes": 1411828,
+    "gemini_reached": true,
+    "gemini_result": "API_KEY_INVALID",
+    "safe_refresh_error_code": "gemini_key_invalid",
+    "candidate_staged": false,
+    "active_snapshot_id": null,
+    "referenceprices_write_performed": false,
+    "owner_retry_screen_installed": true,
+    "owner_wordpress_user_id": 3
+  },
+  "production_actions": {
+    "reference_snapshot_activated": false,
+    "customer_orders_or_payments": false,
+    "followup_bot_changed": false,
+    "bridge_secret_stored_outside_git": true,
+    "wordpress_runtime_config_path": "wp-content/plugins/molavi-shop/includes/runtime-config.php"
+  },
+  "latest_local_validation": {
+    "python_tests": 245,
+    "wordpress_woocommerce_runtime_assertions": 100
+  }
 }

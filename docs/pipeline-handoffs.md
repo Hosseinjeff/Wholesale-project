@@ -1,8 +1,22 @@
-# Whole-flow handoff implementation — local draft, 2026-10-26 (Asia/Tehran)
+# Whole-flow handoff implementation record — 2026-10-26 onward (Asia/Tehran)
 
-Local branch: reference-dashboard-draft. No production changes or live imports,
-orders, messages or payments. This closes part of the previously reported handoff
-gap in a local implementation; the full pipeline is not yet ready for live sign-off.
+## Latest production checkpoint — 2026-10-28
+
+The user authorized whole-plan deployment. Commit `813d9c4d703f3d6249d1cc959f9a8a36c4ce165a`
+is deployed to `wholesale-project-production.up.railway.app`. Railway mounts a 500 MB
+volume at `/data` and runs the web process and pipeline worker under Supervisor. The
+existing MolaviShop plugin screens and private bridge config are installed; owner
+identity is WordPress user 3. The production refresh fetched the Rezvan PDF and reached
+Gemini, but Google returned `API_KEY_INVALID`. No reference candidate was staged or
+activated, and no `ReferencePrices` projection, customer order or payment occurred.
+The owner retry form is available in WooCommerce → Reference Prices. Replace the
+Railway key, retry, review the candidate, then verify its projection before activation.
+The service uses a free plan with sleep enabled, and no separate Railway staging
+environment exists. Local verification passes 245 Python tests and 100 disposable
+WordPress/WooCommerce runtime assertions; the full connected stream is not signed off.
+
+The section below is the historical local implementation record; no production change
+or end-to-end validation was claimed at its original checkpoint.
 
 ## Working local path
 
@@ -157,17 +171,12 @@ matching server action receipt protect the controls. Tests cover the server rout
 stale/unavailable alternatives, refund caps, customer consent, supplier arrivals
 after cancellation, and the rendered Woo screens.
 
-This is a local implementation and synthetic WordPress/Woo runtime result. The order
-and inventory ledgers are still SQLite-only, are not mirrored into Sheets, and are
-not enabled on Railway. The connected Railway production environment has one staged
-variable change (`GOOGLE_API_KEY`); it was not activated. `GOOGLE_SERVICE_ACCOUNT_JSON`
-and `GOOGLE_SHEET_ID` are present but their values are redacted to this session, so
-their live validity was not tested. The current service deployment is sleeping, and
-`PIPELINE_DB_PATH`, `REFERENCE_BRIDGE_TOKEN` and `REFERENCE_OWNER_IDS` are not
-configured there. No deployment or production write was made. The next complete
-integration pass must provision private persistent storage, configure the owner
-bridge, verify the Google credentials and installed payment gateway, then exercise
-the checkout-to-aftercare flow in a connected staging boundary. Customer contact and
+At the original local checkpoint, the order and inventory ledgers were SQLite-only and
+production had no persistent volume or bridge. The current deployment above now stores
+them on `/data`; they are still not mirrored into Sheets. The live Gemini request has
+confirmed `API_KEY_INVALID`, while checkout, payment callback, customer contact and
+refund execution remain unverified. Exercise the checkout-to-aftercare flow in a
+connected staging boundary before claiming full release readiness. Customer contact and
 refund execution remain owner actions until their channels and installed gateway
 behavior are validated.
 
@@ -229,10 +238,11 @@ weights, the near-cost amount, scheduled recalculation, proactive alerting, belo
 override and Sheets mirroring remain unresolved or unimplemented. `docs/clearance-pricing-design.md`
 records the candidate model and boundaries.
 
-Latest local validation passes 235 offline Python tests and 93 disposable WordPress
-7.1.3/WooCommerce 11.2.1 assertions. This is synthetic local evidence only; connected
-Google access, Railway persistence/owner bridge, plugin/browser compatibility and
-whole-stream staging remain unverified.
+At this local checkpoint, 235 offline Python tests and 93 disposable WordPress
+7.1.3/WooCommerce 11.2.1 assertions passed. Current validation is 245 Python tests and
+100 disposable runtime assertions. These are synthetic checks; live key validity,
+Sheets reconciliation, plugin/browser compatibility and whole-stream staging remain
+unverified.
 
 ### 2026-10-28 audited inventory continuation
 

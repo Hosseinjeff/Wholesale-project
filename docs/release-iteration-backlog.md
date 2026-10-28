@@ -1,9 +1,11 @@
 # Whole-plan release and later-iteration backlog
 
 2026-10-28, Asia/Tehran. The user asked to execute/deploy the plan as a whole and
-record any remaining items for later iterations. This file distinguishes actual
-incomplete release connections from optional/deferred business settings. It does
-not represent a deployed or approved mockup and contains no credentials.
+record any remaining items for later iterations. The server, production volume, and
+existing MolaviShop plugin integration are deployed. The live PDF/Gemini sample is
+blocked because Google returned `API_KEY_INVALID`; no reference candidate or sheet
+projection exists yet. This file distinguishes incomplete release connections from
+optional business settings; mockup v2 remains unapproved and no credentials are stored.
 
 ## Cross-cutting requirement — current site plugins (D-032)
 
@@ -31,18 +33,19 @@ to make integration easy.
    owner dashboard records reconciliation and explicitly queues that batch for replay.
    Reference activation and app publication share cross-process locks. This cannot
    fence legacy/GAS writers that bypass the server locks, so cutover remains required.
-   Live PDF/Gemini calls, Google Sheets projection, owner bridge configuration, and
-   end-to-end connected staging remain unverified. Do not presume an external refresh
-   server (D-008).
+   The production worker fetched the Rezvan PDF and called Gemini; the API rejected
+   the configured key as invalid. Replace the Railway key, retry from the Woo owner
+   dashboard, review the staged candidate, then verify `ReferencePrices`. Do not presume
+   an external refresh server (D-008).
 2. Validate the local bidirectional Products-sheet adapter in connected staging.
    It handles every normalized non-provenance product column, performs three-way
    reconciliation on supplier updates, preserves source posts, records owner-visible
    conflicts in SQLite, and blocks conflicted products from server quotes/Woo. Owner
    resolution is integrated with the existing Woo dashboard. The supervised worker
    polls Products/Shop every 60 seconds by default (configurable from 30 to 3600) and
-   schedules durable Sheet-to-Woo publication. Validate the worker on the connected
-   Sheet and test cadence, stale/invalid cells, row moves, write races and outage
-   recovery on staging.
+   schedules durable Sheet-to-Woo publication. Production storage and worker are
+   deployed, but verify row-level receipts, cadence, stale/invalid cells, row moves,
+   write races and outage recovery against a connected Sheet before sign-off.
 3. Continue owned-stock and clearance work. Owner-only Woo screens record append-only
    lot receipts with purchase/production/expiry dates, cost and audit note; supplier
    purchase date is retained and checked at receipt. Paid Woo snapshots reserve eligible
@@ -53,8 +56,8 @@ to make integration easy.
    is changed. Owner-only stock count corrections, damage/expiry deductions, lot holds
    and reviewed releases now append revision-bound audit events; open reservations block
    holds and reserved/fulfilled quantities cannot be reduced. Held lots are excluded
-   from new allocations. These ledgers remain SQLite-only and are not mirrored to Sheets
-   or provisioned persistent staging storage. Multi-supplier choice, actual purchase
+   from new allocations. These ledgers remain SQLite-only and are not mirrored to Sheets;
+   the Railway production volume is present but no staging store exists. Multi-supplier choice, actual purchase
    completion, reservation expiry, order revisions, customer-return disposition, formula
    approval, proximity threshold, scheduled recalculation and proactive near-cost alerts
    remain.
@@ -70,7 +73,7 @@ to make integration easy.
    checkout still require verification. Current method rejects multi-package carts
    pending a consolidated-shipping design rather than charging multiple fees. A
    supplier-evidence ledger prevents repeated old source revisions from refreshing
-   age. Its local server/Woo wiring requires a configured durable database and worker.
+   age. Its server/Woo wiring is deployed with durable production storage and a worker.
 5. Validate the locally implemented order ownership, procurement tracking, customer
    choice/refund receipts, consolidated packing, dispatch, tracking and aftercare in
    connected WordPress/WooCommerce staging. The `payment_complete` handoff mirrors
@@ -79,10 +82,9 @@ to make integration easy.
    open reservations. Verify the installed gateway callback/full amount and customer
    contact/settlement channel before enabling those paths. Check existing site
    payment/substitution features before extending them.
-6. Integrate persistent storage, worker supervision, user-visible alerts/recovery,
-   settings/permissions, backups, migration and synchronization checks. One local
-   SQLite prototype is not a provisioned durable service. The latest read-only Railway
-   metadata shows one production environment and no attached volume or staging target.
+6. Complete operational resilience: user-visible alerts/recovery, backups, migration
+   and synchronization checks. Railway has one production environment, a 500 MB
+   persistent volume and a sleep-enabled service; there is no isolated staging target.
 7. Complete responsive customer/operator review, connected synthetic staging replay,
    household then retailer roleplay, failure/recovery/rollback and mockup review.
    Visual mockup v2 remains unapproved. A whole-plan release is not ready yet.
@@ -105,24 +107,25 @@ to make integration easy.
 
 ## Current test/readiness evidence
 
-- 241 local Python tests pass using synthetic inputs/mocks, including every editable
+- 245 local Python tests pass using synthetic inputs/mocks, including every editable
   Products field, two-sided supplier/Sheet conflict and resolution, quote/Woo holds,
   supplier price revision, warning/block, owner verification, delivery boundaries,
   owned-lot reservations and fixed-pack proposal paths.
-- 97 isolated WordPress 7.1.3/WooCommerce 11.2.1 assertions pass, including owner-only
+- 100 isolated WordPress 7.1.3/WooCommerce 11.2.1 assertions pass, including owner-only
   publication recovery, order retries, lot receipt/expiry UI, paid-order proposals,
   delivery-zone boundaries, supplier-out-of-stock projection, operations view and
   clearance proposal/correction and audited stock adjustment/hold screens. Browser/Elementor/
   Wordfence interactions remain unverified.
 - The paid-order owner dashboard now covers assignment, supplier confirmation/receipt,
   substitution and customer decisions, refund/payment receipts, packing, dispatch,
-  aftercare and closure. It remains SQLite-only and synthetic; connected gateway,
-  customer contact and persistent storage are not verified.
-- Read-only Railway inspection found one production project with `Wholesale-project`
-  and a separate `FollowUP-bot`. Its separate pending approval must not be accepted
-  as part of this work. No Railway deployment or configuration change was made.
-- Historical test evidence and local draft are not whole-stream staging or proof of
-  live data correctness. Resolve release integrations above before claiming full deployment.
+  aftercare and closure. Its SQLite database is persistent on Railway `/data`, but the
+  connected gateway, customer contact, Sheets mirroring and real order flow are unverified.
+- Railway deployment `813d9c4` is healthy; web and worker run against `/data`. The live
+  refresh failed with safe code `gemini_key_invalid`; the owner retry is available in
+  Woo. The separate `FollowUP-bot` pending approval was left untouched.
+- Historical test evidence and the partial live sample are not whole-stream staging or
+  proof of live data correctness. Resolve release integrations above before claiming
+  full readiness.
 MD
 
 ## Additional local execution progress
@@ -160,8 +163,8 @@ site-file inspection. Use targeted tests and the audit evidence (D-033).
   grouped customer demand using explicit pack/minimum/multiple terms. Paid Woo orders
   now reserve received owned lots and create owner-reviewed pack proposals for any
   shortfall. An owner must record the current terms and note; the proposal never
-  submits a supplier purchase. The lot ledger has no live Sheets mirror or provisioned
-  production storage.
+  submits a supplier purchase. The lot ledger has no live Sheets mirror; Railway
+  production storage exists, while an isolated staging store does not.
 - Woo-native delivery method was additionally tested through actual synthetic
   WooCommerce shipping-zone selection, including discounted subtotal, threshold
   boundary and IRT/IRR conversion. It is not installed or configured on the live

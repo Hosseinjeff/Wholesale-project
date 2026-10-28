@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "snapshot_version": "4.44-execution-in-progress",
+  "snapshot_version": "4.45-live-deployment-key-invalid",
   "updated_at_local_date": "2026-10-28",
   "timezone": "Asia/Tehran",
   "shared_brief_url": "https://www.molavisale.ir/molavi-workflow-e73014a831.html",
@@ -105,7 +105,7 @@
     "Iran payment provider selection and integration",
     "Supplier/reference price-difference review policy question; unanswered, deprioritized by latest user steering"
   ],
-  "next_action": "Establish an isolated connected-staging boundary, then validate PDF→Gemini→ReferencePrices, supplier intake, two-way Products edits, Woo checkout/payment and order follow-up. The Railway project currently has only production, no persistent volume, and the app is sleeping; do not activate the staged key or deploy this local implementation into production as a substitute for staging.",
+  "next_action": "Replace GOOGLE_API_KEY in Railway with a valid Gemini API key. Then retry the Rezvan PDF refresh from WooCommerce → Reference Prices, review the staged candidate, and activate only after owner review; verify the ReferencePrices projection.",
   "continuity": "Published snapshot must be updated explicitly after decisions; chats do not synchronize automatically.",
   "legacy_scene_order": "RP-00 through RP-08 is superseded; no previous scene was completed.",
   "intake_model": {
@@ -153,12 +153,11 @@
     "refresh_server_discovery_required": "Conditional: only if actual configuration/use establishes a dependency; declaration in code alone is insufficient"
   },
   "next_dependencies": [
-    "Create or identify an isolated staging service/site/Sheet and test payment integration; the Railway project currently has only production",
-    "Provision private persistent storage and a supervised worker for the staging app",
-    "Bind the dedicated WordPress bridge secret and approved owner identities only in staging",
-    "Read-back and isolated validation of the user-reported GOOGLE_API_KEY and GOOGLE_SERVICE_ACCOUNT_JSON updates; keep secret values out of logs",
-    "Exercise PDF/Gemini candidate review, ReferencePrices projection, bidirectional Products reconciliation and recovery against connected staging",
-    "Test the installed gateway and complete browser/mobile/RTL, Elementor, Wordfence, household and retailer checks"
+    "Replace the invalid GOOGLE_API_KEY in Railway without sharing the secret in chat; rerun the owner-controlled PDF/Gemini refresh and review its candidate.",
+    "Verify an owner-approved candidate projects to ReferencePrices and test live Products-sheet edits/conflicts with row-level receipts.",
+    "Cut over legacy/GAS writers only after guarded server parity is verified; this Railway project has no isolated staging environment.",
+    "Test installed payment callbacks and checkout-to-aftercare without a real customer charge until the gateway behavior is confirmed.",
+    "Mirror inventory/workflow ledgers to an owner-visible store and resolve the clearance curve, near-cost threshold and proactive alert cadence."
   ],
   "source_of_truth": {
     "repository": "Hosseinjeff/Wholesale-project",
@@ -202,23 +201,33 @@
     "report": "docs/pipeline-readiness.md",
     "evidence": "docs/pipeline-readiness-evidence.json",
     "whole_stream_gaps": [
-      "The local reference/PDF/Gemini/AI-confirmation flow is implemented; connected Google access, owner bridge, persistent storage, legacy-writer cutover and staging replay remain unverified",
-      "Paid-order inventory, audited lot corrections and workflow are local SQLite only; persistent staging storage and Sheets mirroring are not enabled",
-      "Paid-order lifecycle passes offline and synthetic Woo runtime tests but has not been exercised with connected staging checkout/gateway",
-      "Unified held/failed work view is implemented locally; clearance formula approval, near-cost threshold and proactive recalculation, customer UI compatibility and full operator roleplay remain"
+      "The Railway GOOGLE_API_KEY is rejected by Google as API_KEY_INVALID; the reference sample remains blocked until that secret is corrected and the owner retry stages a candidate.",
+      "Live two-way Products-sheet reconciliation, full Woo publication cadence and cutover of legacy/GAS writers remain unverified.",
+      "Paid-order inventory is persisted on Railway volume but is not mirrored to Sheets; connected checkout/gateway and fulfillment are untested.",
+      "Clearance formula approval, near-cost threshold and proactive recalculation, customer UI compatibility and full operator roleplay remain open; mockup v2 is unapproved."
     ],
-    "local_handoff_implementation": "docs/pipeline-handoffs.md"
+    "local_handoff_implementation": "docs/pipeline-handoffs.md",
+    "live_reference_sample": {
+      "source_pdf_reachable": true,
+      "gemini_attempted": true,
+      "result": "failed",
+      "error_code": "gemini_key_invalid",
+      "candidate_staged": false,
+      "referenceprices_written": false,
+      "owner_retry_available_in_woo": true
+    }
   },
   "working_preference": "Prioritize whole-project handoffs and roleplay; defer component-level micro-policy questions unless blocking a scene",
   "handoff_implementation": {
     "opt_in_setting": "PIPELINE_DB_PATH",
-    "production_enabled": false,
+    "production_enabled": true,
     "worker": "tools/run_pipeline_handoffs.py",
     "report": "docs/pipeline-handoffs.md",
-    "full_offline_tests_passed": 241,
-    "wordpress_runtime_assertions_passed": 97,
+    "full_offline_tests_passed": 245,
+    "wordpress_runtime_assertions_passed": 100,
     "synthetic_supplier_to_quote_to_order_replay_passed": true,
-    "live_end_to_end_verified": false
+    "live_end_to_end_verified": false,
+    "production_deployment": "Commit 813d9c4 deployed; persistent volume and supervised worker active. Reference refresh is blocked by Google API_KEY_INVALID."
   },
   "master_plan": {
     "path": "docs/master-execution-plan.md",
@@ -342,33 +351,35 @@
     "implementation_verified": true,
     "worker_projection_poll_seconds": 60,
     "live_sheet_and_automatic_edit_feed_verified": false,
-    "read_only_live_sheet_check": "Railway service-account variable is present but its value is redacted; current executor copy is invalid JSON at line 2 column 3; no Google API request occurred",
+    "read_only_live_sheet_check": "The earlier managed-executor credential probe failed before its Sheets API call. Production service-account access initializes in Railway, but row-level Products edits, conflict receipts and publication have not been verified.",
     "conflict_policy_confirmed": true
   },
   "implementation_progress": {
-    "python_tests_passed": 241,
-    "isolated_wordpress_assertions_passed": 97,
-    "operations_dashboard": "Private Woo owner landing page summarizes durable held/failed work without payloads and links to existing review screens; local only",
+    "python_tests_passed": 245,
+    "isolated_wordpress_assertions_passed": 100,
+    "operations_dashboard": "Existing MolaviShop plugin dashboard screens and private server bridge config installed; owner identity is WordPress user 3. Live page/browser compatibility remains unverified.",
     "supplier_out_of_stock_projection": "explicit supplier-unavailable rows are excluded from server quotes and projected unavailable to Woo; owned-stock and alternate-supplier eligibility remain unconnected",
     "reference_publication_recovery": "persistent cross-process publication hold, coordinated reference activation lock, private Woo owner review and audited explicit replay; legacy/GAS writers bypassing these server locks still require cutover control",
     "bidirectional_sheet_conflict_logic": "all normalized non-provenance Products columns; source-aware three-way reconciliation; durable owner review in Woo dashboard; conflicted products blocked from server quotes and Woo projection; supervised worker polls Products/Shop every 60 seconds by default and queues Woo publication; live staging remains unverified",
     "delivery_and_price_age_rules": "7/14-day source-revision checks now gate server quotes and Woo purchasability; owner dashboard logs manual verification and queues guarded republish; delivery method is synthetic-tested but not configured live",
-    "production_deployed": false,
+    "production_deployed": true,
     "railway_context": "Existing production project identified; separate FollowUP-bot pending approval untouched",
     "delivery": "Native Woo method tested through synthetic zone assignment, discount threshold and IRT/IRR; live configuration and full checkout unverified",
-    "inventory": "Owner-only Woo dashboard records audited lots with purchase/production/expiry dates and unit cost; supplier purchase dates are matched to receipts; historical missing purchase dates can be completed only with matching receipt hash and audit note; paid snapshots reserve eligible lots FEFO; cancellation/refund/failure release open reservations; owner count/damage/expiry adjustments and hold/release actions append revision-bound events, block unsafe reductions against reserved/fulfilled units, and prevent held-lot allocation; SQLite-only, not mirrored to Sheets or provisioned for production",
+    "inventory": "Owner-only Woo dashboard records audited lots and revision-bound adjustments/holds. Railway now persists the SQLite workflow database on /data; stock and order ledgers are not mirrored to Sheets.",
     "clearance_proposal": "Private Woo owner screen calculates and audits receipt-bound proposals from batch dates/cost, same-basket normal price and current comparable market input; stale/missing inputs hold; no Woo price write; formula, proximity threshold, scheduled recalculation and proactive alerts remain open",
     "supplier_freshness": "Local durable ledger binds source offer and cost revision to source timestamp; day-7 dashboard warning, day-14 quote/Woo block, owner verification and guarded republish connected; direct Sheet values are read live and the supervised worker queues Woo publication after detected edits; connected payment staging remains open",
-    "reference_matching": "Opt-in durable intake uses active-snapshot gating and provenance. Weighted suggestions, snapshot/offer-bound owner corrections, exact-identity overrides, unit/package review, recovered category/history price-scale inference and owner AI confirmation are implemented locally. The crash-aware 24-hour PDF/Gemini scheduler stages candidates; private Woo owner review supports activation and verified ReferencePrices projection. Live Google calls/writes, owner bridge, persistent Railway storage, legacy-writer cutover and connected staging remain unverified.",
+    "reference_matching": "Durable intake, snapshot gating, owner corrections and item/price-role review are deployed with the production server and MolaviShop plugin. The live reference path fetched Rezvan PDF but Gemini rejected the key; no active snapshot or ReferencePrices write exists.",
     "procurement": "Paid-order shortfalls create owner-noted fixed-pack/minimum/multiple/cost/surplus proposals tied to source offer IDs; no supplier purchase is submitted; current supplier-term freshness and purchase completion remain owner/staging work",
-    "gemini_supplier_extraction": "Gemini is the default per D-035; GOOGLE_API_KEY with AI_API_KEY compatibility, gemini-3.1-flash-lite default, strict price-role/count review, regex fallback on failure, and extraction reuse across write retries; mocked tests only, no live call",
-    "railway_staged_variables": "Current read-only Railway metadata (2026-10-28): project stellar-solace contains only production; Wholesale-project is live-with-staged-changes and its latest deployment is SLEEPING; no volumes are attached. GOOGLE_API_KEY is one staged addition and is not active. GOOGLE_SERVICE_ACCOUNT_JSON and GOOGLE_SHEET_ID are present; values were not read. The user reported updating GOOGLE_SERVICE_ACCOUNT_JSON, but current validity is unverified. PIPELINE_DB_PATH, REFERENCE_STORE_PATH, REFERENCE_BRIDGE_TOKEN and REFERENCE_OWNER_IDS are absent. No Railway mutation/deployment was made by the agent.",
-    "order_payment_handoff": "Woo payment_complete emits receipt-checked paid snapshots with transaction/time, SKU and exact supplier offer provenance; cancellation/refund/failure snapshots release open lot reservations; Action Scheduler/WP-Cron retries pass synthetic runtime. Installed gateway, live amount/callback, persistent workflow store and connected checkout remain unverified.",
-    "paid_order_fulfillment": "Local owner dashboard workflow covers assignment, supplier purchase recording and receipts, unavailable lines, stock-checked price-bounded replacement proposals, customer choice, refund/additional-payment receipts, packing, owner-arranged dispatch/tracking, delivery, aftercare and closure. Actions are audited/idempotent. No automated supplier purchase, customer message, refund or extra charge. SQLite-only; staging, Sheets mirror and production activation remain open.",
-    "reference_item_review": "Private Woo owner screen and authenticated /reference/item-reviews API; supports ranked candidate suggestions, explicit reference and price-role choice, no-match hold, audited corrections, Products projection update and guarded publication queue. Full release still requires persistent service storage/configuration, live Sheets and snapshot refresh staging.",
+    "gemini_supplier_extraction": "Gemini remains the default per D-035; GOOGLE_API_KEY/AI_API_KEY compatibility and gemini-3.1-flash-lite are configured. A live PDF extraction reached Gemini, but the provider returned API_KEY_INVALID; no sample reference row was staged. Safe failure codes and owner retry are deployed.",
+    "railway_staged_variables": "2026-10-28: production source pinned to commit 813d9c4d703f3d6249d1cc959f9a8a36c4ce165a; deployment SUCCESS. Persistent /data volume and worker variables are live; no changes are staged. GOOGLE_API_KEY is present but Gemini returns API_KEY_INVALID. GOOGLE_SERVICE_ACCOUNT_JSON and GOOGLE_SHEET_ID remain redacted. Only production exists; separate FollowUP-bot approval untouched.",
+    "order_payment_handoff": "Woo payment_complete sends receipt-checked paid snapshots with transaction/time, SKU and exact supplier offer provenance; cancellation/refund/failure snapshots release open lot reservations; Action Scheduler/WP-Cron retries pass synthetic runtime. Persistent /data storage is deployed, while installed gateway, live amount/callback and connected checkout remain unverified.",
+    "paid_order_fulfillment": "Owner dashboard workflow covers assignment, supplier purchase recording/receipts, unavailable lines, substitutions/customer choices, refunds/additional-payment receipts, packing, dispatch/tracking, aftercare and closure. The SQLite database is persistent on Railway /data, not mirrored to Sheets. No automated supplier purchase, refund or extra charge is sent.",
+    "reference_item_review": "Private Woo owner screen and authenticated /reference/item-reviews API are deployed; ranked suggestions, explicit reference/price-role choice, no-match hold, audited corrections, Products projection update and guarded publication are implemented. Live Sheet reconciliation and a usable active reference snapshot remain unverified.",
     "google_sheets_readonly_probe": "The managed executor probe failed before the Sheets API call because its local GOOGLE_SERVICE_ACCOUNT_JSON did not parse. No sheet data was read or changed. This does not establish validity of Railway credentials; the user later reported updating the Railway GOOGLE_SERVICE_ACCOUNT_JSON, which remains unverified.",
     "ai_confirmation": "Owner-only Woo review can confirm extracted offer fields or mark a message not-a-product; decisions persist idempotently, append derived Offers rather than modifying supplier source rows, refresh MessageData AI status and queue guarded publication. Tested locally with mocks; connected extraction and dashboard staging remain unverified.",
-    "reference_refresh": "A crash-aware local 24-hour worker downloads the configured Rezvan PDF, calls Gemini, records refresh failures, stages immutable candidates, and exposes private dashboard review/activation with verified ReferencePrices projection. No live PDF/Gemini request or Google Sheet write was run."
+    "reference_refresh": "Production worker downloaded the Rezvan PDF and contacted Gemini. Google returned API_KEY_INVALID; no candidate was staged or ReferencePrices row written. The owner-only retry and safe failure category are deployed.",
+    "deployed_commit": "813d9c4d703f3d6249d1cc959f9a8a36c4ce165a",
+    "supervised_worker": "Production web and pipeline-worker processes start against the mounted 500 MB /data volume. Railway free-plan sleep remains enabled; exact scheduled refresh time is not guaranteed."
   },
   "site_integration_requirement": {
     "coordination_with_existing_plugins": true,
@@ -382,25 +393,29 @@
     "environment": "production",
     "project": "stellar-solace",
     "service": "Wholesale-project",
-    "service_state": "live-with-staged-changes",
-    "latest_deployment_state": "SLEEPING",
-    "staged_change_count": 1,
-    "staged_change": "GOOGLE_API_KEY added; STAGED and not active",
-    "GOOGLE_SERVICE_ACCOUNT_JSON": "present; user reported updating it; value not read and validity unverified",
+    "service_state": "deployed",
+    "latest_deployment_state": "SUCCESS",
+    "staged_change_count": 0,
+    "staged_change": "No staged changes; GOOGLE_API_KEY is active but rejected by Gemini as API_KEY_INVALID.",
+    "GOOGLE_SERVICE_ACCOUNT_JSON": "present and redacted; service-account sheet writer initializes; bilateral edit reconciliation not verified",
     "GOOGLE_SHEET_ID": "present; value not read",
-    "PIPELINE_DB_PATH": "absent",
-    "REFERENCE_BRIDGE_TOKEN": "absent",
-    "REFERENCE_OWNER_IDS": "absent",
+    "PIPELINE_DB_PATH": "/data/pipeline.sqlite",
+    "REFERENCE_BRIDGE_TOKEN": "present in Railway and private WordPress includes/runtime-config.php",
+    "REFERENCE_OWNER_IDS": "wp:3; private WordPress user 3 confirmed as owner",
     "separate_followup_bot_touched": false,
-    "deployment_or_configuration_mutation_by_agent": false,
-    "latest_user_report": "User reported updating GOOGLE_API_KEY and GOOGLE_SERVICE_ACCOUNT_JSON. The API key remains staged in the current metadata; the service-account variable is present but its value was not read.",
-    "GOOGLE_API_KEY": "staged addition only; not active",
-    "REFERENCE_STORE_PATH": "absent",
-    "volumes_attached": false,
+    "deployment_or_configuration_mutation_by_agent": true,
+    "latest_user_report": "User explicitly authorized production deployment. The app, worker, persistent storage and existing MolaviShop integration are deployed; a real Rezvan PDF request reached Gemini, which rejected the configured API key.",
+    "GOOGLE_API_KEY": "present; Google Gemini API returned API_KEY_INVALID; value remains redacted",
+    "REFERENCE_STORE_PATH": "/data/reference.sqlite",
+    "volumes_attached": true,
     "staging_environment_available": false,
     "environments": [
       "production"
-    ]
+    ],
+    "latest_deployment_commit": "813d9c4d703f3d6249d1cc959f9a8a36c4ce165a",
+    "supervised_processes": "web and pipeline-worker start successfully; worker recorded the failed reference refresh",
+    "sleep_application": true,
+    "volume_mount": "/data (500 MB)"
   },
   "whole_stream_gaps": [
     "The local reference/PDF/Gemini/AI-confirmation flow is implemented; connected Google access, owner bridge, persistent storage, legacy-writer cutover and staging replay remain unverified",

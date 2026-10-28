@@ -1,4 +1,15 @@
-# WordPress dashboard integration — local draft
+# WordPress dashboard integration
+
+## Deployment checkpoint — 2026-10-28
+
+The updated MolaviShop plugin files and owner bridge configuration are installed on
+the existing WordPress site. The private bridge config is stored at
+`includes/runtime-config.php`, outside Git; it binds the HTTPS Railway service and
+owner user 3. The production server and persistent volume are live. Its first Rezvan
+PDF request reached Gemini, which returned `API_KEY_INVALID`; no candidate was staged
+and no `ReferencePrices` write occurred. The Woo admin exposes a nonce-protected retry
+after a failed refresh, followed by owner review and explicit activation. The plugin's
+remote admin page and active-plugin/browser interactions still need a live UI check.
 
 Confirmed: owner decisions belong in the private WordPress dashboard, integrated with
 current WordPress functionality/plugins. Not Telegram as the decision surface.
@@ -27,15 +38,15 @@ Configuration contract (the secret values remain outside the repository):
   are not automatically entitled to this business-owner decision. Production owner
   ID `3` was confirmed through the authenticated WordPress user endpoint for the current
   administrator; do not add other IDs without authorization.
-- Server `ReferenceDecisions.owner_ids` must use matching `wp:<ID>` identities. No live
-  user ID or role was selected. Empty/missing configuration denies access.
+- Server owner IDs use matching `wp:<ID>` identities. Empty/missing configuration denies
+  access.
 
-The local Flask draft exposes the `DashboardAPI` through `/reference/decisions` and
-uses `REFERENCE_STORE_PATH`, `REFERENCE_OWNER_IDS` and `REFERENCE_BRIDGE_TOKEN`.
-`MOLAVI_REFERENCE_SERVER_URL` and `MOLAVI_REFERENCE_BRIDGE_TOKEN` connect the
-WordPress backend to it. No production values were added. Store both SQLite ledgers
-on persistent storage; multi-instance ownership and reconciliation still need an
-operational design.
+The server exposes the `DashboardAPI` through `/reference/decisions` and the snapshot
+workflow through `/reference/snapshots`. Railway stores `REFERENCE_STORE_PATH`,
+`REFERENCE_OWNER_IDS` and `REFERENCE_BRIDGE_TOKEN`; the existing plugin reads its
+private endpoint and token from `includes/runtime-config.php`. Both reference and
+pipeline SQLite databases are on Railway's persistent `/data` volume. Multi-instance
+ownership and reconciliation still need an operational design.
 
 GET lists durable unresolved events. POST sends event ID, expected snapshot ID and
 choice only. The actor is derived from the logged-in WordPress user on the backend;
@@ -51,8 +62,8 @@ continue button and is also rejected by the server if submitted directly.
 
 ## Current verification and remaining integration
 
-35 focused server tests and fourteen runtime assertions passed at this earlier checkpoint in disposable real
-WordPress 7.1.3 + WooCommerce 11.2.1: configured owner/capability access, denial of
+The latest local runtime passes 100 assertions in disposable real WordPress 7.1.3 +
+WooCommerce 11.2.1: configured owner/capability access, denial of
 another administrator, output escaping, native nonce rendering/rejection, missing
 snapshot behavior, backend actor assertion, token exclusion, redirect prevention,
 matching decision receipt and offline failure. HTTP server calls are mocked in the
@@ -60,14 +71,13 @@ WordPress runtime tests; server API behavior is separately tested in Python.
 Full MolaviShop entry point loads. See reference-dashboard-runtime-evidence.txt.
 No visual browser or Elementor/Wordfence compatibility pass is claimed.
 
-The latest local draft connects `/reference/decisions` to durable intake, gates stale
-reference use, and records snapshot provenance. It also includes separate owner
-screens for supplier-price verification, crash recovery, AI confirmations and reference
-snapshot review/activation. The PDF/Gemini scheduler and `ReferencePrices` projection
-exist locally; production settings, real end-to-end transport and multi-instance storage
-are not installed. Read-only decision history and browser/Elementor/Wordfence layout
-remain open. Supplier price age uses the original source timestamp or an owner-audited
-manual verification; a refresh/import timestamp alone does not reset age.
+The deployed plugin also contains separate owner screens for supplier-price verification,
+crash recovery, AI confirmations, reference item decisions, reference refresh retry and
+snapshot review/activation. Real end-to-end transport is configured, but the invalid
+Gemini API key blocks candidate staging. Read-only decision history and
+browser/Elementor/Wordfence layout remain open. Supplier price age uses the original
+source timestamp or an owner-audited manual verification; a refresh/import timestamp
+alone does not reset age.
 
 ## Item-level correction continuation — 2026-10-28
 
@@ -86,10 +96,11 @@ Weighted candidates use the recovered attribute weights as suggestions only; man
 owner choice remains required when the exact resolver cannot safely decide. Local code
 now includes category/history price-scale fallback, the owner AI confirmation state
 machine, scheduled PDF/Gemini candidate staging, and owner-controlled activation and
-`ReferencePrices` projection. Live Google access, bridge/owner deployment values,
-persistent storage and connected staging remain unverified. Latest local validation is
-235 Python tests and 93 disposable WordPress 7.1.3/WooCommerce 11.2.1 assertions.
-Browser and active-plugin compatibility remain unverified.
+`ReferencePrices` projection. The owner bridge and storage are deployed; live Gemini
+has returned `API_KEY_INVALID`, while live Sheets edits/projection and connected checkout
+remain unverified. Latest local validation is 245 Python tests and 100 disposable
+WordPress 7.1.3/WooCommerce 11.2.1 assertions. Browser and active-plugin compatibility
+remain unverified.
 
 ## Read-only live inspection receipt — 2026-10-25
 
