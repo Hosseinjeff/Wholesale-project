@@ -18,12 +18,7 @@ RUN useradd --create-home --shell /bin/bash app
 
 # Copy requirements and install dependencies
 COPY requirements.txt .
-RUN --mount=type=secret,id=proxy_ca \
-    if [ -f /run/secrets/proxy_ca ]; then \
-      PIP_CERT=/run/secrets/proxy_ca pip install --no-cache-dir -r requirements.txt; \
-    else \
-      pip install --no-cache-dir -r requirements.txt; \
-    fi
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY . .
