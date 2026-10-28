@@ -11,6 +11,7 @@ import hashlib
 import logging
 import os
 import threading
+from datetime import datetime, timezone
 from typing import Any
 
 import requests
@@ -52,21 +53,49 @@ def site_products(store: MemoryStore | GoogleSheetStore) -> list[dict[str, Any]]
     if not rows:
         return None
     _headers, records = _records(rows)
+    freshness={}
+    conflicted_products=set()
+    freshness_path=os.getenv('PIPELINE_DB_PATH') or ''
+    if freshness_path:
+        try:
+            from catalog.durable import Handoffs
+            from catalog.supplier_freshness import PriceFreshness,current_supplier_offers
+            queue=Handoffs(freshness_path)
+            conflicted_products={item['product_id'] for item in queue.sheet_sync_conflicts()}
+            freshness={item['product_id']:item for item in current_supplier_offers(
+                store,PriceFreshness(freshness_path),now=datetime.now(timezone.utc))}
+        except Exception:
+            logger.exception('Supplier price freshness unavailable; refusing publication')
+            return None
     products = []
     for record in records:
         status = str(record.get("Status") or "").strip().lower()
-        held = status in {"skipped", "needs_review"}
+        held = status in {"skipped", "needs_review", "not_product"}
         name = _trim_name(record.get("Product Name"))
         sale = _positive_price(record.get("Sale Price")) or 0
-        if name == "" or (sale <= 0 and not held):
+        source_record_id=str(record.get('Product ID') or '').strip()
+        if name=="" and not source_record_id:
+            continue
+        if sale<=0 and not held and not source_record_id:
             continue
         channel = str(record.get("Channel Username") or "").strip()
+        evidence=freshness.get(source_record_id,{})
+        freshness_state=evidence.get('state','current' if not freshness_path else 'needs_review')
         shelf = _positive_price(record.get("Consumer Price")) or _positive_price(record.get("Actual Price")) or 0
+        held=(held or not name or sale<=0 or shelf<=sale or
+              freshness_state not in {'current','warning'} or source_record_id in conflicted_products)
         minimum = _positive_price(record.get("Min Qty")) or minimum_purchase(
             str(record.get("Packaging") or ""),
             name,
         )
-        products.append({
+        stock_status = str(record.get("Stock Status") or "").strip().lower()
+        if stock_status in {"out of stock", "outofstock", "ناموجود"}:
+            availability = "outofstock"
+        elif stock_status in {"available", "in stock", "instock", "موجود"}:
+            availability = "instock"
+        else:
+            availability = "unknown"
+        published={
             "id": hashlib.sha256(f"{channel}|{name}".encode()).hexdigest()[:12],
             "name": name,
             "key": _product_key(name),
@@ -77,7 +106,15 @@ def site_products(store: MemoryStore | GoogleSheetStore) -> list[dict[str, Any]]
             "min": int(minimum),
             "image_file_id": safe_file_id(record.get("Image File ID")),
             "status": "hold" if held else "sell",
-        })
+            "supplier_availability": availability,
+        }
+        if freshness_path:
+            published.update({
+                'source_record_id':source_record_id,
+                'supplier_price_state':freshness_state,
+                'supplier_price_verified_at':evidence.get('verified_at') or '',
+            })
+        products.append(published)
     products.sort(key=lambda product: product["name"])
     return products
 

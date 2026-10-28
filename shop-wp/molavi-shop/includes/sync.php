@@ -135,11 +135,13 @@ function molavi_apply_settings(array $settings): void
 function molavi_clean_product(array $row): ?array
 {
     $name = trim(wp_strip_all_tags((string) ($row['name'] ?? '')));
-    if ($name === '' || mb_strlen($name) > 180) {
-        return null;
-    }
     $status = (string) ($row['status'] ?? '');
     if ($status !== 'sell' && $status !== 'hold') {
+        return null;
+    }
+    $sourceRecordId = preg_match('/^[A-Za-z0-9._:-]{1,200}$/', (string)($row['source_record_id'] ?? ''))
+        ? (string)$row['source_record_id'] : '';
+    if (($name === '' && !($status === 'hold' && $sourceRecordId !== '')) || mb_strlen($name) > 180) {
         return null;
     }
     $id = (string) ($row['id'] ?? '');
@@ -168,6 +170,10 @@ function molavi_clean_product(array $row): ?array
         'min' => max(1, min(999, (int) ($row['min'] ?? 1))),
         'image' => $image,
         'status' => $status,
+        'supplier_availability' => in_array(($row['supplier_availability'] ?? ''), ['instock', 'outofstock'], true) ? $row['supplier_availability'] : 'unknown',
+        'source_record_id' => $sourceRecordId,
+        'supplier_price_state' => in_array(($row['supplier_price_state'] ?? ''), ['current','warning','blocked','needs_review'], true) ? $row['supplier_price_state'] : '',
+        'supplier_price_verified_at' => is_string($row['supplier_price_verified_at'] ?? null) && strtotime($row['supplier_price_verified_at']) !== false ? gmdate('c', strtotime($row['supplier_price_verified_at'])) : '',
     ];
 }
 
@@ -202,12 +208,16 @@ function molavi_product_index(): array
         'orderby' => 'ID',
         'order' => 'ASC',
     ]);
-    $index = ['source' => [], 'name' => []];
+    $index = ['source' => [], 'record' => [], 'name' => []];
     foreach ($ids as $id) {
         $id = (int) $id;
         $source = (string) get_post_meta($id, '_molavi_source_id', true);
         if ($source !== '') {
             $index['source'][$source] = $id;
+        }
+        $record = (string) get_post_meta($id, '_molavi_supplier_offer_id', true);
+        if ($record !== '') {
+            $index['record'][$record] = $id;
         }
         $title = get_the_title($id);
         $key = molavi_name_key($title);
@@ -220,6 +230,9 @@ function molavi_product_index(): array
 
 function molavi_match_product(array $clean, array $index): int
 {
+    if ($clean['source_record_id'] !== '' && isset($index['record'][$clean['source_record_id']])) {
+        return (int) $index['record'][$clean['source_record_id']];
+    }
     if (isset($index['source'][$clean['id']])) {
         return (int) $index['source'][$clean['id']];
     }
@@ -244,8 +257,20 @@ function molavi_upsert_product(int $productId, array $clean): int
     $product->set_regular_price((string) ($shelf > 0 ? $shelf : $clean['sale']));
     $product->set_sale_price($shelf > 0 ? (string) $clean['sale'] : '');
     $product->set_short_description($clean['supplier']);
-    $product->set_manage_stock(false);
-    $product->set_stock_status('instock');
+    if ($clean['source_record_id'] !== '') {
+        $product->update_meta_data('_molavi_supplier_offer_id', $clean['source_record_id']);
+        $product->update_meta_data('_molavi_supplier_price_state', $clean['supplier_price_state']);
+        $product->update_meta_data('_molavi_supplier_price_verified_at', $clean['supplier_price_verified_at']);
+    }
+    // A stale/held offer or explicit supplier out-of-stock state blocks checkout.
+    // A fresh, explicit supplier in-stock state is purchasable in this demand-led flow;
+    // unknown supplier state never restores availability.
+    if ($clean['status'] === 'hold' || $clean['supplier_availability'] === 'outofstock') {
+        $product->set_stock_status('outofstock');
+    } elseif ($clean['status'] === 'sell' && $clean['supplier_availability'] === 'instock') {
+        $product->set_stock_status('instock');
+    }
+
     if ($product->get_sku() === '') {
         try {
             $product->set_sku($clean['id']);
@@ -266,6 +291,18 @@ function molavi_upsert_product(int $productId, array $clean): int
     }
     return $id;
 }
+
+/** Enforce the server's verified-price lifetime in both classic and Store API carts. */
+function molavi_supplier_offer_is_purchasable(bool $purchasable, $product): bool
+{
+    if (!$purchasable || !$product instanceof WC_Product) { return $purchasable; }
+    if ((string)$product->get_meta('_molavi_supplier_offer_id', true) === '') { return $purchasable; }
+    $state=(string)$product->get_meta('_molavi_supplier_price_state', true);
+    $verified=strtotime((string)$product->get_meta('_molavi_supplier_price_verified_at', true));
+    $age=$verified === false ? -1 : time() - $verified;
+    return in_array($state,['current','warning'],true) && $age >= 0 && $age < (14 * DAY_IN_SECONDS);
+}
+add_filter('woocommerce_is_purchasable','molavi_supplier_offer_is_purchasable',10,2);
 
 function molavi_hide_product(int $productId): bool
 {

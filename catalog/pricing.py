@@ -13,6 +13,7 @@ every product and every cart.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from catalog.extract import PRODUCT_HEADERS
@@ -62,7 +63,16 @@ _PUBLIC_FIELDS = (
     "spread",
     "stock_status",
 )
-_HIDDEN_STATUSES = {"skipped", "needs_review"}
+_HIDDEN_STATUSES = {"skipped", "needs_review", "not_product"}
+_UNAVAILABLE_SUPPLIER_STATES = {
+    "out of stock", "outofstock", "unavailable", "sold out", "ناموجود", "اتمام موجودی",
+}
+
+
+def supplier_offer_unavailable(value: Any) -> bool:
+    """Only an explicit supplier-unavailable value blocks a demand-led offer."""
+    normalized = re.sub(r"[\s_-]+", " ", str(value or "").strip().casefold())
+    return normalized in _UNAVAILABLE_SUPPLIER_STATES
 
 
 class PricingSettings:
@@ -314,6 +324,8 @@ def _public_product(source: dict[str, Any], band: dict[str, Any]) -> dict[str, A
 def product_from_record(record: dict[str, Any], settings: PricingSettings | None = None) -> dict[str, Any] | None:
     status = str(record.get("Status") or "").strip().lower()
     if status in _HIDDEN_STATUSES:
+        return None
+    if supplier_offer_unavailable(record.get("Stock Status")):
         return None
     name = str(record.get("Product Name") or "").strip()
     if not name:

@@ -36,6 +36,8 @@ from catalog.extract import (
     quality_check,
 )
 from catalog.media import share_album_images
+from catalog.gemini import GeminiError, ai_extraction_enabled, extract_message_products
+from catalog.sheet_reconcile import field_values_equal, reconcile_field, stable_conflict_id
 from catalog.pricing import (
     SHOP_FORMULA_ROW,
     SHOP_HEADER_ROW,
@@ -52,6 +54,13 @@ logger = logging.getLogger(__name__)
 _WRITE_LOCK = threading.Lock()
 SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets"
 _PRESERVE_ON_UPDATE = ("Product ID", "Import Timestamp")
+SHEET_PROVENANCE_FIELDS={
+    'Product ID','Channel ID','Channel','Channel Username','Original Message','Message Timestamp',
+    'Forwarded By','Import Timestamp','Last Updated','Batch ID','Latest Offer ID','Offer Count',
+    'Previous Sale Price','Previous Consumer Price','Price Changed At','Image File Unique ID',
+    'Reference Snapshot ID','Reference Match ID','Reference Decision ID',
+}
+_SHEET_IMMUTABLE_FIELDS=SHEET_PROVENANCE_FIELDS
 
 
 def extend_header_row(current: list[Any], required: list[str]) -> tuple[list[str], bool]:
@@ -82,6 +91,17 @@ class MemoryStore:
 
     def read(self, name: str) -> list[list[Any]]:
         return [list(row) for row in self.sheets.get(name, [])]
+
+    def read_fresh(self,name: str) -> list[list[Any]]:
+        return self.read(name)
+
+    def write_cells(self,name: str,row_number: int,headers: list[str],values: dict[str,Any]) -> None:
+        table=self.sheets.setdefault(name,[])
+        while len(table)<row_number:table.append([])
+        row=list(table[row_number-1])+['']*max(0,len(headers)-len(table[row_number-1]))
+        for header,value in values.items():
+            if header in headers:row[headers.index(header)]=value
+        table[row_number-1]=row[:len(headers)]
 
     def append(self, name: str, rows: list[list[Any]]) -> None:
         self.sheets.setdefault(name, [])
@@ -176,6 +196,14 @@ class SheetsRest:
         return self._call(
             "PUT",
             f"/v4/spreadsheets/{self.spreadsheet_id}/values/{quote(range_name, safe='')}",
+            params={"valueInputOption": value_input},
+            body=body,
+        )
+
+    def values_batch_update(self, value_input: str, body: dict[str, Any]) -> dict[str, Any]:
+        return self._call(
+            "POST",
+            f"/v4/spreadsheets/{self.spreadsheet_id}/values:batchUpdate",
             params={"valueInputOption": value_input},
             body=body,
         )
@@ -282,6 +310,28 @@ class GoogleSheetStore:
         table = _copy_table(result.get("values") or [])
         self._values[name] = table
         return _copy_table(table)
+
+    def read_fresh(self, name: str) -> list[list[Any]]:
+        self._values.pop(name,None)
+        return self.read(name)
+
+    def write_cells(self,name: str,row_number: int,headers: list[str],values: dict[str,Any]) -> None:
+        if not values:return
+        data=[]
+        for header,value in values.items():
+            if header not in headers:continue
+            column=headers.index(header)+1
+            cell=f"{_quote(name)}!{_column(column)}{row_number}:{_column(column)}{row_number}"
+            data.append({'range':cell,'values':[[value]]})
+        if not data:return
+        self._api().values_batch_update('RAW',{'data':data})
+        cached=self._values.get(name)
+        if cached is not None:
+            while len(cached)<row_number:cached.append([])
+            row=cached[row_number-1]
+            if len(row)<len(headers):row.extend(['']*(len(headers)-len(row)))
+            for header,value in values.items():
+                if header in headers:row[headers.index(header)]=value
 
     def append(self, name: str, rows: list[list[Any]]) -> None:
         if not rows:
@@ -482,12 +532,12 @@ def shop_catalog(store: MemoryStore | GoogleSheetStore) -> dict[str, Any]:
     }
 
 
-def finalize_batch(store: MemoryStore | GoogleSheetStore, payload: dict[str, Any]) -> dict[str, Any]:
+def finalize_batch(store: MemoryStore | GoogleSheetStore, payload: dict[str, Any], *, reference_snapshot=None) -> dict[str, Any]:
     with _WRITE_LOCK:
-        return _finalize_batch(store, payload)
+        return _finalize_batch(store, payload, reference_snapshot=reference_snapshot)
 
 
-def _finalize_batch(store: MemoryStore | GoogleSheetStore, payload: dict[str, Any]) -> dict[str, Any]:
+def _finalize_batch(store: MemoryStore | GoogleSheetStore, payload: dict[str, Any], *, reference_snapshot=None) -> dict[str, Any]:
     batch_id = str(payload.get("batch_id") or "")
     messages = payload.get("messages") if isinstance(payload.get("messages"), list) else []
     expected = int(payload.get("expected_count") or 0) or len(messages) or 0
@@ -498,12 +548,18 @@ def _finalize_batch(store: MemoryStore | GoogleSheetStore, payload: dict[str, An
         store.ensure("MessageData", MESSAGE_HEADERS)
         headers = _headers(store, "MessageData", MESSAGE_HEADERS)
         rows = []
+        current = store.read("MessageData") or []
+        keys = ("ID", "Channel Username", "Content", "Image File ID")
+        indices = [headers.index(k) for k in keys]
+        batch_index = headers.index("Batch ID")
+        existing = {tuple(str(row[i] or "") if i < len(row) else "" for i in indices)
+                    for row in current[1:] if batch_index < len(row) and str(row[batch_index]) == batch_id}
         imported_at = _now()
         for message in messages:
             message = dict(message or {})
             message["batch_id"] = batch_id
             classification = classify_message(message.get("content") or "", message.get("channel_username") or message.get("channel") or "")
-            rows.append(_row_from_map(headers, {
+            row = _row_from_map(headers, {
                 "ID": message.get("id") or "",
                 "Channel": message.get("channel") or "",
                 "Channel Username": message.get("channel_username") or "",
@@ -518,12 +574,19 @@ def _finalize_batch(store: MemoryStore | GoogleSheetStore, payload: dict[str, An
                 "Import Timestamp": imported_at,
                 "Status": classification["type"] or "imported",
                 "Batch ID": batch_id,
+                "AI Status": "pending_ai",
+                "AI Review Case IDs": "",
+                "AI Processed At": "",
                 "Image File ID": message.get("image_file_id") or "",
                 "Media Group ID": message.get("media_group_id") or "",
-            }))
+            })
+            key = tuple(str(row[i] or "") for i in indices)
+            if key not in existing:
+                rows.append(row)
+                existing.add(key)
         if rows:
             _append_at_next_row(store, "MessageData", headers, rows)
-            written = len(rows)
+        written = _count_batch_messages(store, batch_id)
     else:
         written = _count_batch_messages(store, batch_id)
 
@@ -538,7 +601,7 @@ def _finalize_batch(store: MemoryStore | GoogleSheetStore, payload: dict[str, An
             "written_count": written,
         }
 
-    extraction = _process_batch_products(store, batch_id, messages)
+    extraction = _process_batch_products(store, batch_id, messages, reference_snapshot=reference_snapshot)
     _record_batch_status(store, batch_id, expected, written, extraction)
     desk = {}
     try:
@@ -563,41 +626,163 @@ def _finalize_batch(store: MemoryStore | GoogleSheetStore, payload: dict[str, An
     }
 
 
-def _process_batch_products(store, batch_id: str, messages: list[dict[str, Any]]) -> dict[str, Any]:
+def _process_batch_products(store, batch_id: str, messages: list[dict[str, Any]], *, reference_snapshot=None) -> dict[str, Any]:
     processed = 0
     items = messages or [{"id": message_id, "batch_id": batch_id} for message_id in _list_batch_message_ids(store, batch_id)]
     for message in items:
         message = dict(message or {})
         message["batch_id"] = batch_id
         ok = False
+        prepared_products = None
+        if ai_extraction_enabled():
+            try:
+                _fill_message_from_sheet(store, message)
+                prepared_products = _extract_supplier_products(
+                    message.get("content") or "", message.get("channel_username") or "")
+            except Exception as exc:
+                logger.warning("Could not precompute supplier extraction: %s", exc.__class__.__name__)
         for _attempt in range(3):
-            result = import_product_data(store, message)
+            result = import_product_data(
+                store, message, reference_snapshot=reference_snapshot,
+                prepared_products=prepared_products)
             ok = bool(result and result.get("success"))
             if ok:
                 break
         if not ok:
             _rollback_catalog(store, batch_id)
             return {"status": "error", "processed": processed, "rollback": True}
+        try:
+            refresh_ai_message_status(store, message)
+        except Exception:
+            logger.exception('Could not persist AI message status')
         processed += 1
     return {"status": "success", "processed": processed}
 
 
-def import_product_data(store, data: dict[str, Any]) -> dict[str, Any]:
+def _ai_review_reason(offer):
+    if str(offer.get('Status') or '').strip().lower() != 'needs_review':
+        return False
+    reasons=[part.strip().lower() for part in str(offer.get('Review Reason') or '').split(';') if part.strip()]
+    return any(not reason.startswith('reference:') for reason in reasons)
+
+
+def _write_ai_message_status(store, message, status, case_ids):
+    store.ensure('MessageData', MESSAGE_HEADERS)
+    rows=_fresh_read(store,'MessageData')
+    if not rows:
+        return False
+    headers=[str(header) for header in rows[0]]
+    required=('ID','Batch ID','AI Status','AI Review Case IDs','AI Processed At')
+    if any(header not in headers for header in required):
+        return False
+    message_id=str(message.get('id') or '')
+    batch_id=str(message.get('batch_id') or '')
+    channel=str(message.get('channel') or '')
+    id_idx=headers.index('ID');batch_idx=headers.index('Batch ID')
+    channel_idx=headers.index('Channel') if 'Channel' in headers else None
+    rows_found=[]
+    for row_index,row in enumerate(rows[1:],2):
+        if str(row[id_idx] if id_idx<len(row) else '')!=message_id:
+            continue
+        if batch_id and str(row[batch_idx] if batch_idx<len(row) else '')!=batch_id:
+            continue
+        if channel_idx is not None and channel and str(row[channel_idx] if channel_idx<len(row) else '')!=channel:
+            continue
+        rows_found.append(row_index)
+    values={'AI Status':status,'AI Review Case IDs':json.dumps(case_ids,ensure_ascii=False),
+            'AI Processed At':_now()}
+    writer=getattr(store,'write_cells',None)
+    if callable(writer):
+        for row_index in rows_found:
+            writer('MessageData',row_index,headers,values)
+    else:
+        for row_index in rows_found:
+            row=list(rows[row_index-1])+['']*max(0,len(headers)-len(rows[row_index-1]))
+            for field,value in values.items():row[headers.index(field)]=value
+            store.write_rows('MessageData',row_index,[row[:len(headers)]])
+    return bool(rows_found)
+
+
+def refresh_ai_message_status(store, message):
+    """Mirror the durable offer-review lifecycle onto its source MessageData row."""
+    from catalog.ai_confirmations import review_case_id
+    message=dict(message or {})
+    message_id=str(message.get('id') or '')
+    batch_id=str(message.get('batch_id') or '')
+    if not message_id:
+        return False
+    offers_raw=_fresh_read(store,'Offers')
+    _,offers=_records(offers_raw)
+    message_offers=[offer for offer in offers if str(offer.get('Message ID') or '')==message_id]
+    source_ids={str(offer.get('Offer ID') or '') for offer in message_offers
+        if not batch_id or str(offer.get('Batch ID') or '')==batch_id}
+    matching=[offer for offer in message_offers if (not batch_id
+        or str(offer.get('Batch ID') or '')==batch_id
+        or str(offer.get('Derived From Offer ID') or '') in source_ids)]
+    latest={}
+    for offer in matching:
+        latest[(str(offer.get('Product Name') or ''),str(offer.get('Channel Username') or ''))]=offer
+    current=list(latest.values())
+    pending=[offer for offer in current if _ai_review_reason(offer)]
+    case_ids=[review_case_id(str(offer.get('Offer ID') or '')) for offer in pending if offer.get('Offer ID')]
+    if case_ids:
+        status='needs_confirmation'
+    elif current and all(str(offer.get('Status') or '').lower()=='not_product' for offer in current):
+        status='not_product'
+    elif current:
+        status='ai_processed'
+    else:
+        status='not_product'
+    message.setdefault('batch_id',batch_id)
+    return _write_ai_message_status(store,message,status,case_ids)
+
+
+def _extract_supplier_products(content, channel):
+    if ai_extraction_enabled():
+        try:
+            products = extract_message_products(content, channel)
+            if products:
+                return products
+        except GeminiError as exc:
+            logger.warning("Gemini extraction failed; using regex fallback: %s", exc)
+    return extract_products(content, channel)
+
+
+def import_product_data(
+    store,
+    data: dict[str, Any],
+    *,
+    reference_snapshot=None,
+    prepared_products: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     try:
         _fill_message_from_sheet(store, data)
-        products = extract_products(data.get("content") or "", data.get("channel_username") or "")
+        content = data.get("content") or ""
+        channel = data.get("channel_username") or ""
+        products = (
+            [dict(product) for product in prepared_products]
+            if prepared_products is not None
+            else _extract_supplier_products(content, channel)
+        )
         if not products:
             return {"success": True, "products_found": 0, "row": None}
 
-        store.ensure("Offers", OFFER_HEADERS)
+        reference_headers = []
+        store.ensure("Offers", OFFER_HEADERS + reference_headers)
         store.ensure("Products", PRODUCT_HEADERS)
-        offer_headers = _headers(store, "Offers", OFFER_HEADERS)
+        offer_headers = _headers(store, "Offers", OFFER_HEADERS + reference_headers)
         existing_offers = _read_sheet_if_present(store, "Offers")
+        _, existing_offer_records = _records(existing_offers)
         imported_at = _now()
         offer_rows = []
         keys: list[tuple[str, str]] = []
         for index, product in enumerate(products):
             product["min_qty"] = minimum_purchase(product.get("packaging") or "", product.get("name") or "")
+            if 'detected_price' in product or 'source_price_amount' in product:
+                from catalog.price_scale import apply_price_scale, assess_price_scale
+                scale = assess_price_scale(product, data, existing_offer_records,
+                    (reference_snapshot or {}).get('rows') or [], min_history=1)
+                apply_price_scale(product, scale)
             qa = quality_check(
                 {
                     "name": product.get("name"),
@@ -608,11 +793,40 @@ def import_product_data(store, data: dict[str, Any]) -> dict[str, Any]:
                 existing_offers,
                 offer_headers,
             )
-            product["status"] = "needs_review" if qa["requires_review"] else "imported"
-            if qa["requires_review"]:
-                _log_issue(store, "WARN", data.get("id"), qa["reason"])
+            review_reasons = [str(qa.get("reason") or "").strip()]
+            if product.get("needs_review"):
+                review_reasons.append(str(product.get("review_reason") or "AI extraction requires review").strip())
+            review_reason = "; ".join(dict.fromkeys(reason for reason in review_reasons if reason))
+            requires_review = bool(qa["requires_review"] or product.get("needs_review"))
+            product["status"] = "needs_review" if requires_review else "imported"
+            if requires_review:
+                _log_issue(store, "WARN", data.get("id"), review_reason)
             offer_id = f"{data.get('batch_id') or 'offer'}:{data.get('id') or index}:{index}"
-            offer_rows.append(_row_from_map(offer_headers, _offer_fields(product, data, offer_id, imported_at, qa.get("reason") or "")))
+            fields = _offer_fields(product, data, offer_id, imported_at, review_reason)
+            if reference_snapshot is not None:
+                from reference_import.matching import candidate_match, price_role_hint
+                match = candidate_match(product, reference_snapshot["rows"],
+                                        overrides=reference_snapshot.get('item_overrides'))
+                fields["Reference Snapshot ID"] = reference_snapshot["snapshot_id"]
+                fields["Reference Usage Warning"] = reference_snapshot.get("usage_warning") or ""
+                fields["Reference Match State"] = match["reason"]
+                reference_review_reason = ''
+                if match["state"] == "candidate":
+                    candidate = match["candidates"][0]
+                    fields["Reference Match ID"] = candidate["reference_id"]
+                    role_hint = candidate.get('owner_price_role') or price_role_hint(product.get("price"), candidate)["role"]
+                    fields["Reference Price Role Hint"] = role_hint
+                    fields["Reference Decision ID"] = candidate.get('owner_decision_id') or ''
+                    if role_hint not in {'unit', 'package'}:
+                        reference_review_reason = 'reference: price_role_needs_review'
+                else:
+                    fields["Reference Price Role Hint"] = "needs_review"
+                    reference_review_reason = "reference: " + match["reason"]
+                if reference_review_reason:
+                    fields["Status"] = "needs_review"
+                    existing_reason = str(fields.get('Review Reason') or '').strip()
+                    fields["Review Reason"] = '; '.join(part for part in (existing_reason, reference_review_reason) if part)
+            offer_rows.append(_row_from_map(offer_headers, fields))
             keys.append((product.get("name") or "", data.get("channel_username") or ""))
 
         opening_rows = _opening_offer_rows(store, keys, offer_headers, existing_offers)
@@ -1203,6 +1417,13 @@ def _product_row(headers: list[str], product: dict[str, Any], message: dict[str,
         "Min Qty": product.get("min_qty") or "",
         "Image File ID": product.get("image_file_id") or "",
         "Image File Unique ID": product.get("image_file_unique_id") or "",
+        "Brand": product.get("brand") or "",
+        "Weight": product.get("weight") or "",
+        "Package Count": product.get("package_count") or "",
+        "Reference Snapshot ID": product.get("reference_snapshot_id") or "",
+        "Reference Match ID": product.get("reference_match_id") or "",
+        "Reference Price Role": product.get("reference_price_role") or "",
+        "Reference Decision ID": product.get("reference_decision_id") or "",
     })
 
 
@@ -1309,13 +1530,18 @@ def _restore_current_book(store, keys: list[tuple[str, str]]) -> int | None:
     store.ensure("Products", PRODUCT_HEADERS)
     offer_rows = _read_sheet_if_present(store, "Offers")
     _, offers = _records(offer_rows)
-    products = store.read("Products")
+    products = _fresh_read(store,"Products")
     headers = _pad_headers(products[0] if products else PRODUCT_HEADERS)
+    queue=_sheet_sync_queue()
+    review_ledger=_reference_item_review_ledger()
+    active_reference_id=_active_reference_snapshot_id(review_ledger) if review_ledger else ''
     last_row = None
     deletions: list[int] = []
     for name, channel in keys:
-        row_number = _find_product_row(products, headers, name, channel)
         matching = _offers_for_product(offers, name, channel)
+        row_number = _find_product_row(products, headers, name, channel)
+        if not row_number and matching:
+            row_number=_find_product_row_by_offer_ids(products,headers,{str(o.get('Offer ID') or '') for o in matching})
         if not matching:
             if row_number:
                 deletions.append(row_number)
@@ -1328,13 +1554,29 @@ def _restore_current_book(store, keys: list[tuple[str, str]]) -> int | None:
             headers,
             str(latest.get("Import Timestamp") or ""),
         )
+        _apply_reference_item_review(product, latest, review_ledger, active_reference_id)
         new_row = _product_row(headers, product, _message_from_offer(latest))
         _set_cell(new_row, headers, "Last Updated", latest.get("Import Timestamp") or "")
         if not existing:
             _set_cell(new_row, headers, "Import Timestamp", matching[0].get("Import Timestamp") or "")
-        merged = _merge_current_row(existing, headers, new_row)
+        if existing and queue is not None:
+            base_row=None
+            if len(matching)>1:
+                prior=matching[:-1]
+                base_product=_product_from_offers(prior)
+                base_message=_message_from_offer(prior[-1])
+                base_row=_product_row(headers,base_product,base_message)
+            merged,row_number=_reconcile_current_row(store,queue,row_number,existing,headers,base_row,new_row,
+                product_id=str(_cell(existing,headers,'Product ID') or ''),
+                product_name=str(name),channel=str(channel),source_revision=str(latest.get('Offer ID') or ''))
+        else:
+            merged = _merge_current_row(existing, headers, new_row)
         if row_number:
-            store.write_rows("Products", row_number, [merged])
+            if existing and queue is not None:
+                # Reconciliation writes only approved server-side cells, after a fresh read.
+                pass
+            else:
+                store.write_rows("Products", row_number, [merged])
             products[row_number - 1] = merged
             last_row = row_number
         else:
@@ -1344,6 +1586,213 @@ def _restore_current_book(store, keys: list[tuple[str, str]]) -> int | None:
     if deletions:
         store.delete_rows("Products", deletions)
     return last_row
+
+
+def _sheet_sync_queue():
+    path=os.getenv('PIPELINE_DB_PATH') or ''
+    if not path:return None
+    from catalog.durable import Handoffs
+    return Handoffs(path)
+
+
+def _reference_item_review_ledger():
+    path = os.getenv('REFERENCE_STORE_PATH') or ''
+    owners = [x.strip() for x in (os.getenv('REFERENCE_OWNER_IDS') or '').split(',') if x.strip()]
+    if not path or not owners:
+        return None
+    from reference_import.item_reviews import ItemReviewLedger
+    return ItemReviewLedger(path, owner_ids=owners)
+
+
+def _active_reference_snapshot_id(ledger):
+    if ledger is None:
+        return ''
+    with ledger.connect() as db:
+        row = db.execute('SELECT snapshot_id FROM reference_active WHERE singleton=1').fetchone()
+    return str(row['snapshot_id']) if row else ''
+
+
+def _apply_reference_item_review(product, offer, ledger, active_snapshot_id):
+    if ledger is None:
+        return product
+    snapshot_id = str(offer.get('Reference Snapshot ID') or '')
+    offer_id = str(offer.get('Offer ID') or '')
+    if not snapshot_id or snapshot_id != active_snapshot_id or not offer_id:
+        return product
+    from reference_import.item_reviews import review_case_id
+    decision = ledger.get(review_case_id(offer_id, snapshot_id))
+    if not decision:
+        decision = ledger.get_by_decision_id(str(offer.get('Reference Decision ID') or ''))
+    if not decision or decision.get('snapshot_id') != active_snapshot_id:
+        return product
+    product['reference_snapshot_id'] = snapshot_id
+    product['reference_decision_id'] = decision.get('decision_id') or ''
+    if decision.get('choice') == 'no_match':
+        product['reference_match_id'] = ''
+        product['reference_price_role'] = 'unresolved'
+        product['status'] = 'needs_review'
+        return product
+    if decision.get('choice') != 'match':
+        return product
+    product['reference_match_id'] = decision.get('reference_id') or ''
+    product['reference_price_role'] = decision.get('price_role') or ''
+    if decision.get('price_role') == 'package':
+        from reference_import.importer import HEADERS
+        from reference_import.matching import package_count
+        import json, math
+        with ledger.connect() as db:
+            row = db.execute('SELECT payload FROM reference_snapshots WHERE snapshot_id=?',
+                             (active_snapshot_id,)).fetchone()
+        reference_pack = 0
+        if row:
+            payload = json.loads(row['payload'])
+            index = HEADERS.index('Product Code')
+            count_index = HEADERS.index('Package Count')
+            reference = next((item for item in payload.get('rows', [])
+                if str(item[index] or item[HEADERS.index('Normalized Key')]) == decision.get('reference_id')), None)
+            if reference:
+                try:
+                    reference_pack = int(float(reference[count_index] or 0))
+                except (TypeError, ValueError):
+                    reference_pack = 0
+        count = int(package_count({'package_count': product.get('package_count'),
+                                   'packaging': product.get('packaging')}) or reference_pack or 0)
+        source_cost = _positive_price(offer.get('Sale Price'))
+        owner_confirmed_unit = bool(str(offer.get('Owner Decision ID') or '').strip())
+        if count > 0 and source_cost and not owner_confirmed_unit:
+            unit_cost = int(math.floor(source_cost / count + .5))
+            product['sale_price'] = unit_cost
+            product['price'] = unit_cost
+            product['package_count'] = count
+            product['min_qty'] = max(int(_positive_price(product.get('min_qty')) or 0), count)
+        elif count > 0 and owner_confirmed_unit:
+            product['package_count'] = count
+            product['min_qty'] = max(int(_positive_price(product.get('min_qty')) or 0), count)
+    reasons = [part.strip() for part in str(offer.get('Review Reason') or '').split(';') if part.strip()]
+    if str(product.get('status') or '').lower() == 'needs_review' and reasons and all(
+            reason.lower().startswith('reference:') for reason in reasons):
+        product['status'] = 'imported'
+    return product
+
+
+def _fresh_read(store,name):
+    reader=getattr(store,'read_fresh',None)
+    return reader(name) if callable(reader) else store.read(name)
+
+
+def _find_product_row_by_offer_ids(rows,headers,offer_ids):
+    if 'Latest Offer ID' not in headers:return None
+    index=headers.index('Latest Offer ID')
+    for row_number,row in enumerate(rows[1:],start=2):
+        if index<len(row) and str(row[index] or '') in offer_ids:
+            return row_number
+    return None
+
+
+def _find_product_row_by_id(rows,headers,product_id):
+    if not product_id or 'Product ID' not in headers:return None
+    index=headers.index('Product ID')
+    for row_number,row in enumerate(rows[1:],start=2):
+        if index<len(row) and str(row[index] or '')==product_id:
+            return row_number
+    return None
+
+
+def _reconcile_current_row(store,queue,row_number,existing,headers,base_row,server_row,*,product_id,product_name,channel,source_revision):
+    observed=list(existing)+['']*max(0,len(headers)-len(existing))
+    base=list(base_row or existing)+['']*max(0,len(headers)-len(base_row or existing))
+    server=list(server_row)+['']*max(0,len(headers)-len(server_row))
+    merged=list(observed[:len(headers)])
+    targets={}
+    active_conflict_ids=set()
+    for index,field in enumerate(headers):
+        sheet_value=observed[index]
+        server_value=server[index]
+        if field in _SHEET_IMMUTABLE_FIELDS:
+            value=sheet_value if field=='Product ID' or (field=='Import Timestamp' and sheet_value not in ('',None)) else server_value
+            merged[index]=value
+            if value!=sheet_value:targets[field]=value
+            continue
+        result=reconcile_field(field,base[index],server_value,sheet_value)
+        if result.action in ('in_sync','server_to_sheet'):
+            merged[index]=server_value
+            if result.action=='server_to_sheet' and server_value!=sheet_value:targets[field]=server_value
+        elif result.action=='sheet_to_server':
+            merged[index]=sheet_value
+        else:
+            row_id=product_id or f'{channel}|{product_name}'
+            conflict_id=stable_conflict_id(row_id,field,source_revision,base[index],server_value,sheet_value)
+            active_conflict_ids.add(conflict_id)
+            conflict=queue.get_sheet_conflict(conflict_id)
+            if conflict and conflict['state']=='resolved':
+                if conflict['choice']=='server':
+                    merged[index]=server_value
+                    if server_value!=sheet_value:targets[field]=server_value
+                else:
+                    merged[index]=sheet_value
+                continue
+            queue.record_sheet_conflict({
+                'conflict_id':conflict_id,'product_id':row_id,'product_name':product_name,
+                'channel':channel,'field':field,'source_revision':source_revision,
+                'base':base[index],'server':server_value,'sheet':sheet_value,
+            })
+            merged[index]=sheet_value
+
+    # Locate the row again in a fresh sheet read before changing any cells.
+    live_rows=_fresh_read(store,'Products')
+    live_headers=[str(x) for x in live_rows[0]] if live_rows else headers
+    live_row_number=_find_product_row_by_id(live_rows,live_headers,product_id)
+    if not live_row_number:
+        prior_offer_id=str(_cell(existing,headers,'Latest Offer ID') or '')
+        if prior_offer_id:
+            live_row_number=_find_product_row_by_offer_ids(live_rows,live_headers,{prior_offer_id})
+    if not live_row_number:
+        live_row_number=_find_product_row(live_rows,live_headers,product_name,channel)
+    if live_row_number is None or live_row_number<2 or live_row_number>len(live_rows):
+        # The row moved, vanished or lost every trusted identity since the first read.
+        # Do not fall back to a stale row number and overwrite an unrelated product.
+        return merged,row_number
+    live=list(live_rows[live_row_number-1])+['']*max(0,len(live_headers)-len(live_rows[live_row_number-1]))
+    safe_targets={}
+    for field,value in targets.items():
+        if field not in live_headers:continue
+        current=live[live_headers.index(field)]
+        originally=observed[headers.index(field)] if field in headers else ''
+        if (not field_values_equal(field,current,originally) and
+                not field_values_equal(field,current,value)):
+            # Another edit arrived after the first read. Keep it and record both values.
+            row_id=product_id or f'{channel}|{product_name}'
+            base_value=base[headers.index(field)] if field in headers else ''
+            conflict_id=stable_conflict_id(row_id,field,source_revision,base_value,value,current)
+            active_conflict_ids.add(conflict_id)
+            queue.record_sheet_conflict({'conflict_id':conflict_id,'product_id':row_id,
+                'product_name':product_name,'channel':channel,'field':field,'source_revision':source_revision,
+                'base':base_value,'server':value,'sheet':current})
+            merged[headers.index(field)]=current
+            continue
+        safe_targets[field]=value
+    if safe_targets:
+        writer=getattr(store,'write_cells',None)
+        if callable(writer):writer('Products',live_row_number,live_headers,safe_targets)
+        else:
+            for field,value in safe_targets.items():live[live_headers.index(field)]=value
+            store.write_rows('Products',live_row_number,[live[:len(live_headers)]])
+        confirmed=_fresh_read(store,'Products')
+        if live_row_number<=len(confirmed):
+            actual=list(confirmed[live_row_number-1])+['']*max(0,len(live_headers)-len(confirmed[live_row_number-1]))
+            for field,value in safe_targets.items():
+                idx=live_headers.index(field)
+                if not field_values_equal(field,actual[idx],value):
+                    row_id=product_id or f'{channel}|{product_name}'
+                    base_value=base[headers.index(field)] if field in headers else ''
+                    conflict_id=stable_conflict_id(row_id,field,source_revision,base_value,value,actual[idx])
+                    active_conflict_ids.add(conflict_id)
+                    queue.record_sheet_conflict({'conflict_id':conflict_id,'product_id':row_id,
+                        'product_name':product_name,'channel':channel,'field':field,'source_revision':source_revision,
+                        'base':base_value,'server':value,'sheet':actual[idx]})
+                    merged[headers.index(field)]=actual[idx]
+    queue.supersede_sheet_conflicts(product_id or f'{channel}|{product_name}',channel,active_conflict_ids)
+    return merged,live_row_number
 
 
 def _offer_fields(product: dict[str, Any], message: dict[str, Any], offer_id: str, imported_at: str, review_reason: str) -> dict[str, Any]:
@@ -1378,6 +1827,24 @@ def _offer_fields(product: dict[str, Any], message: dict[str, Any], offer_id: st
         "Min Qty": product.get("min_qty") or minimum_purchase(product.get("packaging") or "", product.get("name") or ""),
         "Image File ID": message.get("image_file_id") or "",
         "Image File Unique ID": message.get("image_file_unique_id") or "",
+        "Brand": product.get("brand") or "",
+        "Weight": product.get("weight") or "",
+        "Package Count": product.get("package_count") or "",
+        "Reference Decision ID": "",
+        "Derived From Offer ID": "",
+        "Owner Decision ID": "",
+        "Owner Decision Actor": "",
+        "Owner Decision At": "",
+        "Detected Price": product.get("detected_price") if product.get("detected_price") is not None else "",
+        "Price Anchor Type": product.get("price_anchor_type") or "",
+        "Price Anchor ID": product.get("price_anchor_id") or "",
+        "Price Anchor Name": product.get("price_anchor_name") or "",
+        "Price Anchor Match Score": product.get("price_anchor_score") or "",
+        "Price Scale Method": product.get("price_scale_method") or "",
+        "Price Scale Status": product.get("price_scale_status") or "",
+        "Price Scale Reason": product.get("price_scale_reason") or "",
+        "Historical Median Unit Price": product.get("historical_median_unit_price") or "",
+        "Category Reference Count": product.get("category_reference_count") or "",
     }
 
 
@@ -1394,6 +1861,9 @@ def _product_from_offers(offers: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "name": latest.get("Product Name") or "",
         "variation_type": latest.get("Variation Type") or "",
+        "brand": latest.get("Brand") or "",
+        "weight": latest.get("Weight") or "",
+        "package_count": latest.get("Package Count") or "",
         "sale_price": latest.get("Sale Price"),
         "actual_price": latest.get("Actual Price"),
         "price_type": latest.get("Price Type") or "",
@@ -1413,8 +1883,15 @@ def _product_from_offers(offers: list[dict[str, Any]]) -> dict[str, Any]:
         "previous_consumer_price": _previous_consumer_price(offers),
         "price_changed_at": _price_changed_at(offers),
         "latest_offer_id": latest.get("Offer ID") or "",
+        "reference_snapshot_id": latest.get("Reference Snapshot ID") or "",
+        "reference_match_id": latest.get("Reference Match ID") or "",
+        "reference_price_role": latest.get("Reference Price Role Hint") or "",
+        "reference_decision_id": latest.get("Reference Decision ID") or "",
         "offer_count": len(offers),
-        "min_qty": minimum_purchase(latest.get("Packaging") or "", latest.get("Product Name") or ""),
+        "min_qty": max(
+            int(_positive_price(latest.get("Min Qty")) or 0),
+            minimum_purchase(latest.get("Packaging") or "", latest.get("Product Name") or ""),
+        ),
         "image_file_id": image_id,
         "image_file_unique_id": image_unique,
     }

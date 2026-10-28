@@ -1,0 +1,41 @@
+{
+  "date": "2026-10-25",
+  "mode": "read-only; no test order/import/publication",
+  "results": {
+    "health": {
+      "http": 200,
+      "status": "healthy",
+      "version": "2026-10-17-shop-publish"
+    },
+    "health_detailed": {
+      "http": 200,
+      "status": "healthy",
+      "version": "2026-10-17-shop-publish",
+      "sheet_writer": "service_account",
+      "google_apps_script": "unreachable"
+    },
+    "catalog": {
+      "http": 200,
+      "status": null,
+      "returned_products": 32
+    },
+    "storefront": {
+      "http": 200,
+      "json": true,
+      "returned_products": 1
+    },
+    "telegram": {
+      "http": 200,
+      "ok": true,
+      "webhook_configured": true,
+      "pending_updates": 0,
+      "last_error_present": false,
+      "last_error_date": null
+    },
+    "sheets": {
+      "error": "JSONDecodeError"
+    }
+  },
+  "sheets_note": "Direct executor read could not parse configured service-account data; this does not establish a failure of the deployed server credentials. Server independently reports service_account writer and returns catalog data.",
+  "limits": "Health and read endpoints do not establish successful intake, writes, fulfillment or end-to-end reliability."
+}

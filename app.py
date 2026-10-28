@@ -13,6 +13,7 @@ import threading
 from urllib.parse import urlparse
 from utils.logger import setup_logger
 
+from catalog.durable import Handoffs, ReferencePending, ReferenceChanged, JobConflict
 from catalog.media import safe_file_id, stamp_inbound
 from catalog.orders import format_order_notice, operator_chat_ids, remember_operator, upsert_shop_order
 from catalog.pricing import catalog_from_records, default_settings, preview_records, resolve_quote
@@ -23,6 +24,7 @@ from catalog.sync import (
     finalize_batch,
     refresh_buying_desk,
     release_idle_memory,
+    SHEET_PROVENANCE_FIELDS,
     resolve_prompt,
     sheets_configured,
     shop_catalog,
@@ -160,6 +162,163 @@ class BatchManager:
         for chat_id in targets:
             chat_prompts = [prompt for prompt in prompts if str(prompt.get("chat_id") or "") == str(chat_id)]
             send_chat_text(chat_id, format_batch_reply({**data, "prompts": chat_prompts}))
+
+class DurableBatchManager:
+    def __init__(self, queue):
+        self.queue = queue
+        self.timer = None
+        self.lock = threading.Lock()
+
+    def add_message(self, data):
+        self.queue.receive(data)  # Commit before returning webhook acknowledgement.
+        with self.lock:
+            if self.timer is None:
+                self.timer = threading.Timer(BATCH_MAX_WAIT_SEC, self.flush_and_finalize)
+                self.timer.daemon = True
+                self.timer.start()
+
+    def flush_and_finalize(self):
+        with self.lock:
+            self.timer = None
+        try:
+            self.queue.batch(BATCH_MAX_SIZE)
+            run_durable_handoff(self.queue)
+        except Exception:
+            logger.exception("Durable handoff remains pending for worker recovery")
+
+
+def handoff_queue():
+    path = os.getenv("PIPELINE_DB_PATH")
+    return Handoffs(path) if path else None
+
+
+def run_durable_handoff(queue, job_id=None):
+    if not USE_SHEETS:
+        raise RuntimeError("Durable pipeline requires the server Sheets writer")
+
+    def notice(key, chat_id, text, channel="telegram"):
+        if not chat_id:
+            return
+        queue.put("notice", key + ":" + str(chat_id) + ":" + channel,
+                  {"chat_id": chat_id, "text": text, "channel": channel})
+
+    def finalize(payload):
+        with queue.publication_lock():
+            return finalize_locked(payload)
+
+    def finalize_locked(payload):
+        reference_path = os.getenv("REFERENCE_STORE_PATH")
+        if not reference_path:
+            return finalize_with_reference(payload, None)
+        from reference_import.snapshots import ReferenceStore
+        owners = [x.strip() for x in (os.getenv("REFERENCE_OWNER_IDS") or "").split(",") if x.strip()]
+        reference_store = ReferenceStore(reference_path, owner_ids=owners)
+        with reference_store.activation_lock():
+            return finalize_with_reference(payload, reference_store)
+
+    def finalize_with_reference(payload, reference_store):
+        reference = None
+        if reference_store is not None:
+            from datetime import datetime, timezone
+            from reference_import.workflow import active_reference_use
+            eligibility = active_reference_use(reference_store, now=datetime.now(timezone.utc))
+            if not eligibility["allow_automatic"]:
+                raise ReferencePending('reference decision required')
+            reference = reference_store.active_snapshot()
+            if reference is None or reference['snapshot_id'] != eligibility['snapshot_id']:
+                raise ReferenceChanged('reference snapshot changed before intake')
+            reference['usage_warning'] = eligibility.get('warning') or ''
+            from reference_import.item_reviews import ItemReviewLedger
+            reference['item_overrides'] = ItemReviewLedger(reference_store.database,
+                owner_ids=reference_store.owner_ids).overrides(
+                reference['snapshot_id'])
+        queue.hold_publication(payload['batch_id'], 'batch_in_progress')
+        try:
+            result = finalize_batch(build_store(), payload, reference_snapshot=reference)
+            if result.get('rollback') or result.get('status') != 'success' or result.get('extraction_status') != 'success':
+                queue.hold_publication(payload['batch_id'], 'batch_unverified')
+            if reference is not None:
+                latest = reference_store.active_snapshot()
+                if latest is None or latest['snapshot_id'] != reference['snapshot_id']:
+                    queue.hold_publication(payload['batch_id'], 'reference_changed_during_batch')
+                    raise ReferenceChanged('reference snapshot changed during intake')
+        except Exception:
+            queue.hold_publication(payload['batch_id'], 'batch_write_unverified')
+            raise
+        # Persist original per-chat review prompts independently of publication.
+        if result.get("status") == "success":
+            prompts = result.get("prompts") or []
+            targets = {(str(m.get("chat_id")), m.get("channel") or "telegram")
+                       for m in payload["messages"] if m.get("chat_id")}
+            for chat, channel in targets:
+                selected = [p for p in prompts if str(p.get("chat_id")) == chat]
+                notice(payload["batch_id"], chat,
+                       format_batch_reply({**result, "prompts": selected}), channel)
+        if result.get('status') == 'success' and result.get('extraction_status') == 'success' and not result.get('rollback'):
+            queue.resolve_publication_hold(payload['batch_id'], expected_reason='batch_in_progress',
+                                           actor_id='system:batch', note='Batch and reference checks completed')
+        return result
+
+    def order_write(payload):
+        order = payload["order"]
+        store = build_store()
+        result = upsert_shop_order(store, order)
+        payment_state = str(order.get("payment_status") or "").lower()
+        terminal_state = str(order.get("woo_status") or "").lower()
+        if result.get("written") is True and (payment_state in {"verified", "refunded"}
+                or terminal_state in {"cancelled", "refunded", "failed"}):
+            from datetime import datetime
+            from zoneinfo import ZoneInfo
+            from catalog.order_fulfillment import PaidOrderPlanner
+            from catalog.order_operations import OrderOperations
+            today = datetime.now(ZoneInfo("Asia/Tehran")).date().isoformat()
+            planner = PaidOrderPlanner(queue.path)
+            result["fulfillment"] = planner.plan(order, today=today)
+            if payment_state == "verified":
+                OrderOperations(queue.path).ensure(str(order.get("id") or ""),
+                    result["fulfillment"], today=today)
+        if result.get("written") is True and payload.get("notify"):
+            import hashlib
+            key = hashlib.sha256(queue.encode(payload).encode()).hexdigest()
+            for chat in operator_chat_ids(store):
+                for channel, token in (("telegram", BOT_TOKEN), ("bale", BALE_BOT_TOKEN)):
+                    if token:
+                        notice("order:" + key, chat, format_order_notice(order), channel)
+        return result
+
+    def notify(payload):
+        channel = payload["channel"]
+        token = BALE_BOT_TOKEN if channel == "bale" else BOT_TOKEN
+        host = "https://tapi.bale.ai" if channel == "bale" else "https://api.telegram.org"
+        if not token:
+            return {"delivered": False}
+        response = requests.post(host + "/bot" + token + "/sendMessage",
+                                 json={"chat_id": payload["chat_id"], "text": payload["text"]}, timeout=10)
+        return {"delivered": response.status_code == 200 and response.json().get("ok") is True}
+
+    def publish_projection(payload):
+        from catalog.sheet_projection import sheet_projection_digest
+        store=build_store()
+        expected=payload.get('sheet_digest') if isinstance(payload,dict) else None
+        before=sheet_projection_digest(store)
+        if expected and before!=expected:
+            state=queue.sheet_projection_state() or {}
+            if before!=state.get('published_digest'):
+                queue.enqueue_sheet_projection(before)
+            return {'ok':True,'pushed':True,'images_left':0,'superseded':True}
+        result=guarded_publish_shop(store,queue=queue)
+        if result.get('ok') and result.get('pushed') and int(result.get('images_left') or 0)==0:
+            after=sheet_projection_digest(store)
+            if after!=before:
+                queue.enqueue_sheet_projection(after)
+                return {'ok':True,'pushed':True,'images_left':0,'superseded':True}
+            queue.mark_sheet_projection_published(after)
+        return result
+
+    return queue.run_one(finalize=finalize, publish=publish_projection,
+                         publish_with_payload=publish_projection,
+                         order_write=order_write, notify=notify, job_id=job_id)
+
 
 batch_manager = None
 
@@ -353,8 +512,6 @@ def ensure_telegram_webhook():
     threading.Thread(target=_run, name="telegram-webhook", daemon=True).start()
 
 
-ensure_telegram_webhook()
-
 
 def format_batch_reply(data):
     """Tell the operator what was saved, and ask when a price is in doubt."""
@@ -422,7 +579,7 @@ def enqueue_message(data):
 
         global batch_manager
         if batch_manager is None:
-            batch_manager = BatchManager(WEB_APP_URL)
+            batch_manager = DurableBatchManager(handoff_queue()) if os.getenv("PIPELINE_DB_PATH") else BatchManager(WEB_APP_URL)
 
         batch_manager.add_message(data)
         return True
@@ -525,7 +682,7 @@ def handle_inbound_update(update_json, channel):
             send_chat_text(data.get("chat_id"), outcome.get("reply") or "")
             return jsonify({"status": "resolved" if outcome.get("understood") else "needs_answer"})
     success = enqueue_message(data)
-    return jsonify({'status': 'success' if success else 'error', 'source': source})
+    return jsonify({'status': 'success' if success else 'error', 'source': source}), 200 if success else 503
 
 
 @app.before_request
@@ -570,6 +727,861 @@ def _shop_token_ok() -> bool:
     return hmac.compare_digest(sent, secret)
 
 
+@app.route("/pipeline/publication-holds", methods=["GET", "POST"])
+def publication_holds_route():
+    token = os.getenv("REFERENCE_BRIDGE_TOKEN") or ""
+    owners = {x.strip() for x in (os.getenv("REFERENCE_OWNER_IDS") or "").split(",") if x.strip()}
+    queue = handoff_queue()
+    if queue is None or len(token) < 32 or not owners:
+        return jsonify({"ok": False, "error": "unconfigured"}), 503
+    sent = request.headers.get("X-Molavi-Reference-Token", "")
+    actor = request.headers.get("X-Molavi-Actor", "")
+    if not sent or not hmac.compare_digest(sent, token):
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+    if actor not in owners:
+        return jsonify({"ok": False, "error": "owner_required"}), 403
+    if request.method == "GET":
+        result = {"ok": True, "holds": queue.publication_holds()}
+    else:
+        body = request.get_json(silent=True)
+        if (not isinstance(body, dict) or set(body) != {"hold_id", "expected_reason", "note", "resume_batch"}
+                or body.get('resume_batch') is not True):
+            return jsonify({"ok": False, "error": "invalid_body"}), 400
+        try:
+            with queue.publication_lock():
+                queue.resolve_publication_hold(body['hold_id'], expected_reason=body['expected_reason'],
+                                               actor_id=actor, note=body['note'], resume_batch=True)
+        except ValueError:
+            return jsonify({"ok": False, "error": "conflict_or_invalid"}), 409
+        result = {"ok": True, "hold_id": body['hold_id'], "batch_resumed": True}
+    response = jsonify(result)
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
+@app.route('/pipeline/operations-dashboard', methods=['GET'])
+def operations_dashboard_route():
+    """Private, read-only summary of durable work that needs an operator."""
+    token=os.getenv('REFERENCE_BRIDGE_TOKEN') or ''
+    owners={value.strip() for value in (os.getenv('REFERENCE_OWNER_IDS') or '').split(',') if value.strip()}
+    queue=handoff_queue()
+    if queue is None or len(token)<32 or not owners:
+        return jsonify({'ok':False,'error':'unconfigured'}),503
+    sent=request.headers.get('X-Molavi-Reference-Token','')
+    actor=request.headers.get('X-Molavi-Actor','')
+    if not sent or not hmac.compare_digest(sent,token):
+        return jsonify({'ok':False,'error':'unauthorized'}),401
+    if actor not in owners:
+        return jsonify({'ok':False,'error':'owner_required'}),403
+    summary=queue.operations_snapshot(limit=100)
+    summary['publication_holds']=len(queue.publication_holds())
+    summary['sheet_conflicts']=len(queue.sheet_sync_conflicts(state='open'))
+    response=jsonify({'ok':True,'operations':summary})
+    response.headers['Cache-Control']='no-store'
+    return response
+
+
+@app.route('/pipeline/paid-orders', methods=['GET', 'POST'])
+def paid_orders_route():
+    token = os.getenv('REFERENCE_BRIDGE_TOKEN') or ''
+    owners = {x.strip() for x in (os.getenv('REFERENCE_OWNER_IDS') or '').split(',') if x.strip()}
+    queue = handoff_queue()
+    if queue is None or len(token) < 32 or not owners:
+        return jsonify({'ok': False, 'error': 'unconfigured'}), 503
+    sent = request.headers.get('X-Molavi-Reference-Token', '')
+    actor = request.headers.get('X-Molavi-Actor', '')
+    if not sent or not hmac.compare_digest(sent, token):
+        return jsonify({'ok': False, 'error': 'unauthorized'}), 401
+    if actor not in owners:
+        return jsonify({'ok': False, 'error': 'owner_required'}), 403
+    from catalog.order_fulfillment import PaidOrderPlanner
+    from catalog.order_operations import OrderOperations
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    planner = PaidOrderPlanner(queue.path)
+    operations = OrderOperations(queue.path)
+    if request.method == 'GET':
+        today = datetime.now(ZoneInfo('Asia/Tehran')).date().isoformat()
+        plans = planner.list_plans()
+        lots = planner.inventory.list_lots(today=today)
+        try:
+            products = shop_catalog(build_store()).get('products') or []
+        except Exception:
+            logger.exception('Could not load current sellable products for replacement suggestions')
+            products = []
+        from catalog.substitutions import suggest_owned_substitutes
+        orders = []
+        for plan in plans:
+            order_id = str(plan.get('order_id') or '')
+            source = planner.source_order(order_id) or {}
+            workflow = operations.get(order_id)
+            if plan.get('state') != 'released':
+                workflow = operations.ensure(order_id, plan, today=today)
+            excluded = {str(line.get('sku') or '') for line in source.get('lines', [])}
+            suggestions = {}
+            for line in plan.get('lines', []):
+                if line.get('shortfall_units', 0) <= 0:
+                    continue
+                source_line = next((row for row in source.get('lines', [])
+                                    if row.get('sku') == line.get('sku')), {})
+                suggestions[line['sku']] = suggest_owned_substitutes(target_line=source_line,
+                    shortfall=int(line['shortfall_units']), products=products, lots=lots,
+                    excluded_skus=excluded)
+            orders.append({**plan, 'workflow': workflow, 'substitution_candidates': suggestions,
+                'order_total_toman': int(source.get('total') or 0),
+                'original_line_totals_toman': {str(line.get('sku') or ''): int(line.get('total') or 0)
+                    for line in source.get('lines', []) if line.get('sku')}})
+        response = jsonify({'ok': True, 'orders': orders})
+        response.headers['Cache-Control'] = 'no-store'
+        return response
+    body = request.get_json(silent=True)
+    if (not isinstance(body, dict) or not isinstance(body.get('order_id'), str)
+            or not body['order_id'].strip() or len(body['order_id']) > 40
+            or not isinstance(body.get('note'), str) or not body['note'].strip() or len(body['note']) > 1000):
+        return jsonify({'ok': False, 'error': 'invalid_body'}), 400
+    try:
+        source = planner.source_order(body['order_id'])
+        if not source:
+            return jsonify({'ok': False, 'error': 'order_not_found'}), 404
+        today = datetime.now(ZoneInfo('Asia/Tehran')).date().isoformat()
+        if 'supplier_terms' in body:
+            if set(body) != {'order_id', 'supplier_terms', 'note'} or not isinstance(body['supplier_terms'], dict) \
+                    or not 1 <= len(body['supplier_terms']) <= 20:
+                return jsonify({'ok': False, 'error': 'invalid_body'}), 400
+            allowed = {'supplier', 'units_per_pack', 'pack_price_toman', 'minimum_packs', 'pack_multiple', 'source_offer_id'}
+            for sku, terms in body['supplier_terms'].items():
+                if (not isinstance(sku, str) or not sku.strip() or len(sku) > 80 or not isinstance(terms, dict)
+                        or set(terms) - allowed or not isinstance(terms.get('supplier'), str)
+                        or not terms['supplier'].strip() or len(terms['supplier']) > 120
+                        or not isinstance(terms.get('source_offer_id'), str) or not terms['source_offer_id'].strip()
+                        or len(terms['source_offer_id']) > 120):
+                    return jsonify({'ok': False, 'error': 'invalid_supplier_terms'}), 400
+                for field in ('units_per_pack', 'pack_price_toman', 'minimum_packs', 'pack_multiple'):
+                    value = terms.get(field, 1 if field in {'minimum_packs', 'pack_multiple'} else None)
+                    maximum = 1_000_000 if field in {'units_per_pack', 'minimum_packs', 'pack_multiple'} else 1_000_000_000_000
+                    if isinstance(value, bool) or not isinstance(value, int) or value <= 0 or value > maximum:
+                        return jsonify({'ok': False, 'error': 'invalid_supplier_terms'}), 400
+            plan = planner.plan(source, today=today, supplier_terms=body['supplier_terms'],
+                                actor_id=actor, note=body['note'])
+            workflow = operations.ensure(body['order_id'], plan, today=today)
+        else:
+            if set(body) != {'order_id', 'action', 'details', 'note'} or not isinstance(body.get('action'), str) \
+                    or not isinstance(body.get('details'), dict):
+                return jsonify({'ok': False, 'error': 'invalid_body'}), 400
+            action = body['action']
+            details = body['details']
+            if action == 'propose_substitution':
+                line_sku = str(details.get('sku') or '')
+                candidate_sku = str(details.get('replacement_sku') or '')
+                current_plan = planner.get(body['order_id']) or {}
+                target = next((row for row in source.get('lines', []) if row.get('sku') == line_sku), None)
+                case = operations.get(body['order_id']) or {}
+                excluded = {str(line.get('sku') or '') for line in source.get('lines', [])}
+                excluded.update(str(row.get('replacement_sku') or '') for row in case.get('resolutions', {}).values())
+                from catalog.substitutions import suggest_owned_substitutes
+                candidates = suggest_owned_substitutes(target_line=target or {},
+                    shortfall=int(next((row.get('shortfall_units', 0) for row in current_plan.get('lines', [])
+                                        if row.get('sku') == line_sku), 0)),
+                    products=shop_catalog(build_store()).get('products') or [],
+                    lots=planner.inventory.list_lots(today=today), excluded_skus=excluded)
+                candidate = next((row for row in candidates if row['sku'] == candidate_sku), None)
+                if not candidate or details.get('replacement_units') != candidate['required_units']:
+                    return jsonify({'ok': False, 'error': 'candidate_unavailable'}), 409
+                proposed_total = details.get('proposed_line_total_toman')
+                floor = candidate['price_floor_toman'] * candidate['required_units']
+                ceiling = candidate['price_ceiling_toman'] * candidate['required_units']
+                if (isinstance(proposed_total, bool) or not isinstance(proposed_total, int)
+                        or proposed_total <= 0 or floor <= 0 or ceiling < floor
+                        or not floor <= proposed_total <= ceiling):
+                    return jsonify({'ok': False, 'error': 'replacement_price_out_of_current_range'}), 409
+            workflow = operations.apply(order=source, plan=planner.get(body['order_id']) or {},
+                action=action, details=details, actor_id=actor, note=body['note'], today=today,
+                inventory=planner.inventory)
+            plan = planner.get(body['order_id']) or {}
+    except ValueError as exc:
+        return jsonify({'ok': False, 'error': 'conflict_or_invalid', 'message': str(exc)[:160]}), 409
+    receipt = {'ok': True, 'order_id': body['order_id'], 'state': plan.get('state', 'needs_owner_review'),
+               'workflow': workflow, 'plan': plan}
+    if 'supplier_terms' in body:
+        receipt['terms_hash'] = plan.get('terms_hash', '')
+    else:
+        receipt['action'] = body['action']
+    response = jsonify(receipt)
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
+@app.route('/pipeline/stock-lots', methods=['GET', 'POST'])
+def stock_lots_route():
+    token = os.getenv('REFERENCE_BRIDGE_TOKEN') or ''
+    owners = {x.strip() for x in (os.getenv('REFERENCE_OWNER_IDS') or '').split(',') if x.strip()}
+    queue = handoff_queue()
+    if queue is None or len(token) < 32 or not owners:
+        return jsonify({'ok': False, 'error': 'unconfigured'}), 503
+    sent = request.headers.get('X-Molavi-Reference-Token', '')
+    actor = request.headers.get('X-Molavi-Actor', '')
+    if not sent or not hmac.compare_digest(sent, token):
+        return jsonify({'ok': False, 'error': 'unauthorized'}), 401
+    if actor not in owners:
+        return jsonify({'ok': False, 'error': 'owner_required'}), 403
+    from catalog.inventory_lots import InventoryConflict, InventoryLots
+    from datetime import date, datetime
+    from zoneinfo import ZoneInfo
+    today = datetime.now(ZoneInfo('Asia/Tehran')).date().isoformat()
+    lots = InventoryLots(queue.path)
+    if request.method == 'GET':
+        fields = ('lot_id','sku','supplier','purchase_date','received_at','production_date','expiry_date','units',
+                  'received_units','adjustment_units','unit_cost','available_units','committed_units','state',
+                  'receipt_hash','revision')
+        response = jsonify({'ok': True, 'lots': [{key: row[key] for key in fields}
+                                                 for row in lots.list_lots(today=today)]})
+        response.headers['Cache-Control'] = 'no-store'
+        return response
+    body = request.get_json(silent=True)
+    required = {'lot_id','sku','supplier','purchase_date','received_at','production_date','expiry_date','units','unit_cost','note'}
+    if not isinstance(body, dict) or set(body) != required:
+        return jsonify({'ok': False, 'error': 'invalid_body'}), 400
+    for key, limit in (('lot_id',120),('sku',80),('supplier',120)):
+        if not isinstance(body[key],str) or not body[key].strip() or len(body[key])>limit:
+            return jsonify({'ok':False,'error':'invalid_body'}),400
+    if not isinstance(body['note'],str) or not body['note'].strip() or len(body['note'])>1000:
+        return jsonify({'ok':False,'error':'invalid_body'}),400
+    for key in ('purchase_date','received_at','production_date','expiry_date'):
+        if not isinstance(body[key],str) or (body[key] and len(body[key])!=10):
+            return jsonify({'ok':False,'error':'invalid_body'}),400
+    if (isinstance(body['units'],bool) or not isinstance(body['units'],int)
+            or not 1<=body['units']<=1_000_000 or isinstance(body['unit_cost'],bool)
+            or not isinstance(body['unit_cost'],int) or not 1<=body['unit_cost']<=1_000_000_000_000):
+        return jsonify({'ok':False,'error':'invalid_body'}),400
+    try:
+        date.fromisoformat(body['received_at'])
+        if body['purchase_date']: date.fromisoformat(body['purchase_date'])
+        if body['production_date']: date.fromisoformat(body['production_date'])
+        if body['expiry_date']: date.fromisoformat(body['expiry_date'])
+        state=lots.receive(lot_id=body['lot_id'].strip(),sku=body['sku'].strip(),
+            supplier=body['supplier'].strip(),received_at=body['received_at'],
+            purchase_date=body['purchase_date'] or None,
+            production_date=body['production_date'] or None,expiry_date=body['expiry_date'] or None,
+            units=body['units'],unit_cost=body['unit_cost'])
+        lots.record_receipt(lot_id=body['lot_id'].strip(),actor_id=actor,note=body['note'],
+                            created_at=datetime.now(ZoneInfo('Asia/Tehran')).isoformat())
+    except InventoryConflict:
+        return jsonify({'ok':False,'error':'lot_conflict'}),409
+    except ValueError:
+        return jsonify({'ok':False,'error':'invalid_lot_facts'}),400
+    saved=lots.get_lot(body['lot_id'].strip())
+    response=jsonify({'ok':True,'lot_id':body['lot_id'].strip(),'state':state,
+                      'receipt_hash':saved['receipt_hash'] if saved else ''})
+    response.headers['Cache-Control']='no-store'
+    return response
+
+
+@app.route('/pipeline/stock-lots/purchase-date', methods=['POST'])
+def stock_lot_purchase_date_route():
+    """Owner-audited correction for a historical lot missing its purchase date."""
+    token=os.getenv('REFERENCE_BRIDGE_TOKEN') or ''
+    owners={value.strip() for value in (os.getenv('REFERENCE_OWNER_IDS') or '').split(',') if value.strip()}
+    queue=handoff_queue()
+    if queue is None or len(token)<32 or not owners:
+        return jsonify({'ok':False,'error':'unconfigured'}),503
+    sent=request.headers.get('X-Molavi-Reference-Token','')
+    actor=request.headers.get('X-Molavi-Actor','')
+    if not sent or not hmac.compare_digest(sent,token):
+        return jsonify({'ok':False,'error':'unauthorized'}),401
+    if actor not in owners:
+        return jsonify({'ok':False,'error':'owner_required'}),403
+    body=request.get_json(silent=True)
+    if not isinstance(body,dict) or set(body)!={'lot_id','receipt_hash','purchase_date','note'}:
+        return jsonify({'ok':False,'error':'invalid_body'}),400
+    if (not isinstance(body['lot_id'],str) or not body['lot_id'].strip() or len(body['lot_id'])>120
+            or not isinstance(body['receipt_hash'],str) or len(body['receipt_hash'])!=64
+            or any(char not in '0123456789abcdef' for char in body['receipt_hash'])
+            or not isinstance(body['purchase_date'],str) or not isinstance(body['note'],str)
+            or not body['note'].strip() or len(body['note'])>1000):
+        return jsonify({'ok':False,'error':'invalid_body'}),400
+    from catalog.inventory_lots import InventoryConflict, InventoryLots
+    from datetime import date, datetime
+    from zoneinfo import ZoneInfo
+    try:
+        if date.fromisoformat(body['purchase_date']).isoformat()!=body['purchase_date']:
+            return jsonify({'ok':False,'error':'invalid_purchase_date'}),400
+        ledger=InventoryLots(queue.path)
+        lot_id=body['lot_id'].strip()
+        receipt_hash=ledger.add_missing_purchase_date(lot_id=lot_id,
+            expected_receipt_hash=body['receipt_hash'],purchase_date=body['purchase_date'])
+        ledger.record_receipt(lot_id=lot_id,actor_id=actor,note=body['note'],
+            created_at=datetime.now(ZoneInfo('Asia/Tehran')).isoformat())
+    except InventoryConflict:
+        return jsonify({'ok':False,'error':'lot_changed'}),409
+    except ValueError:
+        return jsonify({'ok':False,'error':'invalid_purchase_date'}),400
+    saved=ledger.get_lot(lot_id)
+    response=jsonify({'ok':True,'lot_id':lot_id,'state':saved['state'],
+        'receipt_hash':receipt_hash})
+    response.headers['Cache-Control']='no-store'
+    return response
+
+
+@app.route('/pipeline/stock-lot-actions', methods=['GET','POST'])
+def stock_lot_actions_route():
+    """Append owner-audited stock count, damage/expiry, hold and release events."""
+    token=os.getenv('REFERENCE_BRIDGE_TOKEN') or ''
+    owners={value.strip() for value in (os.getenv('REFERENCE_OWNER_IDS') or '').split(',') if value.strip()}
+    queue=handoff_queue()
+    if queue is None or len(token)<32 or not owners:
+        return jsonify({'ok':False,'error':'unconfigured'}),503
+    sent=request.headers.get('X-Molavi-Reference-Token','')
+    actor=request.headers.get('X-Molavi-Actor','')
+    if not sent or not hmac.compare_digest(sent,token):
+        return jsonify({'ok':False,'error':'unauthorized'}),401
+    if actor not in owners:
+        return jsonify({'ok':False,'error':'owner_required'}),403
+    from catalog.inventory_lots import InventoryConflict, InventoryLots
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    inventory=InventoryLots(queue.path)
+    if request.method=='GET':
+        response=jsonify({'ok':True,'events':inventory.recent_events(limit=100)})
+        response.headers['Cache-Control']='no-store'
+        return response
+    body=request.get_json(silent=True)
+    required={'lot_id','expected_revision','action','delta_units','reason','note'}
+    if not isinstance(body,dict) or set(body)!=required:
+        return jsonify({'ok':False,'error':'invalid_body'}),400
+    if (not isinstance(body['lot_id'],str) or not body['lot_id'].strip() or len(body['lot_id'])>120
+            or not isinstance(body['expected_revision'],str) or len(body['expected_revision'])!=64
+            or any(char not in '0123456789abcdef' for char in body['expected_revision'])
+            or not isinstance(body['action'],str) or not isinstance(body['reason'],str)
+            or not isinstance(body['note'],str) or not body['note'].strip() or len(body['note'])>1000
+            or isinstance(body['delta_units'],bool) or not isinstance(body['delta_units'],int)):
+        return jsonify({'ok':False,'error':'invalid_body'}),400
+    try:
+        saved=inventory.apply_operator_event(lot_id=body['lot_id'].strip(),
+            expected_revision=body['expected_revision'],actor_id=actor,action=body['action'],
+            delta_units=body['delta_units'],reason=body['reason'],note=body['note'],
+            created_at=datetime.now(ZoneInfo('Asia/Tehran')).isoformat(),
+            today=datetime.now(ZoneInfo('Asia/Tehran')).date().isoformat())
+    except InventoryConflict:
+        return jsonify({'ok':False,'error':'lot_changed_or_action_conflict'}),409
+    except ValueError:
+        return jsonify({'ok':False,'error':'invalid_stock_action'}),400
+    lot=inventory.get_lot(body['lot_id'].strip())
+    response=jsonify({'ok':True,'lot_id':body['lot_id'].strip(),'state':saved['state'],
+        'receipt_hash':lot['receipt_hash'],'event_id':saved['event_id'],
+        'revision':saved['revision'],'previous_revision':saved['previous_revision'],
+        'action':saved['action'],'units':saved['units'],'idempotent':saved['idempotent']})
+    response.headers['Cache-Control']='no-store'
+    return response
+
+
+@app.route('/pipeline/clearance-proposals', methods=['GET', 'POST'])
+def clearance_proposals_route():
+    """Owner-only, auditable clearance calculations; never changes Woo prices."""
+    token=os.getenv('REFERENCE_BRIDGE_TOKEN') or ''
+    owners={value.strip() for value in (os.getenv('REFERENCE_OWNER_IDS') or '').split(',') if value.strip()}
+    queue=handoff_queue()
+    if queue is None or len(token)<32 or not owners:
+        return jsonify({'ok':False,'error':'unconfigured'}),503
+    sent=request.headers.get('X-Molavi-Reference-Token','')
+    actor=request.headers.get('X-Molavi-Actor','')
+    if not sent or not hmac.compare_digest(sent,token):
+        return jsonify({'ok':False,'error':'unauthorized'}),401
+    if actor not in owners:
+        return jsonify({'ok':False,'error':'owner_required'}),403
+    from catalog.clearance_pricing import ClearanceLedger, propose_clearance_price
+    from catalog.inventory_lots import InventoryLots
+    from datetime import date, datetime
+    from zoneinfo import ZoneInfo
+    today=datetime.now(ZoneInfo('Asia/Tehran')).date().isoformat()
+    inventory=InventoryLots(queue.path)
+    ledger=ClearanceLedger(queue.path)
+    if request.method=='GET':
+        response=jsonify({'ok':True,'today':today,
+            'near_cost_alert_threshold_toman':os.getenv('CLEARANCE_NEAR_COST_ALERT_TOMAN') or None,
+            'lots':inventory.list_lots(today=today),'proposals':ledger.recent(limit=100)})
+        response.headers['Cache-Control']='no-store'
+        return response
+    body=request.get_json(silent=True)
+    required={'lot_id','receipt_hash','normal_price_toman','market_price_toman',
+              'market_source','market_observed_date','note'}
+    if not isinstance(body,dict) or set(body)!=required:
+        return jsonify({'ok':False,'error':'invalid_body'}),400
+    if (not isinstance(body['lot_id'],str) or not body['lot_id'].strip() or len(body['lot_id'])>120
+            or not isinstance(body['receipt_hash'],str)
+            or len(body['receipt_hash'])!=64
+            or any(char not in '0123456789abcdef' for char in body['receipt_hash'])
+            or not isinstance(body['market_source'],str) or not body['market_source'].strip()
+            or len(body['market_source'])>200 or not isinstance(body['market_observed_date'],str)
+            or not isinstance(body['note'],str) or not body['note'].strip() or len(body['note'])>1000):
+        return jsonify({'ok':False,'error':'invalid_body'}),400
+    for key in ('normal_price_toman','market_price_toman'):
+        if (isinstance(body[key],bool) or not isinstance(body[key],int)
+                or not 1<=body[key]<=1_000_000_000_000):
+            return jsonify({'ok':False,'error':'invalid_price'}),400
+    try:
+        if date.fromisoformat(body['market_observed_date']).isoformat()!=body['market_observed_date']:
+            raise ValueError('market date must use YYYY-MM-DD')
+    except ValueError:
+        return jsonify({'ok':False,'error':'invalid_market_date'}),400
+    lot=inventory.get_lot(body['lot_id'].strip())
+    if not lot or lot['receipt_hash']!=body['receipt_hash']:
+        return jsonify({'ok':False,'error':'lot_changed'}),409
+    current=next((item for item in inventory.list_lots(today=today)
+                  if item['lot_id']==body['lot_id'].strip()),None)
+    if not current or current['state']!='ready' or current['available_units']<=0:
+        return jsonify({'ok':False,'error':'lot_not_eligible'}),409
+    if not lot.get('purchase_date'):
+        return jsonify({'ok':False,'error':'purchase_date_required'}),409
+    threshold_raw=os.getenv('CLEARANCE_NEAR_COST_ALERT_TOMAN')
+    threshold=None
+    if threshold_raw not in (None,''):
+        try:
+            threshold=int(threshold_raw)
+            if threshold<0 or threshold>1_000_000_000_000:
+                raise ValueError
+        except ValueError:
+            return jsonify({'ok':False,'error':'invalid_clearance_threshold'}),503
+    result=propose_clearance_price(purchase_date=lot['purchase_date'],
+        production_date=lot['production_date'],expiry_date=lot['expiry_date'],today=today,
+        purchase_cost=lot['unit_cost'],normal_price=body['normal_price_toman'],
+        market_price=body['market_price_toman'],market_source=body['market_source'].strip(),
+        market_observed_date=body['market_observed_date'],near_cost_threshold_toman=threshold)
+    inputs={key:body[key] for key in required if key!='note'}
+    inputs.update({'purchase_date':lot['purchase_date'],'production_date':lot['production_date'],
+        'expiry_date':lot['expiry_date'],'purchase_cost_toman':lot['unit_cost'],
+        'available_units':current['available_units']})
+    try:
+        saved=ledger.record(lot_id=lot['lot_id'],sku=lot['sku'],receipt_hash=lot['receipt_hash'],
+            actor_id=actor,note=body['note'],inputs=inputs,result=result,
+            created_at=datetime.now(ZoneInfo('Asia/Tehran')).isoformat())
+    except ValueError:
+        return jsonify({'ok':False,'error':'proposal_rejected'}),409
+    response=jsonify({'ok':True,'proposal_id':saved['proposal_id'],'lot_id':lot['lot_id'],
+        'state':lot['state'],'receipt_hash':lot['receipt_hash'],'result':saved['result']})
+    response.headers['Cache-Control']='no-store'
+    return response
+
+
+@app.route('/pipeline/sheet-conflicts',methods=['GET','POST'])
+def sheet_conflicts_route():
+    token=os.getenv('REFERENCE_BRIDGE_TOKEN') or ''
+    owners={x.strip() for x in (os.getenv('REFERENCE_OWNER_IDS') or '').split(',') if x.strip()}
+    actor=request.headers.get('X-Molavi-Actor','')
+    sent=request.headers.get('X-Molavi-Reference-Token','')
+    queue=handoff_queue()
+    if queue is None or not USE_SHEETS or not owners or len(token)<32:
+        return jsonify({'ok':False,'error':'unconfigured'}),503
+    if not sent or not hmac.compare_digest(sent,token):return jsonify({'ok':False,'error':'unauthorized'}),401
+    if actor not in owners:return jsonify({'ok':False,'error':'owner_required'}),403
+    if request.method=='GET':
+        result={'ok':True,'conflicts':queue.sheet_sync_conflicts()}
+    else:
+        body=request.get_json(silent=True)
+        if not isinstance(body,dict) or set(body)!={'conflict_id','choice','note'}:
+            return jsonify({'ok':False,'error':'invalid_body'}),400
+        conflict_id,choice,note=body.get('conflict_id'),body.get('choice'),body.get('note')
+        if (not isinstance(conflict_id,str) or not conflict_id.startswith('sheet:') or len(conflict_id)>80 or
+                choice not in ('server','sheet') or not isinstance(note,str) or not note.strip() or len(note)>1000):
+            return jsonify({'ok':False,'error':'invalid_body'}),400
+        from catalog.sheet_reconcile import field_values_equal
+        from catalog.sync import _cell,_find_product_row_by_id,_fresh_read,_offers_for_product,_product_from_offers,_product_row,_message_from_offer,_records,_read_sheet_if_present
+        try:
+            with queue.publication_lock():
+                conflict=queue.get_sheet_conflict(conflict_id)
+                if not conflict or conflict['state']!='open':return jsonify({'ok':False,'error':'conflict_changed'}),409
+                if conflict['field'] in SHEET_PROVENANCE_FIELDS:
+                    return jsonify({'ok':False,'error':'field_read_only'}),409
+                store=build_store()
+                products=_fresh_read(store,'Products')
+                if not products:return jsonify({'ok':False,'error':'sheet_unavailable'}),503
+                headers=[str(x) for x in products[0]]
+                row_number=_find_product_row_by_id(products,headers,conflict['product_id'])
+                if not row_number or conflict['field'] not in headers:return jsonify({'ok':False,'error':'row_changed'}),409
+                row=products[row_number-1]
+                sheet_value=_cell(row,headers,conflict['field'])
+                same_sheet=field_values_equal(conflict['field'],sheet_value,conflict['sheet'])
+                already_server=field_values_equal(conflict['field'],sheet_value,conflict['server'])
+                offers_rows=_read_sheet_if_present(store,'Offers')
+                _,offer_records=_records(offers_rows)
+                matching=_offers_for_product(offer_records,conflict['product_name'],conflict['channel'])
+                if not matching or str(matching[-1].get('Offer ID') or '')!=conflict['source_revision']:
+                    return jsonify({'ok':False,'error':'source_changed'}),409
+                server_product=_product_from_offers(matching)
+                current_server_row=_product_row(headers,server_product,_message_from_offer(matching[-1]))
+                current_server=_cell(current_server_row,headers,conflict['field'])
+                if not field_values_equal(conflict['field'],current_server,conflict['server']):
+                    return jsonify({'ok':False,'error':'server_value_changed'}),409
+                if choice=='sheet' and not same_sheet:return jsonify({'ok':False,'error':'sheet_value_changed'}),409
+                if choice=='server' and not (same_sheet or already_server):
+                    return jsonify({'ok':False,'error':'sheet_value_changed'}),409
+                # Re-read immediately before resolving/writing. Sheets has no CAS,
+                # but this narrows the lost-edit window and refuses observed changes.
+                prewrite=_fresh_read(store,'Products')
+                pre_headers=[str(x) for x in prewrite[0]] if prewrite else []
+                pre_row_number=_find_product_row_by_id(prewrite,pre_headers,conflict['product_id'])
+                if not pre_row_number or conflict['field'] not in pre_headers:
+                    return jsonify({'ok':False,'error':'row_changed'}),409
+                pre_row=prewrite[pre_row_number-1]
+                pre_value=_cell(pre_row,pre_headers,conflict['field'])
+                pre_same_sheet=field_values_equal(conflict['field'],pre_value,conflict['sheet'])
+                pre_already_server=field_values_equal(conflict['field'],pre_value,current_server)
+                if choice=='sheet' and not pre_same_sheet:
+                    return jsonify({'ok':False,'error':'sheet_value_changed'}),409
+                if choice=='server' and not (pre_same_sheet or pre_already_server):
+                    return jsonify({'ok':False,'error':'sheet_value_changed'}),409
+                if choice=='server' and not pre_already_server:
+                    writer=getattr(store,'write_cells',None)
+                    if not callable(writer):return jsonify({'ok':False,'error':'safe_cell_writer_unavailable'}),503
+                    writer('Products',pre_row_number,pre_headers,{conflict['field']:current_server})
+                    confirmed=_fresh_read(store,'Products')
+                    check_headers=[str(x) for x in confirmed[0]] if confirmed else []
+                    check_row_number=_find_product_row_by_id(confirmed,check_headers,conflict['product_id'])
+                    checkrow=confirmed[check_row_number-1] if check_row_number else []
+                    if not field_values_equal(conflict['field'],_cell(checkrow,check_headers,conflict['field']),current_server):
+                        return jsonify({'ok':False,'error':'write_unconfirmed'}),409
+                resolution=queue.resolve_sheet_conflict(conflict_id,choice=choice,actor_id=actor,note=note)
+                publish_job=queue.put('publish','sheet-conflict:'+conflict_id,
+                                      {'conflict_id':conflict_id,'product_id':conflict['product_id']})
+        except ValueError:
+            return jsonify({'ok':False,'error':'conflict_or_invalid'}),409
+        except Exception:
+            logger.exception('Sheet conflict resolution failed')
+            return jsonify({'ok':False,'error':'resolution_failed'}),503
+        result={'ok':True,'conflict_id':conflict_id,'choice':resolution['choice'],'publish_job':publish_job}
+    response=jsonify(result);response.headers['Cache-Control']='no-store';return response
+
+
+@app.route('/pipeline/supplier-price-evidence', methods=['GET','POST'])
+def supplier_price_evidence_route():
+    token=os.getenv('REFERENCE_BRIDGE_TOKEN') or ''
+    owners={x.strip() for x in (os.getenv('REFERENCE_OWNER_IDS') or '').split(',') if x.strip()}
+    actor=request.headers.get('X-Molavi-Actor','')
+    sent=request.headers.get('X-Molavi-Reference-Token','')
+    ledger=_supplier_price_ledger()
+    queue=handoff_queue()
+    if not USE_SHEETS or ledger is None or queue is None or not owners or len(token)<32:
+        return jsonify({'ok':False,'error':'unconfigured'}),503
+    if not sent or not hmac.compare_digest(sent,token):
+        return jsonify({'ok':False,'error':'unauthorized'}),401
+    if actor not in owners:
+        return jsonify({'ok':False,'error':'owner_required'}),403
+    from datetime import datetime,timezone
+    now=datetime.now(timezone.utc)
+    try:
+        store=build_store()
+        offers=_current_supplier_price_evidence(store,ledger,now)
+    except Exception:
+        logger.exception('Supplier price evidence read failed')
+        return jsonify({'ok':False,'error':'sheet_unavailable'}),503
+    if request.method=='GET':
+        result={'ok':True,'offers':[item for item in offers if item['state']!='current']}
+    else:
+        body=request.get_json(silent=True)
+        if not isinstance(body,dict) or set(body)!={'product_id','expected_revision','note'}:
+            return jsonify({'ok':False,'error':'invalid_body'}),400
+        product_id,revision,note=(body.get('product_id'),body.get('expected_revision'),body.get('note'))
+        if (not isinstance(product_id,str) or not product_id or len(product_id)>200 or
+                not isinstance(revision,str) or not revision or len(revision)>200 or
+                not isinstance(note,str) or not note.strip() or len(note)>1000):
+            return jsonify({'ok':False,'error':'invalid_body'}),400
+        offer=next((item for item in offers if item['product_id']==product_id),None)
+        if offer is None or offer['source_revision']!=revision:
+            return jsonify({'ok':False,'error':'offer_changed'}),409
+        try:
+            ledger.verify_manually(offer_id=product_id,source_revision=revision,actor_id=actor,
+                                   note=note,now=now)
+            publish_job=queue.put('publish','supplier-verification:'+product_id+':'+revision,
+                                  {'product_id':product_id,'source_revision':revision})
+        except ValueError:
+            return jsonify({'ok':False,'error':'verification_rejected'}),409
+        result={'ok':True,'product_id':product_id,'source_revision':revision,
+                'verified_at':now.isoformat(),'publish_job':publish_job}
+    response=jsonify(result)
+    response.headers['Cache-Control']='no-store'
+    return response
+
+
+@app.route("/reference/decisions", methods=["GET", "POST"])
+def reference_decisions_route():
+    from reference_import.snapshots import ReferenceStore
+    from reference_import.dashboard_api import DashboardAPI
+    path = os.getenv("REFERENCE_STORE_PATH") or ""
+    token = os.getenv("REFERENCE_BRIDGE_TOKEN") or ""
+    owners = [x.strip() for x in (os.getenv("REFERENCE_OWNER_IDS") or "").split(",") if x.strip()]
+    if not path or len(token) < 32 or not owners:
+        return jsonify({"ok": False, "error": "unconfigured"}), 503
+    try:
+        api = DashboardAPI(ReferenceStore(path, owner_ids=owners), bridge_token=token)
+        code, result = api.handle(request.method,
+            token=request.headers.get("X-Molavi-Reference-Token", ""),
+            actor=request.headers.get("X-Molavi-Actor", ""),
+            body=request.get_json(silent=True) if request.method == "POST" else None)
+    except Exception:
+        logger.exception("Reference decision store unavailable")
+        return jsonify({"ok": False, "error": "unavailable"}), 503
+    response = jsonify(result)
+    response.headers["Cache-Control"] = "no-store"
+    return response, code
+
+
+@app.route('/reference/snapshots', methods=['GET','POST'])
+def reference_snapshots_route():
+    """Owner reviews PDF/Gemini candidates before activating ReferencePrices."""
+    from reference_import.decisions import DecisionConflict
+    from reference_import.snapshots import ReferenceStore
+    path=os.getenv('REFERENCE_STORE_PATH') or ''
+    token=os.getenv('REFERENCE_BRIDGE_TOKEN') or ''
+    owners=[value.strip() for value in (os.getenv('REFERENCE_OWNER_IDS') or '').split(',') if value.strip()]
+    if not path or len(token)<32 or not owners:
+        return jsonify({'ok':False,'error':'unconfigured'}),503
+    sent=request.headers.get('X-Molavi-Reference-Token','')
+    actor=request.headers.get('X-Molavi-Actor','')
+    if not sent or not hmac.compare_digest(sent,token):
+        return jsonify({'ok':False,'error':'unauthorized'}),401
+    if actor not in owners:
+        return jsonify({'ok':False,'error':'owner_required'}),403
+    try:
+        store=ReferenceStore(path,owner_ids=owners)
+        if request.method=='GET':
+            result=store.snapshots()
+            try:
+                from reference_import.refresh_scheduler import ReferenceRefreshScheduler
+                interval=int(os.getenv('REFERENCE_REFRESH_INTERVAL_HOURS','24'))*3600
+                result['refresh_state']=ReferenceRefreshScheduler(path,owner_ids=owners,
+                    interval_seconds=interval).state()
+            except Exception:
+                result['refresh_state']=None
+            response=jsonify({'ok':True,**result})
+            response.headers['Cache-Control']='no-store'
+            return response
+        body=request.get_json(silent=True)
+        if not isinstance(body,dict) or body.get('action') not in {'review','activate'}:
+            return jsonify({'ok':False,'error':'invalid_body'}),400
+        expected_keys=({'action','snapshot_id','note','expected_active_id'}
+                       if body.get('action')=='review' else {'action','snapshot_id','expected_active_id'})
+        if set(body)!=expected_keys:
+            return jsonify({'ok':False,'error':'invalid_body'}),400
+        snapshot_id=body.get('snapshot_id');expected=body.get('expected_active_id')
+        if (not isinstance(snapshot_id,str) or len(snapshot_id)!=64
+                or (expected is not None and (not isinstance(expected,str) or len(expected)!=64))):
+            return jsonify({'ok':False,'error':'invalid_fields'}),400
+        with store.activation_lock():
+            current=store.active_snapshot()
+            current_id=current['snapshot_id'] if current else None
+            if expected!=current_id:
+                return jsonify({'ok':False,'error':'active_snapshot_changed'}),409
+            candidate=store.snapshot(snapshot_id)
+            if candidate is None:
+                return jsonify({'ok':False,'error':'snapshot_not_found'}),404
+            if body['action']=='review':
+                note=body['note']
+                if not isinstance(note,str) or not note.strip() or len(note)>1000:
+                    return jsonify({'ok':False,'error':'review_note_required'}),400
+                store.review(snapshot_id,actor_id=actor,note=note)
+                result={'ok':True,'action':'review','snapshot_id':snapshot_id,
+                        'reviewed_by':actor,'expected_active_id':expected}
+            else:
+                if not USE_SHEETS:
+                    return jsonify({'ok':False,'error':'sheets_unavailable'}),503
+                store._activate_locked(snapshot_id,actor_id=actor,expected_active_id=expected)
+                active=store.active_snapshot()
+                from reference_import.projection import project_reference_prices
+                projection=project_reference_prices(build_store(),active)
+                result={'ok':True,'action':'activate','snapshot_id':snapshot_id,
+                    'active_snapshot_id':active['snapshot_id'],'projection_state':'written',
+                    'row_count':projection['row_count']}
+        response=jsonify(result)
+        response.headers['Cache-Control']='no-store'
+        return response
+    except DecisionConflict:
+        return jsonify({'ok':False,'error':'snapshot_changed_or_unreviewed'}),409
+    except Exception:
+        logger.exception('Reference snapshot operation failed')
+        return jsonify({'ok':False,'error':'snapshot_operation_unavailable'}),503
+
+
+@app.route('/pipeline/ai-confirmations', methods=['GET', 'POST'])
+def ai_confirmations_route():
+    """Owner review of uncertain AI supplier extracts; source Offers are append-only."""
+    from catalog.ai_confirmations import (
+        AIConfirmationLedger, ConfirmationConflict, apply_decision, find_case,
+        review_cases, validate_choice,
+    )
+    token = os.getenv('REFERENCE_BRIDGE_TOKEN') or ''
+    owners = {value.strip() for value in (os.getenv('REFERENCE_OWNER_IDS') or '').split(',') if value.strip()}
+    queue = handoff_queue()
+    if not USE_SHEETS or queue is None or len(token) < 32 or not owners:
+        return jsonify({'ok': False, 'error': 'unconfigured'}), 503
+    sent = request.headers.get('X-Molavi-Reference-Token', '')
+    actor = request.headers.get('X-Molavi-Actor', '')
+    if not sent or not hmac.compare_digest(sent, token):
+        return jsonify({'ok': False, 'error': 'unauthorized'}), 401
+    if actor not in owners:
+        return jsonify({'ok': False, 'error': 'owner_required'}), 403
+    ledger = AIConfirmationLedger(queue.path)
+    try:
+        store = build_store()
+        if request.method == 'GET':
+            cases, recent = review_cases(store, ledger, include_history=True)
+            response = jsonify({'ok': True, 'cases': cases, 'recent_decisions': recent,
+                                'publication_held': bool(queue.publication_holds())})
+            response.headers['Cache-Control'] = 'no-store'
+            return response
+        body = request.get_json(silent=True)
+        try:
+            validate_choice(body)
+        except ValueError as exc:
+            return jsonify({'ok': False, 'error': str(exc)}), 400
+        with queue.publication_lock():
+            if queue.publication_holds():
+                return jsonify({'ok': False, 'error': 'publication_held_for_review'}), 409
+            case = find_case(store, ledger, body['case_id'], body['offer_id'])
+            if not case or case['signature'] != body['signature']:
+                return jsonify({'ok': False, 'error': 'stale_case'}), 409
+            decision = ledger.decide(case_id=case['case_id'], offer_id=case['offer_id'],
+                signature=case['signature'], choice=body['choice'], fields=body['fields'],
+                actor_id=actor, note=body['note'],
+                expected_decision_id=body['expected_decision_id'])
+            apply_decision(store, ledger, case, decision)
+            from catalog.sync import refresh_ai_message_status
+            refresh_ai_message_status(store, {'id':case['message_id'],'batch_id':case['batch_id'],
+                'channel':case['source_channel']})
+            reference_block = False
+            if body['choice'] == 'confirm':
+                source_reason = case['reason']
+                reference_block = any(part.strip().lower().startswith('reference:')
+                    for part in source_reason.split(';') if part.strip())
+            projection_state = ('not_product' if body['choice'] == 'not_product'
+                                else 'needs_review' if reference_block else 'imported')
+            publish_job = queue.put('publish', 'ai-confirmation:' + decision['decision_id'],
+                                    {'decision_id': decision['decision_id']})
+        response = jsonify({'ok': True, 'case_id': case['case_id'], 'offer_id': case['offer_id'],
+            'signature': case['signature'], 'choice': decision['choice'],
+            'decision_id': decision['decision_id'], 'projection_state': projection_state,
+            'publish_job': publish_job})
+        response.headers['Cache-Control'] = 'no-store'
+        return response
+    except ConfirmationConflict:
+        return jsonify({'ok': False, 'error': 'decision_conflict'}), 409
+    except Exception:
+        logger.exception('AI confirmation review failed')
+        return jsonify({'ok': False, 'error': 'review_unavailable'}), 503
+
+
+@app.route("/reference/item-reviews", methods=["GET", "POST"])
+def reference_item_reviews_route():
+    """Owner-only item correction; source Offers stay append-only."""
+    from reference_import.snapshots import ReferenceStore
+    from reference_import.item_reviews import (ItemReviewConflict, ItemReviewLedger,
+        review_cases, review_case_id)
+    from reference_import.matching import package_count
+    from reference_import.workflow import active_reference_use
+    from datetime import datetime, timezone
+    path = os.getenv('REFERENCE_STORE_PATH') or ''
+    token = os.getenv('REFERENCE_BRIDGE_TOKEN') or ''
+    owners = [x.strip() for x in (os.getenv('REFERENCE_OWNER_IDS') or '').split(',') if x.strip()]
+    queue = handoff_queue()
+    if not path or len(token) < 32 or not owners or queue is None or not USE_SHEETS:
+        return jsonify({'ok': False, 'error': 'unconfigured'}), 503
+    sent = request.headers.get('X-Molavi-Reference-Token', '')
+    actor = request.headers.get('X-Molavi-Actor', '')
+    if not sent or not hmac.compare_digest(sent, token):
+        return jsonify({'ok': False, 'error': 'unauthorized'}), 401
+    if actor not in owners:
+        return jsonify({'ok': False, 'error': 'owner_required'}), 403
+    try:
+        reference_store = ReferenceStore(path, owner_ids=owners)
+        snapshot = reference_store.active_snapshot()
+        eligibility = active_reference_use(reference_store, now=datetime.now(timezone.utc))
+        if not eligibility['allow_automatic'] or not snapshot or snapshot['snapshot_id'] != eligibility['snapshot_id']:
+            response = jsonify({'ok': True, 'reference_state': eligibility, 'cases': []})
+            response.headers['Cache-Control'] = 'no-store'
+            return response
+        sheet_store = build_store()
+        ledger = ItemReviewLedger(path, owner_ids=owners)
+        if request.method == 'GET':
+            all_cases = review_cases(sheet_store, snapshot, ledger, include_decided=True)
+            cases = [row for row in all_cases if not row.get('decision')]
+            recent_decisions = sorted((row for row in all_cases if row.get('decision')),
+                key=lambda row: str((row.get('decision') or {}).get('created_at') or ''), reverse=True)[:50]
+            response = jsonify({'ok': True, 'reference_state': eligibility,
+                                'cases': cases, 'recent_decisions': recent_decisions})
+            response.headers['Cache-Control'] = 'no-store'
+            return response
+        body = request.get_json(silent=True)
+        required = {'case_id', 'offer_id', 'snapshot_id', 'choice', 'reference_id', 'price_role',
+                    'note', 'expected_decision_id'}
+        if not isinstance(body, dict) or set(body) != required:
+            return jsonify({'ok': False, 'error': 'invalid_body'}), 400
+        for field, maximum in (('case_id', 300), ('offer_id', 300), ('snapshot_id', 300), ('choice', 20),
+                               ('reference_id', 300), ('price_role', 20), ('note', 1000)):
+            value = body[field]
+            if not isinstance(value, str) or len(value) > maximum:
+                return jsonify({'ok': False, 'error': 'invalid_fields'}), 400
+        expected = body['expected_decision_id']
+        if expected is not None and (not isinstance(expected, str) or len(expected) != 64):
+            return jsonify({'ok': False, 'error': 'invalid_fields'}), 400
+        if body['snapshot_id'] != snapshot['snapshot_id']:
+            return jsonify({'ok': False, 'error': 'stale_snapshot'}), 409
+        current = next((row for row in review_cases(sheet_store, snapshot, ledger, include_decided=True)
+                        if row['case_id'] == body['case_id']), None)
+        if (not current or current['offer_id'] != body['offer_id']
+                or current['snapshot_id'] != body['snapshot_id']):
+            return jsonify({'ok': False, 'error': 'stale_case'}), 409
+        if body['choice'] == 'match':
+            references = {str(row[16] or row[2]): row for row in snapshot.get('rows') or []
+                          if isinstance(row, (list, tuple)) and len(row) > 16}
+            selected_reference = references.get(body['reference_id'])
+            if not body['reference_id'] or not selected_reference:
+                return jsonify({'ok': False, 'error': 'unknown_reference'}), 400
+            if body['price_role'] not in {'unit', 'package'}:
+                return jsonify({'ok': False, 'error': 'invalid_price_role'}), 400
+            if body['price_role'] == 'package' and not (
+                    package_count(current['attributes']) or float(selected_reference[6] or 0)):
+                return jsonify({'ok': False, 'error': 'package_count_required'}), 400
+        elif body['choice'] == 'no_match':
+            if body['reference_id'] or body['price_role'] != 'unresolved':
+                return jsonify({'ok': False, 'error': 'invalid_no_match'}), 400
+        else:
+            return jsonify({'ok': False, 'error': 'invalid_choice'}), 400
+        decision = ledger.decide(case_id=current['case_id'], offer_id=current['offer_id'],
+            snapshot_id=current['snapshot_id'], signature=current['signature'],
+            choice=body['choice'], reference_id=body['reference_id'],
+            price_role=body['price_role'], actor_id=actor, note=body['note'],
+            expected_decision_id=expected)
+        projection_state = 'held_for_review'
+        publish_job = None
+        with queue.publication_lock():
+            from catalog.sync import (_restore_current_book, _read_sheet_if_present, _records)
+            from catalog.sheet_projection import sheet_projection_digest
+            _restore_current_book(sheet_store, [(current['product_name'], current['channel'])])
+            _, products = _records(_read_sheet_if_present(sheet_store, 'Products'))
+            projected = next((row for row in products
+                if str(row.get('Latest Offer ID') or '') == current['offer_id']), None)
+            if not projected or str(projected.get('Reference Decision ID') or '') != decision['decision_id']:
+                return jsonify({'ok': False, 'error': 'projection_unverified'}), 503
+            if body['choice'] == 'match':
+                projection_state = str(projected.get('Status') or '').lower()
+                if projection_state == 'needs_review':
+                    projection_state = 'needs_review'
+            else:
+                if str(projected.get('Status') or '').lower() != 'needs_review':
+                    return jsonify({'ok': False, 'error': 'hold_unverified'}), 503
+            publish_job = queue.enqueue_sheet_projection(sheet_projection_digest(sheet_store))
+        result = {'ok': True, 'case_id': current['case_id'], 'offer_id': current['offer_id'],
+                  'snapshot_id': current['snapshot_id'], 'choice': decision['choice'],
+                  'decision_id': decision['decision_id'], 'price_role': decision['price_role'],
+                  'projection_state': projection_state, 'publish_job': publish_job}
+        response = jsonify(result)
+        response.headers['Cache-Control'] = 'no-store'
+        return response
+    except ItemReviewConflict:
+        return jsonify({'ok': False, 'error': 'review_conflict'}), 409
+    except Exception:
+        logger.exception('Reference item review unavailable')
+        return jsonify({'ok': False, 'error': 'review_unavailable'}), 503
+
+
 @app.route("/shop/order", methods=["POST"])
 def shop_order():
     """Write one shop order into the sheet and, when asked, tell the bot chats."""
@@ -579,6 +1591,22 @@ def shop_order():
     order = body.get("order") if isinstance(body, dict) else None
     if not isinstance(order, dict) or not str(order.get("id") or "").strip():
         return jsonify({"status": "error", "message": "missing order"}), 400
+    queue = handoff_queue()
+    if queue is not None:
+        import hashlib, json
+        key = hashlib.sha256(json.dumps({"order": order, "notify": bool(body.get("notify"))}, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        receipt = queue.put("order", key, {"order": order, "notify": bool(body.get("notify"))})
+        try:
+            run_durable_handoff(queue, receipt)
+        except Exception:
+            logger.exception("Order receipt saved; delivery pending")
+        saved = queue.get(receipt)
+        written = saved["state"] == "done"
+        return jsonify({"status": "success" if written else "pending", "written": written,
+                        "order_id": str(order["id"]), "receipt_id": receipt,
+                        "notified": 0, "notifications": "queued" if body.get("notify") else "not_requested"}), 200 if written else 503
+    if not USE_SHEETS:
+        return jsonify({"status": "error", "written": False, "message": "server sheet writer unavailable"}), 503
     result = {"written": False, "notified": 0}
     store = None
     if USE_SHEETS:
@@ -597,12 +1625,24 @@ def shop_order():
     return jsonify({"status": "success", **result})
 
 
+def guarded_publish_shop(store, *, queue=None, **kwargs):
+    queue = queue or handoff_queue()
+    if queue is None:
+        if os.getenv("REFERENCE_STORE_PATH"):
+            return {"ok": False, "pushed": False, "reason": "durable_pipeline_required"}
+        return publish_shop(store, **kwargs)
+    with queue.publication_lock():
+        if queue.publication_holds():
+            return {"ok": False, "pushed": False, "reason": "publication_held_for_review"}
+        return publish_shop(store, **kwargs)
+
+
 def _publish_shop_quietly(max_rounds: int = 40) -> None:
     """Push the sheet to the shop. Failures stay in the log and do not roll back the batch."""
     if not USE_SHEETS:
         return
     try:
-        publish_shop(build_store(), max_rounds=max_rounds)
+        guarded_publish_shop(build_store(), max_rounds=max_rounds)
     except Exception:
         logger.exception("Shop publish failed")
 
@@ -617,7 +1657,7 @@ def shop_publish():
     try:
         body = request.get_json(silent=True) or {}
         images_only = bool(body.get("images_only")) if isinstance(body, dict) else False
-        result = publish_shop(build_store(), max_rounds=12, images_only=images_only)
+        result = guarded_publish_shop(build_store(), max_rounds=12, images_only=images_only)
     except Exception:
         logger.exception("Shop publish failed")
         return jsonify({"ok": False, "error": "publish failed"}), 502
@@ -674,7 +1714,9 @@ def refresh_desk():
 def shop_source(preview: bool) -> dict:
     """The live sheet when it is configured, otherwise the preview catalog."""
     if USE_SHEETS:
-        return shop_catalog(build_store())
+        store=build_store()
+        catalog=shop_catalog(store)
+        return _apply_supplier_price_gate(catalog,store)
     if preview or os.getenv("SHOP_PREVIEW") == "1":
         settings = default_settings()
         return {
@@ -683,6 +1725,37 @@ def shop_source(preview: bool) -> dict:
         }
     settings = default_settings()
     return {"settings": settings.as_dict(), "products": []}
+
+
+def _supplier_price_ledger():
+    path=os.getenv('PIPELINE_DB_PATH') or ''
+    if not path:
+        return None
+    from catalog.supplier_freshness import PriceFreshness
+    return PriceFreshness(path)
+
+
+def _current_supplier_price_evidence(store,ledger,now=None):
+    from datetime import datetime,timezone
+    from catalog.supplier_freshness import current_supplier_offers
+    return current_supplier_offers(store,ledger,now=now or datetime.now(timezone.utc))
+
+
+def _apply_supplier_price_gate(catalog,store):
+    ledger=_supplier_price_ledger()
+    queue=handoff_queue()
+    if ledger is None and queue is None:
+        return catalog
+    eligible=None
+    if ledger is not None:
+        from datetime import datetime,timezone
+        evidence=_current_supplier_price_evidence(store,ledger,datetime.now(timezone.utc))
+        eligible={row['product_id'] for row in evidence if row['state'] in {'current','warning'}}
+    conflicts={row['product_id'] for row in queue.sheet_sync_conflicts()} if queue is not None else set()
+    catalog['products']=[product for product in catalog.get('products',[])
+                         if (eligible is None or str(product.get('product_id') or '') in eligible)
+                         and str(product.get('product_id') or '') not in conflicts]
+    return catalog
 
 
 @app.route("/api/shop", methods=["GET"])

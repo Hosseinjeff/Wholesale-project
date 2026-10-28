@@ -1,0 +1,27 @@
+Extract structured reference product data from this Persian wholesale price-list PDF.
+Return ONLY a JSON array. No markdown.
+Important PDF layout rules:
+1) Each physical table row may contain TWO independent product blocks: one on the left and one on the right. Treat them as separate products.
+2) For each block, the far price column in that block is package/carton price. The nearby product text column is the raw product name/details. The nearby numeric code column is product_code. The row index is pdf_row_number.
+3) Do not mix columns between the left and right product blocks. Never use the other block price/code/row-number as package_count.
+4) Do not treat patterns like (45ف) or (۴۵ف) as package count. ف means فروش and indicates individual retail/selling price. Example: (45ف) means 45,000 toman individual selling price, stored as consumer_unit_price=45000.
+5) Product names may contain attributes. Extract them into separate fields instead of keeping everything inside clean_name.
+6) Package count is the number of sellable units in carton/package. Only set package_count when explicitly shown in the product text, like 12ع, 24ع, 6عددی, کارتن 12, or a clearly labeled count column for the SAME product block.
+7) If package_count is known, derive unit_price = round(package_price / package_count). If package_count is unknown, leave unit_price 0. Never copy package_price into unit_price.
+Each item must have these keys:
+product_code: numeric/string product code from the same product block, otherwise empty string,
+pdf_row_number: row number shown for the same product block, otherwise empty string,
+raw_name: full product text exactly as shown,
+clean_name: product name without pack count, retail فروش hint, volume, weight, or set-count attributes,
+package_price: main PDF package/carton price in toman as number,
+unit_price: derived package_price/package_count in toman, or 0 if package_count is unknown,
+consumer_unit_price: individual فروش/consumer selling price in toman if shown by patterns like (45ف), otherwise 0,
+package_count: units per package/carton as number, or 0 if unknown,
+unit_label: textual unit marker such as عدد, ع, بسته, کارتن if clear,
+volume: volume like 1ل, 250میل, 300سی‌سی if present, otherwise empty string,
+weight: weight like 100گ, 5ک if present, otherwise empty string,
+set_count: multi-piece or set count for one sellable product, such as razor/blade set elements, otherwise 0,
+variant: flavor/color/type descriptors if present, otherwise empty string,
+brand: brand if clear, otherwise empty string,
+category: broad category if clear, otherwise empty string,
+raw_name_details: any remaining encoded details that were removed from clean_name.

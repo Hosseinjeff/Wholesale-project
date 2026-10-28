@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # Use Python 3.11 slim as base image
 FROM python:3.11-slim
 
@@ -17,7 +18,12 @@ RUN useradd --create-home --shell /bin/bash app
 
 # Copy requirements and install dependencies
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN --mount=type=secret,id=proxy_ca \
+    if [ -f /run/secrets/proxy_ca ]; then \
+      PIP_CERT=/run/secrets/proxy_ca pip install --no-cache-dir -r requirements.txt; \
+    else \
+      pip install --no-cache-dir -r requirements.txt; \
+    fi
 
 # Copy application code
 COPY . .
@@ -31,5 +37,6 @@ USER app
 # Expose port (Railway will override this with $PORT)
 EXPOSE 8080
 
-# One worker and two threads: a sheet write can run while /health still answers.
-CMD gunicorn app:app --bind 0.0.0.0:${PORT:-8080} --workers 1 --threads 2 --timeout 120 --graceful-timeout 20
+# Keep the HTTP API and the durable Sheet/reference worker under one supervisor
+# so the shared SQLite database stays on one Railway volume.
+CMD ["/usr/local/bin/supervisord", "-n", "-c", "/app/supervisord.conf"]

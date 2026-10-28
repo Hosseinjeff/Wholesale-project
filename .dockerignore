@@ -90,3 +90,9 @@ npm-debug.log*
 # Docker
 Dockerfile*
 docker-compose*.yml
+
+# Local test runtimes may contain private WordPress/database material.
+work/
+
+# The pattern above excludes test runner scripts generally; this is the deployed worker.
+!tools/run_pipeline_handoffs.py

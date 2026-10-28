@@ -10,8 +10,24 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
+// Production bridge values stay outside source control and the deployment archive.
+$molavi_runtime_config = __DIR__ . '/includes/runtime-config.php';
+if (is_readable($molavi_runtime_config)) {
+    require_once $molavi_runtime_config;
+}
+
 require_once __DIR__ . '/includes/pricing.php';
 require_once __DIR__ . '/includes/sync.php';
+require_once __DIR__ . '/includes/reference-decisions.php';
+require_once __DIR__ . '/includes/reference-snapshots.php';
+require_once __DIR__ . '/includes/reference-item-reviews.php';
+require_once __DIR__ . '/includes/ai-confirmations.php';
+require_once __DIR__ . '/includes/pipeline-holds.php';
+require_once __DIR__ . '/includes/operations-dashboard.php';
+require_once __DIR__ . '/includes/clearance-pricing.php';
+require_once __DIR__ . '/includes/inventory-management.php';
+require_once __DIR__ . '/includes/order-handoff.php';
+require_once __DIR__ . '/includes/delivery.php';
 
 add_action('wp_enqueue_scripts', static function (): void {
     wp_enqueue_style(
@@ -117,52 +133,6 @@ add_filter('woocommerce_product_get_short_description', static function (string 
     return implode(' · ', $parts);
 }, 10, 2);
 
-add_action('woocommerce_checkout_order_processed', static function (int $orderId): void {
-    $order = wc_get_order($orderId);
-    if (!$order || $order->get_meta('_molavi_published') === '1') {
-        return;
-    }
-    $config = molavi_legacy_config();
-    $secret = (string) ($config['notify_secret'] ?? '');
-    $bot = rtrim((string) ($config['bot_url'] ?? ''), '/');
-    if ($secret === '' || $bot === '') {
-        return;
-    }
-    $lines = [];
-    foreach ($order->get_items() as $item) {
-        $lines[] = [
-            'name' => $item->get_name(),
-            'qty' => $item->get_quantity(),
-            'total' => (int) $item->get_total(),
-        ];
-    }
-    $payload = [
-        'notify' => true,
-        'order' => [
-            'id' => (string) $order->get_id(),
-            'name' => $order->get_formatted_billing_full_name(),
-            'phone' => $order->get_billing_phone(),
-            'email' => $order->get_billing_email(),
-            'address' => $order->get_billing_address_1(),
-            'note' => $order->get_customer_note(),
-            'total' => (int) $order->get_total(),
-            'currency' => $order->get_currency(),
-            'lines' => $lines,
-        ],
-    ];
-    $response = wp_remote_post($bot . '/shop/order', [
-        'timeout' => 12,
-        'headers' => [
-            'Content-Type' => 'application/json',
-            'X-Shop-Token' => $secret,
-        ],
-        'body' => wp_json_encode($payload, JSON_UNESCAPED_UNICODE),
-    ]);
-    if (!is_wp_error($response) && (int) wp_remote_retrieve_response_code($response) < 300) {
-        $order->update_meta_data('_molavi_published', '1');
-        $order->save();
-    }
-}, 20);
 
 function molavi_product_min($product): int
 {

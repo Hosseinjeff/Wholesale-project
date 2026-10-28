@@ -29,6 +29,9 @@ MESSAGE_HEADERS = [
     "Batch ID",
     "Image File ID",
     "Media Group ID",
+    "AI Status",
+    "AI Review Case IDs",
+    "AI Processed At",
 ]
 
 PRODUCT_HEADERS = [
@@ -70,6 +73,13 @@ PRODUCT_HEADERS = [
     "Min Qty",
     "Image File ID",
     "Image File Unique ID",
+    "Brand",
+    "Weight",
+    "Package Count",
+    "Reference Snapshot ID",
+    "Reference Match ID",
+    "Reference Price Role",
+    "Reference Decision ID",
 ]
 
 OFFER_HEADERS = [
@@ -103,6 +113,29 @@ OFFER_HEADERS = [
     "Min Qty",
     "Image File ID",
     "Image File Unique ID",
+    "Brand",
+    "Weight",
+    "Package Count",
+    "Reference Snapshot ID",
+    "Reference Match State",
+    "Reference Match ID",
+    "Reference Price Role Hint",
+    "Reference Decision ID",
+    "Reference Usage Warning",
+    "Derived From Offer ID",
+    "Owner Decision ID",
+    "Owner Decision Actor",
+    "Owner Decision At",
+    "Detected Price",
+    "Price Anchor Type",
+    "Price Anchor ID",
+    "Price Anchor Name",
+    "Price Anchor Match Score",
+    "Price Scale Method",
+    "Price Scale Status",
+    "Price Scale Reason",
+    "Historical Median Unit Price",
+    "Category Reference Count",
 ]
 
 ITEM_HEADERS = [

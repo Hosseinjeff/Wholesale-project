@@ -7,6 +7,7 @@ from catalog.pricing import (
     quote_lines,
     settings_from_rows,
     shop_formulas,
+    product_from_record,
 )
 from catalog.sync import MemoryStore, finalize_batch, shop_catalog
 
@@ -68,6 +69,13 @@ class BandTests(unittest.TestCase):
         self.assertAlmostEqual(settings.min_margin, 0.18)
         self.assertEqual(settings.unlock_target, 250000)
         self.assertEqual(settings.min_profit, 5000)
+
+    def test_explicit_supplier_unavailability_is_not_quoted_but_unknown_remains_demand_led(self):
+        base={"Product ID":"x","Product Name":"تن","Sale Price":40000,"Consumer Price":50000,"Status":"imported"}
+        for state in ("out of stock", "out_of_stock", "ناموجود", "اتمام موجودی"):
+            with self.subTest(state=state):
+                self.assertIsNone(product_from_record({**base,"Stock Status":state}))
+        self.assertIsNotNone(product_from_record({**base,"Stock Status":""}))
 
 
 class CartTests(unittest.TestCase):

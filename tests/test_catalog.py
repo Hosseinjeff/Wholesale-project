@@ -656,6 +656,10 @@ class RecordingSheets:
         self.calls.append(("update", range_name, value_input, body))
         return {}
 
+    def values_batch_update(self, value_input, body):
+        self.calls.append(("batch_values", value_input, body))
+        return {}
+
     def batch_update(self, body):
         self.calls.append(("batch", body))
         return {}
@@ -693,6 +697,20 @@ class SheetTransportTests(unittest.TestCase):
         self.assertEqual(growth[1]["appendDimension"]["dimension"], "COLUMNS")
         self.assertEqual(http.calls[2][0], "update")
         self.assertEqual(http.calls[2][1], "'Products'!A2:B2")
+
+    def test_field_reconciliation_writes_only_changed_cells_in_one_batch(self):
+        http = RecordingSheets()
+        store = GoogleSheetStore("sheet-id", {}, http=http)
+        store.read("Products")
+        store.write_cells("Products", 2, ["Sale Price", "Consumer Price"],
+                          {"Sale Price": 53000, "Consumer Price": 70000})
+        batch = next(call for call in http.calls if call[0] == "batch_values")
+        self.assertEqual(batch[1], "RAW")
+        self.assertEqual(batch[2]["data"], [
+            {"range": "'Products'!A2:A2", "values": [[53000]]},
+            {"range": "'Products'!B2:B2", "values": [[70000]]},
+        ])
+        self.assertEqual(store.read("Products")[1], [53000, 70000])
 
     def test_rest_client_encodes_the_sheet_range(self):
         seen = {}
