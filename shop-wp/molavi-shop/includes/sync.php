@@ -250,12 +250,18 @@ function molavi_upsert_product(int $productId, array $clean): int
     if (!$product instanceof WC_Product) {
         $product = new WC_Product_Simple();
     }
-    $shelf = $clean['shelf'] > $clean['sale'] ? $clean['shelf'] : 0;
+    $shelf = max(0, (int) $clean['shelf']);
+    $supplierCost = max(0, (int) $clean['sale']);
+    $curve = molavi_curve_from_prices($shelf, $supplierCost);
     $product->set_name($clean['name']);
     $product->set_status('publish');
     $product->set_catalog_visibility('visible');
-    $product->set_regular_price((string) ($shelf > 0 ? $shelf : $clean['sale']));
-    $product->set_sale_price($shelf > 0 ? (string) $clean['sale'] : '');
+    // Woo's public prices are customer prices. Keep the supplier purchase price
+    // in private metadata so the Store API and product feeds never expose cost.
+    $product->set_regular_price($shelf > 0 ? (string) $shelf : '');
+    $product->set_sale_price(!empty($curve['discountable']) ? (string) $curve['ceiling'] : '');
+    $product->update_meta_data('_molavi_market_shelf_toman', $shelf);
+    $product->update_meta_data('_molavi_supplier_cost_toman', $supplierCost);
     $product->set_short_description($clean['supplier']);
     if ($clean['source_record_id'] !== '') {
         $product->update_meta_data('_molavi_supplier_offer_id', $clean['source_record_id']);

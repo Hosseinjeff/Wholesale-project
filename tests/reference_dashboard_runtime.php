@@ -384,6 +384,15 @@ ref_assert(apply_filters('woocommerce_is_purchasable',true,wc_get_product($fresh
 $verified_row['supplier_price_state']='current';$verified_row['supplier_price_verified_at']=gmdate('c',time()-(DAY_IN_SECONDS));
 molavi_upsert_product($freshness_product_id,molavi_clean_product($verified_row));
 ref_assert(apply_filters('woocommerce_is_purchasable',true,wc_get_product($freshness_product_id))===true, 'fresh supplier verification restores Woo purchase eligibility');
+$priced_row=['id'=>'b123456789ab','name'=>'Synthetic customer price','status'=>'sell','sale'=>37500,'shelf'=>85000,
+    'supplier_availability'=>'instock'];
+$priced_product_id=molavi_upsert_product(0,molavi_clean_product($priced_row));
+$priced_product=wc_get_product($priced_product_id);
+$expected_curve=molavi_band(37500,85000);
+ref_assert((int)$priced_product->get_regular_price()===85000
+    && (int)$priced_product->get_sale_price()===$expected_curve['ceiling'], 'public Woo prices use the customer price band, not supplier cost');
+ref_assert((int)$priced_product->get_meta('_molavi_supplier_cost_toman')===37500
+    && molavi_curve($priced_product)['sale']===37500, 'private supplier cost remains the input to cart pricing');
 $renamed_product=new WC_Product_Simple();$renamed_product->set_name('Old supplier name');$renamed_product->set_status('publish');
 $renamed_product->set_regular_price('1200');$renamed_product->set_price('1200');$renamed_product->save();
 update_post_meta($renamed_product->get_id(),'_molavi_source_id','old-source-key');

@@ -123,7 +123,17 @@ function molavi_curve_from_prices(int $regular, int $sale): array
 
 function molavi_store_curve(WC_Product $product): array
 {
-    $curve = molavi_curve_from_prices((int) $product->get_regular_price(), (int) $product->get_sale_price());
+    $storedShelf = $product->get_meta('_molavi_market_shelf_toman', true);
+    $storedCost = $product->get_meta('_molavi_supplier_cost_toman', true);
+    if ($storedShelf !== '' && $storedCost !== '') {
+        $curve = molavi_curve_from_prices((int) $storedShelf, (int) $storedCost);
+    } else {
+        // Migrate products created before supplier cost was separated from the
+        // public WooCommerce sale price.
+        $curve = molavi_curve_from_prices((int) $product->get_regular_price(), (int) $product->get_sale_price());
+        update_post_meta($product->get_id(), '_molavi_market_shelf_toman', $curve['shelf']);
+        update_post_meta($product->get_id(), '_molavi_supplier_cost_toman', $curve['sale']);
+    }
     $id = $product->get_id();
     update_post_meta($id, '_molavi_shelf', $curve['shelf']);
     update_post_meta($id, '_molavi_sale', $curve['sale']);
