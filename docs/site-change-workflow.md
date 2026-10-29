@@ -28,7 +28,11 @@ commit as `HEAD`. It reads cPanel credentials from the existing
 `MOLAVISALE_CPANEL_PASSWORD` environment variables; it never prints them. It uses
 the HTTPS cPanel UAPI through the configured proxy, backs up changed remote files
 under `/tmp`, writes only the changed tracked source files, and reads each file
-back to compare it with Git. It deliberately excludes
+back to compare it with Git. The current cPanel file editor inserts one
+`<meta charset="utf-8">` after the first opening `<header>` tag in PHP templates.
+The uploader accepts only that exact insertion when removing it yields a
+byte-for-byte match with the committed file, and reports any affected paths. It
+deliberately excludes
 `shop-wp/molavi-shop/includes/runtime-config.php` and does not package or replace
 the plugin directory.
 

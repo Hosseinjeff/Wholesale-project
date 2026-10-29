@@ -120,6 +120,19 @@ def file_sha(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def matches_live_source(remote: str, source: str) -> tuple[bool, bool]:
+    if file_sha(remote) == file_sha(source):
+        return True, False
+    marker = '<meta charset="utf-8">'
+    opening = remote.find("<header")
+    close = remote.find(">", opening) if opening >= 0 else -1
+    if close >= 0 and remote.startswith(marker, close + 1):
+        normalized = remote[:close + 1] + remote[close + 1 + len(marker):]
+        if file_sha(normalized) == file_sha(source):
+            return True, True
+    return False, False
+
+
 def remote_location(remote_root: str, tracked_name: str) -> tuple[str, str]:
     relative = Path(tracked_name).relative_to(PLUGIN_PREFIX)
     directory = remote_root if str(relative.parent) == "." else remote_root + "/" + str(relative.parent)
@@ -162,6 +175,7 @@ def main() -> int:
 
         uploaded = []
         unchanged = []
+        host_normalized = []
         for name in files:
             local = (root / name).read_text(encoding="utf-8")
             if remote[name] == local:
@@ -177,14 +191,18 @@ def main() -> int:
             )
             check = uapi_request(base_url, auth, "get_file_content", {"dir": directory, "file": filename})
             saved = extract_file_content(check)
-            if saved is None or file_sha(saved) != file_sha(local):
+            matched, normalized = matches_live_source(saved or "", local)
+            if saved is None or not matched:
                 raise RuntimeError("Live read-back did not match the committed plugin source")
+            if normalized:
+                host_normalized.append(name)
             uploaded.append(name)
 
         print(json.dumps({
             "revision": revision,
             "uploaded": uploaded,
             "unchanged": unchanged,
+            "host_normalized": host_normalized,
             "backup_directory": str(backup_root),
             "verified": True,
         }, ensure_ascii=False))
