@@ -1,7 +1,6 @@
 # Storefront design decisions
 
-Updated: 2026-10-29, Asia/Tehran. Status: the v2 visual and pricing direction is implemented on the WordPress Shop page; visual/business review is still pending.
-The storefront remains behind WooCommerce Coming soon until a full-prepayment gateway is configured.
+Updated: 2026-10-29, Asia/Tehran. Status: the v2 visual and pricing direction is live on the WordPress Shop page, which is now also the static front page. Responsive visual/business review remains pending. The user has explicitly taken the site live; payment configuration is outside the current implementation scope.
 
 ## Discovery scope
 
@@ -111,15 +110,15 @@ the current live inventory, pricing settings, payment availability, and stock ar
 The WordPress plugin implements the v2 visual and pricing direction and is installed on
 WooCommerce Shop page 7 through `[molavi_storefront]`. It uses the live Woo catalog,
 server-calculated basket quote, responsive product grid, separate maximum/current
-discount labels, basket progress, and the phone basket sheet. The live WordPress render
-returned two product cards. The public site remains in Coming soon mode.
+discount labels, basket progress, and the phone basket sheet. The root and `/shop/` now
+render the public store with two products. User 1 changed the static front page to Shop
+page 7 on 2026-10-29.
 
 The mockup's guest-request form remains a demonstration; the production storefront
-continues to the existing WooCommerce checkout. The design remains unapproved pending
-visual/business review. Full production readiness still requires a full-prepayment
-gateway, live order/payment/Sheets/Telegram verification, and end-to-end workflow review.
-Do not treat the mockup's illustrative catalog or a rendered storefront as proof of those
-handoffs.
+continues to the existing WooCommerce checkout. Visual/business review and connected
+non-payment handoffs remain pending. The public rendering does not prove shipping-zone
+coverage or full workflow readiness; the current Tehran zone has no configured locations.
+Payment setup and payment validation are outside the scope of the current work.
 
 ## Revision record
 

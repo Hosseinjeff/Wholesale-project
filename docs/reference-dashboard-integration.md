@@ -2,10 +2,9 @@
 
 ## Deployment checkpoint — 2026-10-28
 
-The updated MolaviShop plugin files and owner bridge configuration are installed on
-the existing WordPress site. The private bridge config is stored at
-`includes/runtime-config.php`, outside Git; it binds the HTTPS Railway service and
-owner user 3. The production server and persistent volume are live. After the user
+The updated MolaviShop plugin files and owner bridge configuration were reported
+installed on the existing WordPress site. The private bridge config is outside Git;
+the production server and persistent volume are live. After the user
 replaced the Gemini key, the live Rezvan PDF refresh staged a 10-row candidate; the Woo
 admin exposes an 8-row preview, followed by owner review and explicit activation. The
 active snapshot remains null and no `ReferencePrices` write has occurred. The deployed
@@ -17,6 +16,20 @@ before plugins load because `public_html/wp-config.php` is zero bytes. The Railw
 and staged candidate remain available, but Woo admin review cannot be reached until the
 hosting provider restores the original config. The accessible cPanel account exposes no
 backup feature or saved copy; database credentials are not present in the environment.
+
+**Later live recheck (2026-10-29):** WordPress and the storefront now load publicly, so
+the bootstrap outage above is historical and resolved. The available authenticated
+session is administrator user 1; the project owner allowlist remains user 3, so the
+owner-only Molavi operations page is not registered for user 1 and WordPress returns its
+standard access-denied response. The owner list was not widened. Recheck the bridge and
+staged candidate using the documented owner account; the earlier outbound-network error
+has not been revalidated from that account.
+
+The current cPanel listing of the plugin's `includes` directory did not show
+`runtime-config.php`, despite the earlier deployment note naming that path. The bridge
+constants may be supplied by the separate private WordPress configuration include; their
+values were not inspected. Confirm configuration and transport through the authorized
+owner screen before changing it.
 
 Confirmed: owner decisions belong in the private WordPress dashboard, integrated with
 current WordPress functionality/plugins. Not Telegram as the decision surface.

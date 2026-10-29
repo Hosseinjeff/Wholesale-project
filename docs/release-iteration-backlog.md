@@ -8,11 +8,10 @@ activation and the `ReferencePrices` projection are pending. This file distingui
 incomplete release connections from
 optional business settings; mockup v2 remains unapproved and no credentials are stored.
 
-**Blocking production incident — 2026-10-29:** the WordPress site currently fails during
-bootstrap because its root `wp-config.php` is zero bytes. The Railway API is healthy and
-the live reference candidate is preserved, but dashboard review and the rest of the live
-site workflow wait on restoring the config and referenced database from a host backup or
-a known-good copy. The only cPanel-listed local database has no tables.
+**Historical production incident — 2026-10-29:** WordPress previously failed during
+bootstrap. A later same-day live recheck found the site and Woo storefront responding
+normally; this incident is resolved. The user has made the site public, and Shop page 7
+is now the static front page. Current live gaps are recorded in `pipeline-readiness.md`.
 
 ## Cross-cutting requirement — current site plugins (D-032)
 

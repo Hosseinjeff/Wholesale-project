@@ -176,5 +176,56 @@
     "legacy_products_orders_media_restored": false,
     "wordpress_to_railway_bridge_error": "http_request_failed",
     "original_wp_docroot_backup_feature_available": false
+  },
+  "current_live_recheck": {
+    "date": "2026-10-29",
+    "source": "authenticated WordPress admin and public HTTP/API reads after user enabled public access",
+    "root_page": {
+      "http": 200,
+      "title": "MolaviSale",
+      "renders_storefront": true,
+      "coming_soon": false,
+      "front_page_id": 7,
+      "front_page_slug": "shop"
+    },
+    "shop_page": {
+      "http": 200,
+      "page_id": 7,
+      "renders_storefront": true,
+      "store_api_products": 2,
+      "currency": "IRT"
+    },
+    "woocommerce_page_ids": {
+      "cart": 8,
+      "checkout": 9,
+      "my_account": 10
+    },
+    "delivery": {
+      "method_id": "molavi_tehran_delivery",
+      "enabled": true,
+      "zone_id": 1,
+      "zone_name": "Tehran",
+      "zone_location_count": 0,
+      "fee_toman": 250000,
+      "free_delivery_threshold_toman": 5000000,
+      "customer_area_defined": false
+    },
+    "owner_access": {
+      "authenticated_user_id": 1,
+      "roles": [
+        "administrator"
+      ],
+      "manage_woocommerce": true,
+      "documented_owner_user_id": 3,
+      "owner_screen_access": "denied",
+      "owner_allowlist_changed": false
+    },
+    "changes_during_recheck": {
+      "static_front_page_set_to_shop_page_7": true,
+      "order_created": false,
+      "payment_settings_changed": false,
+      "shipping_zone_changed": false,
+      "supplier_data_changed": false
+    }
   }
 }

@@ -8,19 +8,29 @@ Snapshot 4.50. Updated 2026-10-29, Asia/Tehran. The canonical roleplay decisions
 
 Railway is healthy and its Sheet-backed catalog currently returns two products. Their
 public Woo prices now use the customer price band while supplier costs stay private.
-The Tehran 250,000-toman fee and free-delivery threshold were checked using disposable
-carts. WordPress is fresh on `h434558_Salesman`, and Shop page 7 now uses the
-`[molavi_storefront]` WooCommerce storefront derived from mockup v2; the live WordPress
-render showed two products. The visual/business review is still pending, and Woo remains
-in Coming soon mode because no full-prepayment gateway is enabled. The authenticated
-WordPress host also times out reaching Railway, which
-blocks the owner dashboards' live data requests. The Rezvan → Gemini candidate remains
-staged and unapproved; no `ReferencePrices` write or customer order/payment occurred.
+The Tehran 250,000-toman fee and free-delivery threshold are implemented. WordPress is
+fresh on `h434558_Salesman`, and Shop page 7 uses the `[molavi_storefront]` WooCommerce
+storefront derived from mockup v2. At the user's direction the site is now public, and
+the static front page points to Shop page 7. Live `/` and `/shop/` both render two
+products without the Coming Soon screen. Responsive visual/business review remains
+pending.
 
-The next blockers are to restore CloudyLink-host outbound HTTPS to Railway, configure a
-full-prepayment gateway, then review and approve the staged reference candidate and
-verify the remaining live handoffs. Do not mark a roleplay scene complete until the
-integrated stream is validated.
+The live Tehran shipping zone has no location rules, so customers do not match the
+configured delivery method. The current environment login is WordPress administrator
+user 1, while the project owner allowlist is user 3; user 1 receives the normal
+WordPress access-denied response for owner-only dashboards. No access list or shipping
+coverage was changed. The Rezvan → Gemini candidate remains staged and unapproved; no
+`ReferencePrices` write or customer order was made. Payment configuration is explicitly
+outside the current work.
+
+The remaining non-payment work is to set the delivery coverage, inspect the owner
+dashboards from user 3, review the staged reference candidate, verify Sheets and Woo
+handoffs in connected staging, and complete recovery, policy, and end-to-end workflow
+review. Do not mark a roleplay scene complete until the integrated stream is validated.
+
+The user also referenced an “Auditer” ChatGPT conversation for findings. Its `read_thread`
+connector was not available in this workspace, so repository audit records were used for
+this pass and that conversation's findings remain to be reconciled when supplied.
 
 ## Reference acquisition clarification — D-008
 
