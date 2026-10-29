@@ -120,6 +120,12 @@ def file_sha(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def remote_location(remote_root: str, tracked_name: str) -> tuple[str, str]:
+    relative = Path(tracked_name).relative_to(PLUGIN_PREFIX)
+    directory = remote_root if str(relative.parent) == "." else remote_root + "/" + str(relative.parent)
+    return directory, relative.name
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--since", default="HEAD^", help="Git ref before the plugin changes to deploy (default: HEAD^)")
@@ -140,8 +146,8 @@ def main() -> int:
 
         remote: dict[str, str | None] = {}
         for name in files:
-            relative = str(Path(name).relative_to(PLUGIN_PREFIX))
-            payload = uapi_request(base_url, auth, "get_file_content", {"dir": remote_dir, "file": relative})
+            directory, filename = remote_location(remote_dir, name)
+            payload = uapi_request(base_url, auth, "get_file_content", {"dir": directory, "file": filename})
             remote[name] = None if payload.get("_missing") else extract_file_content(payload)
             if remote[name] is None and not payload.get("_missing"):
                 raise RuntimeError("cPanel did not return readable content for a changed plugin file")
@@ -161,15 +167,15 @@ def main() -> int:
             if remote[name] == local:
                 unchanged.append(name)
                 continue
-            relative = str(Path(name).relative_to(PLUGIN_PREFIX))
+            directory, filename = remote_location(remote_dir, name)
             uapi_request(
                 base_url,
                 auth,
                 "save_file_content",
-                {"dir": remote_dir, "file": relative},
+                {"dir": directory, "file": filename},
                 {"content": local},
             )
-            check = uapi_request(base_url, auth, "get_file_content", {"dir": remote_dir, "file": relative})
+            check = uapi_request(base_url, auth, "get_file_content", {"dir": directory, "file": filename})
             saved = extract_file_content(check)
             if saved is None or file_sha(saved) != file_sha(local):
                 raise RuntimeError("Live read-back did not match the committed plugin source")
