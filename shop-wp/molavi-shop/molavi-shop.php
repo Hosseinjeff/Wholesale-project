@@ -29,7 +29,28 @@ require_once __DIR__ . '/includes/inventory-management.php';
 require_once __DIR__ . '/includes/order-handoff.php';
 require_once __DIR__ . '/includes/delivery.php';
 require_once __DIR__ . '/includes/storefront-renderer.php';
+require_once __DIR__ . '/includes/site-chrome.php';
 add_shortcode('molavi_storefront', '\\Molavi\\Elementor\\molavi_storefront_shortcode');
+
+add_action('wp_body_open', '\\Molavi\\Elementor\\molavi_render_site_header', 5);
+add_action('wp_footer', '\\Molavi\\Elementor\\molavi_render_site_footer', 5);
+
+add_filter('language_attributes', static function (string $attributes): string {
+    if (is_admin()) {
+        return $attributes;
+    }
+    if (preg_match('/\blang=(?:"[^"]*"|\'[^\']*\')/', $attributes)) {
+        $attributes = preg_replace('/\blang=(?:"[^"]*"|\'[^\']*\')/', 'lang="fa-IR"', $attributes, 1);
+    } else {
+        $attributes .= ' lang="fa-IR"';
+    }
+    if (preg_match('/\bdir=(?:"[^"]*"|\'[^\']*\')/', $attributes)) {
+        $attributes = preg_replace('/\bdir=(?:"[^"]*"|\'[^\']*\')/', 'dir="rtl"', $attributes, 1);
+    } else {
+        $attributes .= ' dir="rtl"';
+    }
+    return $attributes;
+});
 
 function molavi_is_storefront_request(): bool
 {
@@ -44,6 +65,9 @@ function molavi_is_storefront_request(): bool
 }
 
 add_filter('body_class', static function (array $classes): array {
+    if (!is_admin() && !wp_doing_ajax()) {
+        $classes[] = 'molavi-site-page';
+    }
     if (molavi_is_storefront_request()) {
         $classes[] = 'molavi-storefront-page';
     }
@@ -194,6 +218,52 @@ add_filter('woocommerce_product_get_short_description', static function (string 
     }
     return implode(' · ', $parts);
 }, 10, 2);
+
+add_filter('gettext_woocommerce', static function (string $translation, string $text): string {
+    static $labels = [
+        'Your cart is currently empty!' => 'سبد خرید شما خالی است.',
+        'Browse store' => 'رفتن به فروشگاه',
+        'Cart totals' => 'مجموع سبد خرید',
+        'Subtotal' => 'جمع جزء',
+        'Total' => 'مبلغ کل',
+        'Update cart' => 'به‌روزرسانی سبد',
+        'Proceed to checkout' => 'ادامه و ثبت سفارش',
+        'Username or email address' => 'نام کاربری یا نشانی ایمیل',
+        'Password' => 'رمز عبور',
+        'Remember me' => 'مرا به خاطر بسپار',
+        'Log in' => 'ورود',
+        'Lost your password?' => 'رمز عبور را فراموش کرده‌اید؟',
+        'Register' => 'ثبت‌نام',
+        'Billing details' => 'اطلاعات صورتحساب',
+        'Additional information' => 'اطلاعات تکمیلی',
+        'Place order' => 'ثبت سفارش',
+        'Product' => 'کالا',
+        'Price' => 'قیمت',
+        'Quantity' => 'تعداد',
+        'In stock' => 'موجود',
+        'Out of stock' => 'ناموجود',
+        'No products were found matching your selection.' => 'کالایی با این مشخصات پیدا نشد.',
+    ];
+    return $labels[$text] ?? $translation;
+}, 20, 2);
+
+add_filter('the_title', static function (string $title, int $postId): string {
+    if (is_admin() || !function_exists('wc_get_page_id')) {
+        return $title;
+    }
+    $titles = [
+        'cart' => 'سبد خرید',
+        'checkout' => 'تکمیل خرید',
+        'myaccount' => 'حساب کاربری',
+        'shop' => 'فروشگاه',
+    ];
+    foreach ($titles as $page => $label) {
+        if ((int) wc_get_page_id($page) === $postId) {
+            return $label;
+        }
+    }
+    return $title;
+}, 20, 2);
 
 
 function molavi_product_min($product): int

@@ -1,10 +1,11 @@
 # MolaviSale WooCommerce storefront
 
-This plugin adds a responsive storefront for the existing WooCommerce catalog. On the
-WooCommerce Shop page it replaces the default archive with the screenshot-aligned
-storefront template. If that same Shop page is set as the static homepage, the homepage
-uses the storefront too. It keeps the plugin's server-side basket quote and WooCommerce
-checkout.
+This plugin adds a shared Persian header, footer and warm responsive styling across
+the public WordPress/WooCommerce pages, plus a storefront for the existing WooCommerce
+catalog. On the WooCommerce Shop page it replaces the default archive with the
+screenshot-aligned storefront template. If that same Shop page is set as the static
+homepage, the homepage uses the storefront too. It keeps the plugin's server-side
+basket quote and WooCommerce checkout.
 
 ## Use the storefront in a custom page
 

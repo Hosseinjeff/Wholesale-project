@@ -41,60 +41,8 @@ function molavi_render_storefront(): void
     }
     $categories = array_keys($categories);
     sort($categories, SORT_NATURAL | SORT_FLAG_CASE);
-    $shopUrl = function_exists('wc_get_page_permalink') ? wc_get_page_permalink('shop') : home_url('/');
-    $accountUrl = function_exists('wc_get_page_permalink') ? wc_get_page_permalink('myaccount') : home_url('/');
-    $pageLinks = [];
-    foreach (get_pages(['post_status' => 'publish', 'number' => 50]) as $page) {
-        if ((int) $page->ID === (int) wc_get_page_id('shop')) {
-            continue;
-        }
-        $slug = strtolower((string) $page->post_name);
-        $label = '';
-        if (in_array($slug, ['about', 'about-us', 'aboutus', 'about-molavisale'], true) || strpos((string) $page->post_title, 'درباره') !== false) {
-            $label = 'درباره ما';
-        } elseif (in_array($slug, ['contact', 'contact-us', 'contactus'], true) || strpos((string) $page->post_title, 'تماس') !== false) {
-            $label = 'تماس با ما';
-        }
-        if ($label !== '') {
-            $pageLinks[$label] = get_permalink($page);
-        }
-    }
     ?>
     <section class="molavi-storefront" data-molavi-storefront aria-label="فروشگاه مولوی‌سل">
-        <header class="molavi-site-header">
-            <div class="molavi-site-header-inner">
-                <a class="molavi-brand" href="<?php echo esc_url(home_url('/')); ?>" aria-label="فروشگاه مولوی‌سل، خانه">
-                    <svg viewBox="0 0 32 36" aria-hidden="true"><path d="M5 12h22l-2 21H7L5 12Z"></path><path d="M10 13V9a6 6 0 0 1 12 0v4"></path></svg>
-                    <strong>فروشگاه مولوی‌سل</strong>
-                </a>
-                <nav class="molavi-main-nav" aria-label="راهنمای سایت">
-                    <a href="<?php echo esc_url(home_url('/')); ?>">خانه</a>
-                    <a class="is-current" href="<?php echo esc_url($shopUrl); ?>">فروشگاه شما</a>
-                    <a href="#molavi-products">دسته‌بندی‌ها</a>
-                    <?php foreach ($pageLinks as $label => $url): ?>
-                        <a href="<?php echo esc_url($url); ?>"><?php echo esc_html($label); ?></a>
-                    <?php endforeach; ?>
-                </nav>
-                <label class="molavi-search">
-                    <span class="screen-reader-text">جستجوی محصولات</span>
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="m16 16 4 4"></path></svg>
-                    <input type="search" data-molavi-search placeholder="جستجوی محصولات..." autocomplete="off">
-                </label>
-                <div class="molavi-header-actions">
-                    <a class="molavi-header-icon" href="<?php echo esc_url($accountUrl); ?>" aria-label="حساب کاربری">
-                        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.5"></circle><path d="M4 21v-2a8 8 0 0 1 16 0v2"></path></svg>
-                    </a>
-                    <button class="molavi-header-icon" type="button" data-molavi-wishlist-view aria-label="نمایش کالاهای موردعلاقه" aria-pressed="false">
-                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.8 8.8c0 4.4-8.8 10-8.8 10s-8.8-5.6-8.8-10a4.6 4.6 0 0 1 8.8-1.9 4.6 4.6 0 0 1 8.8 1.9Z"></path></svg>
-                    </button>
-                    <button class="molavi-header-cart" type="button" data-molavi-open-basket aria-controls="molavi-basket-dialog" aria-expanded="false" aria-label="مشاهده سبد خرید">
-                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h2l2 11h9l2-8H8"></path><circle cx="10" cy="20" r="1"></circle><circle cx="17" cy="20" r="1"></circle></svg>
-                        <span data-molavi-count><?php echo esc_html(molavi_digits((string) ($quote['count'] ?? 0))); ?></span>
-                    </button>
-                </div>
-            </div>
-        </header>
-
         <div class="molavi-store-layout">
             <div class="molavi-product-area">
                 <div class="molavi-product-toolbar" id="molavi-products">

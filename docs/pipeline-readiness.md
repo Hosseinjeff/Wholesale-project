@@ -29,6 +29,27 @@ order, charge, refund or supplier purchase was made.
 - No order was placed and no payment, shipping-zone, gateway, or supplier-data setting
   was changed in this recheck.
 
+## Telegram post check — 2026-10-29 22:18 UTC
+
+- The primary `Wholesale-project` Telegram webhook received 27 `POST /webhook`
+  requests around 22:14 UTC. All 27 returned HTTP 200 and the runtime log recorded
+  each message as queued.
+- A read-only check of the matching rows in Sheets found none of those message IDs
+  in `MessageData`; there were also no matching `Offers` rows or product projection
+  for those messages. No WooCommerce product update is confirmed for this batch.
+- The durable handoff checks for an approved, usable reference snapshot before it
+  calls the Sheets finalizer. The latest visible runtime record is a candidate
+  staged for owner review. This is consistent with the batch waiting at the
+  `waiting_reference` gate; the owner-only queue dashboard was not accessible to
+  confirm the SQLite job state from this session.
+- The webhook committed inbound receipts to the persistent pipeline queue before
+  returning success. The posts remain recoverable there; they have not completed
+  the Sheet extraction or Woo publication stages. Review the staged reference
+  candidate through the existing owner screen, then recheck the same batch before
+  treating these posts as processed.
+- The message contents and chat identity are intentionally not copied into this
+  project record.
+
 ## Fresh WordPress and live catalog
 
 WordPress/WooCommerce runs on the user's fresh `h434558_Salesman` database. The

@@ -886,3 +886,451 @@ body.molavi-storefront-page .entry-content {
     .molavi-amount { font-size: .72rem; }
     .molavi-product-toolbar .molavi-sort span { display: none; }
 }
+
+/* Use the storefront design system across every public WordPress and WooCommerce page. */
+body.molavi-site-page {
+    --molavi-bg: #F7F3EC;
+    --molavi-surface: #FFFFFF;
+    --molavi-ink: #26343D;
+    --molavi-muted: #78828A;
+    --molavi-line: #EEE9E1;
+    --molavi-orange: #FF6B21;
+    --molavi-orange-dark: #E95A16;
+    --molavi-raspberry: #F13D5D;
+    background: var(--molavi-bg) !important;
+    color: var(--molavi-ink);
+    direction: rtl;
+    font-family: Vazirmatn, Tahoma, sans-serif;
+    text-align: right;
+}
+body.molavi-site-page,
+body.molavi-site-page * {
+    box-sizing: border-box;
+}
+body.molavi-site-page .wp-site-blocks > header,
+body.molavi-site-page .wp-site-blocks > footer,
+body.molavi-site-page header.wp-block-template-part,
+body.molavi-site-page footer.wp-block-template-part,
+body.molavi-site-page .elementor-location-header,
+body.molavi-site-page .elementor-location-footer,
+body.molavi-site-page header.site-header,
+body.molavi-site-page footer.site-footer,
+body.molavi-site-page #masthead,
+body.molavi-site-page #colophon {
+    display: none !important;
+}
+body.molavi-site-page .wp-site-blocks,
+body.molavi-site-page #primary,
+body.molavi-site-page main {
+    background: transparent;
+    margin: 0 !important;
+    max-width: none !important;
+    width: 100% !important;
+}
+body.molavi-site-page .wp-site-blocks > main {
+    min-height: 55vh;
+    padding: 36px clamp(16px, 4vw, 56px) 56px !important;
+}
+body.molavi-site-page .wp-site-blocks > main > .wp-block-post-content,
+body.molavi-site-page .wp-site-blocks > main > .entry-content {
+    margin-inline: auto !important;
+    max-width: 1320px !important;
+    width: 100% !important;
+}
+body.molavi-storefront-page .wp-site-blocks > main {
+    min-height: 0;
+    padding: 0 !important;
+}
+body.molavi-site-page h1,
+body.molavi-site-page h2,
+body.molavi-site-page h3,
+body.molavi-site-page h4,
+body.molavi-site-page p,
+body.molavi-site-page li,
+body.molavi-site-page label,
+body.molavi-site-page th,
+body.molavi-site-page td {
+    font-family: Vazirmatn, Tahoma, sans-serif;
+}
+body.molavi-site-page h1,
+body.molavi-site-page .entry-title,
+body.molavi-site-page .wp-block-post-title,
+body.molavi-site-page .woocommerce-products-header__title {
+    color: var(--molavi-ink);
+    font-size: clamp(1.4rem, 2.7vw, 2rem);
+    font-weight: 800;
+    line-height: 1.5;
+    margin: 0 0 22px;
+}
+body.molavi-site-page a { color: inherit; }
+body.molavi-site-page a:hover { color: var(--molavi-orange-dark); }
+body.molavi-site-page input:not([type="checkbox"]):not([type="radio"]),
+body.molavi-site-page select,
+body.molavi-site-page textarea {
+    background: #fff;
+    border: 1px solid var(--molavi-line);
+    border-radius: 10px;
+    color: var(--molavi-ink);
+    font: inherit;
+    min-height: 44px;
+    padding: 9px 12px;
+}
+body.molavi-site-page input:focus-visible,
+body.molavi-site-page select:focus-visible,
+body.molavi-site-page textarea:focus-visible,
+body.molavi-site-page button:focus-visible,
+body.molavi-site-page a:focus-visible {
+    outline: 3px solid rgba(255, 107, 33, .28);
+    outline-offset: 2px;
+}
+
+.molavi-site-header {
+    background: rgba(255, 253, 250, .98);
+    border-bottom: 1px solid var(--molavi-line);
+    margin: 0 !important;
+    position: sticky;
+    top: 0;
+    width: 100%;
+    z-index: 1000;
+}
+body.admin-bar .molavi-site-header { top: 32px; }
+.molavi-site-header-inner {
+    margin: 0 auto;
+    width: 100%;
+}
+.molavi-site-header .molavi-search {
+    align-items: center;
+    background: #F7F4EF;
+    border: 1px solid #EBE5DC;
+    border-radius: 999px;
+    display: flex;
+    flex: 1 1 250px;
+    gap: 8px;
+    margin: 0 auto;
+    max-width: 340px;
+    min-width: 160px;
+    padding: 0 12px;
+}
+.molavi-site-header .molavi-search input {
+    background: transparent;
+    border: 0;
+    font-size: .84rem;
+    min-height: 40px;
+    outline: 0;
+    padding: 0;
+    width: 100%;
+}
+.molavi-search-submit {
+    align-items: center;
+    background: transparent;
+    border: 0;
+    color: var(--molavi-orange);
+    cursor: pointer;
+    display: inline-flex;
+    flex: 0 0 24px;
+    height: 30px;
+    justify-content: center;
+    padding: 0;
+    width: 24px;
+}
+.molavi-search-submit svg {
+    fill: none;
+    height: 20px;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-width: 1.8;
+    width: 20px;
+}
+.molavi-site-header .molavi-header-actions a:hover { color: var(--molavi-orange-dark); }
+.molavi-site-header .molavi-header-cart:hover { color: var(--molavi-orange-dark); }
+.molavi-site-header .molavi-header-cart span {
+    background: var(--molavi-orange);
+    border-radius: 999px;
+    color: #fff;
+    font-size: .68rem;
+    line-height: 1;
+    min-width: 19px;
+    padding: 5px;
+    text-align: center;
+}
+
+.molavi-storefront {
+    padding-top: 14px;
+}
+body.molavi-storefront-page .molavi-storefront { padding-top: 14px; }
+
+.molavi-site-footer {
+    background: #FFFDFA;
+    border-top: 1px solid var(--molavi-line);
+    color: var(--molavi-muted);
+    margin-top: 32px;
+    padding: 20px clamp(16px, 4vw, 56px);
+}
+.molavi-site-footer-inner {
+    align-items: center;
+    display: flex;
+    gap: 24px;
+    justify-content: space-between;
+    margin: 0 auto;
+    max-width: 1600px;
+}
+.molavi-footer-brand {
+    color: var(--molavi-ink) !important;
+    font-weight: 800;
+    text-decoration: none;
+    white-space: nowrap;
+}
+.molavi-site-footer nav { display: flex; flex-wrap: wrap; gap: 12px 22px; }
+.molavi-site-footer nav a { color: var(--molavi-muted); font-size: .82rem; text-decoration: none; }
+.molavi-site-footer nav a:hover { color: var(--molavi-orange-dark); }
+
+/* Woo product, account, basket and order pages keep the same card and action language. */
+body.molavi-site-page .woocommerce,
+body.molavi-site-page .wc-block-components-sidebar,
+body.molavi-site-page .wp-block-woocommerce-cart,
+body.molavi-site-page .wp-block-woocommerce-checkout,
+body.molavi-site-page .wp-block-woocommerce-empty-cart-block {
+    color: var(--molavi-ink);
+    font-family: Vazirmatn, Tahoma, sans-serif;
+}
+body.molavi-site-page .woocommerce-message,
+body.molavi-site-page .woocommerce-info,
+body.molavi-site-page .woocommerce-error,
+body.molavi-site-page .wc-block-components-notice-banner {
+    background: #fff;
+    border: 1px solid var(--molavi-line);
+    border-radius: 12px;
+    box-shadow: 0 4px 14px rgba(42, 39, 35, .04);
+    color: var(--molavi-ink);
+    padding: 14px 18px;
+}
+body.molavi-site-page .woocommerce-message { border-top-color: #35A776; }
+body.molavi-site-page .woocommerce-info { border-top-color: var(--molavi-orange); }
+body.molavi-site-page .woocommerce-error { border-top-color: var(--molavi-raspberry); }
+body.molavi-site-page .woocommerce button.button,
+body.molavi-site-page .woocommerce a.button,
+body.molavi-site-page .woocommerce input.button,
+body.molavi-site-page .wp-block-woocommerce-cart .wc-block-cart__submit-button,
+body.molavi-site-page .wp-block-woocommerce-checkout .wc-block-components-checkout-place-order-button,
+body.molavi-site-page .wc-block-components-button:not(.is-link) {
+    background: var(--molavi-orange);
+    border: 0;
+    border-radius: 10px;
+    color: #fff;
+    font-family: inherit;
+    font-size: .9rem;
+    font-weight: 700;
+    min-height: 44px;
+    padding: 10px 18px;
+    text-decoration: none;
+}
+body.molavi-site-page .woocommerce button.button:hover,
+body.molavi-site-page .woocommerce a.button:hover,
+body.molavi-site-page .woocommerce input.button:hover,
+body.molavi-site-page .wp-block-woocommerce-cart .wc-block-cart__submit-button:hover,
+body.molavi-site-page .wp-block-woocommerce-checkout .wc-block-components-checkout-place-order-button:hover,
+body.molavi-site-page .wc-block-components-button:not(.is-link):hover {
+    background: var(--molavi-orange-dark);
+    color: #fff;
+}
+body.molavi-site-page .woocommerce table.shop_table,
+body.molavi-site-page .wc-block-cart-items,
+body.molavi-site-page .wc-block-components-totals-wrapper,
+body.molavi-site-page .wc-block-checkout__order-notes,
+body.molavi-site-page .woocommerce form.login,
+body.molavi-site-page .woocommerce form.register,
+body.molavi-site-page .woocommerce form.lost_reset_password,
+body.molavi-site-page .woocommerce-account .woocommerce-MyAccount-content,
+body.molavi-site-page .woocommerce-account .woocommerce-MyAccount-navigation,
+body.molavi-site-page .woocommerce div.product div.summary,
+body.molavi-site-page .woocommerce div.product div.images,
+body.molavi-site-page .wp-block-woocommerce-cart .wc-block-cart__main,
+body.molavi-site-page .wp-block-woocommerce-checkout .wc-block-checkout__main {
+    background: var(--molavi-surface);
+    border: 1px solid var(--molavi-line);
+    border-radius: 16px;
+    box-shadow: 0 4px 18px rgba(42, 39, 35, .04);
+}
+body.molavi-site-page .woocommerce form.login,
+body.molavi-site-page .woocommerce form.register,
+body.molavi-site-page .woocommerce form.lost_reset_password {
+    padding: clamp(18px, 3vw, 30px);
+}
+body.molavi-site-page .woocommerce div.product {
+    align-items: start;
+    display: grid;
+    gap: 24px;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+body.molavi-site-page .woocommerce div.product div.images,
+body.molavi-site-page .woocommerce div.product div.summary {
+    float: none;
+    margin: 0;
+    padding: clamp(16px, 2vw, 26px);
+    width: 100%;
+}
+body.molavi-site-page .woocommerce div.product div.images img {
+    background: #F8F5F0;
+    border-radius: 12px;
+    mix-blend-mode: multiply;
+}
+body.molavi-site-page .woocommerce div.product .product_title { font-size: clamp(1.4rem, 2.4vw, 2rem); }
+body.molavi-site-page .woocommerce div.product p.price,
+body.molavi-site-page .woocommerce div.product span.price { color: var(--molavi-ink); }
+body.molavi-site-page .woocommerce div.product form.cart { align-items: center; display: flex; flex-wrap: wrap; gap: 12px; }
+body.molavi-site-page .woocommerce div.product form.cart .quantity { margin: 0; }
+body.molavi-site-page .woocommerce div.product form.cart .quantity input { min-height: 42px; width: 90px; }
+body.molavi-site-page .woocommerce .quantity .qty { border-color: var(--molavi-line); border-radius: 9px; }
+body.molavi-site-page .woocommerce div.product .woocommerce-tabs,
+body.molavi-site-page .woocommerce div.product .related.products { grid-column: 1 / -1; }
+body.molavi-site-page .woocommerce div.product .woocommerce-tabs ul.tabs li { background: #F7F3EC; border-color: var(--molavi-line); border-radius: 10px 10px 0 0; }
+body.molavi-site-page .woocommerce div.product .woocommerce-tabs .panel { background: #fff; border: 1px solid var(--molavi-line); border-radius: 0 12px 12px; padding: 20px; }
+body.molavi-site-page .woocommerce ul.products,
+body.molavi-site-page .wc-block-grid__products {
+    display: grid;
+    gap: 14px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    margin: 0 !important;
+}
+body.molavi-site-page .woocommerce ul.products::before,
+body.molavi-site-page .woocommerce ul.products::after { content: none; display: none; }
+body.molavi-site-page .woocommerce ul.products li.product,
+body.molavi-site-page .wc-block-grid__product {
+    background: #fff;
+    border: 1px solid var(--molavi-line);
+    border-radius: 14px;
+    box-shadow: 0 2px 8px rgba(39, 39, 39, .025);
+    float: none;
+    margin: 0 !important;
+    overflow: hidden;
+    padding: 12px;
+    width: auto !important;
+}
+body.molavi-site-page .woocommerce ul.products li.product a img,
+body.molavi-site-page .wc-block-grid__product-image img {
+    aspect-ratio: 1.48 / 1;
+    background: #F8F5F0;
+    border-radius: 9px;
+    margin: 0 0 10px;
+    mix-blend-mode: multiply;
+    object-fit: contain;
+    padding: 7px;
+}
+body.molavi-site-page .woocommerce ul.products li.product .woocommerce-loop-product__title,
+body.molavi-site-page .wc-block-grid__product-title {
+    color: var(--molavi-ink);
+    font-size: .95rem;
+    font-weight: 700;
+    line-height: 1.55;
+    padding: 0;
+}
+body.molavi-site-page .woocommerce ul.products li.product .price,
+body.molavi-site-page .wc-block-grid__product-price { color: var(--molavi-ink); }
+body.molavi-site-page .woocommerce span.onsale,
+body.molavi-site-page .wc-block-grid__product-onsale {
+    background: var(--molavi-raspberry);
+    border-radius: 9px;
+    color: #fff;
+    font-family: inherit;
+    font-size: .74rem;
+    line-height: 1.4;
+    min-height: 0;
+    min-width: 0;
+    padding: 5px 9px;
+}
+body.molavi-site-page .woocommerce table.shop_table {
+    border-collapse: separate;
+    border-spacing: 0;
+    overflow: hidden;
+}
+body.molavi-site-page .woocommerce table.shop_table th,
+body.molavi-site-page .woocommerce table.shop_table td { border-color: var(--molavi-line); padding: 12px; }
+body.molavi-site-page .woocommerce table.shop_table th { background: #FAF8F4; color: var(--molavi-ink); }
+body.molavi-site-page .woocommerce-cart .cart-collaterals .cart_totals,
+body.molavi-site-page .woocommerce-checkout #order_review,
+body.molavi-site-page .wc-block-cart__sidebar,
+body.molavi-site-page .wc-block-checkout__sidebar {
+    background: #fff;
+    border: 1px solid var(--molavi-line);
+    border-radius: 16px;
+    box-shadow: 0 4px 18px rgba(42, 39, 35, .04);
+    padding: 20px;
+}
+body.molavi-site-page .wc-block-cart-items__row,
+body.molavi-site-page .wc-block-components-order-summary-item { border-color: var(--molavi-line); }
+body.molavi-site-page .woocommerce-account .woocommerce-MyAccount-navigation { padding: 10px; }
+body.molavi-site-page .woocommerce-account .woocommerce-MyAccount-navigation ul { list-style: none; margin: 0; padding: 0; }
+body.molavi-site-page .woocommerce-account .woocommerce-MyAccount-navigation li a {
+    border-radius: 9px;
+    color: var(--molavi-ink);
+    display: block;
+    padding: 10px 12px;
+    text-decoration: none;
+}
+body.molavi-site-page .woocommerce-account .woocommerce-MyAccount-navigation li.is-active a,
+body.molavi-site-page .woocommerce-account .woocommerce-MyAccount-navigation li a:hover { background: #FFF3E9; color: var(--molavi-orange-dark); }
+body.molavi-site-page .woocommerce-account .woocommerce-MyAccount-content { padding: clamp(16px, 2.5vw, 26px); }
+body.molavi-site-page .woocommerce-account .u-columns { display: grid; gap: 18px; }
+body.molavi-site-page .wc-block-components-sidebar-layout .wc-block-components-main { min-width: 0; }
+body.molavi-site-page .wc-block-components-totals-wrapper { box-shadow: none; }
+body.molavi-site-page .wc-block-components-totals-coupon-link,
+body.molavi-site-page .woocommerce a.remove { color: var(--molavi-orange-dark) !important; }
+body.molavi-site-page .woocommerce form .form-row label,
+body.molavi-site-page .wc-block-components-text-input label { color: var(--molavi-muted); font-size: .84rem; }
+body.molavi-site-page .woocommerce .molavi-public-price { align-items: start; }
+
+@media (max-width: 1050px) {
+    body.molavi-site-page .woocommerce ul.products,
+    body.molavi-site-page .wc-block-grid__products { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 760px) {
+    body.admin-bar .molavi-site-header { top: 46px; }
+    .molavi-site-header-inner {
+        display: grid;
+        gap: 8px 12px;
+        grid-template-columns: minmax(0, 1fr) auto;
+        padding: 9px 14px;
+    }
+    .molavi-brand { grid-column: 1; grid-row: 1; }
+    .molavi-main-nav {
+        grid-column: 1 / -1;
+        grid-row: 2;
+        justify-content: flex-start;
+        overflow-x: auto;
+        padding: 0 2px;
+        scrollbar-width: none;
+    }
+    .molavi-main-nav::-webkit-scrollbar { display: none; }
+    .molavi-main-nav a { font-size: .78rem; }
+    .molavi-site-header .molavi-search {
+        grid-column: 1 / -1;
+        grid-row: 3;
+        max-width: none;
+        width: 100%;
+    }
+    .molavi-header-actions { grid-column: 2; grid-row: 1; gap: 8px; }
+    .molavi-brand strong { font-size: 1rem; }
+    .molavi-brand svg { height: 29px; width: 26px; }
+    body.molavi-site-page .wp-site-blocks > main { padding: 24px 14px 42px !important; }
+    body.molavi-storefront-page .wp-site-blocks > main { padding: 0 !important; }
+    body.molavi-site-page .woocommerce div.product { grid-template-columns: 1fr; gap: 12px; }
+    body.molavi-site-page .woocommerce div.product div.images,
+    body.molavi-site-page .woocommerce div.product div.summary { padding: 14px; }
+    body.molavi-site-page .woocommerce div.product .woocommerce-tabs,
+    body.molavi-site-page .woocommerce div.product .related.products { grid-column: auto; }
+    body.molavi-site-page .woocommerce ul.products,
+    body.molavi-site-page .wc-block-grid__products { gap: 9px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    body.molavi-site-page .woocommerce ul.products li.product,
+    body.molavi-site-page .wc-block-grid__product { border-radius: 12px; padding: 8px; }
+    body.molavi-site-page .woocommerce ul.products li.product .button { font-size: .77rem; padding: 8px; width: 100%; }
+    body.molavi-site-page .woocommerce-cart table.shop_table_responsive tr,
+    body.molavi-site-page .woocommerce-checkout-review-order-table tr { display: block; }
+    .molavi-site-footer-inner { align-items: flex-start; flex-direction: column; gap: 12px; }
+    .molavi-site-footer nav { gap: 10px 16px; }
+}
+@media (max-width: 380px) {
+    .molavi-site-header { margin-inline: 0 !important; }
+    .molavi-site-header-inner { padding-inline: 10px; }
+    .molavi-header-actions { gap: 4px; }
+    .molavi-site-header .molavi-header-icon { padding: 3px; }
+}

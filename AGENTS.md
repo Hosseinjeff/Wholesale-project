@@ -14,3 +14,20 @@ Source recovery is not migration completion. Keep the original export unchanged;
 track later exports separately. Active triggers/deployments and the external refresh
 server remain unverified. Preserve the mockup-first scope and documented business
 decisions; do not silently choose a different inventory or pricing authority.
+
+## Source control and live WordPress changes
+
+Treat tracked files in `shop-wp/molavi-shop/` as the source of truth for the live
+store plugin. Make edits here, commit them, and push them to the configured Git
+upstream before deploying. Use `tools/deploy_wordpress_plugin.py` for live plugin
+files; it refuses an uncommitted or unpushed tree, keeps a local pre-deploy copy,
+and never deploys `includes/runtime-config.php`.
+
+The checked-in `.githooks/post-commit` pushes each commit to its configured upstream
+when that hook path is installed. After cloning, run `tools/install_git_hooks.sh`.
+If a push fails, the commit is still local and must be pushed before deployment.
+
+WordPress database content, products, orders, and customer data are not source
+files and must not be added to Git. Export or back up database changes through the
+documented WordPress backup process; never commit secrets or customer/order data.
+See `docs/site-change-workflow.md` for the deployment and preservation steps.

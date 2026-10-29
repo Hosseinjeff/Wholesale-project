@@ -300,13 +300,13 @@
         var root = document.querySelector("[data-molavi-storefront]");
         if (!root) return;
         var grid = root.querySelector("[data-molavi-grid]");
-        var search = root.querySelector("[data-molavi-search]");
+        var search = document.querySelector("[data-molavi-search]");
         var sort = root.querySelector("[data-molavi-sort]");
         var categorySelect = root.querySelector("[data-molavi-category-select]");
-        var favoriteView = root.querySelector("[data-molavi-wishlist-view]");
+        var favoriteView = document.querySelector("[data-molavi-wishlist-view]");
         var viewButtons = root.querySelectorAll("[data-molavi-view]");
         var selectedCategory = "";
-        var favoritesOnly = false;
+        var favoritesOnly = new URLSearchParams(window.location.search).get("molavi_favorites") === "1";
         var favorites;
         try {
             favorites = new Set(JSON.parse(window.localStorage.getItem("molavi-wishlist-v1") || "[]").map(String));
@@ -351,7 +351,16 @@
             if (empty) empty.hidden = visible > 0;
         }
 
-        if (search) search.addEventListener("input", applyFilters);
+        if (search) {
+            search.addEventListener("input", applyFilters);
+            if (search.form) {
+                search.form.addEventListener("submit", function (event) {
+                    event.preventDefault();
+                    applyFilters();
+                    root.scrollIntoView({ behavior: "smooth", block: "start" });
+                });
+            }
+        }
         if (categorySelect) {
             categorySelect.addEventListener("change", function () {
                 selectedCategory = categorySelect.value || "";
@@ -398,6 +407,7 @@
             });
         });
         paintFavorites();
+        applyFilters();
         if (sort && grid) {
             sort.addEventListener("change", function () {
                 var cards = Array.prototype.slice.call(grid.querySelectorAll("[data-molavi-card]"));
@@ -419,7 +429,7 @@
     function setupMobileBasket() {
         var root = document.querySelector("[data-molavi-storefront]");
         if (!root) return;
-        var triggers = Array.prototype.slice.call(root.querySelectorAll("[data-molavi-open-basket]"));
+        var triggers = Array.prototype.slice.call(document.querySelectorAll("[data-molavi-open-basket]"));
         var dialog = root.querySelector("#molavi-basket-dialog");
         var backdrop = root.querySelector(".molavi-basket-backdrop");
         if (!triggers.length || !dialog || !backdrop) return;
