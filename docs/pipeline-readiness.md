@@ -50,6 +50,22 @@ order, charge, refund or supplier purchase was made.
 - The message contents and chat identity are intentionally not copied into this
   project record.
 
+## Customer-page and Git check — 2026-10-29 22:36 UTC
+
+- The site-wide Persian header, footer and WooCommerce styling were deployed from
+  pushed source commit `a519024f889dbce4a2c8de1f040343068c6fc59b`.
+- A live browser audit loaded `/`, the first product page, `/cart/`, `/my-account/`
+  and `/checkout/`. All five displayed the shared Persian header and footer, the
+  old default WordPress navigation was absent, and no page errors or unexpected
+  redirects were reported. The checkout audit used an empty cart and did not submit
+  anything.
+- The repository is clean and its `HEAD` matches the configured upstream. The local
+  post-commit hook is enabled to push each new commit; the deploy script requires
+  the source to be committed and pushed before uploading tracked plugin code.
+- Git tracks the site code and safe documentation, not WordPress database content.
+  WordPress pages/products/orders and private runtime records still need host/database
+  backup or a safe export, as described in `site-change-workflow.md`.
+
 ## Fresh WordPress and live catalog
 
 WordPress/WooCommerce runs on the user's fresh `h434558_Salesman` database. The
