@@ -1,6 +1,6 @@
 # Storefront design decisions
 
-Updated: 2026-10-29, Asia/Tehran. The user's latest screenshot is the active storefront reference. The production homepage was still showing the plain WooCommerce archive when checked on 2026-10-29; the plugin and Shop template are being updated to render the compact screenshot-aligned storefront. The user has explicitly taken the site live; payment configuration is outside the current implementation scope.
+Updated: 2026-10-29, Asia/Tehran. The user's latest screenshot is the active storefront reference. The screenshot-aligned storefront is deployed on `/` and `/shop/`; both routes return HTTP 200 and the live markup includes the custom header, catalog, and basket. The user has explicitly taken the site live; payment configuration is outside the current implementation scope.
 
 ## Discovery scope
 
@@ -110,12 +110,15 @@ the current live inventory, pricing settings, payment availability, and stock ar
 
 ## Verification and production boundary
 
-The plugin renders the live WooCommerce catalog, server-calculated basket quote,
-maximum/current discount labels, basket progress, and phone basket sheet. The latest code
-replaces the WooCommerce Shop archive with a dedicated template and adds the header,
-filters, favorites, list/grid view, and product thumbnails in the basket. The homepage was
-still displaying the stock WooCommerce archive when last inspected; live deployment and
-visual verification are tracked in the latest handoff entry.
+The plugin replaces the WooCommerce Shop archive with a dedicated template on the Shop
+route and the same Shop page when configured as the homepage. It uses the live catalog,
+server-calculated basket quote, maximum/current discount labels, basket progress, favorites,
+list/grid control, and product thumbnails in the basket. Live HTML checks confirm the new
+markup on `/` and `/shop/`; a browser inspection confirmed the header, toolbar, grid, and
+right-side basket. The catalog currently has two real products, so no mockup products were
+added. The CSS uses four columns on wide screens, three at 1360px and below, and two at
+1080px and below. Search, sort, favorite, and cart controls are implemented; business,
+shipping, and payment readiness remain separate work.
 
 The mockup's guest-request form remains a demonstration; the production storefront
 continues to the existing WooCommerce checkout. Visual/business review and connected
@@ -129,6 +132,6 @@ Payment setup and payment validation are outside the scope of the current work.
 - v2: interactive responsive prototype; separate maximum/current discounts, actual pricing
   formula applied to illustrative fixtures, vibrant semantic colors, phone basket, guest
   request proposal, and business-flow documentation. Verification results pending build check.
-- 2026-10-29: user supplied the current target screenshot; repository implementation now
-  follows its compact header, toolbar, card, and basket layout while retaining live catalog
-  and pricing behavior. Deployment and browser review are pending.
+- 2026-10-29: user supplied the current target screenshot; the compact header, toolbar,
+  responsive product grid, product cards, and basket are deployed while retaining live
+  catalog and pricing behavior. Browser review confirmed the main regions are rendered.

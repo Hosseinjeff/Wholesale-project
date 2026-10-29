@@ -755,3 +755,26 @@ Verification passes 241 offline Python tests and 97 disposable WordPress 7.1.3/W
 11.2.1 runtime assertions. These are local/synthetic checks. Persistent storage, Sheets
 mirroring, customer-return disposition, reservation expiry/order revisions and connected
 checkout/staging remain incomplete. Production and Railway were not changed.
+
+### 2026-10-29 storefront screenshot implementation
+
+The user supplied the current visual reference for the live store. Commit `cc5524a`
+(`Match storefront to supplied visual reference`) updates the MolaviShop plugin to replace
+the WooCommerce archive with a dedicated storefront template on both the Shop route and
+the Shop page when selected as the static homepage. The layout has a compact RTL header,
+search, category/sort controls, list/grid toggle, four-column wide desktop grid, favorite
+controls, product thumbnails in the basket, and the existing responsive phone basket.
+Favorites stay in the current browser and are not synchronized to accounts. The live
+catalog still has two actual products; no illustrative products were added.
+
+The update was written through cPanel UAPI to the existing plugin directory. The private
+runtime configuration was not touched. Read-back matched the local commit for the main
+plugin file, template, JavaScript and CSS. The host retains one pre-existing
+`<meta charset="utf-8">` token in `includes/storefront-renderer.php` immediately after the
+custom header opening tag; it is not visible and does not affect the layout. Both `/` and
+`/shop/` return HTTP 200 and their HTML includes the custom header, product grid and basket.
+A live browser inspection confirmed the header, toolbar, product grid and right-side basket.
+The live catalog has two products. Search and basket interactions were not clicked during
+that visual check; no order or payment action was taken. No payment configuration changed.
+`node --check` and `git diff --check` pass locally. PHP CLI is unavailable in this executor;
+the live WordPress page renders without a PHP fatal error.
