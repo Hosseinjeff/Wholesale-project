@@ -18,8 +18,8 @@ function molavi_render_storefront(): void
     $products = wc_get_products([
         'status' => 'publish',
         'limit' => -1,
-        'orderby' => 'title',
-        'order' => 'ASC',
+        'orderby' => 'date',
+        'order' => 'DESC',
         'return' => 'objects',
     ]);
     $products = array_values(array_filter($products, static function ($product): bool {
@@ -41,51 +41,85 @@ function molavi_render_storefront(): void
     }
     $categories = array_keys($categories);
     sort($categories, SORT_NATURAL | SORT_FLAG_CASE);
-    $title = 'خرید عمده برای خانه و فروشگاه';
+    $shopUrl = function_exists('wc_get_page_permalink') ? wc_get_page_permalink('shop') : home_url('/');
+    $accountUrl = function_exists('wc_get_page_permalink') ? wc_get_page_permalink('myaccount') : home_url('/');
+    $pageLinks = [];
+    foreach (get_pages(['post_status' => 'publish', 'number' => 50]) as $page) {
+        if ((int) $page->ID === (int) wc_get_page_id('shop')) {
+            continue;
+        }
+        $slug = strtolower((string) $page->post_name);
+        $label = '';
+        if (in_array($slug, ['about', 'about-us', 'aboutus', 'about-molavisale'], true) || strpos((string) $page->post_title, 'درباره') !== false) {
+            $label = 'درباره ما';
+        } elseif (in_array($slug, ['contact', 'contact-us', 'contactus'], true) || strpos((string) $page->post_title, 'تماس') !== false) {
+            $label = 'تماس با ما';
+        }
+        if ($label !== '') {
+            $pageLinks[$label] = get_permalink($page);
+        }
+    }
     ?>
     <section class="molavi-storefront" data-molavi-storefront aria-label="فروشگاه مولوی‌سل">
-        <header class="molavi-store-intro">
-            <div>
-                <p class="molavi-eyebrow">مولوی‌سل</p>
-                <h1><?php echo esc_html($title); ?></h1>
-                <p>محصول‌ها را ببینید، قیمت سبد را بررسی کنید و در صورت نیاز مقدار خرید را تغییر دهید.</p>
-            </div>
-            <div class="molavi-intro-note">
-                <span class="molavi-intro-mark" aria-hidden="true">٪</span>
-                <span>قیمت فعلی با تغییر ترکیب سبد به‌روز می‌شود.</span>
+        <header class="molavi-site-header">
+            <div class="molavi-site-header-inner">
+                <a class="molavi-brand" href="<?php echo esc_url(home_url('/')); ?>" aria-label="فروشگاه مولوی‌سل، خانه">
+                    <svg viewBox="0 0 32 36" aria-hidden="true"><path d="M5 12h22l-2 21H7L5 12Z"></path><path d="M10 13V9a6 6 0 0 1 12 0v4"></path></svg>
+                    <strong>فروشگاه مولوی‌سل</strong>
+                </a>
+                <nav class="molavi-main-nav" aria-label="راهنمای سایت">
+                    <a href="<?php echo esc_url(home_url('/')); ?>">خانه</a>
+                    <a class="is-current" href="<?php echo esc_url($shopUrl); ?>">فروشگاه شما</a>
+                    <a href="#molavi-products">دسته‌بندی‌ها</a>
+                    <?php foreach ($pageLinks as $label => $url): ?>
+                        <a href="<?php echo esc_url($url); ?>"><?php echo esc_html($label); ?></a>
+                    <?php endforeach; ?>
+                </nav>
+                <label class="molavi-search">
+                    <span class="screen-reader-text">جستجوی محصولات</span>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="m16 16 4 4"></path></svg>
+                    <input type="search" data-molavi-search placeholder="جستجوی محصولات..." autocomplete="off">
+                </label>
+                <div class="molavi-header-actions">
+                    <a class="molavi-header-icon" href="<?php echo esc_url($accountUrl); ?>" aria-label="حساب کاربری">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.5"></circle><path d="M4 21v-2a8 8 0 0 1 16 0v2"></path></svg>
+                    </a>
+                    <button class="molavi-header-icon" type="button" data-molavi-wishlist-view aria-label="نمایش کالاهای موردعلاقه" aria-pressed="false">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.8 8.8c0 4.4-8.8 10-8.8 10s-8.8-5.6-8.8-10a4.6 4.6 0 0 1 8.8-1.9 4.6 4.6 0 0 1 8.8 1.9Z"></path></svg>
+                    </button>
+                    <button class="molavi-header-cart" type="button" data-molavi-open-basket aria-controls="molavi-basket-dialog" aria-expanded="false" aria-label="مشاهده سبد خرید">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h2l2 11h9l2-8H8"></path><circle cx="10" cy="20" r="1"></circle><circle cx="17" cy="20" r="1"></circle></svg>
+                        <span data-molavi-count><?php echo esc_html(molavi_digits((string) ($quote['count'] ?? 0))); ?></span>
+                    </button>
+                </div>
             </div>
         </header>
 
-        <div class="molavi-store-tools">
-            <label class="molavi-search">
-                <span class="screen-reader-text">جستجوی محصولات</span>
-                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6"></circle><path d="m16 16 4 4"></path></svg>
-                <input type="search" data-molavi-search placeholder="نام محصول را جستجو کنید" autocomplete="off">
-            </label>
-            <label class="molavi-sort">
-                <span>مرتب‌سازی</span>
-                <select data-molavi-sort aria-label="مرتب‌سازی محصولات">
-                    <option value="name">نام محصول</option>
-                    <option value="cheap">قیمت: کم به زیاد</option>
-                    <option value="dear">قیمت: زیاد به کم</option>
-                </select>
-            </label>
-        </div>
-
-        <?php if ($categories !== []): ?>
-            <nav class="molavi-category-list" aria-label="دسته‌بندی محصولات">
-                <button type="button" class="is-active" data-molavi-category="">همه محصولات</button>
-                <?php foreach ($categories as $category): ?>
-                    <button type="button" data-molavi-category="<?php echo esc_attr($category); ?>"><?php echo esc_html($category); ?></button>
-                <?php endforeach; ?>
-            </nav>
-        <?php endif; ?>
-
         <div class="molavi-store-layout">
             <div class="molavi-product-area">
-                <div class="molavi-product-heading">
-                    <h2>محصولات</h2>
-                    <span data-molavi-result-count><?php echo esc_html(molavi_digits((string) count($products))); ?> کالا</span>
+                <div class="molavi-product-toolbar" id="molavi-products">
+                    <label class="molavi-sort">
+                        <span>مرتب‌سازی:</span>
+                        <select data-molavi-sort aria-label="مرتب‌سازی محصولات">
+                            <option value="newest">جدیدترین</option>
+                            <option value="cheap">قیمت: کم به زیاد</option>
+                            <option value="dear">قیمت: زیاد به کم</option>
+                        </select>
+                    </label>
+                    <span class="molavi-result-count" data-molavi-result-count><?php echo esc_html(molavi_digits((string) count($products))); ?> کالا</span>
+                    <div class="molavi-view-toggle" role="group" aria-label="نحوه نمایش محصولات">
+                        <button type="button" class="is-active" data-molavi-view="grid" aria-label="نمایش شبکه‌ای" aria-pressed="true"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2" y="2" width="6" height="6" rx="1"></rect><rect x="12" y="2" width="6" height="6" rx="1"></rect><rect x="2" y="12" width="6" height="6" rx="1"></rect><rect x="12" y="12" width="6" height="6" rx="1"></rect></svg></button>
+                        <button type="button" data-molavi-view="list" aria-label="نمایش فهرستی" aria-pressed="false"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 4h11M7 10h11M7 16h11"></path><circle cx="3" cy="4" r="1"></circle><circle cx="3" cy="10" r="1"></circle><circle cx="3" cy="16" r="1"></circle></svg></button>
+                    </div>
+                    <label class="molavi-category-filter">
+                        <span>دسته‌بندی‌ها</span>
+                        <select data-molavi-category-select aria-label="فیلتر دسته‌بندی محصولات">
+                            <option value="">همه دسته‌بندی‌ها</option>
+                            <?php foreach ($categories as $category): ?>
+                                <option value="<?php echo esc_attr($category); ?>"><?php echo esc_html($category); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </label>
                 </div>
                 <div class="molavi-product-grid" data-molavi-grid>
                     <?php foreach ($products as $product): ?>
@@ -137,8 +171,14 @@ function molavi_render_storefront_card(\WC_Product $product, array $quote): void
         'alt' => $product->get_name(),
         'loading' => 'lazy',
     ]);
+    $stock = $product->get_stock_quantity();
+    $created = $product->get_date_created();
+    $createdAt = $created ? $created->getTimestamp() : 0;
+    $stockLabel = $product->managing_stock() && $stock !== null
+        ? 'موجود در انبار: ' . molavi_digits((string) max(0, (int) $stock)) . ' عدد'
+        : 'موجود در انبار';
     ?>
-    <article class="molavi-product-card e-loop-item" data-molavi-card data-name="<?php echo esc_attr($product->get_name()); ?>" data-category="<?php echo esc_attr($category); ?>" data-search="<?php echo esc_attr($search); ?>" data-price="<?php echo esc_attr((string) $unit); ?>">
+    <article class="molavi-product-card e-loop-item" data-molavi-card data-name="<?php echo esc_attr($product->get_name()); ?>" data-category="<?php echo esc_attr($category); ?>" data-search="<?php echo esc_attr($search); ?>" data-price="<?php echo esc_attr((string) $unit); ?>" data-created="<?php echo esc_attr((string) $createdAt); ?>">
         <div class="molavi-card-photo">
             <?php echo wp_kses_post($image); ?>
             <?php if ($max > 0): ?>
@@ -146,13 +186,16 @@ function molavi_render_storefront_card(\WC_Product $product, array $quote): void
             <?php else: ?>
                 <span class="molavi-deal molavi-deal-fixed">قیمت ثابت</span>
             <?php endif; ?>
+            <button type="button" class="molavi-favorite" data-molavi-favorite="<?php echo esc_attr((string) $id); ?>" aria-label="افزودن <?php echo esc_attr($product->get_name()); ?> به علاقه‌مندی‌ها" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.8 8.8c0 4.4-8.8 10-8.8 10s-8.8-5.6-8.8-10a4.6 4.6 0 0 1 8.8-1.9 4.6 4.6 0 0 1 8.8 1.9Z"></path></svg></button>
         </div>
         <div class="molavi-card-body">
             <h3><a href="<?php echo esc_url($product->get_permalink()); ?>"><?php echo esc_html($product->get_name()); ?></a></h3>
             <div class="molavi-card-facts">
                 <?php if ($packaging !== ''): ?><span><?php echo esc_html($packaging); ?></span><?php endif; ?>
+                <?php if ($category !== ''): ?><span><?php echo esc_html($category); ?></span><?php endif; ?>
                 <?php if ($supplier !== ''): ?><span><?php echo esc_html($supplier); ?></span><?php endif; ?>
-                <span>حداقل خرید <?php echo esc_html(molavi_digits((string) $min)); ?> عدد</span>
+                <span class="molavi-stock"><i aria-hidden="true"></i><?php echo esc_html($stockLabel); ?></span>
+                <span class="screen-reader-text">حداقل خرید <?php echo esc_html(molavi_digits((string) $min)); ?> عدد</span>
             </div>
             <div class="molavi-card-price" data-molavi-price data-product="<?php echo esc_attr((string) $id); ?>" data-name="<?php echo esc_attr($product->get_name()); ?>" data-min="<?php echo esc_attr((string) $min); ?>" data-discountable="<?php echo $curve['discountable'] ? '1' : '0'; ?>" data-shelf="<?php echo esc_attr((string) $shelf); ?>" data-floor="<?php echo esc_attr((string) $curve['floor']); ?>" data-ceiling="<?php echo esc_attr((string) $curve['ceiling']); ?>" data-fixed-price="<?php echo esc_attr((string) ($shelf > 0 ? 0 : $unit)); ?>" data-unit="<?php echo esc_attr((string) $unit); ?>">
                 <?php if ($shelf > 0): ?><span class="molavi-reference-label">قیمت مصرف <s class="molavi-was"<?php echo $shelf > $unit ? '' : ' hidden'; ?>><?php echo esc_html(molavi_toman($shelf)); ?></s></span><?php endif; ?>
@@ -174,7 +217,7 @@ function molavi_render_storefront_control(\WC_Product $product, int $qty, int $m
     if ($qty > 0) {
         echo '<div class="molavi-actions"><div class="molavi-step"><button type="button" data-molavi-step="-1" aria-label="کم کردن تعداد">−</button><b>' . esc_html(molavi_digits((string) $qty)) . '</b><button type="button" data-molavi-step="1" aria-label="افزودن یکی">+</button></div><button type="button" class="molavi-trash" data-molavi-clear aria-label="حذف از سبد">' . molavi_basket_trash_svg() . '</button></div>';
     } else {
-        echo '<button type="button" class="molavi-add" data-molavi-step="1" aria-label="افزودن ' . esc_attr($product->get_name()) . ' به سبد">افزودن ' . esc_html(molavi_digits((string) $min)) . '<span aria-hidden="true">＋</span></button>';
+        echo '<button type="button" class="molavi-add" data-molavi-step="1" aria-label="افزودن حداقل ' . esc_attr(molavi_digits((string) $min)) . ' عدد ' . esc_attr($product->get_name()) . ' به سبد"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6h1.6l1.4 8.2a1 1 0 0 0 1 .8h7.8a1 1 0 0 0 1-.8L20 8H8"></path><circle cx="10" cy="19" r="1.2"></circle><circle cx="17" cy="19" r="1.2"></circle></svg></button>';
     }
     echo '</div>';
 }
@@ -192,9 +235,10 @@ function molavi_render_storefront_basket(array $quote): void
         </header>
         <div class="molavi-basket-lines" data-molavi-basket-lines>
             <?php foreach ($qtys as $id => $qty): ?>
-                <?php $row = $map[(string) $id] ?? null; if (!$row || (int) $qty < 1) { continue; } $unit = (int) ($units[(string) $id] ?? molavi_unit_price($row, (float) ($quote['progress'] ?? 0))); ?>
+                <?php $row = $map[(string) $id] ?? null; if (!$row || (int) $qty < 1) { continue; } $unit = (int) ($units[(string) $id] ?? molavi_unit_price($row, (float) ($quote['progress'] ?? 0))); $product = wc_get_product((int) $id); ?>
                 <article class="molavi-bline" data-product="<?php echo esc_attr((string) $id); ?>" data-min="<?php echo esc_attr((string) $row['min']); ?>" data-qty="<?php echo esc_attr((string) $qty); ?>">
-                    <div class="molavi-bline-copy"><h3><?php echo esc_html((string) $row['name']); ?></h3><p><strong><?php echo esc_html(molavi_toman($unit)); ?></strong> × <?php echo esc_html(molavi_digits((string) $qty)); ?></p></div>
+                    <div class="molavi-bline-image"><?php if ($product): ?><?php echo wp_kses_post($product->get_image('woocommerce_thumbnail', ['alt' => (string) $row['name'], 'loading' => 'lazy'])); ?><?php endif; ?></div>
+                    <div class="molavi-bline-copy"><h3><?php echo esc_html((string) $row['name']); ?></h3><p><strong><?php echo esc_html(molavi_toman($unit)); ?></strong></p></div>
                     <div class="molavi-actions"><div class="molavi-step"><button type="button" data-molavi-step="-1" aria-label="کم کردن تعداد">−</button><b><?php echo esc_html(molavi_digits((string) $qty)); ?></b><button type="button" data-molavi-step="1" aria-label="افزودن یکی">+</button></div><button type="button" class="molavi-trash" data-molavi-clear aria-label="حذف از سبد"><?php echo molavi_basket_trash_svg(); ?></button></div>
                 </article>
             <?php endforeach; ?>

@@ -1,15 +1,17 @@
 # MolaviSale WooCommerce storefront
 
-This plugin adds a responsive storefront widget for the existing WooCommerce catalog.
-It uses the plugin's server-side basket quote and the existing WooCommerce checkout.
+This plugin adds a responsive storefront for the existing WooCommerce catalog. On the
+WooCommerce Shop page it replaces the default archive with the screenshot-aligned
+storefront template. If that same Shop page is set as the static homepage, the homepage
+uses the storefront too. It keeps the plugin's server-side basket quote and WooCommerce
+checkout.
 
-## Add the storefront to the shop page
+## Use the storefront in a custom page
 
-In Elementor, edit the page or archive used for the shop, remove its old product grid and
-basket columns, and add the **فروشگاه مولوی‌سل** widget. The widget includes the catalog,
-search and category filters, basket, pricing progress, and the phone basket sheet.
+For a regular page or Elementor layout, add the **فروشگاه مولوی‌سل** widget. It includes
+the catalog, search and category filters, basket, pricing progress, and phone basket sheet.
 
-The same markup can be inserted in a WordPress page with `[molavi_storefront]`.
+The same markup can be inserted with `[molavi_storefront]`.
 
 ## Product data
 
@@ -25,6 +27,9 @@ Supplier costs and margins stay server side. The storefront displays the consume
 price, current server-calculated unit price, current discount, and maximum possible
 discount. Basket progress counts only discountable products; savings and product subtotal
 are shown separately.
+
+Favorites are saved in the visitor's current browser and can filter the visible catalog;
+they are not synchronized to a customer account.
 
 ## Order boundary
 

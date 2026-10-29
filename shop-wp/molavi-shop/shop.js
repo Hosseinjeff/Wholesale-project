@@ -72,6 +72,7 @@
             var publicRow = catalog[id];
             return {
                 name: publicRow.name || "",
+                image: publicRow.image || "",
                 min: Number(publicRow.min) || 1,
                 shelf: Number(publicRow.shelf) || 0,
                 sale: Number(publicRow.fixed) || 0,
@@ -84,6 +85,7 @@
         if (!node) return null;
         return {
             name: node.getAttribute("data-name") || "",
+            image: node.getAttribute("data-image") || "",
             min: 1,
             shelf: Number(node.getAttribute("data-shelf")) || 0,
             sale: Number(node.getAttribute("data-fixed-price")) || 0,
@@ -205,11 +207,14 @@
             var qty = Number(counts[id] || 0);
             node.setAttribute("data-qty", String(qty));
             node.classList.toggle("is-in", qty > 0);
-            node.innerHTML = qty > 0 ? stepper(qty) : addButton();
+            node.innerHTML = qty > 0 ? stepper(qty) : addButton(rowOf(id));
         });
         paintBasket(units, counts);
         var count = 0;
         Object.keys(counts).forEach(function (id) { count += Number(counts[id]) || 0; });
+        document.querySelectorAll("[data-molavi-count]").forEach(function (badge) {
+            badge.textContent = digits(count);
+        });
         document.querySelectorAll(".elementor-button-icon-qty").forEach(function (badge) {
             badge.textContent = digits(count);
             badge.setAttribute("data-counter", String(count));
@@ -240,6 +245,7 @@
             }
             kinds += 1;
             html += '<article class="molavi-bline" data-product="' + escapeHtml(id) + '" data-min="' + min + '" data-qty="' + qty + '">'
+                + '<div class="molavi-bline-image"><img src="' + escapeHtml(row.image || "") + '" alt="' + escapeHtml(row.name || "") + '" loading="lazy"></div>'
                 + '<div class="molavi-bline-copy"><h3>' + escapeHtml(row.name || "") + "</h3><p><strong>"
                 + toman(unit) + "</strong> × " + digits(qty) + "</p></div>"
                 + stepper(qty) + "</article>";
@@ -296,7 +302,32 @@
         var grid = root.querySelector("[data-molavi-grid]");
         var search = root.querySelector("[data-molavi-search]");
         var sort = root.querySelector("[data-molavi-sort]");
+        var categorySelect = root.querySelector("[data-molavi-category-select]");
+        var favoriteView = root.querySelector("[data-molavi-wishlist-view]");
+        var viewButtons = root.querySelectorAll("[data-molavi-view]");
         var selectedCategory = "";
+        var favoritesOnly = false;
+        var favorites;
+        try {
+            favorites = new Set(JSON.parse(window.localStorage.getItem("molavi-wishlist-v1") || "[]").map(String));
+        } catch (error) {
+            favorites = new Set();
+        }
+
+        function paintFavorites() {
+            root.querySelectorAll("[data-molavi-favorite]").forEach(function (button) {
+                var id = String(button.getAttribute("data-molavi-favorite") || "");
+                var active = favorites.has(id);
+                var card = button.closest("[data-molavi-card]");
+                button.classList.toggle("is-active", active);
+                button.setAttribute("aria-pressed", active ? "true" : "false");
+                if (card) {
+                    var name = card.getAttribute("data-name") || "";
+                    button.setAttribute("aria-label", active ? "حذف " + name + " از علاقه‌مندی‌ها" : "افزودن " + name + " به علاقه‌مندی‌ها");
+                }
+            });
+            if (favoriteView) favoriteView.setAttribute("aria-pressed", favoritesOnly ? "true" : "false");
+        }
 
         function applyFilters() {
             if (!grid) return;
@@ -306,7 +337,11 @@
             cards.forEach(function (card) {
                 var text = String(card.getAttribute("data-search") || "").toLocaleLowerCase();
                 var category = card.getAttribute("data-category") || "";
-                var show = (!term || text.indexOf(term) !== -1) && (!selectedCategory || category === selectedCategory);
+                var favoriteButton = card.querySelector("[data-molavi-favorite]");
+                var id = favoriteButton ? String(favoriteButton.getAttribute("data-molavi-favorite") || "") : "";
+                var show = (!term || text.indexOf(term) !== -1)
+                    && (!selectedCategory || category === selectedCategory)
+                    && (!favoritesOnly || favorites.has(id));
                 card.hidden = !show;
                 if (show) visible += 1;
             });
@@ -317,6 +352,12 @@
         }
 
         if (search) search.addEventListener("input", applyFilters);
+        if (categorySelect) {
+            categorySelect.addEventListener("change", function () {
+                selectedCategory = categorySelect.value || "";
+                applyFilters();
+            });
+        }
         root.querySelectorAll("[data-molavi-category]").forEach(function (button) {
             button.addEventListener("click", function () {
                 selectedCategory = button.getAttribute("data-molavi-category") || "";
@@ -326,6 +367,37 @@
                 applyFilters();
             });
         });
+        root.addEventListener("click", function (event) {
+            var button = event.target.closest("[data-molavi-favorite]");
+            if (!button || !root.contains(button)) return;
+            event.preventDefault();
+            var id = String(button.getAttribute("data-molavi-favorite") || "");
+            if (!id) return;
+            if (favorites.has(id)) favorites.delete(id);
+            else favorites.add(id);
+            try { window.localStorage.setItem("molavi-wishlist-v1", JSON.stringify(Array.from(favorites))); } catch (error) {}
+            paintFavorites();
+            applyFilters();
+        });
+        if (favoriteView) {
+            favoriteView.addEventListener("click", function () {
+                favoritesOnly = !favoritesOnly;
+                paintFavorites();
+                applyFilters();
+            });
+        }
+        Array.prototype.forEach.call(viewButtons, function (button) {
+            button.addEventListener("click", function () {
+                var view = button.getAttribute("data-molavi-view") === "list" ? "list" : "grid";
+                if (grid) grid.classList.toggle("is-list-view", view === "list");
+                Array.prototype.forEach.call(viewButtons, function (other) {
+                    var active = other === button;
+                    other.classList.toggle("is-active", active);
+                    other.setAttribute("aria-pressed", active ? "true" : "false");
+                });
+            });
+        });
+        paintFavorites();
         if (sort && grid) {
             sort.addEventListener("change", function () {
                 var cards = Array.prototype.slice.call(grid.querySelectorAll("[data-molavi-card]"));
@@ -333,6 +405,9 @@
                     if (sort.value === "cheap" || sort.value === "dear") {
                         var difference = Number(a.getAttribute("data-price") || 0) - Number(b.getAttribute("data-price") || 0);
                         return sort.value === "dear" ? -difference : difference;
+                    }
+                    if (sort.value === "newest") {
+                        return Number(b.getAttribute("data-created") || 0) - Number(a.getAttribute("data-created") || 0);
                     }
                     return String(a.getAttribute("data-name") || "").localeCompare(String(b.getAttribute("data-name") || ""), "fa");
                 });
@@ -344,11 +419,12 @@
     function setupMobileBasket() {
         var root = document.querySelector("[data-molavi-storefront]");
         if (!root) return;
-        var trigger = root.querySelector("[data-molavi-open-basket]");
+        var triggers = Array.prototype.slice.call(root.querySelectorAll("[data-molavi-open-basket]"));
         var dialog = root.querySelector("#molavi-basket-dialog");
         var backdrop = root.querySelector(".molavi-basket-backdrop");
-        if (!trigger || !dialog || !backdrop) return;
+        if (!triggers.length || !dialog || !backdrop) return;
         var mobileQuery = window.matchMedia("(max-width: 760px)");
+        var lastTrigger = triggers[0];
         if (mobileQuery.matches) {
             dialog.setAttribute("inert", "");
             dialog.setAttribute("aria-hidden", "true");
@@ -358,12 +434,12 @@
             dialog.classList.remove("is-open");
             dialog.setAttribute("aria-modal", "false");
             backdrop.hidden = true;
-            trigger.setAttribute("aria-expanded", "false");
+            triggers.forEach(function (trigger) { trigger.setAttribute("aria-expanded", "false"); });
             document.body.classList.remove("molavi-basket-open");
             if (mobileQuery.matches) {
                 dialog.setAttribute("inert", "");
                 dialog.setAttribute("aria-hidden", "true");
-                trigger.focus();
+                lastTrigger.focus();
             } else {
                 dialog.removeAttribute("inert");
                 dialog.removeAttribute("aria-hidden");
@@ -376,14 +452,23 @@
             dialog.removeAttribute("inert");
             dialog.removeAttribute("aria-hidden");
             backdrop.hidden = false;
-            trigger.setAttribute("aria-expanded", "true");
+            triggers.forEach(function (trigger) { trigger.setAttribute("aria-expanded", "true"); });
             document.body.classList.add("molavi-basket-open");
             var closeButton = dialog.querySelector("[data-molavi-close-basket]");
             if (closeButton) closeButton.focus();
             else dialog.focus();
         }
 
-        trigger.addEventListener("click", open);
+        triggers.forEach(function (trigger) {
+            trigger.addEventListener("click", function (event) {
+                if (!mobileQuery.matches) {
+                    dialog.scrollIntoView({ behavior: "smooth", block: "start" });
+                    return;
+                }
+                lastTrigger = event.currentTarget;
+                open();
+            });
+        });
         root.querySelectorAll("[data-molavi-close-basket]").forEach(function (button) {
             button.addEventListener("click", close);
         });
@@ -440,8 +525,10 @@
             + '<button type="button" class="molavi-trash" data-molavi-clear aria-label="حذف از سبد">' + trash() + "</button></div>";
     }
 
-    function addButton() {
-        return '<button type="button" class="molavi-add" data-molavi-step="1" aria-label="افزودن به سبد">' + cart() + "</button>";
+    function addButton(row) {
+        var min = Number(row && row.min) || 1;
+        var name = row && row.name ? row.name : "محصول";
+        return '<button type="button" class="molavi-add" data-molavi-step="1" aria-label="افزودن حداقل ' + digits(min) + ' عدد ' + escapeHtml(name) + ' به سبد">' + cart() + "</button>";
     }
 
     function cart() {

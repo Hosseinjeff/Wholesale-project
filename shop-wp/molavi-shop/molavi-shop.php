@@ -2,7 +2,7 @@
 /**
  * Plugin Name: مولوی‌سل
  * Description: Shop rules and Elementor pieces for the WooCommerce store.
- * Version: 0.6.2
+ * Version: 0.7.0
  */
 declare(strict_types=1);
 
@@ -31,6 +31,32 @@ require_once __DIR__ . '/includes/delivery.php';
 require_once __DIR__ . '/includes/storefront-renderer.php';
 add_shortcode('molavi_storefront', '\\Molavi\\Elementor\\molavi_storefront_shortcode');
 
+function molavi_is_storefront_request(): bool
+{
+    if (function_exists('is_shop') && is_shop()) {
+        return true;
+    }
+    if (!function_exists('wc_get_page_id') || !function_exists('is_page')) {
+        return false;
+    }
+    $shopId = (int) wc_get_page_id('shop');
+    return $shopId > 0 && is_page($shopId);
+}
+
+add_filter('body_class', static function (array $classes): array {
+    if (molavi_is_storefront_request()) {
+        $classes[] = 'molavi-storefront-page';
+    }
+    return $classes;
+});
+
+add_filter('template_include', static function (string $template): string {
+    if (molavi_is_storefront_request()) {
+        return __DIR__ . '/shop-template.php';
+    }
+    return $template;
+}, 99);
+
 add_action('wp_enqueue_scripts', static function (): void {
     wp_enqueue_style(
         'molavi-shop',
@@ -56,8 +82,11 @@ add_action('wp_enqueue_scripts', static function (): void {
     );
     $catalog = [];
     foreach (molavi_catalog_map() as $id => $row) {
+        $product = wc_get_product((int) $id);
+        $image = $product ? wp_get_attachment_image_url($product->get_image_id(), 'woocommerce_thumbnail') : false;
         $catalog[(string) $id] = [
             'name' => (string) $row['name'],
+            'image' => $image ?: wc_placeholder_img_src('woocommerce_thumbnail'),
             'min' => (int) $row['min'],
             'shelf' => (int) $row['shelf'],
             'fixed' => (int) $row['shelf'] > 0 ? 0 : molavi_unit_price($row, 0.0),

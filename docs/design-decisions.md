@@ -1,6 +1,6 @@
 # Storefront design decisions
 
-Updated: 2026-10-29, Asia/Tehran. Status: the v2 visual and pricing direction is live on the WordPress Shop page, which is now also the static front page. Responsive visual/business review remains pending. The user has explicitly taken the site live; payment configuration is outside the current implementation scope.
+Updated: 2026-10-29, Asia/Tehran. The user's latest screenshot is the active storefront reference. The production homepage was still showing the plain WooCommerce archive when checked on 2026-10-29; the plugin and Shop template are being updated to render the compact screenshot-aligned storefront. The user has explicitly taken the site live; payment configuration is outside the current implementation scope.
 
 ## Discovery scope
 
@@ -29,17 +29,20 @@ review artifacts must have externally verified browser URLs.
 
 ## Design direction
 
-Warm white surfaces, a dark neutral type color, generous but practical spacing, fine
-borders, consistent product-image frames, and locally bundled Vazirmatn typography.
+Use the user's latest screenshot for the storefront composition: a compact RTL header with
+brand, navigation, search and account/favorite/cart controls; four desktop product columns;
+a right-side persistent basket; and a two-column phone catalog with a bottom basket action.
+Keep warm white surfaces, dark neutral type, fine borders, consistent product-image frames,
+and locally bundled Vazirmatn typography.
 
 | Color | Role | Value |
 |---|---|---|
-| Orange | Main actions and brand | `#D94419` |
-| Raspberry | Maximum-discount badge | `#B82058` |
+| Orange | Main actions and brand | `#FF6B21` |
+| Raspberry | Maximum-discount badge | `#F13D5D` |
 | Teal | Current discount and realized savings | `#08766B` |
 | Violet | Progress toward maximum discounts | `#6043A9` / `#7951BD` |
 | Ink | Primary text | `#243239` |
-| Warm white | Background | `#FAFAF9` |
+| Warm white | Background | `#F7F3EC` |
 
 Color is reinforced with words. A customer must not need to distinguish colors to
 understand maximum versus current discount. No unsupported promotional or delivery claims.
@@ -107,12 +110,12 @@ the current live inventory, pricing settings, payment availability, and stock ar
 
 ## Verification and production boundary
 
-The WordPress plugin implements the v2 visual and pricing direction and is installed on
-WooCommerce Shop page 7 through `[molavi_storefront]`. It uses the live Woo catalog,
-server-calculated basket quote, responsive product grid, separate maximum/current
-discount labels, basket progress, and the phone basket sheet. The root and `/shop/` now
-render the public store with two products. User 1 changed the static front page to Shop
-page 7 on 2026-10-29.
+The plugin renders the live WooCommerce catalog, server-calculated basket quote,
+maximum/current discount labels, basket progress, and phone basket sheet. The latest code
+replaces the WooCommerce Shop archive with a dedicated template and adds the header,
+filters, favorites, list/grid view, and product thumbnails in the basket. The homepage was
+still displaying the stock WooCommerce archive when last inspected; live deployment and
+visual verification are tracked in the latest handoff entry.
 
 The mockup's guest-request form remains a demonstration; the production storefront
 continues to the existing WooCommerce checkout. Visual/business review and connected
@@ -126,5 +129,6 @@ Payment setup and payment validation are outside the scope of the current work.
 - v2: interactive responsive prototype; separate maximum/current discounts, actual pricing
   formula applied to illustrative fixtures, vibrant semantic colors, phone basket, guest
   request proposal, and business-flow documentation. Verification results pending build check.
-- 2026-10-29: production WooCommerce storefront implemented from the v2 visual/pricing
-  direction and connected to Shop page 7; public launch remains gated on full prepayment.
+- 2026-10-29: user supplied the current target screenshot; repository implementation now
+  follows its compact header, toolbar, card, and basket layout while retaining live catalog
+  and pricing behavior. Deployment and browser review are pending.
