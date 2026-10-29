@@ -216,3 +216,10 @@ function molavi_render_storefront_basket(array $quote): void
     </aside>
     <?php
 }
+
+function molavi_storefront_shortcode(): string
+{
+    ob_start();
+    molavi_render_storefront();
+    return (string) ob_get_clean();
+}
