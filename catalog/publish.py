@@ -101,6 +101,8 @@ def site_products(store: MemoryStore | GoogleSheetStore) -> list[dict[str, Any]]
             "key": _product_key(name),
             "channel": channel,
             "supplier": _SUPPLIERS.get(channel, channel),
+            "packaging": str(record.get("Packaging") or "").strip(),
+            "category": str(record.get("Category") or "").strip(),
             "sale": int(sale),
             "shelf": int(shelf),
             "min": int(minimum),

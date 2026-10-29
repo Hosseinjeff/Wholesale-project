@@ -75,7 +75,14 @@ class Facts extends Widget_Base
             return;
         }
         $parts = [];
-        $supplier = trim(wp_strip_all_tags($product->get_short_description()));
+        $supplier = trim((string) $product->get_meta('_molavi_supplier'));
+        if ($supplier === '') {
+            $supplier = trim(wp_strip_all_tags((string) get_post_field('post_excerpt', $product->get_id())));
+        }
+        $packaging = trim((string) $product->get_meta('_molavi_packaging'));
+        if ($packaging !== '') {
+            $parts[] = $packaging;
+        }
         if ($supplier !== '') {
             $parts[] = $supplier;
         }

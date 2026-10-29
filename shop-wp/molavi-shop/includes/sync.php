@@ -165,6 +165,8 @@ function molavi_clean_product(array $row): ?array
         'name' => $name,
         'key' => mb_strtolower($key),
         'supplier' => trim(wp_strip_all_tags((string) ($row['supplier'] ?? ''))),
+        'packaging' => mb_substr(trim(wp_strip_all_tags((string) ($row['packaging'] ?? ''))), 0, 120),
+        'category' => mb_substr(trim(wp_strip_all_tags((string) ($row['category'] ?? ''))), 0, 80),
         'sale' => $sale,
         'shelf' => max(0, min(100000000, (int) ($row['shelf'] ?? 0))),
         'min' => max(1, min(999, (int) ($row['min'] ?? 1))),
@@ -291,6 +293,10 @@ function molavi_upsert_product(int $productId, array $clean): int
     }
     update_post_meta($id, '_molavi_source_id', $clean['id']);
     update_post_meta($id, '_molavi_min', $clean['min']);
+    update_post_meta($id, '_molavi_supplier', $clean['supplier']);
+    update_post_meta($id, '_molavi_packaging', $clean['packaging']);
+    update_post_meta($id, '_molavi_category', $clean['category']);
+    update_post_meta($id, '_molavi_cost', $clean['sale']);
     $saved = wc_get_product($id);
     if ($saved instanceof WC_Product) {
         molavi_store_curve($saved);

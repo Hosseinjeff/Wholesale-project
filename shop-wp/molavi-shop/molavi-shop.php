@@ -2,7 +2,7 @@
 /**
  * Plugin Name: مولوی‌سل
  * Description: Shop rules and Elementor pieces for the WooCommerce store.
- * Version: 0.5.0
+ * Version: 0.6.0
  */
 declare(strict_types=1);
 
@@ -36,6 +36,12 @@ add_action('wp_enqueue_scripts', static function (): void {
         [],
         (string) filemtime(__DIR__ . '/shop.css')
     );
+    wp_enqueue_style(
+        'molavi-storefront',
+        plugins_url('storefront.css', __FILE__),
+        ['molavi-shop'],
+        (string) filemtime(__DIR__ . '/storefront.css')
+    );
     if (!class_exists('WC_AJAX')) {
         return;
     }
@@ -52,9 +58,10 @@ add_action('wp_enqueue_scripts', static function (): void {
             'name' => (string) $row['name'],
             'min' => (int) $row['min'],
             'shelf' => (int) $row['shelf'],
-            'sale' => (int) $row['sale'],
+            'fixed' => (int) $row['shelf'] > 0 ? 0 : molavi_unit_price($row, 0.0),
             'floor' => (int) $row['floor'],
             'ceiling' => (int) $row['ceiling'],
+            'max' => (float) $row['max'],
             'discountable' => !empty($row['discountable']) ? 1 : 0,
         ];
     }
@@ -66,6 +73,7 @@ add_action('wp_enqueue_scripts', static function (): void {
         'unlock' => (int) molavi_price_settings()['unlock_target'],
         'checkout' => wc_get_checkout_url(),
         'qtys' => $quote['qtys'] === [] ? new stdClass() : $quote['qtys'],
+        'initial' => $quote,
         'catalog' => $catalog === [] ? new stdClass() : $catalog,
     ]);
 });
@@ -94,12 +102,15 @@ add_action('elementor/widgets/register', static function ($widgets): void {
     require_once __DIR__ . '/widgets/cart.php';
     require_once __DIR__ . '/widgets/bar.php';
     require_once __DIR__ . '/widgets/basket.php';
+    require_once __DIR__ . '/widgets/storefront.php';
     $widgets->register(new \Molavi\Elementor\Deal());
     $widgets->register(new \Molavi\Elementor\Facts());
     $widgets->register(new \Molavi\Elementor\Price());
     $widgets->register(new \Molavi\Elementor\Cart_Button());
     $widgets->register(new \Molavi\Elementor\Catalog_Bar());
     $widgets->register(new \Molavi\Elementor\Basket());
+    $widgets->register(new \Molavi\Elementor\Storefront());
+    add_shortcode('molavi_storefront', '\\Molavi\\Elementor\\molavi_render_storefront');
 });
 
 add_filter('woocommerce_quantity_input_args', static function (array $args, $product): array {
@@ -116,6 +127,27 @@ add_filter('woocommerce_add_to_cart_quantity', static function (int $quantity, i
     $min = $product ? molavi_product_min($product) : 1;
     return max($min, $quantity);
 }, 10, 2);
+
+add_filter('woocommerce_get_price_html', static function (string $html, $product): string {
+    if (!$product instanceof WC_Product) {
+        return $html;
+    }
+    $curve = molavi_curve($product);
+    $unit = molavi_unit_price($curve, molavi_cart_progress());
+    $shelf = (int) $curve['shelf'];
+    $rate = $shelf > $unit ? ($shelf - $unit) / $shelf : 0.0;
+    $markup = '<span class="molavi-public-price">';
+    if ($shelf > 0) {
+        $markup .= '<span class="molavi-public-reference">قیمت مصرف <del>' . esc_html(molavi_toman($shelf)) . '</del></span>';
+    }
+    $markup .= '<span class="molavi-public-current">' . esc_html(molavi_toman($unit)) . '</span>';
+    if ($rate > 0) {
+        $markup .= '<span class="molavi-rate-label">تخفیف فعلی ' . esc_html(molavi_percent($rate)) . '</span>';
+    } elseif ($shelf <= 0) {
+        $markup .= '<span class="molavi-public-fixed">قیمت ثابت</span>';
+    }
+    return $markup . '</span>';
+}, 20, 2);
 
 add_filter('woocommerce_product_get_short_description', static function (string $description, $product): string {
     if ($description !== '') {

@@ -4,6 +4,7 @@
     var catalog = molaviShop.catalog || {};
     var qtys = Object.assign({}, molaviShop.qtys || {});
     var serverQtys = Object.assign({}, molaviShop.qtys || {});
+    var lastQuote = molaviShop.initial || { units: {}, qtys: serverQtys, progress: 0, unlock: molaviShop.unlock || 0 };
     var sending = false;
     var dirty = false;
     var retries = 0;
@@ -14,24 +15,30 @@
         var host = button.closest("[data-product]");
         if (!host) return;
         event.preventDefault();
+        showStatus("");
         var id = host.getAttribute("data-product");
         if (!id) return;
         var row = catalog[id] || {};
         var min = Number(host.getAttribute("data-min")) || Number(row.min) || 1;
         var qty = Number(qtys[id] || 0);
         var next = 0;
+        var removedForMinimum = false;
         if (button.hasAttribute("data-molavi-clear")) {
             next = 0;
         } else {
             var step = Number(button.getAttribute("data-molavi-step")) || 0;
             if (step > 0 && qty < 1) next = min;
             else next = qty + step;
-            if (next < min) next = 0;
+            if (next < min) {
+                removedForMinimum = step < 0 && qty > 0;
+                next = 0;
+            }
             if (next > 999) next = 999;
         }
         if (next > 0) qtys[id] = next;
         else delete qtys[id];
         paint(localQuote());
+        if (removedForMinimum) showStatus("با کاهش از حداقل خرید " + digits(min) + " عدد، محصول از سبد حذف شد و قیمت‌ها دوباره محاسبه می‌شوند.");
         sync();
     });
 
@@ -61,14 +68,25 @@
     }
 
     function rowOf(id) {
-        if (catalog[id]) return catalog[id];
+        if (catalog[id]) {
+            var publicRow = catalog[id];
+            return {
+                name: publicRow.name || "",
+                min: Number(publicRow.min) || 1,
+                shelf: Number(publicRow.shelf) || 0,
+                sale: Number(publicRow.fixed) || 0,
+                floor: Number(publicRow.floor) || 0,
+                ceiling: Number(publicRow.ceiling) || 0,
+                discountable: Number(publicRow.discountable) === 1 ? 1 : 0
+            };
+        }
         var node = document.querySelector('[data-molavi-price][data-product="' + cssEscape(id) + '"]');
         if (!node) return null;
         return {
             name: node.getAttribute("data-name") || "",
             min: 1,
             shelf: Number(node.getAttribute("data-shelf")) || 0,
-            sale: Number(node.getAttribute("data-sale")) || 0,
+            sale: Number(node.getAttribute("data-fixed-price")) || 0,
             floor: Number(node.getAttribute("data-floor")) || 0,
             ceiling: Number(node.getAttribute("data-ceiling")) || 0,
             discountable: node.getAttribute("data-discountable") === "1" ? 1 : 0
@@ -109,28 +127,37 @@
         var body = new FormData();
         body.append("nonce", molaviShop.nonce);
         body.append("items", JSON.stringify(changed));
+        var failed = false;
         fetch(molaviShop.qty, { method: "POST", body: body, credentials: "same-origin" })
             .then(function (res) { return res.json(); })
             .then(function (payload) {
                 if (!payload || !payload.success) {
-                    dirty = retries < 2;
-                    retries += 1;
+                    failed = true;
                     return;
                 }
                 retries = 0;
+                lastQuote = payload.data.quote || lastQuote;
                 serverQtys = Object.assign({}, payload.data.quote.qtys || {});
                 if (!dirty) {
                     qtys = Object.assign({}, serverQtys);
                     paint(payload.data.quote || {});
                     applyFragments(payload.data.fragments || {});
+                    showStatus("");
                 }
             })
             .catch(function () {
-                dirty = retries < 2;
-                retries += 1;
+                failed = true;
             })
             .then(function () {
                 sending = false;
+                if (failed) {
+                    dirty = false;
+                    retries += 1;
+                    qtys = Object.assign({}, serverQtys);
+                    paint(lastQuote);
+                    showStatus("سبد به‌روز نشد و تغییر اخیر ذخیره نشده است. دوباره تلاش کنید.");
+                    return;
+                }
                 if (dirty) sync();
             });
     }
@@ -157,12 +184,16 @@
             var amount = node.querySelector(".molavi-amount");
             if (amount) amount.textContent = toman(unit);
             node.setAttribute("data-unit", String(unit));
+            var card = node.closest("[data-molavi-card]");
+            if (card) card.setAttribute("data-price", String(unit));
             var rate = shelf > unit ? (shelf - unit) / shelf : 0;
             var rateNode = node.querySelector(".molavi-rate");
             if (rateNode) {
-                rateNode.hidden = rate <= 0;
-                if (rate > 0) rateNode.textContent = "\u2212" + percent(rate);
+                if (rate > 0) rateNode.textContent = percent(rate);
             }
+            var rateLabel = node.querySelector(".molavi-rate-label");
+            if (rateLabel) rateLabel.hidden = rate <= 0;
+            else if (rateNode) rateNode.hidden = rate <= 0;
             var was = node.querySelector(".molavi-was");
             if (was) {
                 was.hidden = !(shelf > unit);
@@ -190,6 +221,8 @@
         if (!lines) return;
         var saved = 0;
         var total = 0;
+        var referenceTotal = 0;
+        var eligibleReference = 0;
         var kinds = 0;
         var html = "";
         Object.keys(counts).forEach(function (id) {
@@ -201,13 +234,19 @@
             var min = Number(row.min) || 1;
             saved += shelf > unit ? (shelf - unit) * qty : 0;
             total += unit * qty;
+            if (shelf > 0) {
+                referenceTotal += shelf * qty;
+                if (Number(row.discountable) === 1) eligibleReference += shelf * qty;
+            }
             kinds += 1;
             html += '<article class="molavi-bline" data-product="' + escapeHtml(id) + '" data-min="' + min + '" data-qty="' + qty + '">'
                 + '<div class="molavi-bline-copy"><h3>' + escapeHtml(row.name || "") + "</h3><p><strong>"
-                + toman(unit) + "</strong>" + (shelf > unit ? " <s>" + toman(shelf) + "</s>" : "") + "</p></div>"
+                + toman(unit) + "</strong> × " + digits(qty) + "</p></div>"
                 + stepper(qty) + "</article>";
         });
         lines.innerHTML = html || '<p class="molavi-basket-empty">سبد خالی است.</p>';
+        var emptyLine = document.querySelector("[data-molavi-empty-basket]");
+        if (emptyLine) emptyLine.hidden = kinds > 0;
         var save = document.querySelector("[data-molavi-basket-save]");
         if (save) {
             save.hidden = saved < 1;
@@ -220,7 +259,172 @@
         if (countNode) countNode.textContent = kinds > 0 ? "(" + digits(kinds) + " محصول)" : "";
         var checkout = document.querySelector("[data-molavi-checkout]");
         if (checkout) checkout.hidden = kinds < 1;
+        setText("[data-molavi-reference]", toman(referenceTotal));
+        setText("[data-molavi-savings]", toman(saved));
+        setText("[data-molavi-subtotal]", toman(total));
+        setText("[data-molavi-savings-rate]", percent(referenceTotal > 0 ? saved / referenceTotal : 0));
+        setText("[data-molavi-mobile-total]", toman(total));
+        setText("[data-molavi-mobile-saving]", toman(saved));
+        setText("[data-molavi-mobile-count]", digits(Object.keys(counts).reduce(function (sum, id) { return sum + (Number(counts[id]) || 0); }, 0)));
+        var progress = eligibleReference > 0 && Number(molaviShop.unlock) > 0 ? Math.min(1, eligibleReference / Number(molaviShop.unlock)) : 0;
+        var progressPct = Math.round(progress * 100);
+        var progressBar = document.querySelector("[data-molavi-progressbar]");
+        var progressFill = document.querySelector("[data-molavi-progress-fill]");
+        if (progressBar) progressBar.setAttribute("aria-valuenow", String(progressPct));
+        if (progressFill) progressFill.style.width = progressPct + "%";
+        var progressTitle = document.querySelector("[data-molavi-progress-title]");
+        var remainingNode = document.querySelector("[data-molavi-remaining]");
+        if (progressTitle) progressTitle.textContent = progress >= 1 ? "بیشترین تخفیف فعال است" : "پیشرفت برای تخفیف بیشتر";
+        if (remainingNode) remainingNode.textContent = progress >= 1 ? "به سقف تخفیف رسیده‌اید." : "مانده تا سقف تخفیف: " + toman(Math.max(0, Number(molaviShop.unlock) - eligibleReference));
     }
+
+    function setText(selector, value) {
+        var node = document.querySelector(selector);
+        if (node) node.textContent = value;
+    }
+
+    function showStatus(message) {
+        var node = document.querySelector("[data-molavi-status]");
+        if (!node) return;
+        node.textContent = message;
+        node.hidden = !message;
+    }
+
+    function setupCatalog() {
+        var root = document.querySelector("[data-molavi-storefront]");
+        if (!root) return;
+        var grid = root.querySelector("[data-molavi-grid]");
+        var search = root.querySelector("[data-molavi-search]");
+        var sort = root.querySelector("[data-molavi-sort]");
+        var selectedCategory = "";
+
+        function applyFilters() {
+            if (!grid) return;
+            var term = String(search ? search.value : "").trim().toLocaleLowerCase();
+            var cards = Array.prototype.slice.call(grid.querySelectorAll("[data-molavi-card]"));
+            var visible = 0;
+            cards.forEach(function (card) {
+                var text = String(card.getAttribute("data-search") || "").toLocaleLowerCase();
+                var category = card.getAttribute("data-category") || "";
+                var show = (!term || text.indexOf(term) !== -1) && (!selectedCategory || category === selectedCategory);
+                card.hidden = !show;
+                if (show) visible += 1;
+            });
+            var count = root.querySelector("[data-molavi-result-count]");
+            var empty = root.querySelector("[data-molavi-empty]");
+            if (count) count.textContent = digits(visible) + " کالا";
+            if (empty) empty.hidden = visible > 0;
+        }
+
+        if (search) search.addEventListener("input", applyFilters);
+        root.querySelectorAll("[data-molavi-category]").forEach(function (button) {
+            button.addEventListener("click", function () {
+                selectedCategory = button.getAttribute("data-molavi-category") || "";
+                root.querySelectorAll("[data-molavi-category]").forEach(function (other) {
+                    other.classList.toggle("is-active", other === button);
+                });
+                applyFilters();
+            });
+        });
+        if (sort && grid) {
+            sort.addEventListener("change", function () {
+                var cards = Array.prototype.slice.call(grid.querySelectorAll("[data-molavi-card]"));
+                cards.sort(function (a, b) {
+                    if (sort.value === "cheap" || sort.value === "dear") {
+                        var difference = Number(a.getAttribute("data-price") || 0) - Number(b.getAttribute("data-price") || 0);
+                        return sort.value === "dear" ? -difference : difference;
+                    }
+                    return String(a.getAttribute("data-name") || "").localeCompare(String(b.getAttribute("data-name") || ""), "fa");
+                });
+                cards.forEach(function (card) { grid.appendChild(card); });
+            });
+        }
+    }
+
+    function setupMobileBasket() {
+        var root = document.querySelector("[data-molavi-storefront]");
+        if (!root) return;
+        var trigger = root.querySelector("[data-molavi-open-basket]");
+        var dialog = root.querySelector("#molavi-basket-dialog");
+        var backdrop = root.querySelector(".molavi-basket-backdrop");
+        if (!trigger || !dialog || !backdrop) return;
+        var mobileQuery = window.matchMedia("(max-width: 760px)");
+        if (mobileQuery.matches) {
+            dialog.setAttribute("inert", "");
+            dialog.setAttribute("aria-hidden", "true");
+        }
+
+        function close() {
+            dialog.classList.remove("is-open");
+            dialog.setAttribute("aria-modal", "false");
+            backdrop.hidden = true;
+            trigger.setAttribute("aria-expanded", "false");
+            document.body.classList.remove("molavi-basket-open");
+            if (mobileQuery.matches) {
+                dialog.setAttribute("inert", "");
+                dialog.setAttribute("aria-hidden", "true");
+                trigger.focus();
+            } else {
+                dialog.removeAttribute("inert");
+                dialog.removeAttribute("aria-hidden");
+            }
+        }
+
+        function open() {
+            dialog.classList.add("is-open");
+            dialog.setAttribute("aria-modal", "true");
+            dialog.removeAttribute("inert");
+            dialog.removeAttribute("aria-hidden");
+            backdrop.hidden = false;
+            trigger.setAttribute("aria-expanded", "true");
+            document.body.classList.add("molavi-basket-open");
+            var closeButton = dialog.querySelector("[data-molavi-close-basket]");
+            if (closeButton) closeButton.focus();
+            else dialog.focus();
+        }
+
+        trigger.addEventListener("click", open);
+        root.querySelectorAll("[data-molavi-close-basket]").forEach(function (button) {
+            button.addEventListener("click", close);
+        });
+        document.addEventListener("keydown", function (event) {
+            if (!dialog.classList.contains("is-open")) return;
+            if (event.key === "Escape") {
+                event.preventDefault();
+                close();
+                return;
+            }
+            if (event.key !== "Tab") return;
+            var focusable = Array.prototype.slice.call(dialog.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])')).filter(function (node) { return !node.hidden; });
+            if (!focusable.length) {
+                event.preventDefault();
+                dialog.focus();
+                return;
+            }
+            var first = focusable[0];
+            var last = focusable[focusable.length - 1];
+            if (event.shiftKey && document.activeElement === first) {
+                event.preventDefault();
+                last.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+                event.preventDefault();
+                first.focus();
+            }
+        });
+        window.addEventListener("resize", function () {
+            if (window.matchMedia("(min-width: 761px)").matches) {
+                if (dialog.classList.contains("is-open")) close();
+                dialog.removeAttribute("inert");
+                dialog.removeAttribute("aria-hidden");
+            } else if (!dialog.classList.contains("is-open")) {
+                dialog.setAttribute("inert", "");
+                dialog.setAttribute("aria-hidden", "true");
+            }
+        });
+    }
+
+    setupCatalog();
+    setupMobileBasket();
 
     function applyFragments(fragments) {
         if (!window.jQuery) return;
@@ -259,7 +463,9 @@
     }
 
     function percent(rate) {
-        return digits(Math.round(rate * 100)) + "٪";
+        var value = Math.round(rate * 1000) / 10;
+        var text = Math.abs(value - Math.round(value)) < 0.00001 ? String(Math.round(value)) : value.toFixed(1);
+        return digits(text) + "٪";
     }
 
     function escapeHtml(value) {

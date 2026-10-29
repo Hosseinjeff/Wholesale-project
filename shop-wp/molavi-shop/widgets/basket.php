@@ -53,12 +53,12 @@ class Basket extends Widget_Base
         $this->add_control('total_label', [
             'label' => 'برچسب جمع',
             'type' => Controls_Manager::TEXT,
-            'default' => 'مبلغ کل سبد خرید',
+            'default' => 'جمع محصولات پس از تخفیف',
         ]);
         $this->add_control('button', [
             'label' => 'دکمه',
             'type' => Controls_Manager::TEXT,
-            'default' => 'تکمیل فرایند خرید',
+            'default' => 'ادامه سفارش',
         ]);
         $this->end_controls_section();
 
@@ -80,8 +80,8 @@ class Basket extends Widget_Base
         $settings = $this->get_settings_for_display();
         $title = trim((string) ($settings['title'] ?? '')) ?: 'سبد خرید';
         $saveLabel = trim((string) ($settings['save_label'] ?? '')) ?: 'تخفیف‌های شما';
-        $totalLabel = trim((string) ($settings['total_label'] ?? '')) ?: 'مبلغ کل سبد خرید';
-        $button = trim((string) ($settings['button'] ?? '')) ?: 'تکمیل فرایند خرید';
+        $totalLabel = trim((string) ($settings['total_label'] ?? '')) ?: 'جمع محصولات پس از تخفیف';
+        $button = trim((string) ($settings['button'] ?? '')) ?: 'ادامه سفارش';
         $progress = function_exists('molavi_cart_progress') ? molavi_cart_progress() : 0.0;
         $map = function_exists('molavi_catalog_map') ? molavi_catalog_map() : [];
         $lines = [];
@@ -125,8 +125,8 @@ class Basket extends Widget_Base
         echo '</div>';
         echo '<div class="molavi-basket-save"' . ($saved > 0 ? '' : ' hidden') . ' data-molavi-basket-save><span>' . esc_html($saveLabel) . '</span><b data-molavi-basket-save-amount>' . esc_html(molavi_toman($saved)) . '</b></div>';
         echo '<div class="molavi-basket-total"><span>' . esc_html($totalLabel) . '</span><strong data-molavi-basket-total>' . esc_html(molavi_toman($total)) . '</strong></div>';
-        echo '<a class="molavi-checkout" data-molavi-checkout href="' . esc_url(function_exists('wc_get_checkout_url') ? wc_get_checkout_url() : '#') . '"' . ($count > 0 ? '' : ' hidden') . '>' . molavi_basket_lock_svg() . '<span>' . esc_html($button) . '</span></a>';
-        echo '<ul class="molavi-trust"><li>' . molavi_basket_shield_svg() . '<span>تضمین کیفیت</span></li><li>' . molavi_basket_lock_svg() . '<span>پرداخت امن</span></li><li>' . molavi_basket_truck_svg() . '<span>ارسال سریع</span></li></ul>';
+        echo '<p class="molavi-quote-note">مبلغ نهایی محصولات هنگام ادامه سفارش از سبد ووکامرس محاسبه می‌شود.</p>';
+        echo '<a class="molavi-checkout" data-molavi-checkout href="' . esc_url(function_exists('wc_get_checkout_url') ? wc_get_checkout_url() : '#') . '"' . ($count > 0 ? '' : ' hidden') . '><span>' . esc_html($button) . '</span></a>';
         echo '</aside>';
     }
 }

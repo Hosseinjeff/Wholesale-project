@@ -81,11 +81,19 @@ class Deal extends Widget_Base
             return;
         }
         $curve = molavi_curve($product);
+        $prefix = trim((string) $this->get_settings_for_display('prefix'));
+        if ($prefix === '' || $prefix === 'تخفیف') {
+            $prefix = 'تا';
+        }
         if (($curve['max'] ?? 0) <= 0) {
+            echo '<span class="molavi-deal molavi-deal-fixed">قیمت ثابت</span>';
             return;
         }
-        $prefix = trim((string) $this->get_settings_for_display('prefix'));
-        if ($prefix === '' || $prefix === 'تا') {
+        if ($prefix === 'تا') {
+            echo '<span class="molavi-deal" dir="rtl">' . esc_html('تا ' . molavi_percent((float) $curve['max']) . ' تخفیف') . '</span>';
+            return;
+        }
+        if ($prefix === '') {
             $prefix = 'تخفیف';
         }
         echo '<span class="molavi-deal" dir="rtl">' . esc_html(molavi_percent((float) $curve['max']) . ' ' . $prefix) . '</span>';

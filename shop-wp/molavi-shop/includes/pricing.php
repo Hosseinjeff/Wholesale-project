@@ -128,9 +128,16 @@ function molavi_store_curve(WC_Product $product): array
     if ($storedShelf !== '' && $storedCost !== '') {
         $curve = molavi_curve_from_prices((int) $storedShelf, (int) $storedCost);
     } else {
-        // Migrate products created before supplier cost was separated from the
-        // public WooCommerce sale price.
-        $curve = molavi_curve_from_prices((int) $product->get_regular_price(), (int) $product->get_sale_price());
+        // Read earlier private cost fields before falling back to legacy Woo prices.
+        $cost = (int) $product->get_meta('_molavi_cost');
+        $shelf = $storedShelf !== '' ? (int) $storedShelf : (int) $product->get_regular_price();
+        if ($cost > 0 && $shelf > 0) {
+            $curve = molavi_curve_from_prices($shelf, $cost);
+        } else {
+            // Migrate products created before supplier cost was separated from
+            // the public WooCommerce sale price.
+            $curve = molavi_curve_from_prices((int) $product->get_regular_price(), (int) $product->get_sale_price());
+        }
         update_post_meta($product->get_id(), '_molavi_market_shelf_toman', $curve['shelf']);
         update_post_meta($product->get_id(), '_molavi_supplier_cost_toman', $curve['sale']);
     }
@@ -251,23 +258,51 @@ function molavi_cart_qty(int $productId): int
 function molavi_quote(): array
 {
     $progress = molavi_cart_progress();
+    $unlock = (int) molavi_price_settings()['unlock_target'];
     $units = [];
     $qtys = [];
-    foreach (molavi_catalog_map() as $id => $row) {
+    $map = molavi_catalog_map();
+    foreach ($map as $id => $row) {
         $units[$id] = molavi_unit_price($row, $progress);
     }
+    $reference = 0;
+    $eligibleReference = 0;
+    $subtotal = 0;
+    $savings = 0;
     if (function_exists('WC') && WC()->cart) {
         foreach (WC()->cart->get_cart() as $item) {
             $id = (string) $item['product_id'];
             $qty = (int) $item['quantity'];
             if ($qty > 0) {
                 $qtys[$id] = ($qtys[$id] ?? 0) + $qty;
+                $row = $map[$id] ?? null;
+                if (!$row) {
+                    continue;
+                }
+                $shelf = (int) $row['shelf'];
+                $unit = (int) ($units[$id] ?? $row['sale']);
+                $subtotal += $unit * $qty;
+                if ($shelf > 0) {
+                    $reference += $shelf * $qty;
+                    $savings += max(0, $shelf - $unit) * $qty;
+                    if (!empty($row['discountable'])) {
+                        $eligibleReference += $shelf * $qty;
+                    }
+                }
             }
         }
     }
     return [
         'progress' => $progress,
-        'unlock' => (int) molavi_price_settings()['unlock_target'],
+        'unlock' => $unlock,
+        'remaining' => max(0, $unlock - $eligibleReference),
+        'eligible_reference' => $eligibleReference,
+        'reference_total' => $reference,
+        'subtotal' => $subtotal,
+        'savings' => $savings,
+        'savings_rate' => $reference > 0 ? $savings / $reference : 0.0,
+        'count' => array_sum($qtys),
+        'kinds' => count($qtys),
         'units' => $units,
         'qtys' => $qtys,
     ];
@@ -280,7 +315,11 @@ function molavi_toman(int $amount): string
 
 function molavi_percent(float $rate): string
 {
-    return molavi_digits((string) (int) round($rate * 100)) . '٪';
+    $percent = round($rate * 100, 1);
+    $text = abs($percent - round($percent)) < 0.00001
+        ? (string) (int) round($percent)
+        : number_format($percent, 1, '.', '');
+    return molavi_digits($text) . '٪';
 }
 
 add_action('woocommerce_before_calculate_totals', static function ($cart): void {
