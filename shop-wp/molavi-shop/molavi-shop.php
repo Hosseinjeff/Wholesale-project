@@ -2,7 +2,7 @@
 /**
  * Plugin Name: مولوی‌سل
  * Description: Shop rules and Elementor pieces for the WooCommerce store.
- * Version: 0.6.0
+ * Version: 0.6.1
  */
 declare(strict_types=1);
 
@@ -28,6 +28,8 @@ require_once __DIR__ . '/includes/clearance-pricing.php';
 require_once __DIR__ . '/includes/inventory-management.php';
 require_once __DIR__ . '/includes/order-handoff.php';
 require_once __DIR__ . '/includes/delivery.php';
+require_once __DIR__ . '/includes/storefront-renderer.php';
+add_shortcode('molavi_storefront', '\\Molavi\\Elementor\\molavi_render_storefront');
 
 add_action('wp_enqueue_scripts', static function (): void {
     wp_enqueue_style(
@@ -110,7 +112,6 @@ add_action('elementor/widgets/register', static function ($widgets): void {
     $widgets->register(new \Molavi\Elementor\Catalog_Bar());
     $widgets->register(new \Molavi\Elementor\Basket());
     $widgets->register(new \Molavi\Elementor\Storefront());
-    add_shortcode('molavi_storefront', '\\Molavi\\Elementor\\molavi_render_storefront');
 });
 
 add_filter('woocommerce_quantity_input_args', static function (array $args, $product): array {
