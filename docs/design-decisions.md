@@ -1,7 +1,7 @@
 # Storefront design decisions
 
-Updated: 2026-10-25, Asia/Tehran. Status: mockup v2, awaiting visual/business review.
-Implementation has not been deployed to the production storefront.
+Updated: 2026-10-29, Asia/Tehran. Status: the v2 visual and pricing direction is implemented on the WordPress Shop page; visual/business review is still pending.
+The storefront remains behind WooCommerce Coming soon until a full-prepayment gateway is configured.
 
 ## Discovery scope
 
@@ -108,15 +108,18 @@ the current live inventory, pricing settings, payment availability, and stock ar
 
 ## Verification and production boundary
 
-Before sharing v2, verify syntax, numeric parity with the existing pricing engine,
-minimum quantities, removal, fixed-price exclusion from progress, target saturation,
-empty state, searching/filtering/sorting, guest-review demonstration, responsive overflow,
-and the phone basket. Record the completed results in the revision record below.
+The WordPress plugin implements the v2 visual and pricing direction and is installed on
+WooCommerce Shop page 7 through `[molavi_storefront]`. It uses the live Woo catalog,
+server-calculated basket quote, responsive product grid, separate maximum/current
+discount labels, basket progress, and the phone basket sheet. The live WordPress render
+returned two product cards. The public site remains in Coming soon mode.
 
-Production work after mockup approval must integrate the existing WooCommerce quote
-endpoints, preserve server authority for pricing, handle network failures and stale quotes,
-reconcile the legacy PHP checkout, and test the real order/Sheets/Telegram path. A mockup
-passing local UI checks does not establish production readiness.
+The mockup's guest-request form remains a demonstration; the production storefront
+continues to the existing WooCommerce checkout. The design remains unapproved pending
+visual/business review. Full production readiness still requires a full-prepayment
+gateway, live order/payment/Sheets/Telegram verification, and end-to-end workflow review.
+Do not treat the mockup's illustrative catalog or a rendered storefront as proof of those
+handoffs.
 
 ## Revision record
 
@@ -124,3 +127,5 @@ passing local UI checks does not establish production readiness.
 - v2: interactive responsive prototype; separate maximum/current discounts, actual pricing
   formula applied to illustrative fixtures, vibrant semantic colors, phone basket, guest
   request proposal, and business-flow documentation. Verification results pending build check.
+- 2026-10-29: production WooCommerce storefront implemented from the v2 visual/pricing
+  direction and connected to Shop page 7; public launch remains gated on full prepayment.

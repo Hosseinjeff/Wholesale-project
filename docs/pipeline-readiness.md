@@ -13,9 +13,10 @@ order, charge, refund or supplier purchase was made.
 WordPress/WooCommerce runs on the user's fresh `h434558_Salesman` database. The
 document root backup remains at `/home/h434558/public_html_recovery_20261029`; legacy
 catalog, orders and media were not restored. The Shop page is WooCommerce page 7 and
-now contains the native `[products]` listing. The fresh Woo site is still in
-**Coming soon** mode, so visitors see its coming-soon page. The unapproved mockup was
-not published.
+now uses `[molavi_storefront]`, the production WooCommerce storefront based on the v2
+visual and pricing direction. WordPress rendered two live product cards. The visual and
+business review remains pending, and the fresh Woo site is still in **Coming soon** mode
+because no full-prepayment gateway is enabled. The static mockup remains unapproved.
 
 Railway's Woo publish credential was rotated and matched on the private WordPress side.
 The authenticated `/shop/publish` call succeeded, updating the two existing products.

@@ -9,9 +9,11 @@ Snapshot 4.50. Updated 2026-10-29, Asia/Tehran. The canonical roleplay decisions
 Railway is healthy and its Sheet-backed catalog currently returns two products. Their
 public Woo prices now use the customer price band while supplier costs stay private.
 The Tehran 250,000-toman fee and free-delivery threshold were checked using disposable
-carts. WordPress is fresh on `h434558_Salesman`, and its Woo Shop page has a native
-product listing, but Woo remains in Coming soon mode because no full-prepayment gateway
-is enabled. The authenticated WordPress host also times out reaching Railway, which
+carts. WordPress is fresh on `h434558_Salesman`, and Shop page 7 now uses the
+`[molavi_storefront]` WooCommerce storefront derived from mockup v2; the live WordPress
+render showed two products. The visual/business review is still pending, and Woo remains
+in Coming soon mode because no full-prepayment gateway is enabled. The authenticated
+WordPress host also times out reaching Railway, which
 blocks the owner dashboards' live data requests. The Rezvan → Gemini candidate remains
 staged and unapproved; no `ReferencePrices` write or customer order/payment occurred.
 
