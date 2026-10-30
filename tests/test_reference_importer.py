@@ -56,6 +56,13 @@ class ReferenceImportTests(unittest.TestCase):
         self.assertEqual(len(rows),2)
         self.assertEqual([row[6] for row in rows],[12,24])
 
+    def test_repeated_identical_product_on_distinct_pdf_rows_is_preserved(self):
+        first=self.item();first['pdf_row_number']='1'
+        second={**first,'pdf_row_number':'2'}
+        rows=parse_rows(json.dumps([first,second],ensure_ascii=False),'2026-10-25T00:00:00+00:00')
+        self.assertEqual(len(rows),2)
+        self.assertEqual([row[15] for row in rows],['1','2'])
+
     def pdf_bytes(self):
         writer=PdfWriter();writer.add_blank_page(width=600,height=800)
         output=__import__('io').BytesIO();writer.write(output)

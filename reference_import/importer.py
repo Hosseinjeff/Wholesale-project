@@ -86,7 +86,7 @@ def parse_rows(ai_text, timestamp):
         items = arrays[0]
     if not isinstance(items, list) or not items:
         raise ImportFailure('Empty or non-array extraction', code='extraction_empty')
-    rows, seen = [], set()
+    rows = []
     for item in items:
         if not isinstance(item, dict):
             raise ImportFailure('Invalid product object', code='extraction_invalid_product')
@@ -118,14 +118,8 @@ def parse_rows(ai_text, timestamp):
         if not re.fullmatch(r'\d{1,6}', row_number) or int(row_number) < 1:
             raise ImportFailure('Missing or invalid printed row number', code='extraction_row_number_invalid')
         key = normalize_name(clean)
-        attributes=(key,str(count),str(set_count),str(item.get('unit_label') or ''),
-                    *(str(item.get(k) or '') for k in ('brand','variant','volume','weight')))
-        # A supplier code can cover distinct pack sizes/variants; use it as one
-        # identity component instead of treating it as globally unique.
-        identity=('code',code,*attributes) if code else ('attributes',*attributes)
-        if identity in seen:
-            raise ImportFailure('Duplicate reference identity', code='extraction_duplicate_identity')
-        seen.add(identity)
+        # Keep repeated product identities when they occupy distinct printed PDF
+        # rows. A repeated row number is the reliable signal for duplicated output.
         if any(str(existing[15]) == row_number for existing in rows):
             raise ImportFailure('Duplicate printed row number', code='extraction_duplicate_row_number')
         def text_value(field):
