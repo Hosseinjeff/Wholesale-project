@@ -6,7 +6,8 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 from pypdf import PdfWriter
 from reference_import.importer import (ImportFailure, HEADERS, _pdf_page_batches,
-    extract_pdf, parse_rows, save_candidate)
+    _build_woocommerce_candidate, extract_pdf, extract_woocommerce_store_api,
+    parse_rows, save_candidate)
 
 class ReferenceImportTests(unittest.TestCase):
     def item(self):
@@ -234,6 +235,94 @@ class ReferenceImportTests(unittest.TestCase):
                 save_candidate({'status': 'changed'}, target)
             self.assertEqual(original, target.read_bytes())
             self.assertEqual(len(list(Path(directory).iterdir())), 1)
+
+
+class WooCommerceReferenceImportTests(unittest.TestCase):
+    class Response:
+        status_code = 200
+
+        def __init__(self, products, *, total, pages):
+            self._products = products
+            self.headers = {'X-WP-Total': str(total), 'X-WP-TotalPages': str(pages)}
+
+        def json(self):
+            return self._products
+
+    class Session:
+        def __init__(self, pages):
+            self.pages = pages
+            self.calls = []
+
+        def get(self, url, *, params, timeout):
+            self.calls.append((url, dict(params), timeout))
+            return WooCommerceReferenceImportTests.Response(
+                self.pages[params['page']], total=3, pages=2)
+
+    @staticmethod
+    def product(product_id, sku, title, price='480000', currency='IRT', **extra):
+        product = {'id': product_id, 'sku': sku, 'name': title,
+                   'categories': [{'name': 'خوراکی'}], 'attributes': [],
+                   'prices': {'price': price, 'currency_code': currency,
+                              'currency_minor_unit': 0}}
+        product.update(extra)
+        return product
+
+    def test_title_fields_are_preserved_and_only_explicit_markers_are_derived(self):
+        title = 'چای ممتاز ۱۲ع (۴۵ف) ۲۵۰گرم ۵۰۰میل'
+        product = self.product(1, 'TEA-12', title, price='48000000', currency='IRR',
+            attributes=[{'name': 'pa_brand', 'terms': [{'name': 'برند الف'}]},
+                        {'name': 'طعم', 'value': 'هل'}])
+        candidate = _build_woocommerce_candidate([product], 1, 'IRR', '2026-10-30T00:00:00+00:00')
+        row = candidate['rows'][0]
+        self.assertEqual(len(row), len(HEADERS))
+        self.assertEqual(row[0], title)
+        self.assertEqual(row[3:8], [4800000, 400000, 45000, 12, 'عدد'])
+        self.assertEqual(row[8:14], ['500 میل', '250 گرم', '', 'هل', 'برند الف', 'خوراکی'])
+        self.assertEqual(row[15:20], ['1', 'TEA-12', 'TOMAN', 'rezvanpakhsh_woocommerce_store_api',
+                                      'https://rezvanpakhsh.com/wp-json/wc/store/v1/products'])
+        self.assertEqual(candidate['source_currency'], 'IRR')
+        self.assertTrue(candidate['coverage_verified'])
+
+    def test_two_piece_set_is_not_treated_as_a_package_count(self):
+        product = self.product(1, 'SET-2', 'آجیل مخلوط ۲تایی')
+        row = _build_woocommerce_candidate([product], 1, 'IRT', '2026-10-30T00:00:00+00:00')['rows'][0]
+        self.assertEqual(row[6], '')
+        self.assertEqual(row[10], 2)
+        self.assertEqual(row[4], '')
+
+    def test_pagination_is_complete_and_rows_keep_source_order(self):
+        pages = {
+            1: [self.product(1, 'SKU-1', 'محصول اول'), self.product(2, 'SKU-2', 'محصول دوم')],
+            2: [self.product(3, 'SKU-3', 'محصول سوم')],
+        }
+        session = self.Session(pages)
+        candidate = extract_woocommerce_store_api(session, per_page=2)
+        self.assertEqual(candidate['row_count'], 3)
+        self.assertEqual(candidate['source_total'], 3)
+        self.assertEqual(candidate['source_page_count'], 2)
+        self.assertEqual(candidate['processed_page_count'], 2)
+        self.assertEqual([row[15] for row in candidate['rows']], ['1', '2', '3'])
+        self.assertEqual([call[1]['page'] for call in session.calls], [1, 2])
+        self.assertTrue(candidate['coverage_verified'])
+
+    def test_incomplete_page_and_unsupported_currency_fail_closed(self):
+        session = self.Session({1: [self.product(1, 'SKU-1', 'محصول اول'),
+                                    self.product(2, 'SKU-2', 'محصول دوم')], 2: []})
+        with self.assertRaises(ImportFailure) as caught:
+            extract_woocommerce_store_api(session, per_page=2)
+        self.assertEqual(caught.exception.code, 'woocommerce_page_incomplete_2')
+        bad = self.product(1, 'SKU-1', 'محصول اول', currency='USD')
+        with self.assertRaises(ImportFailure) as caught:
+            _build_woocommerce_candidate([bad], 1, 'USD', '2026-10-30T00:00:00+00:00')
+        self.assertEqual(caught.exception.code, 'woocommerce_currency_unsupported')
+
+    def test_mixed_currency_and_duplicate_sku_fail_closed(self):
+        first = self.product(1, 'SKU-1', 'محصول اول', currency='IRT')
+        second = self.product(2, 'SKU-1', 'محصول دوم', currency='IRR')
+        session = self.Session({1: [first, second], 2: [self.product(3, 'SKU-3', 'محصول سوم')]})
+        with self.assertRaises(ImportFailure) as caught:
+            extract_woocommerce_store_api(session, per_page=2)
+        self.assertEqual(caught.exception.code, 'woocommerce_duplicate_sku')
 
 if __name__ == '__main__':
     unittest.main()

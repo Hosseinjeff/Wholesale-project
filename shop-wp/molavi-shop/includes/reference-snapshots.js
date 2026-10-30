@@ -63,8 +63,8 @@
     function refreshLabel(state) {
         return ({
             staged: 'نسخه تازه آماده بررسی است',
-            failed: 'خواندن PDF کامل نشد',
-            running: 'دریافت و بررسی PDF در حال انجام است'
+            failed: 'دریافت از API ووکامرس کامل نشد',
+            running: 'دریافت محصولات از API ووکامرس در حال انجام است'
         })[state] || 'وضعیت دریافت مشخص نیست';
     }
 
@@ -96,15 +96,23 @@
         }
         if (code === 'extraction_row_gap' || code === 'extraction_row_sequence_invalid'
             || code === 'extraction_too_few_rows') {
-            return 'شماره ردیف‌ها کامل و پیوسته نبود؛ پیش‌نویس تازه ساخته نشد.';
+            return 'تلاش قدیمیِ خواندن PDF کامل نبود؛ از این پس فهرست از API ووکامرس دریافت می‌شود.';
         }
-        if (baseCode === 'gemini_rate_limited') return 'سرویس Gemini موقتاً درخواست بیشتری نمی‌پذیرد.';
-        if (baseCode === 'gemini_key_invalid') return 'کلید اتصال Gemini معتبر نیست یا از دسترس خارج شده است.';
-        if (baseCode === 'gemini_model_not_found' || baseCode === 'gemini_permission_denied') {
-            return 'مدل Gemini در دسترس نبود یا اجازه استفاده از آن وجود نداشت.';
+        if (code.startsWith('extraction_') || baseCode.startsWith('gemini_')) {
+            return 'تلاش قبلی از PDF/Gemini بود و کامل نشد؛ پیش‌نویس تازه‌ای ساخته نشد. از این پس فهرست از API ووکامرس دریافت می‌شود.';
         }
-        if (baseCode === 'gemini_transport_failed') return 'ارتباط با سرویس Gemini پایدار نبود.';
-        if (/^source_http_\d+$/.test(code)) return 'PDF رزوان دریافت نشد (' + code.replace('source_http_', 'HTTP ') + ').';
+        if (code === 'woocommerce_transport_failed') return 'ارتباط با API ووکامرس پایدار نبود.';
+        if (code === 'woocommerce_currency_unsupported' || code === 'woocommerce_currency_mismatch') {
+            return 'واحد پول محصولات از نوع پشتیبانی‌شده نبود؛ پیش‌نویس تازه ساخته نشد.';
+        }
+        if (code === 'woocommerce_pagination_changed' || code === 'woocommerce_pagination_invalid'
+            || code.startsWith('woocommerce_page_incomplete_')
+            || code === 'woocommerce_product_coverage_incomplete') {
+            return 'همه صفحات فهرست ووکامرس دریافت نشد؛ پیش‌نویس تازه ساخته نشد.';
+        }
+        if (/^woocommerce_http_\d+$/.test(code)) {
+            return 'API ووکامرس پاسخ نداد (' + code.replace('woocommerce_http_', 'HTTP ') + ').';
+        }
         return 'استخراج کامل نشد؛ پیش‌نویس تازه ساخته نشد. کد پیگیری: ' + (code || 'نامشخص');
     }
 
@@ -191,13 +199,13 @@
 
     function appendRefreshForm(parent, refresh) {
         const form = element('form');
-        const button = element('button', 'استخراج نسخه تازه از PDF', 'button');
+        const button = element('button', 'دریافت نسخه تازه از ووکامرس', 'button');
         button.type = 'submit';
         form.appendChild(button);
         form.addEventListener('submit', async (event) => {
             event.preventDefault();
             if (!window.confirm(
-                'PDF رزوان دریافت و جدول‌های آن دوباره استخراج می‌شود. نسخه تازه فقط برای بررسی ساخته می‌شود و قیمت‌ها خودکار تغییر نمی‌کنند. ادامه می‌دهید؟')) {
+                'محصولات منتشرشده و قیمت‌های فعلی از API ووکامرس رزوان دریافت می‌شوند. فقط یک پیش‌نویس ساخته می‌شود و هیچ قیمتی خودکار تغییر نمی‌کند. ادامه می‌دهید؟')) {
                 return;
             }
             button.disabled = true;
@@ -224,7 +232,7 @@
     function appendRefreshStatus(parent, refresh) {
         if (!refresh || typeof refresh !== 'object') return;
         const card = element('section', undefined, 'card');
-        card.appendChild(element('h2', 'دریافت روزانه PDF رزوان'));
+        card.appendChild(element('h2', 'دریافت روزانه محصولات از ووکامرس رزوان'));
         const label = refresh.state === 'staged'
             ? 'دریافت موفق بود؛ پیش‌نویس در فهرست پایین است'
             : refreshLabel(refresh.state);
@@ -249,7 +257,7 @@
             ['دسته', item.category], ['سایر جزئیات عنوان', item.raw_name_details]
         ].filter(([, value]) => value !== null && value !== undefined && String(value).trim() !== '' && String(value) !== '0');
         return attributes.map(([label, value]) => label + ': ' + value).join(' · ')
-            || 'مشخصه دیگری از عنوان استخراج نشده است';
+            || 'مشخصه جداگانه‌ای از API یا نشانگرهای عنوان موجود نیست؛ عنوان کامل حفظ شده است.';
     }
 
     function appendPreview(card, snapshot) {
@@ -260,7 +268,7 @@
         const table = element('table', undefined, 'widefat striped');
         const head = element('thead');
         const headerRow = element('tr');
-        ['ردیف PDF / کد کالا', 'عنوان استخراج‌شده از PDF', 'مشخصاتی که از عنوان درآمده', 'قیمت‌ها', 'تعداد در بسته'].forEach((label, index) => {
+        ['ردیف منبع / کد کالا', 'عنوان کامل ووکامرس', 'مشخصات موجود در API یا عنوان', 'قیمت فعلی API', 'تعداد در بسته'].forEach((label, index) => {
             const th = element('th', label);
             th.setAttribute('scope', 'col');
             if (index === 0) th.className = 'column-primary';
@@ -274,13 +282,13 @@
             if (!item || typeof item !== 'object') return;
             const row = element('tr');
             const idCell = element('td');
-            idCell.appendChild(element('strong', 'ردیف ' + (item.pdf_row_number || '—')));
+            idCell.appendChild(element('strong', 'ردیف منبع ' + (item.source_row_number || '—')));
             idCell.appendChild(element('p', 'کد کالا: ' + (item.product_code || 'ثبت نشده'), 'description'));
             row.appendChild(idCell);
 
             const nameCell = element('td');
             nameCell.appendChild(element('strong', item.product_name || 'عنوان پیدا نشد'));
-            nameCell.appendChild(element('p', 'نام مرتب‌شده: ' + (item.clean_name || 'ثبت نشده'), 'description'));
+            nameCell.appendChild(element('p', 'عنوان کامل منبع؛ کلید جست‌وجو: ' + (item.normalized_key || item.clean_name || 'ثبت نشده'), 'description'));
             row.appendChild(nameCell);
             row.appendChild(element('td', attributeList(item)));
 
@@ -296,14 +304,15 @@
         card.appendChild(table);
         card.appendChild(element('p', 'این نمونه ' + new Intl.NumberFormat('fa-IR').format(preview.length)
             + ' ردیف از ' + new Intl.NumberFormat('fa-IR').format(Number(snapshot.row_count) || preview.length)
-            + ' ردیف نسخه را نشان می‌دهد. فایل CSV همه ردیف‌ها و مشخصات استخراج‌شده را دارد.', 'description'));
+            + ' محصول را نشان می‌دهد. فایل CSV همه ردیف‌ها، عنوان‌های کامل و مشخصات موجود را دارد.', 'description'));
         if (snapshot.coverage_verified === true) {
-            card.appendChild(element('p', 'شماره ردیف‌های PDF پیوسته‌اند؛ این بررسی به معنی درست بودن عنوان، مشخصات یا قیمت نیست. همه موارد را با PDF تطبیق دهید.', 'description'));
+            card.appendChild(element('p', 'تعداد محصولات با تعداد اعلام‌شده API و شماره ردیف منبع تطبیق دارد؛ این بررسی درستی اطلاعات فروشنده را ثابت نمی‌کند. عنوان، کد و قیمت را با ووکامرس مقایسه کنید.', 'description'));
         }
         try {
             const source = new URL(snapshot.source_url);
-            if (source.protocol === 'https:' && source.hostname === 'rezvanpakhsh.com') {
-                const link = element('a', 'باز کردن PDF منبع');
+            if (source.protocol === 'https:' && source.hostname === 'rezvanpakhsh.com'
+                && source.pathname === '/wp-json/wc/store/v1/products') {
+                const link = element('a', 'باز کردن API محصولات');
                 link.href = source.toString();
                 link.target = '_blank';
                 link.rel = 'noopener noreferrer';
@@ -332,8 +341,8 @@
                     throw new Error('invalid_receipt');
                 }
                 const columns = [
-                    ['ردیف PDF', 'pdf_row_number'], ['کد کالا', 'product_code'],
-                    ['عنوان در PDF', 'product_name'], ['نام مرتب‌شده', 'clean_name'],
+                    ['ردیف منبع', 'source_row_number'], ['کد کالا', 'product_code'],
+                    ['عنوان کامل ووکامرس', 'product_name'], ['نام مرتب‌شده', 'clean_name'],
                     ['برند', 'brand'], ['نوع / طعم', 'variant'], ['دسته', 'category'],
                     ['حجم', 'volume'], ['وزن', 'weight'], ['تعداد در مجموعه', 'set_count'],
                     ['تعداد در بسته', 'package_count'], ['واحد', 'unit_label'],
@@ -378,24 +387,30 @@
             const card = element('section', undefined, 'card');
             const active = data.active_snapshot_id === snapshot.snapshot_id || Boolean(snapshot.active);
             const reviewed = Boolean(snapshot.reviewed_by);
-            const complete = snapshot.coverage_verified === true;
-            const status = active ? 'فعال و در حال استفاده'
+            const supportedSource = snapshot.source_type === 'woocommerce_store_api';
+            const complete = supportedSource && snapshot.coverage_verified === true;
+            const status = active && !supportedSource ? 'فعالِ قدیمی از PDF/Gemini؛ نیازمند جایگزینی'
+                : (active ? 'فعال و در حال استفاده'
                 : (!complete ? 'کامل بودن استخراج تأیید نشده'
-                    : (reviewed ? 'بررسی شده؛ آماده فعال‌سازی' : 'نیاز به بررسی'));
+                    : (reviewed ? 'بررسی شده؛ آماده فعال‌سازی' : 'نیاز به بررسی')));
 
-            card.appendChild(element('h2', complete ? 'پیش‌نویس قیمت‌ها' : 'پیش‌نویس ناقص قیمت‌ها'));
+            card.appendChild(element('h2', supportedSource ? 'پیش‌نویس قیمت‌های ووکامرس'
+                : 'پیش‌نویس قدیمی PDF/Gemini'));
             card.appendChild(element('p', 'وضعیت: ' + status, 'description'));
             card.appendChild(element('p', 'زمان استخراج: ' + formatDate(snapshot.extracted_at)
                 + ' · تعداد ردیف: ' + new Intl.NumberFormat('fa-IR').format(Number(snapshot.row_count) || 0)
-                + (snapshot.source_page_count ? ' · صفحات PDF: ' + new Intl.NumberFormat('fa-IR').format(snapshot.source_page_count) : '')
-                + (snapshot.first_pdf_row_number && snapshot.last_pdf_row_number
-                    ? ' · ردیف‌های PDF: ' + snapshot.first_pdf_row_number + ' تا ' + snapshot.last_pdf_row_number : '')));
+                + (snapshot.source_page_count ? ' · صفحات API: ' + new Intl.NumberFormat('fa-IR').format(snapshot.source_page_count) : '')
+                + (snapshot.first_source_row_number && snapshot.last_source_row_number
+                    ? ' · ردیف‌های منبع: ' + snapshot.first_source_row_number + ' تا ' + snapshot.last_source_row_number : '')
+                + (snapshot.source_currency ? ' · واحد قیمت API: ' + snapshot.source_currency : '')));
             appendPreview(card, snapshot);
 
-            if (!complete) {
+            if (!supportedSource) {
+                card.appendChild(notice('این پیش‌نویس قدیمی از PDF/Gemini ساخته شده است. منبع رسمی فعلی API ووکامرس است؛ بررسی و فعال‌سازی این نسخه غیرفعال است. نسخه تازه را از API دریافت کنید.', 'error'));
+            } else if (!complete) {
                 card.appendChild(notice(active
                     ? 'این نسخه در حال حاضر فعال است، اما کامل بودن استخراج آن قابل تأیید نیست؛ از این صفحه نمی‌توان دوباره آن را ثبت یا فعال کرد.'
-                    : 'این نسخه از استخراج قبلی است و کامل بودن داده‌هایش بررسی نشده؛ برای جلوگیری از ثبت قیمت ناقص، بررسی و فعال‌سازی آن غیرفعال است. نسخه تازه را از بخش «دریافت روزانه PDF رزوان» بسازید.', 'error'));
+                    : 'کامل بودن فهرست دریافتی تأیید نشده؛ بررسی و فعال‌سازی این نسخه غیرفعال است. نسخه تازه را از API ووکامرس دریافت کنید.', 'error'));
             } else if (reviewed) {
                 if (snapshot.review_note) {
                     card.appendChild(element('p', 'یادداشت بررسی: ' + snapshot.review_note, 'notice notice-info'));

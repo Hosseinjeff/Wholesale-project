@@ -116,7 +116,13 @@ def candidate_match(product, rows, *, overrides=None):
         compatible=True
         for key,index in (('brand',12),('variant',11),('volume',8),('weight',9)):
             incoming=_text(product.get(key)); reference=_text(row[index])
-            if incoming and (not reference or incoming != reference):compatible=False;break
+            if key in {'volume','weight'}:
+                # The message parser historically places explicit gram/kilo
+                # markers in its `volume` field; compare either measurement
+                # against both source columns while keeping labels separate.
+                alternatives={reference,_text(row[8]),_text(row[9])}-{''}
+                if incoming and incoming not in alternatives:compatible=False;break
+            elif incoming and (not reference or incoming != reference):compatible=False;break
         incoming_count=_number(product.get('package_count'))
         reference_count=_number(row[6])
         if incoming_count and (not reference_count or incoming_count!=reference_count):compatible=False

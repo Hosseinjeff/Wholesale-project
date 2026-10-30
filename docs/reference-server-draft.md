@@ -4,6 +4,12 @@ Baseline: 2e32dea / D-008. Local branch: reference-dashboard-draft. Required GAS
 functionality remains server-owned; originals in legacy-gas are unchanged. This
 slice is not full migration parity, an approved mockup or a production deployment.
 
+**Current source correction — 2026-10-30 (D-036):** Rezvan products must be read from
+the WooCommerce Store API. The PDF/Gemini importer and worker behavior recorded below
+are historical and superseded; current refreshes use the full API catalog. Legacy PDF
+drafts remain unverified and cannot be reviewed or activated. Supplier-message Gemini
+extraction is separate and defaults to `gemini-3.5-flash-lite`.
+
 ## Confirmed decisions
 
 - D-009: each stale-reference or failed-refresh occurrence asks the business owner
@@ -15,6 +21,10 @@ slice is not full migration parity, an approved mockup or a production deploymen
 
 ## Implemented locally
 
+The historical importer described in this section was replaced by the WooCommerce Store
+API importer. Current source handling and the live source audit are recorded in
+`reference-source-access.md` and `reference-dashboard-integration.md`.
+
 reference_import/importer.py explicitly downloads the PDF, requests Gemini output
 and validates a 21-column candidate without writing Sheets or activating data.
 The prompt preserves the recovered two-product-block/carton/retail-hint contract.
@@ -23,7 +33,7 @@ Local candidate creation is atomic and refuses to overwrite an existing file.
 
 Supplier messages now default to Gemini extraction using `GOOGLE_API_KEY`, with the
 recovered `AI_API_KEY` accepted for compatibility and `AI_MODEL` defaulting to
-`gemini-3.1-flash-lite`. `EXTRACTION_MODE=regex` selects the existing parser. Failed
+`gemini-3.5-flash-lite`. `EXTRACTION_MODE=regex` selects the existing parser. Failed
 or unusable Gemini responses fall back to regex; uncertain price roles, package counts,
 and low-confidence results remain marked for review. The PDF importer reads the same
 key/model defaults. A local crash-aware worker now schedules it every 24 hours by

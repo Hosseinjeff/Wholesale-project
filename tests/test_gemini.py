@@ -67,7 +67,7 @@ class GeminiExtractionTests(unittest.TestCase):
         self.assertEqual(product['currency'], 'IRT')
         self.assertFalse(product['needs_review'])
         url, kwargs = session.call
-        self.assertIn('gemini-3.1-flash-lite:generateContent', url)
+        self.assertIn('gemini-3.5-flash-lite:generateContent', url)
         self.assertEqual(kwargs['headers']['x-goog-api-key'], 'test-key')
         self.assertNotIn('test-key', url)
         self.assertEqual(kwargs['json']['generationConfig']['responseMimeType'], 'application/json')

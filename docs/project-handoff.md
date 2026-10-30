@@ -1,10 +1,10 @@
 # MolaviSale — whole-workflow handoff
 
-Snapshot 4.50. Updated 2026-10-29, Asia/Tehran. The canonical roleplay decisions are in
+Snapshot 4.51. Updated 2026-10-30, Asia/Tehran. The canonical roleplay decisions are in
 `roleplay-state.json`; current live evidence and release gates are in
 `pipeline-readiness.md` and `pipeline-readiness-evidence.json`.
 
-## Current live checkpoint — 2026-10-29
+## Current live checkpoint — 2026-10-30
 
 Railway is healthy and its Sheet-backed catalog currently returns two products. Their
 public Woo prices now use the customer price band while supplier costs stay private.
@@ -16,33 +16,34 @@ products without the Coming Soon screen. Responsive visual/business review remai
 pending.
 
 The live Tehran shipping zone has no location rules, so customers do not match the
-configured delivery method. The current environment login is WordPress administrator
-user 1, while the project owner allowlist is user 3; user 1 receives the normal
-WordPress access-denied response for owner-only dashboards. No access list or shipping
-coverage was changed. The Rezvan → Gemini candidate remains staged and unapproved; no
-`ReferencePrices` write or customer order was made. Payment configuration is explicitly
-outside the current work.
+configured delivery method. The current source correction is that Rezvan reference
+products must come from its WooCommerce Store API, not its official PDF. The previous
+PDF/Gemini drafts are legacy, incomplete and inactive. The active snapshot is still
+unset and no `ReferencePrices` write or customer order was made. Payment configuration
+is explicitly outside the current work.
 
-The remaining non-payment work is to set the delivery coverage, inspect the owner
-dashboards from user 3, review the staged reference candidate, verify Sheets and Woo
-handoffs in connected staging, and complete recovery, policy, and end-to-end workflow
-review. Do not mark a roleplay scene complete until the integrated stream is validated.
+The remaining non-payment work is to set the delivery coverage, review a complete
+WooCommerce-sourced reference candidate, verify Sheets and Woo handoffs in connected
+staging, and complete recovery, policy, and end-to-end workflow review. Do not mark a
+roleplay scene complete until the integrated stream is validated.
 
 The user also referenced an “Auditer” ChatGPT conversation for findings. Its `read_thread`
 connector was not available in this workspace, so repository audit records were used for
 this pass and that conversation's findings remain to be reconciled when supplied.
 
-## Reference acquisition clarification — D-008
+## Reference acquisition history — D-008 (superseded by D-036)
 
-The user describes Rezvan Pakhsh reference data interpreted using a Google API. The
-supplied source contains exactly a PDF → Gemini → ReferencePrices implementation.
-Use it as the source-backed candidate for server migration, while verifying active
-settings and job bindings. The separately named REFERENCE_REFRESH_SERVER_URL path
-exists in source, but its configuration/use and an external service's existence were
-never verified. Earlier text treating discovery of that server as mandatory is superseded:
-only investigate it as a required dependency if configuration or execution evidence
-establishes its actual use. Do not block independent migration/workflow work or ask the
-user to locate a presumed service merely because the wrapper exists in code.
+An earlier interpretation treated the recovered PDF → Gemini implementation as the
+source-backed candidate. The user directly corrected this on 2026-10-30: the Rezvan
+reference catalog is supposed to be read from WooCommerce API. D-036 records the current
+source contract and conversion rules. The recovered PDF importer is historical and must
+not be called by scheduled or manual production refreshes. Keep old PDF snapshots
+inactive and non-reviewable.
+
+The public endpoint returned 3,895 products across 39 pages in the live read-only audit.
+The active refresh must read all pages, preserve full titles/SKUs/categories, convert
+IRR to toman, and stage an inactive owner-review candidate. No candidate is reviewed or
+written to `ReferencePrices` automatically.
 
 ## Confirmed execution target
 

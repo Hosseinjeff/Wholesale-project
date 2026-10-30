@@ -1,6 +1,15 @@
 # Whole-flow handoff implementation record — 2026-10-26 onward (Asia/Tehran)
 
-## Latest production checkpoint — 2026-10-29
+## Current Rezvan source correction — 2026-10-30
+
+Rezvan reference products must come from its WooCommerce Store API. A read-only audit
+returned 3,895 products across 39 pages, all with title, SKU, category and positive IRR
+price. The previous PDF/Gemini refresh failed before creating a new snapshot; the two
+older 10-row drafts are incomplete and inactive. The new importer and owner-page copy
+are being deployed, after which a complete API candidate will be staged for review.
+No `ReferencePrices` write or snapshot activation has occurred.
+
+## Historical production checkpoint — 2026-10-29 (superseded)
 
 The user authorized whole-plan deployment. Commit
 `e531b37dbe2f24d4651f0a3578fee863f0de4b96` is deployed successfully to
@@ -19,14 +28,10 @@ a free plan with sleep enabled, and no separate Railway staging environment exis
 Local verification passes 246 Python tests and 100 disposable WordPress/WooCommerce
 runtime assertions; the full connected stream is not signed off.
 
-The public WordPress storefront is currently broken: both apex and `www` return a PHP
-fatal error because `public_html/wp-config.php` is zero bytes. Railway remains healthy
-and the staged reference candidate persists on `/data`, but the owner cannot review it
-until the original config is restored. cPanel backups are unavailable on this account;
-the only listed local database is empty, and the only archive is an Elementor Pro plugin
-zip. The host must restore the original config and the database it references, or the
-owner must provide a known-good copy. Do not invent DB credentials, create a blank site,
-or change database access as part of this recovery.
+At that earlier checkpoint, the public WordPress entry point returned a PHP fatal error
+because `wp-config.php` was empty. A same-day recovery restored the site; this outage is
+resolved and is not the current production state. The old PDF/Gemini refresh described
+above is also superseded by the Woo Store API source correction.
 
 The section below is the historical local implementation record; no production change
 or end-to-end validation was claimed at its original checkpoint.
@@ -120,7 +125,7 @@ reference-dashboard-runtime-evidence.txt.
 ## Remaining whole-project work
 
 1. Validate the locally implemented recovered GAS category/history scale fallback,
-   AI confirmation, and scheduled PDF/Gemini candidate review against connected
+   AI confirmation, and scheduled Woo API candidate review against connected
    staging, then replay the reference-to-catalog path. Snapshot-scoped owner matching
    and item-level correction are locally implemented as described below.
 2. Validate lot receipts, sheet ownership and paid-order reservations with persistent

@@ -1389,11 +1389,11 @@ def reference_snapshots_browser_cors(response):
 
 @app.route('/reference/snapshots', methods=['GET','POST','OPTIONS'])
 def reference_snapshots_route():
-    """Owner reviews PDF/Gemini candidates before activating ReferencePrices."""
+    """Owner reviews Rezvan WooCommerce API candidates before ReferencePrices activation."""
     if request.method == 'OPTIONS':
         return '', 204
     from reference_import.decisions import DecisionConflict
-    from reference_import.snapshots import ReferenceStore
+    from reference_import.snapshots import ReferenceStore, has_verified_coverage
     path=os.getenv('REFERENCE_STORE_PATH') or ''
     token=os.getenv('REFERENCE_BRIDGE_TOKEN') or ''
     owners=[value.strip() for value in (os.getenv('REFERENCE_OWNER_IDS') or '').split(',') if value.strip()]
@@ -1421,7 +1421,7 @@ def reference_snapshots_route():
                     return jsonify({'ok':False,'error':'snapshot_not_found'}),404
                 response=jsonify({'ok':True,'snapshot_id':snapshot_id,
                     'row_count':candidate.get('row_count'),
-                    'coverage_verified':candidate.get('coverage_verified') is True,
+                    'coverage_verified':has_verified_coverage(candidate),
                     'rows':store.snapshot_rows(snapshot_id)})
                 response.headers['Cache-Control']='no-store'
                 return response

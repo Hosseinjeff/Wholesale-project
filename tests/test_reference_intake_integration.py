@@ -77,7 +77,7 @@ class ReferenceQueueIntegrationTests(unittest.TestCase):
   from catalog.durable import Handoffs
   from catalog.extract import extract_products
   from reference_import.snapshots import ReferenceStore
-  from reference_import.importer import HEADERS,SOURCE_URL
+  from reference_fixtures import staged_candidate,woocommerce_product
   import app
   with tempfile.TemporaryDirectory() as directory:
    db=str(Path(directory)/'pipeline.sqlite');ref=str(Path(directory)/'reference.sqlite')
@@ -85,10 +85,9 @@ class ReferenceQueueIntegrationTests(unittest.TestCase):
    now=datetime.now(timezone.utc);stamp=(now-timedelta(hours=25)).isoformat()
    msg='کنسرو ماهی ۱۸۰ گرمی تاپ\nدونه ای: ۵۲,۰۰۰ تومان\nقیمت مصرف: ۶۵,۰۰۰ تومان\nتعداد در باکس: ۲۴ عددی'
    extracted=extract_products(msg,'@bonakdarjavan')[0];name=extracted['name']
-   rows=parse_rows(json.dumps([dict(raw_name=name,clean_name=name,package_price=1250000,package_count=24,product_code='r1',pdf_row_number='1',volume=extracted.get('volume',''))]),stamp)
-   snapshot={'status':'staged','source_url':SOURCE_URL,'headers':list(HEADERS),'extracted_at':stamp,
-       'row_count':1,'source_page_count':1,'processed_page_count':1,'first_pdf_row_number':1,
-       'last_pdf_row_number':1,'coverage_verified':True,'rows':rows}
+   product=woocommerce_product(id=101,sku='r1',name=name+' ۲۴ عددی',prices={
+       'price':'12500000','currency_code':'IRR','currency_minor_unit':0})
+   snapshot=staged_candidate(stamp,[product],currency='IRR')
    version=snapshot_store.stage(snapshot);snapshot_store.review(version,actor_id='wp:7',note='synthetic coverage')
    snapshot_store.activate(version,actor_id='wp:7',expected_active_id=None)
    queue=Handoffs(db);queue.receive({'id':'m1','content':msg,'channel_username':'@bonakdarjavan'});job=queue.batch()
@@ -116,17 +115,15 @@ class ReferenceQueueIntegrationTests(unittest.TestCase):
   from catalog.extract import OFFER_HEADERS,PRODUCT_HEADERS
   from catalog.sync import _row_from_map
   from reference_import.snapshots import ReferenceStore
-  from reference_import.importer import HEADERS,SOURCE_URL
+  from reference_fixtures import staged_candidate,woocommerce_product
   import app
   with tempfile.TemporaryDirectory() as directory:
    db=str(Path(directory)/'pipeline.sqlite');ref=str(Path(directory)/'reference.sqlite')
    now=datetime.now(timezone.utc).isoformat()
-   item=dict(raw_name='چای سبز',clean_name='چای سبز',package_price=480000,package_count=12,
-             unit_price=40000,product_code='R-1',brand='الف',category='نوشیدنی',pdf_row_number='1')
-   rows=parse_rows(json.dumps([item]),now)
-   reference={'status':'staged','source_url':SOURCE_URL,'headers':list(HEADERS),
-       'extracted_at':now,'row_count':1,'source_page_count':1,'processed_page_count':1,
-       'first_pdf_row_number':1,'last_pdf_row_number':1,'coverage_verified':True,'rows':rows}
+   product=woocommerce_product(id=102,sku='R-1',name='چای سبز ۱۲ عددی',attributes=[
+       {'name':'برند','value':'الف'}],categories=[{'name':'نوشیدنی'}],prices={
+       'price':'480000','currency_code':'IRT','currency_minor_unit':0})
+   reference=staged_candidate(now,[product])
    references=ReferenceStore(ref,owner_ids=['wp:7']);snapshot_id=references.stage(reference)
    references.review(snapshot_id,actor_id='wp:7',note='synthetic current reference reviewed')
    references.activate(snapshot_id,actor_id='wp:7',expected_active_id=None)

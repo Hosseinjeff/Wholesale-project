@@ -264,9 +264,9 @@ $http_mode='accepted'; ref_assert(!is_wp_error(molavi_ai_confirmation_request('P
     'AI confirmation accepts matching durable owner receipt');
 $http_mode='queue'; ob_start(); molavi_reference_snapshots_screen(); $snapshot_html=ob_get_clean();
 ref_assert(strpos($snapshot_html,'id="molavi-reference-snapshots"')!==false,
-    'PDF/Gemini snapshot review loads through the owner browser');
+    'WooCommerce API snapshot review loads through the owner browser');
 ref_assert(strpos($snapshot_html,MOLAVI_REFERENCE_BRIDGE_TOKEN)===false
-    && file_exists(dirname(__DIR__) . '/shop-wp/molavi-shop/includes/reference-snapshots.js'),
+    && file_exists('/plugin/includes/reference-snapshots.js'),
     'browser dashboard does not render the long-lived bridge secret');
 $browser_token=molavi_reference_snapshots_browser_token();
 ref_assert(strlen($browser_token)>64 && $browser_token!==MOLAVI_REFERENCE_BRIDGE_TOKEN,

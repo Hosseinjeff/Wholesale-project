@@ -173,9 +173,9 @@ Do not record suggested options, silence, or previously inferred preferences as 
 - Boundary: active execution/settings still need verification. The separate
   REFERENCE_REFRESH_SERVER_URL wrapper exists in source but its configured use and a
   separate running service have never been established. Declared code is not live proof.
-- Correction: treating an external refresh server's location/source as a mandatory
-  prerequisite was too strong. Make it conditional on evidence of actual use; proceed
-  with the source-backed PDF/Gemini path and independent migration/workflow work.
+- Historical correction: treating an external refresh server's location/source as a
+  mandatory prerequisite was too strong. The later direct user clarification in D-036
+  supersedes the PDF/Gemini source assumption below.
 - Target remains server execution under D-007. Keep required settings/secrets in server
   configuration; preserve useful GAS behavior and address audited defects before retirement.
 
@@ -564,8 +564,28 @@ Do not record suggested options, silence, or previously inferred preferences as 
 - User directs supplier product extraction to default to AI. `EXTRACTION_MODE=regex`
   remains an explicit way to select the existing deterministic parser.
 - The server reads `GOOGLE_API_KEY` (while accepting recovered `AI_API_KEY` for
-  compatibility) and defaults `AI_MODEL` to `gemini-3.1-flash-lite`. Gemini request
+  compatibility) and defaults `AI_MODEL` to `gemini-3.5-flash-lite`. Gemini request
   or response failures fall back to regex as in the recovered GAS behavior. Ambiguous
   price roles, missing package counts, low confidence and invalid values stay in review.
-- The Google API key is sent in the request header and must not be logged. This decision
-  does not authorize a partial Railway deployment or establish live extraction quality.
+- Google confirmed `gemini-3.5-flash-lite` and its `generateContent` method for the
+  configured key on 2026-10-30. The Google API key is sent in the request header and
+  must not be logged. Live supplier-message extraction quality still needs review.
+
+### D-036 — Rezvan reference data comes from WooCommerce Store API
+
+- Direct user correction on 2026-10-30: the Rezvan Pakhsh reference catalog must be
+  fetched through WooCommerce API, not extracted from its official PDF. This replaces
+  the earlier assumption in D-008 and the recovered PDF importer as a source for the
+  production reference refresh.
+- Required source: `https://rezvanpakhsh.com/wp-json/wc/store/v1/products`, fetched with
+  stable ID ordering and complete pagination. A live read returned 3,895 products over
+  39 pages, all with titles, SKUs, categories and positive prices in IRR.
+- Preserve the full WooCommerce title, SKU and categories. Convert IRR to toman by 10:1;
+  accept IRT as already in toman. Derive counts, retail hints, volume and weight only
+  from explicit title markers; do not use Gemini for this reference import.
+- Refresh creates an inactive candidate only. The owner reviews it before any
+  `ReferencePrices` write or active-snapshot change. Legacy PDF/Gemini candidates are
+  retained for history but cannot be reviewed or activated.
+- Most WooCommerce products have no separate attributes, so the title remains the
+  complete source for product details. Completeness of pages does not establish the
+  correctness of supplier-provided titles or prices.

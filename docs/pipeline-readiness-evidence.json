@@ -1,6 +1,6 @@
 {
-  "date": "2026-10-29",
-  "mode": "Live pipeline verification and safe Woo catalog setup; no customer order/payment",
+  "date": "2026-10-30",
+  "mode": "Rezvan WooCommerce API source correction; no customer order/payment or reference activation",
   "results": {
     "health": {
       "http": 200,
@@ -76,7 +76,17 @@
     }
   },
   "sheets_note": "Railway reports a service-account writer and /api/shop returns the two live Products rows. Bilateral edits, conflict receipts and automatic publication cadence are not verified.",
-  "limits": "Release is blocked by the CloudyLink PHP host failing outbound HTTPS to Railway and by the absence of an enabled full-prepayment gateway. Woo remains in Coming soon mode. The 10-row Rezvan/Gemini candidate is staged, inactive and has not been written to ReferencePrices; owner review and the complete order-to-aftercare flow remain open.",
+  "limits": "The Rezvan reference source is the WooCommerce Store API. The older 10-row PDF/Gemini candidates are historical, incomplete, inactive, and have not been written to ReferencePrices. A new API candidate must be staged from the deployed importer and reviewed by an owner before activation. Payment setup and the complete order-to-aftercare flow remain separate open work.",
+  "reference_source_correction": {
+    "date": "2026-10-30",
+    "authoritative_source": "https://rezvanpakhsh.com/wp-json/wc/store/v1/products",
+    "audit_result": "3,895 products across 39 pages; all have a title, SKU, category, and positive IRR price",
+    "import_policy": "Preserve full title, SKU, and category; convert IRR to toman; derive package/set/volume/weight only from explicit title markers and API attributes",
+    "legacy_pdf_attempt": "Failed with extraction_batch_row_count_mismatch_page_15_left before staging a new snapshot",
+    "legacy_snapshots": "Two existing 10-row PDF/Gemini candidates; coverage unverified and inactive",
+    "activation_or_sheet_write": false,
+    "fresh_api_candidate": "pending deployment and production refresh"
+  },
   "latest_deployment_checkpoint": {
     "date": "2026-10-29",
     "project": "stellar-solace",
@@ -100,6 +110,7 @@
     "pending_railway_changes": 0
   },
   "live_reference_sample": {
+    "status": "historical_legacy_pdf_candidate_superseded_by_woocommerce_api",
     "source": "https://rezvanpakhsh.com/pdf/price-list.pdf",
     "source_pdf_http": 200,
     "mime_type": "application/pdf",

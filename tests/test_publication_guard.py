@@ -86,17 +86,13 @@ class GuardRecoveryTests(unittest.TestCase):
   from datetime import datetime,timedelta,timezone
   from unittest.mock import patch
   from reference_import.snapshots import ReferenceStore
-  from reference_import.importer import SOURCE_URL,HEADERS,parse_rows
+  from reference_fixtures import staged_candidate
   with tempfile.TemporaryDirectory() as directory:
    ref=str(Path(directory)/'reference.sqlite');queue=Handoffs(str(Path(directory)/'pipeline.sqlite'))
    store=ReferenceStore(ref,owner_ids=['wp:7']);now=datetime.now(timezone.utc)
    def prepare(hours):
     stamp=(now-timedelta(hours=hours)).isoformat()
-    item={'raw_name':'چای','clean_name':'چای','package_price':480000,'package_count':12,'pdf_row_number':'1'}
-    rows=parse_rows(json.dumps([item]),stamp)
-    candidate={'status':'staged','source_url':SOURCE_URL,'headers':list(HEADERS),'extracted_at':stamp,
-      'row_count':1,'source_page_count':1,'processed_page_count':1,'first_pdf_row_number':1,
-      'last_pdf_row_number':1,'coverage_verified':True,'rows':rows}
+    candidate=staged_candidate(stamp)
     v=store.stage(candidate);store.review(v,actor_id='wp:7',note='synthetic');return v
    first=prepare(2);second=prepare(1);store.activate(first,actor_id='wp:7',expected_active_id=None)
    queue.receive({'id':'1','channel_username':'supplier','content':'sample'});job=queue.batch()

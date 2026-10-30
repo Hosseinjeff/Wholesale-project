@@ -1,15 +1,20 @@
 # WordPress dashboard integration
 
-## Deployment checkpoint — 2026-10-28
+## Current source correction — 2026-10-30
 
-The updated MolaviShop plugin files and owner bridge configuration were reported
-installed on the existing WordPress site. The private bridge config is outside Git;
-the production server and persistent volume are live. After the user
-replaced the Gemini key, the live Rezvan PDF refresh staged a 10-row candidate; the Woo
-admin exposes an 8-row preview, followed by owner review and explicit activation. The
-active snapshot remains null and no `ReferencePrices` write has occurred. The deployed
-preview file matches the tested local file byte-for-byte. The plugin's remote admin page
-and active-plugin/browser interactions still need a visual live UI check.
+The user clarified that Rezvan reference products must come from the WooCommerce Store
+API, not the official PDF. The live Store API read returned 3,895 products in 39 pages;
+all have titles, SKUs, categories and positive IRR prices. The active refresh now stages
+an inactive API-sourced candidate, converting IRR to toman and preserving each complete
+title. Legacy PDF/Gemini candidates remain visible for history but cannot be reviewed or
+activated. No active snapshot or `ReferencePrices` write is authorized by refresh.
+
+## Historical deployment checkpoint — 2026-10-28 (PDF source superseded)
+
+The earlier MolaviShop version was installed on the existing WordPress site. The private
+bridge config is outside Git; the production server and persistent volume are live. The
+PDF refresh staged two incomplete 10-row legacy candidates; they were never activated or
+written to `ReferencePrices`. This old path is superseded by the user-confirmed API source.
 
 **Current outage (2026-10-29, Asia/Tehran):** the public WordPress entry point now fails
 before plugins load because `public_html/wp-config.php` is zero bytes. The Railway API

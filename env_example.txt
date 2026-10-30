@@ -29,11 +29,11 @@ GOOGLE_SHEET_ID=your_google_sheet_id_here
 # the bot writes the Offers log and the Products current book itself.
 GOOGLE_SERVICE_ACCOUNT_JSON=
 
-# === GEMINI PRODUCT EXTRACTION ===
+# === GEMINI SUPPLIER-MESSAGE EXTRACTION ===
 # Gemini is the default; set EXTRACTION_MODE=regex to use deterministic parsing.
-# GOOGLE_API_KEY is also used by the explicit, staging-only Rezvan PDF importer.
+# Rezvan reference prices are read directly from its public WooCommerce Store API.
 GOOGLE_API_KEY=
-AI_MODEL=gemini-3.1-flash-lite
+AI_MODEL=gemini-3.5-flash-lite
 EXTRACTION_MODE=ai
 
 # === DURABLE SERVER PIPELINE / REFERENCE REFRESH ===
@@ -45,7 +45,7 @@ REFERENCE_STORE_PATH=/data/reference.sqlite
 REFERENCE_OWNER_IDS=wp:REPLACE_WITH_APPROVED_USER_ID
 # Dedicated server-to-WordPress bridge secret; use a generated random value of 32+ characters.
 REFERENCE_BRIDGE_TOKEN=replace-with-generated-secret-at-least-32-characters
-# The supervised worker performs Sheet reconciliation and stages a PDF/Gemini candidate daily.
+# The supervised worker performs Sheet reconciliation and stages a WooCommerce API candidate daily.
 # Activation and ReferencePrices projection still require an owner action in Woo admin.
 SHEET_SYNC_POLL_SECONDS=60
 REFERENCE_REFRESH_INTERVAL_HOURS=24

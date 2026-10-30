@@ -8,21 +8,26 @@ import math
 import re
 from datetime import datetime, timezone
 from .decisions import DecisionConflict, ReferenceDecisions
-from .importer import HEADERS, SOURCE_URL, ImportFailure
+from .importer import HEADERS, SOURCE_NAME, SOURCE_TYPE, SOURCE_URL, ImportFailure
 
 
 def has_verified_coverage(candidate):
-    if not isinstance(candidate, dict) or candidate.get('coverage_verified') is not True:
+    if (not isinstance(candidate, dict) or candidate.get('coverage_verified') is not True
+            or candidate.get('source_type') != SOURCE_TYPE
+            or candidate.get('source_url') != SOURCE_URL):
         return False
     total = candidate.get('source_page_count')
     processed = candidate.get('processed_page_count')
+    source_total = candidate.get('source_total')
     rows = candidate.get('rows')
     if (not isinstance(total, int) or isinstance(total, bool) or total < 1
             or not isinstance(processed, int) or isinstance(processed, bool) or processed != total
+            or not isinstance(source_total, int) or isinstance(source_total, bool) or source_total < 1
             or not isinstance(rows, list)
             or not isinstance(candidate.get('row_count'), int)
             or isinstance(candidate.get('row_count'), bool)
-            or candidate.get('row_count') != len(rows) or not rows):
+            or candidate.get('row_count') != len(rows) or source_total != len(rows) or not rows
+            or candidate.get('source_currency') not in {'IRR', 'IRT'}):
         return False
     try:
         row_values = [row[15] for row in rows]
@@ -33,8 +38,8 @@ def has_verified_coverage(candidate):
     except (IndexError, TypeError, ValueError):
         return False
     return (numbers == list(range(1, len(numbers) + 1))
-            and candidate.get('first_pdf_row_number') == 1
-            and candidate.get('last_pdf_row_number') == len(numbers))
+            and candidate.get('first_source_row_number') == 1
+            and candidate.get('last_source_row_number') == len(numbers))
 
 
 class ReferenceStore(ReferenceDecisions):
@@ -54,11 +59,12 @@ class ReferenceStore(ReferenceDecisions):
         os.chmod(self.database,0o600)
 
     def stage(self, candidate):
-        if (candidate.get('status') != 'staged' or candidate.get('source_url') != SOURCE_URL
+        if (candidate.get('status') != 'staged' or candidate.get('source_type') != SOURCE_TYPE
+                or candidate.get('source_url') != SOURCE_URL
                 or list(candidate.get('headers', [])) != list(HEADERS)):
             raise ImportFailure('Invalid candidate contract')
         if not has_verified_coverage(candidate):
-            raise ImportFailure('Candidate PDF row coverage was not verified',
+            raise ImportFailure('WooCommerce product coverage was not verified',
                                 code='extraction_coverage_incomplete')
         rows = candidate.get('rows')
         if not isinstance(rows, list) or not rows or candidate.get('row_count') != len(rows):
@@ -70,7 +76,7 @@ class ReferenceStore(ReferenceDecisions):
             if not isinstance(row, list) or len(row) != len(HEADERS):
                 raise ImportFailure('Invalid row shape')
             if (not all(isinstance(row[i], str) and row[i].strip() for i in (0, 1, 2))
-                    or row[17:20] != ['TOMAN', 'rezvanpakhsh_pdf_ai', SOURCE_URL]
+                    or row[17:20] != ['TOMAN', SOURCE_NAME, SOURCE_URL]
                     or row[20] != candidate['extracted_at']):
                 raise ImportFailure('Invalid row identity/provenance')
             for i in (3, 4, 5, 6, 10):
@@ -121,11 +127,14 @@ class ReferenceStore(ReferenceDecisions):
                      if isinstance(values,list) and len(values)==len(HEADERS)]
             result.append({'snapshot_id':row['snapshot_id'],'extracted_at':candidate.get('extracted_at'),
                 'row_count':candidate.get('row_count'),'pdf_sha256':candidate.get('pdf_sha256'),
+                'source_type':candidate.get('source_type'),
+                'source_total':candidate.get('source_total'),
+                'source_currency':candidate.get('source_currency'),
                 'model':candidate.get('model'),'source_url':candidate.get('source_url'),
                 'source_page_count':candidate.get('source_page_count'),
                 'processed_page_count':candidate.get('processed_page_count'),
-                'first_pdf_row_number':candidate.get('first_pdf_row_number'),
-                'last_pdf_row_number':candidate.get('last_pdf_row_number'),
+                'first_source_row_number':candidate.get('first_source_row_number'),
+                'last_source_row_number':candidate.get('last_source_row_number'),
                 'coverage_verified':has_verified_coverage(candidate),
                 'preview':preview,'preview_total':candidate.get('row_count',0),
                 'reviewed_by':row['reviewed_by'],'review_note':row['review_note'],
@@ -134,13 +143,13 @@ class ReferenceStore(ReferenceDecisions):
 
     @staticmethod
     def _preview_row(values):
-        return {'product_name':values[0],'clean_name':values[1],
+        return {'product_name':values[0],'clean_name':values[1],'normalized_key':values[2],
             'package_price':values[3],'unit_price':values[4],
             'consumer_unit_price':values[5],'package_count':values[6],
             'unit_label':values[7],'volume':values[8],'weight':values[9],
             'set_count':values[10],'variant':values[11],'brand':values[12],
             'category':values[13],'raw_name_details':values[14],
-            'pdf_row_number':values[15],'product_code':values[16]}
+            'source_row_number':values[15],'product_code':values[16]}
 
     def snapshot_rows(self, snapshot_id):
         candidate=self.snapshot(snapshot_id)

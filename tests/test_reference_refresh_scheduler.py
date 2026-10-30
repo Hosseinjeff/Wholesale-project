@@ -4,20 +4,14 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from reference_import.importer import ImportFailure, SOURCE_URL, parse_rows
+from reference_import.importer import ImportFailure
 from reference_import.refresh_scheduler import ReferenceRefreshScheduler
 from reference_import.snapshots import ReferenceStore
+from reference_fixtures import staged_candidate
 
 
 def candidate(at):
-    rows=parse_rows(json.dumps([{'raw_name':'چای نمونه ۱۲ عددی','clean_name':'چای نمونه',
-        'package_price':1200000,'package_count':12,'unit_price':100000,
-        'category':'Tea','product_code':'TEA-12','currency':'TOMAN','pdf_row_number':'1'}],ensure_ascii=False),at.isoformat())
-    return {'schema_version':1,'status':'staged','requires_review':True,'source_url':SOURCE_URL,
-        'pdf_sha256':'a'*64,'model':'gemini-3.5-flash-lite','extracted_at':at.isoformat(),
-        'row_count':len(rows),'headers':list(__import__('reference_import.importer',fromlist=['HEADERS']).HEADERS),
-        'source_page_count':1,'processed_page_count':1,'first_pdf_row_number':1,
-        'last_pdf_row_number':1,'coverage_verified':True,'rows':rows}
+    return staged_candidate(at.isoformat())
 
 
 class ReferenceRefreshSchedulerTests(unittest.TestCase):

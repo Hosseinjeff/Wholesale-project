@@ -1,4 +1,4 @@
-"""Single-process-safe daily PDF/Gemini refresh attempts with durable failure incidents."""
+"""Single-process-safe daily WooCommerce refresh attempts with durable failure incidents."""
 from __future__ import annotations
 
 import fcntl
@@ -86,7 +86,7 @@ class ReferenceRefreshScheduler:
                     occurrence_id=?,snapshot_id=NULL,error_code=NULL WHERE singleton=1''',
                     (now.isoformat(),occurrence))
             try:
-                candidate=(refresh or self._refresh_pdf)()
+                candidate=(refresh or self._refresh_woocommerce)()
                 snapshot_id=self.store.stage(candidate)
                 with self._connect() as db:
                     db.execute('''UPDATE reference_refresh_state SET state='staged',snapshot_id=?,error_code=NULL
@@ -105,8 +105,6 @@ class ReferenceRefreshScheduler:
                 return {'state':'failed','occurrence_id':occurrence,'error_code':error_code}
 
     @staticmethod
-    def _refresh_pdf():
-        import requests
-        from .importer import extract_pdf
-        with requests.Session() as session:
-            return extract_pdf(session)
+    def _refresh_woocommerce():
+        from .importer import extract_woocommerce_store_api
+        return extract_woocommerce_store_api()

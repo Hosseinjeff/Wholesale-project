@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "snapshot_version": "4.53-reference-owner-access-and-simple-ui-live",
+  "snapshot_version": "4.54-woocommerce-reference-source-correction-in-progress",
   "updated_at_local_date": "2026-10-30",
   "timezone": "Asia/Tehran",
   "shared_brief_url": "https://www.molavisale.ir/molavi-workflow-e73014a831.html",
@@ -8,7 +8,7 @@
   "project": "MolaviSale",
   "scope": "Entire operating stream: supplier data entry, processing, pricing, site publication and efficient UI, durable order receipt, order management, fulfillment, and follow-up",
   "current_scene": "WF-00",
-  "status": "backend_live_catalog_synced_reference_two_owner_ui_live_owner_review_pending",
+  "status": "backend_live_catalog_synced_reference_source_correction_pending_deploy",
   "completed_scenes": [],
   "persona": {
     "first": "household_bulk",
@@ -81,7 +81,8 @@
     "D-032",
     "D-033",
     "D-034",
-    "D-035"
+    "D-035",
+    "D-036"
   ],
   "working_proposal_ids": [
     "P-01",
@@ -105,15 +106,15 @@
     "Iran payment provider selection and integration",
     "Supplier/reference price-difference review policy question; unanswered, deprioritized by latest user steering"
   ],
-  "next_action": "Open WooCommerce → بررسی قیمت‌های مرجع as WordPress user 1 or 2 and review the staged Rezvan/Gemini candidate. Activate it only after explicit owner approval and a matching ReferencePrices write receipt; verify live Sheet reconciliation before completing WF-00. Payment setup remains separate.",
+  "next_action": "Deploy the WooCommerce Store API source correction and stage a complete Rezvan candidate. Review it in WooCommerce → بررسی قیمت‌های مرجع as WordPress user 1 or 2; activate only after explicit owner approval and verify the ReferencePrices write receipt. Payment setup remains separate.",
   "continuity": "Published snapshot must be updated explicitly after decisions; chats do not synchronize automatically.",
   "legacy_scene_order": "RP-00 through RP-08 is superseded; no previous scene was completed.",
   "intake_model": {
     "primary": "Forwarded messages to bot, analyzed and saved to Sheets",
     "reference_anchor": "Separate well-known-wholesaler source used to help correct extraction",
-    "status": "Gemini extraction defaults to AI. The production Rezvan PDF→Gemini path has staged a live 10-row candidate; connected Sheets writes/reconciliation and owner approval remain to be verified.",
-    "anchor_identity": "Rezvan Pakhsh reference source plus Google inference described by user; supplied PDF importer uses Gemini",
-    "anchor_retrieval": "Recovered PDF → Gemini → ReferencePrices path. Separate REFERENCE_REFRESH_SERVER_URL delegation exists in code but actual configuration/use is unverified.",
+    "status": "Rezvan reference data comes from its WooCommerce Store API; supplier-message extraction separately uses Gemini. The previous PDF/Gemini drafts are incomplete and inactive.",
+    "anchor_identity": "Rezvan Pakhsh WooCommerce product catalog; preserve API title, SKU and category",
+    "anchor_retrieval": "WooCommerce Store API with complete pagination; convert IRR to toman and infer package/set/volume/weight only from explicit title markers and API attributes. PDF/Gemini is historical for this reference source.",
     "anchor_field_authority": "unresolved",
     "separate_anchor_integration_verified": false,
     "reference_sheet": "ReferencePrices"
@@ -419,16 +420,16 @@
     "inventory": "Owner-only Woo dashboard records audited lots and revision-bound adjustments/holds. Railway now persists the SQLite workflow database on /data; stock and order ledgers are not mirrored to Sheets.",
     "clearance_proposal": "Private Woo owner screen calculates and audits receipt-bound proposals from batch dates/cost, same-basket normal price and current comparable market input; stale/missing inputs hold; no Woo price write; formula, proximity threshold, scheduled recalculation and proactive alerts remain open",
     "supplier_freshness": "Local durable ledger binds source offer and cost revision to source timestamp; day-7 dashboard warning, day-14 quote/Woo block, owner verification and guarded republish connected; direct Sheet values are read live and the supervised worker queues Woo publication after detected edits; connected payment staging remains open",
-    "reference_matching": "Durable intake, snapshot gating, owner corrections and item/price-role review are deployed with the production server and MolaviShop plugin. The live Rezvan/Gemini path staged a 10-row candidate with an 8-row Woo preview; no snapshot is active and no ReferencePrices write occurred. Owner review and explicit activation remain required.",
+    "reference_matching": "Durable intake, snapshot gating, owner corrections and item/price-role review are deployed. The source correction changes reference acquisition to the Woo Store API; production deployment and a fresh full candidate are pending. No snapshot is active and no ReferencePrices write occurred.",
     "procurement": "Paid-order shortfalls create owner-noted fixed-pack/minimum/multiple/cost/surplus proposals tied to source offer IDs; no supplier purchase is submitted; current supplier-term freshness and purchase completion remain owner/staging work",
-    "gemini_supplier_extraction": "Gemini remains the default per D-035; GOOGLE_API_KEY/AI_API_KEY compatibility and gemini-3.1-flash-lite are configured. The replacement Railway key was accepted by Gemini for a real Rezvan PDF extraction; 10 rows are staged for owner review. Secret remains redacted.",
+    "gemini_supplier_extraction": "Gemini remains the default for supplier-message extraction per D-035; gemini-3.5-flash-lite is available and the code default is updated. The production AI_MODEL setting still needs to be set to 3.5. Reference product acquisition does not use Gemini. Secret remains redacted.",
     "railway_staged_variables": "2026-10-30: production tracks molavisale-release-2026-10-28; latest deployment SUCCESS at commit e071d3b0263f38c97464316fc697d0b449a53ba7. REFERENCE_OWNER_IDS is wp:1,wp:2; dedicated REFERENCE_BRIDGE_TOKEN remains paired with protected WordPress wp-config.php. Persistent /data volume remains attached; no Railway configuration changes are staged. GOOGLE_SERVICE_ACCOUNT_JSON and GOOGLE_SHEET_ID remain redacted; connected row-level Sheets writes/reconciliation remain unverified. Only production exists; separate FollowUP-bot untouched.",
     "order_payment_handoff": "Woo payment_complete sends receipt-checked paid snapshots with transaction/time, SKU and exact supplier offer provenance; cancellation/refund/failure snapshots release open lot reservations; Action Scheduler/WP-Cron retries pass synthetic runtime. Persistent /data storage is deployed, while installed gateway, live amount/callback and connected checkout remain unverified.",
     "paid_order_fulfillment": "Owner dashboard workflow covers assignment, supplier purchase recording/receipts, unavailable lines, substitutions/customer choices, refunds/additional-payment receipts, packing, dispatch/tracking, aftercare and closure. The SQLite database is persistent on Railway /data, not mirrored to Sheets. No automated supplier purchase, refund or extra charge is sent.",
     "reference_item_review": "Private Woo owner screen and authenticated /reference/item-reviews API are deployed; ranked suggestions, explicit reference/price-role choice, no-match hold, audited corrections, Products projection update and guarded publication are implemented. Live Sheet reconciliation and a usable active reference snapshot remain unverified.",
     "google_sheets_readonly_probe": "Railway service-account reader and the production /api/shop returned two current Products rows. Row-level Sheet edits, reconciliation and conflict receipts remain unverified.",
     "ai_confirmation": "Owner-only Woo review can confirm extracted offer fields or mark a message not-a-product; decisions persist idempotently, append derived Offers rather than modifying supplier source rows, refresh MessageData AI status and queue guarded publication. Tested locally with mocks; connected extraction and dashboard staging remain unverified.",
-    "reference_refresh": "Production fetched Rezvan PDF and Gemini staged 10 candidate rows in snapshot 3adf331cfe5877a05b0637774f8dbdb1e02422a1da1cc7437880f62893edcca4. Candidate remains inactive with no ReferencePrices write. Read-only authenticated GETs as wp:1 and wp:2 each returned HTTP 200 with two snapshot entries and refresh_state=staged; owner review remains required before activation.",
+    "reference_refresh": "The previous scheduled PDF refresh failed with extraction_batch_row_count_mismatch_page_15_left before staging a new candidate. Two older 10-row PDF/Gemini snapshots have unverified coverage and remain inactive. Live Store API audit returned 3,895 products over 39 pages. Deploy the new API importer, then stage a complete owner-review candidate; no ReferencePrices write occurred.",
     "deployed_commit": "e071d3b0263f38c97464316fc697d0b449a53ba7",
     "supervised_worker": "The latest Railway deployment db46d33c-adca-4bad-8a5d-2c2207e1947d succeeded with the 500 MB /data volume attached; free-plan sleep remains enabled.",
     "live_site_incident": "2026-10-28/29: Fresh WordPress uses h434558_Salesman and existing MolaviShop/Woo. Two live Sheet products are published with customer-facing IRT prices and private supplier cost. Shop page 7 has a Woo products shortcode but the site is in Coming soon mode; no payment method is enabled. The user-created admin login works. Original site files are preserved outside public_html; legacy catalog/orders/media were not restored."

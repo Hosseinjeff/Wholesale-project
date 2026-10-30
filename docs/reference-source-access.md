@@ -1,5 +1,16 @@
 # ReferencePrices source recovery checkpoint
 
+## Current source decision — 2026-10-30
+
+The user has explicitly corrected the source: Rezvan Pakhsh reference products must be
+fetched through its WooCommerce Store API, not extracted from the official PDF. The
+production endpoint is
+`https://rezvanpakhsh.com/wp-json/wc/store/v1/products`. A read-only audit fetched all
+3,895 products across 39 pages; all had titles, SKUs, categories and positive IRR prices.
+The importer converts IRR to toman and retains the full product title. The PDF/Gemini
+code and snapshots described below are historical; old PDF candidates must stay inactive
+and cannot be reviewed or activated.
+
 Updated 2026-10-25, Asia/Tehran. The user supplied source as `gas.rar`; Google sign-in
 is no longer needed to inspect those files. Do not ask the user to export them again.
 
@@ -16,23 +27,20 @@ is no longer needed to inspect those files. Do not ask the user to export them a
 - Audit: `recovered-gas-audit.md`. The archive is user-associated with this project;
   authenticated linkage to the editor/deployed revision was not independently verified.
 
-## Latest clarification — D-008
+## Historical clarification — D-008 (superseded by D-036)
 
-The user identifies Google inference as the mechanism used with the Rezvan Pakhsh
-reference source. The export's PDF importer calls Gemini using AI_API_KEY and AI_MODEL.
-That implementation is already recovered. REFERENCE_REFRESH_SERVER_URL is a separate
-delegation wrapper; its existence does not prove a separately configured/running helper.
-Discovery of such a helper is conditional on evidence of its use, not a prerequisite
-for continuing the server migration. Earlier unconditional requests for its source
-were too strong. Check active path/settings and schedule without reopening the server target.
+The earlier note identified Google inference and the recovered PDF/Gemini importer as
+the Rezvan reference path. The user's later direct correction establishes the WooCommerce
+Store API as the required source. The old PDF/Gemini implementation is not the production
+reference source. The unrelated REFERENCE_REFRESH_SERVER_URL wrapper remains historical
+code and is not required to fetch the public Store API.
 
 ## Remaining evidence (apply the clarification above)
 
-1. The main refresh reads `REFERENCE_REFRESH_SERVER_URL` from Script Properties and
-   delegates to a separate server. The actual property value and server implementation
-   are absent. Recover that service's source/configuration metadata; never request or
-   publish token values. The legacy PDF path names Rezvan Pakhsh; active Store API
-   source identity is not independently established by that legacy URL.
+1. Historical GAS main refresh reads `REFERENCE_REFRESH_SERVER_URL` from Script
+   Properties and delegates to a separate server. The actual property value and server
+   implementation are absent. This is not a prerequisite for the WooCommerce API
+   source now selected by the user.
 2. No `appsscript.json` or library/scope/timezone metadata is included.
 3. No installed trigger list is included. Source defines daily reference refresh around
    04:00 in script timezone and a five-minute AI queue trigger. Do not assume installed.

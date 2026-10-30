@@ -9,23 +9,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 from catalog.sync import MemoryStore
-from reference_import.importer import ImportFailure, SOURCE_URL, HEADERS, parse_rows
+from reference_import.importer import ImportFailure, HEADERS, LEGACY_PDF_HEADERS, PDF_SOURCE_URL, parse_rows
 from reference_import.projection import project_reference_prices
 from reference_import.snapshots import ReferenceStore
 from reference_import.refresh_scheduler import ReferenceRefreshScheduler
-
-
-def staged_candidate():
-    timestamp=datetime.now(timezone.utc).isoformat()
-    rows=parse_rows(json.dumps([{'raw_name':'چای نمونه','clean_name':'چای نمونه',
-        'package_price':1200000,'package_count':12,'unit_price':100000,
-        'category':'Tea','product_code':'TEA-12','currency':'TOMAN','pdf_row_number':'1'}],ensure_ascii=False),timestamp)
-    return {'schema_version':1,'status':'staged','requires_review':True,'source_url':SOURCE_URL,
-        'pdf_sha256':'b'*64,'model':'gemini-3.5-flash-lite','extracted_at':timestamp,
-        'row_count':len(rows),'source_page_count':1,'processed_page_count':1,
-        'first_pdf_row_number':1,'last_pdf_row_number':1,'coverage_verified':True,
-        'headers':list(HEADERS),'rows':rows}
-
+from reference_fixtures import staged_candidate
 
 class ReferenceSnapshotRouteTests(unittest.TestCase):
     def test_short_lived_browser_token_is_scoped_to_snapshots_and_cors_origin(self):
@@ -61,7 +49,7 @@ class ReferenceSnapshotRouteTests(unittest.TestCase):
                     headers=headers)
                 self.assertEqual(exported.status_code,200,exported.get_json())
                 self.assertEqual(exported.get_json()['row_count'],1)
-                self.assertEqual(exported.get_json()['rows'][0]['pdf_row_number'],'1')
+                self.assertEqual(exported.get_json()['rows'][0]['source_row_number'],'1')
                 self.assertEqual(exported.get_json()['rows'][0]['brand'],'')
                 review=client.post('/reference/snapshots',json={
                     'action':'review','snapshot_id':snapshot_id,'note':'Reviewed from owner browser',
@@ -95,7 +83,7 @@ class ReferenceSnapshotRouteTests(unittest.TestCase):
             payload={'action':'refresh','expected_last_attempt_at':scheduler.state()['last_attempt_at']}
             with patch.dict(os.environ,{'REFERENCE_STORE_PATH':path,'REFERENCE_BRIDGE_TOKEN':'z'*40,
                     'REFERENCE_OWNER_IDS':'wp:7','REFERENCE_REFRESH_INTERVAL_HOURS':'24'}), \
-                    patch.object(ReferenceRefreshScheduler,'_refresh_pdf',return_value=staged_candidate()), \
+                    patch.object(ReferenceRefreshScheduler,'_refresh_woocommerce',return_value=staged_candidate()), \
                     patch.object(server,'ensure_telegram_webhook',return_value=None):
                 client=server.app.test_client()
                 headers={'X-Molavi-Reference-Token':'z'*40,'X-Molavi-Actor':'wp:7'}
@@ -113,9 +101,11 @@ class ReferenceSnapshotRouteTests(unittest.TestCase):
         server=import_module('app')
         with tempfile.TemporaryDirectory() as tmp:
             path=str(Path(tmp)/'reference.sqlite');gate=ReferenceStore(path,owner_ids=['wp:7'])
-            legacy=staged_candidate();legacy.pop('coverage_verified')
+            legacy=staged_candidate();legacy['source_type']='legacy_pdf_gemini'
+            legacy['source_url']=PDF_SOURCE_URL;legacy.pop('coverage_verified')
+            legacy.pop('source_total');legacy.pop('source_currency')
             legacy.pop('source_page_count');legacy.pop('processed_page_count')
-            legacy.pop('first_pdf_row_number');legacy.pop('last_pdf_row_number')
+            legacy.pop('first_source_row_number');legacy.pop('last_source_row_number')
             snapshot_id='d'*64
             with sqlite3.connect(path) as db:
                 db.execute('INSERT INTO reference_snapshots VALUES (?, ?, NULL, NULL, NULL)',
@@ -124,6 +114,34 @@ class ReferenceSnapshotRouteTests(unittest.TestCase):
                     'REFERENCE_OWNER_IDS':'wp:7'}),patch.object(server,'ensure_telegram_webhook',return_value=None):
                 client=server.app.test_client()
                 headers={'X-Molavi-Reference-Token':'z'*40,'X-Molavi-Actor':'wp:7'}
+                for action,body in (('review',{'note':'Must be blocked'}),('activate',{})):
+                    response=client.post('/reference/snapshots',json={
+                        'action':action,'snapshot_id':snapshot_id,
+                        'expected_active_id':None,**body},headers=headers)
+                    self.assertEqual(response.status_code,409,response.get_json())
+
+    def test_fully_marked_legacy_pdf_snapshot_cannot_be_reviewed_or_activated(self):
+        from importlib import import_module
+        import sqlite3
+        server=import_module('app')
+        with tempfile.TemporaryDirectory() as tmp:
+            path=str(Path(tmp)/'reference.sqlite')
+            candidate=staged_candidate()
+            candidate['source_type']='legacy_pdf_gemini'
+            candidate['source_url']=PDF_SOURCE_URL
+            snapshot_id='e'*64
+            with sqlite3.connect(path) as db:
+                db.execute('''CREATE TABLE IF NOT EXISTS reference_snapshots (
+                    snapshot_id TEXT PRIMARY KEY, payload TEXT NOT NULL,
+                    reviewed_by TEXT, review_note TEXT, reviewed_at TEXT)''')
+                db.execute('INSERT INTO reference_snapshots VALUES (?, ?, NULL, NULL, NULL)',
+                    (snapshot_id,json.dumps(candidate,ensure_ascii=False)))
+            with patch.dict(os.environ,{'REFERENCE_STORE_PATH':path,'REFERENCE_BRIDGE_TOKEN':'z'*40,
+                    'REFERENCE_OWNER_IDS':'wp:7'}),patch.object(server,'ensure_telegram_webhook',return_value=None):
+                client=server.app.test_client()
+                headers={'X-Molavi-Reference-Token':'z'*40,'X-Molavi-Actor':'wp:7'}
+                listing=client.get('/reference/snapshots',headers=headers)
+                self.assertFalse(listing.get_json()['snapshots'][0]['coverage_verified'])
                 for action,body in (('review',{'note':'Must be blocked'}),('activate',{})):
                     response=client.post('/reference/snapshots',json={
                         'action':action,'snapshot_id':snapshot_id,
@@ -146,6 +164,18 @@ class ReferenceSnapshotRouteTests(unittest.TestCase):
         self.assertEqual(table[2],['']*len(HEADERS))
         self.assertEqual(table[3],['']*len(HEADERS))
 
+    def test_projection_migrates_the_old_pdf_row_header_without_adding_a_duplicate_column(self):
+        candidate=staged_candidate()
+        sheets=MemoryStore()
+        sheets.ensure('ReferencePrices',list(LEGACY_PDF_HEADERS))
+        sheets.append('ReferencePrices',[[f'old-{i}' for i,_ in enumerate(LEGACY_PDF_HEADERS)]])
+        receipt=project_reference_prices(sheets,candidate)
+        self.assertTrue(receipt['verified'])
+        table=sheets.read('ReferencePrices')
+        self.assertEqual(table[0],list(HEADERS))
+        self.assertEqual(len(table[0]),len(HEADERS))
+        self.assertEqual(table[1],candidate['rows'][0])
+
     def test_dashboard_reviews_activates_and_projects_only_after_owner_action(self):
         from importlib import import_module
         server=import_module('app')
@@ -165,7 +195,8 @@ class ReferenceSnapshotRouteTests(unittest.TestCase):
                 listing=client.get('/reference/snapshots',headers=headers)
                 self.assertEqual(listing.status_code,200)
                 self.assertEqual(listing.get_json()['snapshots'][0]['snapshot_id'],snapshot_id)
-                self.assertEqual(listing.get_json()['snapshots'][0]['preview'][0]['product_name'],'چای نمونه')
+                self.assertEqual(listing.get_json()['snapshots'][0]['preview'][0]['product_name'],
+                    'چای نمونه ۱۲ عددی (۴۵ف) ۲۵۰گرم ۵۰۰میل')
                 review={'action':'review','snapshot_id':snapshot_id,'note':'Coverage and prices checked',
                     'expected_active_id':None}
                 self.assertEqual(client.post('/reference/snapshots',json=review,headers=headers).status_code,200)
@@ -176,7 +207,7 @@ class ReferenceSnapshotRouteTests(unittest.TestCase):
                 table=sheets.read('ReferencePrices')
                 self.assertEqual(table[0],list(HEADERS))
                 self.assertEqual(len(table),2)
-                self.assertEqual(table[1][0],'چای نمونه')
+                self.assertEqual(table[1][0],'چای نمونه ۱۲ عددی (۴۵ف) ۲۵۰گرم ۵۰۰میل')
                 retry={**activate,'expected_active_id':snapshot_id}
                 receipt=client.post('/reference/snapshots',json=retry,headers=headers)
                 self.assertEqual(receipt.status_code,200,receipt.get_json())

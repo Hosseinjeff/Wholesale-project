@@ -89,6 +89,9 @@ class MemoryStore:
         if changed:
             table[0] = extended
 
+    def sheet_exists(self, name: str) -> bool:
+        return name in self.sheets
+
     def read(self, name: str) -> list[list[Any]]:
         return [list(row) for row in self.sheets.get(name, [])]
 
@@ -301,6 +304,11 @@ class GoogleSheetStore:
         extended, changed = extend_header_row(existing[0], headers)
         if changed:
             self.write_rows(name, 1, [extended])
+
+    def sheet_exists(self, name: str) -> bool:
+        if not self._sheet_ids:
+            self._refresh_sheet_ids()
+        return name in self._sheet_ids
 
     def read(self, name: str) -> list[list[Any]]:
         cached = self._values.get(name)

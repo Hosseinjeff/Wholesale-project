@@ -1,12 +1,13 @@
 # Whole-plan release and later-iteration backlog
 
-2026-10-28, Asia/Tehran. The user asked to execute/deploy the plan as a whole and
+2026-10-30, Asia/Tehran. The user asked to execute/deploy the plan as a whole and
 record any remaining items for later iterations. The server, production volume, and
-existing MolaviShop plugin integration are deployed. The live Rezvan/Gemini sample now
-stages a 10-row candidate and displays an 8-row Woo owner preview. Owner review,
-activation and the `ReferencePrices` projection are pending. This file distinguishes
-incomplete release connections from
-optional business settings; mockup v2 remains unapproved and no credentials are stored.
+existing MolaviShop plugin integration are deployed. The current Rezvan reference source
+is its WooCommerce Store API (3,895 products over 39 pages); the old PDF/Gemini drafts
+are incomplete and inactive. The API importer and matching owner UI are being deployed
+before staging a full candidate for review. This file distinguishes incomplete release
+connections from optional business settings; mockup v2 remains unapproved and no
+credentials are stored.
 
 **Historical production incident — 2026-10-29:** WordPress previously failed during
 bootstrap. A later same-day live recheck found the site and Woo storefront responding
@@ -25,9 +26,9 @@ to make integration easy.
 
 ## Whole-release integration still required
 
-1. Validate the locally implemented Rezvan PDF/Gemini/reference path end to end in
-   connected staging. Local code now includes recovered category/history price-scale
-   fallback, durable AI owner confirmations, a crash-aware 24-hour PDF/Gemini refresh,
+1. Validate the Rezvan WooCommerce API/reference path end to end in production. Local
+   code now includes recovered category/history price-scale fallback, durable AI owner
+   confirmations, a crash-aware 24-hour Woo API refresh,
    staged candidates, Woo owner review and verified projection to `ReferencePrices`.
    Weighted match suggestions, snapshot-bound owner overrides, item/price-role review
    and guarded publication are connected to opt-in durable intake. The append-only
@@ -39,11 +40,11 @@ to make integration easy.
    owner dashboard records reconciliation and explicitly queues that batch for replay.
    Reference activation and app publication share cross-process locks. This cannot
    fence legacy/GAS writers that bypass the server locks, so cutover remains required.
-   The production worker fetched the Rezvan PDF and Gemini staged a 10-row candidate;
-   the owner dashboard exposes the first 8 rows for review. Review item identity and
-   package price interpretation, explicitly approve activation, then verify the
-   `ReferencePrices` projection. Treat stale/missing refreshes according to the agreed
-   owner-review gate; do not presume an external refresh server (D-008).
+   The previously deployed worker fetched the official PDF and Gemini staged two
+   incomplete 10-row drafts. Those drafts remain historical and cannot be reviewed or
+   activated. Stage a complete API candidate, review title/price/package interpretation,
+   explicitly approve activation, then verify the `ReferencePrices` projection. Treat
+   stale/missing refreshes according to the agreed owner-review gate.
 2. Validate the local bidirectional Products-sheet adapter in connected staging.
    It handles every normalized non-provenance product column, performs three-way
    reconciliation on supplier updates, preserves source posts, records owner-visible

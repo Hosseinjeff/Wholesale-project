@@ -7,7 +7,7 @@ from urllib.parse import quote
 
 from catalog.extract import extract_category, pack_count, persian_to_english_numbers
 
-DEFAULT_GEMINI_MODEL = 'gemini-3.1-flash-lite'
+DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash-lite'
 _ARABIC_DIGITS = str.maketrans('٠١٢٣٤٥٦٧٨٩', '0123456789')
 
 

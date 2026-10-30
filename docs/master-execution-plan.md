@@ -27,8 +27,10 @@ whole flow. Household first, small retailer second. Use sample data throughout a
 
 - Required GAS execution moves to the server; preserve the recovered original export.
 - Primary input is supplier messages forwarded to the existing bot, saved with provenance. The user may directly correct supplier/stock data in Sheets; supported updates must flow both ways (D-029).
-- Rezvan Pakhsh PDF → Gemini → ReferencePrices is the source-backed migration candidate.
-  The separate refresh-server wrapper is conditional on evidence of actual use.
+- Rezvan Pakhsh reference products come from its WooCommerce Store API, not its PDF.
+  Preserve the full title, SKU and category; convert IRR prices to toman; infer package,
+  set, volume and weight details only from explicit titles or API attributes. Stage a
+  complete candidate for owner review before any `ReferencePrices` activation (D-036).
 - References reach the decision threshold at 24 hours. On stale/failed refresh, ask the
   business owner for that occurrence: pause/review or use the previous snapshot with a
   warning. Wait before affected automatic reference interpretation. Keep decisions scoped.
@@ -125,7 +127,7 @@ queues durable Woo publication; this is polling rather than a Sheets on-edit tri
 | Handoff | Planned behavior and operator action | Acceptance/failure evidence |
 |---|---|---|
 | Supplier → durable intake | Authorized forwarded messages, photos/albums, supplier identity, source IDs/date/revision, receipt before acknowledgement | Duplicate/re-forward adds no duplicate work; crash/restart retains messages; late/split album handling specified |
-| Reference acquisition → snapshot | Explicit Gemini model/key, bounded PDF, validated currency/carton/unit/retail hints, coverage review, atomic versioned activation | Malformed/truncated/empty/partial extraction never replaces active data; failed/stale state appears in WP; previous data retained |
+| Reference acquisition → snapshot | Full WooCommerce Store API pagination, currency conversion, explicit title/API hints, coverage review and atomic versioned activation | Incomplete/changed API pagination or invalid price data never stages; candidate remains inactive until owner review; previous data is retained |
 | Source + reference → extracted offers | Preserve raw supplier amount, derive explicit unit/package fields, normalize identity and match compatible attributes with provenance | Multi-product post stays item-scoped; brand/variant/count conflicts and uncertain roles enter review; reference is not customer-price authority |
 | Extraction → operator review | Original post, proposed values, reference/history context, correction/skip and one-off versus reusable rule | Two operators/stale clicks cannot overwrite each other; correcting tea cannot reprice rice; overrides invalidated when incompatible |
 | Approved offer → pricing/release | One selected supplier's cost/provenance, explicit sellability and availability, current/max discount bands, versioned release | Thin/no-valid-reference cases held as needed; no double discount; supplier advertisement does not become verified owned stock |
@@ -470,7 +472,7 @@ These are work packages within one execution, not repeated requests for permissi
 | Package | Work and completion gate |
 |---|---|
 | E1 — Freeze contracts and migration map | Resolve the grouped business choices; assign record writers, source/product/order IDs, edit rights, statuses and release settings. Map all required GAS behaviors using existing 176-function inventory: port, replace by native feature, archive debug/maintenance, or explicitly defer. Treat A/B audit findings as acceptance inputs. |
-| E2 — Connect ingestion, reference and review | The local implementation now covers durable intake/source revisions/albums, reference acquisition and a crash-aware daily refresh, matching/history/category inference, owner AI confirmation, reusable overrides and item-scoped review in WordPress. Next validate configured owner access, live PDF/Gemini/Sheets calls and failure recovery in connected staging. No hidden GAS runtime fallback. |
+| E2 — Connect ingestion, reference and review | The local implementation covers durable intake/source revisions/albums, Woo Store API reference acquisition and a crash-aware daily refresh, matching/history/category inference, owner AI confirmation, reusable overrides and item-scoped review in WordPress. Validate owner access, a complete live API candidate and failure recovery; supplier-message Gemini remains a separate extraction path. No hidden GAS runtime fallback. |
 | E3 — Complete catalog/pricing/publication | Reconcile data owners and Settings/Shop controls; preserve basket discounts; add purchase-batch stock/reservations and expiry clearance; fix supplier/cost and stock/media receipts; introduce versioned releases, overrides, withdrawal and retry. Preserve Woo IDs/URLs/media and agreed manual edits. Batch clearance calculation and its near-cost alert need the recorded rule/threshold decisions before customer pricing can be enabled. |
 | E4 — Complete customer + operator interfaces | Produce coherent storefront and private operations mockups using existing Elementor/Woo/MolaviShop. Implement discovery, basket, chosen checkout, reference/product review and unified work queue. Native roles/capabilities/nonces, translated text and mobile/RTL/accessibility. |
 | E5 — Connect order-to-aftercare | Durable authoritative order receipt, idempotent mirror/outbox, classic/block coverage, reuse/verify existing replacement proposals and customer choice for shortages, supplier exception coordination, checkout price snapshot, verified payment, preparation, dispatch, tracking, cancellation/returns/refund tasks. Reuse Woo APIs/Action Scheduler. |
@@ -495,9 +497,10 @@ resolve it in the plan rather than silently inventing policy. Keep unsupported f
 
 Known prototype work: opt-in persistent storage/worker and owner bridge are not installed
 on the service; connected customer fulfillment/recovery remains open. Local reference
-history/category fallback, AI confirmation, scheduled PDF/Gemini candidate staging and
-owner-reviewed `ReferencePrices` projection are implemented, but live credentials, Google
-calls and connected refresh are unverified. The paid-order mirror connects to audited
+history/category fallback, AI confirmation, scheduled Woo API candidate staging and
+owner-reviewed `ReferencePrices` projection are implemented. The complete live API
+catalog has been read, but candidate deployment/review remain separate steps. The
+paid-order mirror connects to audited
 stock-lot receipts, FEFO reservations, fixed-pack shortfall proposals and owner-managed
 follow-up in the Woo dashboard; lot/workflow data stays in SQLite and supplier purchases
 are never submitted automatically. Clearance pricing and its alert thresholds remain a

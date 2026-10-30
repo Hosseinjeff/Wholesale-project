@@ -4,9 +4,10 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from reference_import.decisions import DecisionConflict
-from reference_import.importer import HEADERS, SOURCE_URL, parse_rows
+from reference_import.importer import HEADERS, PDF_SOURCE_URL, parse_rows
 from reference_import.snapshots import ReferenceStore
 from reference_import.workflow import active_reference_use, reference_use
+from reference_fixtures import staged_candidate
 
 
 class SnapshotTests(unittest.TestCase):
@@ -18,11 +19,7 @@ class SnapshotTests(unittest.TestCase):
 
     def candidate(self,hours=1):
         timestamp=(self.now-timedelta(hours=hours)).isoformat()
-        return dict(status='staged',source_url=SOURCE_URL,headers=list(HEADERS),extracted_at=timestamp,
-                    row_count=1,source_page_count=1,processed_page_count=1,
-                    first_pdf_row_number=1,last_pdf_row_number=1,coverage_verified=True,
-                    rows=parse_rows(json.dumps([dict(raw_name='چای',package_price=480000,
-                                                               package_count=12,pdf_row_number='1')]),timestamp))
+        return staged_candidate(timestamp)
 
     def activate(self,hours=1,previous=None):
         version=self.store.stage(self.candidate(hours))
@@ -84,6 +81,12 @@ class SnapshotTests(unittest.TestCase):
         candidate=self.candidate();candidate.pop('coverage_verified')
         with self.assertRaises(ValueError):self.store.stage(candidate)
 
+    def test_legacy_pdf_candidate_is_rejected_even_with_complete_row_metadata(self):
+        candidate=self.candidate()
+        candidate['source_type']='legacy_pdf_gemini'
+        candidate['source_url']=PDF_SOURCE_URL
+        with self.assertRaises(ValueError):self.store.stage(candidate)
+
     def test_non_owner_cannot_review_or_activate(self):
         version=self.store.stage(self.candidate())
         with self.assertRaises(PermissionError):
@@ -100,10 +103,7 @@ class SnapshotActivationLockTests(unittest.TestCase):
   with tempfile.TemporaryDirectory() as directory:
    store=ReferenceStore(Path(directory)/'reference.sqlite',owner_ids=['wp:7'])
    now=datetime.now(timezone.utc);stamp=(now-timedelta(hours=1)).isoformat()
-   rows=parse_rows(json.dumps([{'raw_name':'چای','package_price':480000,'package_count':12,'pdf_row_number':'1'}]),stamp)
-   candidate={'status':'staged','source_url':SOURCE_URL,'headers':list(HEADERS),'extracted_at':stamp,
-       'row_count':1,'source_page_count':1,'processed_page_count':1,'first_pdf_row_number':1,
-       'last_pdf_row_number':1,'coverage_verified':True,'rows':rows}
+   candidate=staged_candidate(stamp)
    version=store.stage(candidate);store.review(version,actor_id='wp:7',note='synthetic')
    started=threading.Event();done=threading.Event();errors=[]
    def activate():
