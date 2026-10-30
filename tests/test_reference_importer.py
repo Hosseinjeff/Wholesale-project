@@ -37,20 +37,40 @@ class ReferenceImportTests(unittest.TestCase):
         item = self.item()
         item.update(raw_name='چای (۴۵ف)',package_count=0,unit_price=0)
         self.assertEqual(self.rows(item)[0][4], '')
-        item.update(package_count=1, unit_price=480000)
+        item.update(raw_name='چای (۴۵ف) ۱ع',package_count=1, unit_price=480000)
         self.assertEqual(self.rows(item)[0][4], 480000)
 
     def test_invalid_or_conflicting_values_reject_candidate(self):
         for changes in ({'package_price': -5}, {'package_price': 'NaN'},
-                        {'package_count': 1.5}, {'package_count': True},
-                        {'unit_price': 123},
-                        {'currency': 'RIAL'}, {'package_price': '۴۸۰ هزار'}):
+                        {'currency': 'RIAL'},
+                        {'package_price': '۴۸۰ هزار'}):
             item = self.item()
-            if 'package_count' in changes:
-                item['raw_name']='چای (۴۵ف)'
             item.update(changes)
             with self.subTest(changes=changes), self.assertRaises(ImportFailure):
                 self.rows(item)
+
+    def test_ambiguous_title_counts_do_not_change_package_or_unit_price(self):
+        item=self.item();item.update(raw_name='تیغ ژیلت 3لبه 2تایی مردانه (12*24)',
+            clean_name='تیغ ژیلت',package_count=288,unit_price=1000,
+            consumer_unit_price=45000,set_count=99)
+        row=self.rows(item)[0]
+        self.assertEqual(row[4:8],['','', '', ''])
+        self.assertEqual(row[10],2)
+        self.assertEqual(row[6],'')
+
+    def test_blade_count_is_preserved_as_a_title_detail_not_set_count(self):
+        item=self.item();item.update(raw_name='تیغ ژیلت ۴لبه (۲۰*۱۶)',clean_name='تیغ ژیلت',
+            package_count=320,set_count=4)
+        row=self.rows(item)[0]
+        self.assertEqual(row[10],'')
+        self.assertIn('۴لبه',row[14])
+
+    def test_explicit_title_count_and_retail_price_override_model_values(self):
+        item=self.item();item.update(package_count=320,unit_price=1,consumer_unit_price=90000)
+        row=self.rows(item)[0]
+        self.assertEqual(row[4],40000)
+        self.assertEqual(row[5],45000)
+        self.assertEqual(row[6],12)
 
     def test_empty_malformed_and_duplicate_extraction(self):
         for text in ('[]', '{}', 'unfinished [', json.dumps([self.item(), self.item()])):
@@ -73,26 +93,35 @@ class ReferenceImportTests(unittest.TestCase):
         self.assertEqual(len(rows),2)
         self.assertEqual([row[15] for row in rows],['1','2'])
 
-    def pdf_bytes(self):
-        writer=PdfWriter();writer.add_blank_page(width=600,height=800)
+    def pdf_bytes(self,pages=1):
+        writer=PdfWriter()
+        for _ in range(pages):writer.add_blank_page(width=600,height=800)
         output=__import__('io').BytesIO();writer.write(output)
         return output.getvalue()
 
-    def session(self, finish='STOP', pdf=None):
+    def session(self, finish='STOP', pdf=None, omit_row=None):
         if pdf is None:
             pdf=self.pdf_bytes()
         session = MagicMock()
         download = session.get.return_value.__enter__.return_value
         download.status_code = 200
         download.iter_content.return_value = [pdf]
-        response = session.post.return_value
-        response.status_code = 200
-        products=[dict(raw_name=f'کالای نمونه {number}',clean_name=f'کالای نمونه {number}',
-            package_price=10000,package_count=1,unit_price=0,pdf_row_number=str(number),
-            product_code=f'P-{number}') for number in range(1,31)]
-        response.json.return_value = {'candidates': [{'finishReason': finish,
-            'content': {'parts': [{'thought': True, 'text': 'ignore'},
-                                  {'text': json.dumps(products,ensure_ascii=False)}]}}]}
+        def post(*args, **kwargs):
+            prompt=kwargs['json']['contents'][0]['parts'][0]['text']
+            instruction=prompt.split('This attachment contains exactly one cropped product table:',1)[1]
+            page=int(instruction.split('original PDF page ',1)[1].split('.',1)[0])
+            half='left' if instruction.lstrip().startswith('the left half') else 'right'
+            start=(page-1)*60+(1 if half=='left' else 31)
+            products=[dict(raw_name=f'کالای نمونه {number}',clean_name=f'کالای نمونه {number}',
+                package_price=10000,package_count=1,unit_price=0,pdf_row_number=str(number),
+                product_code=f'P-{number}') for number in range(start,start+30)
+                if not (page==1 and half=='left' and number==omit_row)]
+            response=MagicMock();response.status_code=200
+            response.json.return_value={'candidates':[{'finishReason':finish,
+                'content':{'parts':[{'thought':True,'text':'ignore'},
+                                    {'text':json.dumps(products,ensure_ascii=False)}]}}]}
+            return response
+        session.post.side_effect=post
         return session
 
     def test_stages_only_and_keeps_key_out_of_url(self):
@@ -100,24 +129,31 @@ class ReferenceImportTests(unittest.TestCase):
         candidate = self.extract(session, 'synthetic-key', 'explicit-model')
         self.assertEqual(candidate['status'], 'staged')
         self.assertTrue(candidate['requires_review'])
-        self.assertEqual(candidate['row_count'], 30)
+        self.assertEqual(candidate['row_count'], 60)
         self.assertTrue(candidate['coverage_verified'])
         self.assertEqual(candidate['source_page_count'], 1)
         self.assertEqual(candidate['processed_page_count'], 1)
         self.assertNotIn('synthetic-key', session.post.call_args.args[0])
         prompt_text=session.post.call_args.kwargs['json']['contents'][0]['parts'][0]['text']
-        self.assertIn('final batch may be partially filled',prompt_text)
+        self.assertIn('one cropped product table',prompt_text)
 
-    def test_pdf_is_split_into_one_request_per_original_page(self):
+    def test_pdf_is_split_into_one_request_per_table_half(self):
         writer=PdfWriter()
         for _ in range(3):writer.add_blank_page(width=600,height=800)
         output=__import__('io').BytesIO();writer.write(output)
         page_count,batches=_pdf_page_batches(output.getvalue())
         self.assertEqual(page_count,3)
-        self.assertEqual([(start,end) for start,end,_ in batches],[(0,1),(1,2),(2,3)])
+        self.assertEqual([(page,half) for page,half,_ in batches],[
+            (0,'left'),(0,'right'),(1,'left'),(1,'right'),(2,'left'),(2,'right')])
         for _,_,batch in batches:
             from pypdf import PdfReader
-            self.assertEqual(len(PdfReader(__import__('io').BytesIO(batch)).pages),2)
+            self.assertEqual(len(PdfReader(__import__('io').BytesIO(batch)).pages),1)
+
+    def test_full_table_half_must_return_every_printed_row(self):
+        session=self.session(pdf=self.pdf_bytes(3),omit_row=5)
+        with self.assertRaises(ImportFailure) as caught:
+            self.extract(session,'synthetic-key','explicit-model')
+        self.assertEqual(caught.exception.code,'extraction_batch_row_count_mismatch_page_1_left')
 
     def test_environment_key_and_model_are_used_when_not_passed(self):
         session = self.session()
@@ -152,6 +188,7 @@ class ReferenceImportTests(unittest.TestCase):
 
     def test_gemini_http_failure_exposes_only_safe_error_category(self):
         session=self.session()
+        session.post.side_effect=None
         session.post.return_value.status_code=400
         session.post.return_value.json.return_value={'error':{
             'status':'INVALID_ARGUMENT','message':'API key not valid: secret-detail',

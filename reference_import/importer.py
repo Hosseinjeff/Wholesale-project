@@ -49,11 +49,17 @@ def normalize_name(value):
 def title_package_count(raw_name):
     """Read an explicit count marker from the PDF title when the model misses it."""
     title = raw_name.translate(DIGITS)
-    matches = re.findall(r'(?<!\d)(\d{1,4})\s*(?:عددی|عدد|تایی|ع)(?=$|[^\w])', title)
+    matches = re.findall(r'(?<!\d)(\d{1,4})\s*(?:عددی|عدد|ع)(?=$|[^\w])', title)
     if matches:
         return int(matches[-1])
     carton = re.search(r'(?:کارتن|باکس|بسته)\s*(\d{1,4})(?=$|[^\w])', title)
     return int(carton.group(1)) if carton else None
+
+
+def title_set_count(raw_name):
+    """Keep a title's N-piece/set marker out of the package-price denominator."""
+    matches = re.findall(r'(?<!\d)(\d{1,3})\s*تایی(?=$|[^\w])', raw_name.translate(DIGITS))
+    return int(matches[-1]) if matches else None
 
 
 def _gemini_http_error_code(response):
@@ -107,19 +113,15 @@ def parse_rows(ai_text, timestamp):
         if item.get('currency', 'TOMAN') != 'TOMAN':
             raise ImportFailure('Unexpected currency; conversion requires explicit policy', code='extraction_currency_mismatch')
         package = number(item.get('package_price'))
-        count = number(item.get('package_count'))
         title_count = title_package_count(raw)
-        if title_count is not None:
-            count = title_count
-        supplied_unit = number(item.get('unit_price'))
-        consumer = number(item.get('consumer_unit_price'))
-        set_count = number(item.get('set_count'))
-        if package <= 0 or count != int(count) or set_count != int(set_count):
+        count = title_count or 0
+        consumer = 0
+        title_set = title_set_count(raw)
+        set_count = title_set or 0
+        if package <= 0:
             raise ImportFailure('Invalid package price or count', code='extraction_package_invalid')
-        # Derive only from an explicit count; model-supplied unit prices cannot override it.
+        # Counts and retail hints affect prices only when they appear explicitly in the title.
         unit = math.floor(package / count + .5) if count else 0
-        if supplied_unit and (not count or abs(supplied_unit - unit) > 1):
-            raise ImportFailure('Inconsistent unit price', code='extraction_unit_inconsistent')
         hint = re.search(r'[（(]\s*(\d{1,4})\s*ف\s*[）)]', raw.translate(DIGITS))
         if hint:
             retail = int(hint.group(1)) * 1000
@@ -139,11 +141,16 @@ def parse_rows(ai_text, timestamp):
             if isinstance(value, (dict, list, bool)):
                 raise ImportFailure('Invalid structured text field', code='extraction_field_invalid')
             return str(value).strip()
+        raw_details = text_value('raw_name_details')
+        blade_markers = re.findall(r'(?<!\d)\d{1,3}\s*لبه(?=$|[^\w])', raw)
+        for marker in blade_markers:
+            if normalize_name(marker) not in normalize_name(raw_details):
+                raw_details = ' '.join(part for part in (raw_details, marker) if part)
         unit_label=text_value('unit_label') or ('عدد' if title_count is not None else '')
         values = [raw, clean, key, package, unit or '', consumer or '', count or '',
                   unit_label, *(text_value(k) for k in ('volume', 'weight')),
                   set_count or '', *(text_value(k) for k in ('variant', 'brand', 'category',
-                  'raw_name_details')), row_number, code, 'TOMAN',
+                  )), raw_details, row_number, code, 'TOMAN',
                   'rezvanpakhsh_pdf_ai', SOURCE_URL, timestamp]
         if any(isinstance(v, (dict, list, bool)) for v in values):
             raise ImportFailure('Invalid structured column value', code='extraction_field_invalid')
@@ -151,8 +158,8 @@ def parse_rows(ai_text, timestamp):
     return rows
 
 
-def _pdf_page_batches(pdf, pages_per_batch=1):
-    """Split each source page into its two independent product tables."""
+def _pdf_page_batches(pdf):
+    """Create one Gemini request per cropped table half."""
     try:
         from pypdf import PdfReader, PdfWriter
     except ImportError as exc:
@@ -165,26 +172,24 @@ def _pdf_page_batches(pdf, pages_per_batch=1):
         if page_count < 1 or page_count > 120:
             raise ImportFailure('Unexpected source PDF page count', code='source_page_count_invalid')
         batches = []
-        for start in range(0, page_count, pages_per_batch):
-            end = min(page_count, start + pages_per_batch)
-            writer = PdfWriter()
-            for page_index in range(start, end):
-                source_page = reader.pages[page_index]
-                if source_page.rotation % 360:
-                    raise ImportFailure('Rotated source pages need review', code='source_page_rotation')
-                left = float(source_page.mediabox.left)
-                bottom = float(source_page.mediabox.bottom)
-                right = float(source_page.mediabox.right)
-                top = float(source_page.mediabox.top)
-                midpoint = left + (right - left) / 2
-                for bounds in ((left, bottom, midpoint, top), (midpoint, bottom, right, top)):
-                    page = copy.copy(source_page)
-                    page.cropbox.lower_left = (bounds[0], bounds[1])
-                    page.cropbox.upper_right = (bounds[2], bounds[3])
-                    writer.add_page(page)
-            output = io.BytesIO()
-            writer.write(output)
-            batches.append((start, end, output.getvalue()))
+        for page_index, source_page in enumerate(reader.pages):
+            if source_page.rotation % 360:
+                raise ImportFailure('Rotated source pages need review', code='source_page_rotation')
+            left = float(source_page.mediabox.left)
+            bottom = float(source_page.mediabox.bottom)
+            right = float(source_page.mediabox.right)
+            top = float(source_page.mediabox.top)
+            midpoint = left + (right - left) / 2
+            for half, bounds in (('left', (left, bottom, midpoint, top)),
+                                 ('right', (midpoint, bottom, right, top))):
+                writer = PdfWriter()
+                page = copy.copy(source_page)
+                page.cropbox.lower_left = (bounds[0], bounds[1])
+                page.cropbox.upper_right = (bounds[2], bounds[3])
+                writer.add_page(page)
+                output = io.BytesIO()
+                writer.write(output)
+                batches.append((page_index, half, output.getvalue()))
         return page_count, batches
     except ImportFailure:
         raise
@@ -192,18 +197,20 @@ def _pdf_page_batches(pdf, pages_per_batch=1):
         raise ImportFailure('Could not split the source PDF into tables', code='source_pdf_split_failed') from exc
 
 
-def _extract_pdf_batch(batch_pdf, *, api_key, model, prompt, page_count, allow_partial=False):
+def _extract_pdf_batch(batch_pdf, *, api_key, model, prompt, source_page_number,
+                       table_half, allow_partial=False):
     import requests
 
     instruction = (
-        f'This attachment contains {page_count} cropped table pages, ordered as left half then right half '
-        'for each original PDF page. Each crop has only one product table, not two side-by-side product blocks. '
+        f'This attachment contains exactly one cropped product table: the {table_half} half of original PDF '
+        f'page {source_page_number}. It does not contain the other table half. '
+        'Read this crop only; do not assume data from another page or table. '
         'Read every visible product row exactly once, including the printed row number. Match its price, code, '
         'and title only within that row. Copy the full title and preserve its details in the separate fields. '
         'Leave uncertain title attributes blank and keep the uncertainty in raw_name_details. Set unit_price to 0; '
         'the server calculates it from package_price and package_count. '
-        + ('The original PDF page in this final batch may be partially filled; do not invent rows.'
-           if allow_partial else 'Each original page in this batch has 30 rows in each table half.')
+        + ('This table crop may be partially filled; do not invent rows.'
+           if allow_partial else 'This table crop contains exactly 30 product rows.')
     )
     payload = {
         'contents': [{'parts': [{'text': prompt + '\n\n' + instruction}, {'inline_data': {
@@ -287,31 +294,30 @@ def extract_pdf(session, api_key=None, model=None, *, max_pdf_bytes=15_000_000):
     extracted_at = datetime.now(timezone.utc).isoformat()
 
     def run(batch):
-        start, end, batch_pdf = batch
+        page_index, half, batch_pdf = batch
+        allow_partial = page_index >= max(0, page_count - 2)
         text = _extract_pdf_batch(batch_pdf, api_key=api_key, model=model,
-                                  prompt=prompt, page_count=(end - start) * 2,
-                                  allow_partial=start >= max(0, page_count - 2))
+                                  prompt=prompt, source_page_number=page_index + 1,
+                                  table_half=half, allow_partial=allow_partial)
         rows = parse_rows(text, extracted_at)
-        page_span = end - start
-        if end < page_count - 1:
-            expected = page_span * 60
-            if len(rows) != expected:
+        if page_index < page_count - 2:
+            if len(rows) != 30:
                 raise ImportFailure('A PDF table batch did not return every product row',
-                                    code=f'extraction_batch_row_count_mismatch_page_{start + 1}')
-            expected_start = start * 60 + 1
-            expected_numbers = list(range(expected_start, expected_start + expected))
+                                    code=f'extraction_batch_row_count_mismatch_page_{page_index + 1}_{half}')
+            expected_start = page_index * 60 + (1 if half == 'left' else 31)
+            expected_numbers = list(range(expected_start, expected_start + 30))
             numbers = [int(row[15]) for row in rows]
             if sorted(numbers) != expected_numbers:
                 raise ImportFailure('A PDF table batch has missing or mismatched row numbers',
-                                    code=f'extraction_batch_row_numbers_mismatch_page_{start + 1}')
-        return start, rows
+                                    code=f'extraction_batch_row_numbers_mismatch_page_{page_index + 1}_{half}')
+        return page_index, half, rows
 
     try:
         with ThreadPoolExecutor(max_workers=2) as pool:
             results = list(pool.map(run, batches))
     except ImportFailure:
         raise
-    rows = [row for _, batch_rows in sorted(results) for row in batch_rows]
+    rows = [row for _, _, batch_rows in sorted(results) for row in batch_rows]
     rows.sort(key=lambda row: int(row[15]))
     numbers = _verified_row_numbers(rows, page_count=page_count)
     return {'schema_version': 1, 'status': 'staged', 'requires_review': True,
