@@ -2,8 +2,8 @@
 
 **Current state: the public storefront is live at the user's direction. The root page
 now opens the Shop storefront. Payment setup is out of scope for the current work. The
-non-payment release gaps are the unset Tehran delivery area, owner-only access, connected
-handoff verification, and remaining business review.**
+non-payment release gaps are the unset Tehran delivery area, owner dashboard review,
+connected handoff verification, and remaining business review.**
 The latest `Wholesale-project` deployment is healthy, with one running replica, the
 500 MB `/data` volume, no staged Railway changes and no active service warnings. The
 production `/health`, `/health/detailed` and `/api/shop` routes return HTTP 200. The
@@ -78,7 +78,30 @@ order, charge, refund or supplier purchase was made.
 - A read-only authenticated request using actor `wp:2` returned HTTP 200 and two snapshots;
   the active snapshot remains unset and refresh state remains `staged`. The public homepage
   also returned HTTP 200. No refresh, review, activation, or `ReferencePrices` write was
-  performed. The owner page still needs a visual check in the user 2 browser session.
+  performed. The owner page still needed a WordPress-host transport fix at this checkpoint.
+
+## Owner browser transport fix — 2026-10-30
+
+- WordPress PHP timed out (`cURL error 28`) to both the snapshots endpoint and Railway's
+  `/health`, while a public HTTPS control succeeded. Railway was healthy and had no
+  incoming request from the WordPress host. Waking the Railway service did not change
+  the result.
+- The owner snapshot page now fetches and submits from the signed-in browser. WordPress
+  signs a ten-minute HMAC capability with the private bridge secret; that secret remains
+  in protected configuration. The backend accepts the capability only for
+  `/reference/snapshots`, checks the actor against its owner allowlist, and applies CORS
+  only for the exact `https://www.molavisale.ir` and `https://molavisale.ir` origins.
+- Railway's source branch drifted to `main`, so the first Git push did not deploy the
+  fix. It is now configured to follow `molavisale-release-2026-10-28`; final deployment
+  `17f7f764-9199-4b81-8222-5e7a89cee594` succeeded at commit `cf252f1` with the owner
+  allowlist set to `wp:2`. The tracked WordPress browser client and signer were uploaded
+  and read back from the live plugin.
+- The live owner page emitted its short-lived token. GET with that token and the exact
+  site origin returned HTTP 200 and two snapshots; CORS preflight returned HTTP 204.
+  A post-rollback read-only API check accepted `wp:2` and denied `wp:1`. The candidate
+  remains staged, no snapshot is active, and no refresh, review, activation or
+  `ReferencePrices` write was made. User 2 should visually check the page before taking
+  an owner action.
 
 ## Customer-page and Git check — 2026-10-29 22:36 UTC
 
@@ -124,7 +147,7 @@ that customers can receive a delivery rate on the public checkout.
 | Reference → extraction/review | The real Rezvan PDF → Gemini path staged 10 rows in snapshot `3adf331cfe5877a05b0637774f8dbdb1e02422a1da1cc7437880f62893edcca4`. It is not active and has written nothing to `ReferencePrices`. Owner approval remains required. |
 | Offers → pricing/catalog | Woo now publishes the customer price band and keeps supplier cost private. Freshness gating and fixed-pack minimums are active. Clearance formula, near-cost alert behavior and connected recalculation still need review. |
 | Catalog → WordPress/basket | Two products are synced in IRT; `/` and `/shop/` render the storefront. The delivery calculation exists, but the live Tehran zone has no matching locations. |
-| Checkout → operator work | Woo page assignments are present. User 2 is the sole owner, and the reference bridge returned a valid server response for actor `wp:2`. The owner pages still need visual review in that account's browser session. |
+| Checkout → operator work | Woo page assignments are present. User 2 is the sole owner, and the reference browser bridge returns two staged snapshots for actor `wp:2`. Visual review in that account's browser session remains open. |
 | Payment → fulfillment/follow-up | Paid-order lifecycle is synthetic-tested. No live payment callback or order was run; inventory/workflow ledger remains on Railway SQLite and is not mirrored to Sheets. |
 | Daily reconciliation/recovery | The server worker and owner review surfaces exist. Bilateral Sheet edits and cutover of legacy/GAS writers remain unverified; legacy writers can bypass server locks. |
 

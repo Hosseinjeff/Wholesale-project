@@ -47,6 +47,26 @@ public WordPress homepage returned HTTP 200. No review, activation, refresh, or
 `ReferencePrices` write was performed. The owner page still needs a visual check in the
 user 2 browser session.
 
+**Owner-page transport fix (2026-10-30):** the live WordPress host timed out when PHP
+called both `/reference/snapshots` and Railway `/health` (`cURL error 28`), while a
+public HTTPS control worked. Railway was healthy and received no request from that host.
+The snapshots dashboard now reads and submits through its signed-in owner browser. PHP
+signs a ten-minute, snapshots-only HMAC capability with the private bridge secret; the
+secret itself never enters browser HTML. Railway validates the token, actor and owner
+allowlist. CORS is limited to `https://www.molavisale.ir` and
+`https://molavisale.ir`, only on `/reference/snapshots`, with no credential cookies.
+
+Railway's production source is now `molavisale-release-2026-10-28` after a config
+redeploy selected `main`. Final deployment `17f7f764-9199-4b81-8222-5e7a89cee594`
+succeeded at source commit `cf252f1dcbe4d0caeb9a6da29029a21cb5b8b069`. The tracked
+MolaviShop browser client and PHP signer from that commit were deployed and read back.
+The live WordPress owner page emitted its short-lived token; its snapshots GET returned
+HTTP 200 with two candidates, and the browser-origin preflight returned HTTP 204. With
+the allowlist restored to user 2 only, actor `wp:2` returns HTTP 200 and `wp:1` returns
+HTTP 401. The active snapshot is still unset, refresh state is `staged`, and no review,
+refresh, activation or `ReferencePrices` write was made. A visual interaction check in
+user 2's browser remains open.
+
 Confirmed: owner decisions belong in the private WordPress dashboard, integrated with
 current WordPress functionality/plugins. Not Telegram as the decision surface.
 
@@ -66,9 +86,10 @@ Configuration contract (the secret values remain outside the repository):
 
 - `MOLAVI_REFERENCE_SERVER_URL`: HTTPS server origin. This is a NEW explicit bridge
   setting, not evidence of a legacy REFERENCE_REFRESH_SERVER_URL service.
-- `MOLAVI_REFERENCE_BRIDGE_TOKEN`: dedicated random server-to-server secret, at least
-  32 characters, held in server secret storage and protected WordPress configuration.
-  Do not reuse catalog/order tokens. Browser HTML never includes this secret.
+- `MOLAVI_REFERENCE_BRIDGE_TOKEN`: dedicated random bridge secret, at least 32
+  characters, held in server secret storage and protected WordPress configuration. Do
+  not reuse catalog/order tokens. Browser HTML never includes this secret; it may carry
+  only a ten-minute HMAC capability scoped to the snapshots route.
 - `MOLAVI_REFERENCE_OWNER_IDS`: array of actual integer WP user IDs approved by the
   business owner. A user must also hold `manage_woocommerce`; general shop managers
   are not automatically entitled to this business-owner decision. The earlier record
@@ -82,21 +103,24 @@ The server exposes the `DashboardAPI` through `/reference/decisions` and the sna
 workflow through `/reference/snapshots`. Railway stores `REFERENCE_STORE_PATH`,
 `REFERENCE_OWNER_IDS` and `REFERENCE_BRIDGE_TOKEN`; the plugin loads an optional
 `includes/runtime-config.php`, while production currently defines its private endpoint and
-token in protected `wp-config.php`. Both reference and
-pipeline SQLite databases are on Railway's persistent `/data` volume. Multi-instance
-ownership and reconciliation still need an operational design.
+secret in protected `wp-config.php`. Both reference and pipeline SQLite databases are on
+Railway's persistent `/data` volume. Multi-instance ownership and reconciliation still
+need an operational design.
 
 GET lists durable unresolved events. POST sends event ID, expected snapshot ID and
-choice only. The actor is derived from the logged-in WordPress user on the backend;
-the trusted WP backend asserts it to the server using authenticated transport. The
-API must NOT be exposed directly to browsers with the bridge token. TLS is mandatory.
-Do not add permissive CORS. Server errors are generic and responses use no-store.
+choice only. The trusted WordPress backend asserts the logged-in actor using the
+long-lived bridge token; TLS is mandatory. The snapshots API additionally accepts a
+short-lived HMAC capability for direct owner-browser requests because the live PHP host
+cannot route to Railway. That capability is scoped to this route, expires after ten
+minutes, and is accepted only for a configured owner. CORS is limited to the two exact
+WordPress origins; the long-lived bridge token is never sent to a browser. Server errors
+are generic and responses use no-store.
 
-WP form submission checks capability, owner allowlist and an event-bound nonce. The
-server checks dedicated bridge authentication, owner identity, event/snapshot scope
-and conflicting changes. Exact retries return the same acceptance. A failed/unknown
-response never marks a choice accepted. A missing last-successful snapshot hides the
-continue button and is also rejected by the server if submitted directly.
+Decision form submissions check capability, owner allowlist and an event-bound nonce.
+Snapshot actions use the signed browser capability and send the expected active snapshot
+or refresh timestamp. The server checks owner identity, snapshot scope and conflicting
+changes. Activation is accepted only with a matching `ReferencePrices` write receipt.
+No failed or unknown response is treated as accepted.
 
 ## Current verification and remaining integration
 
@@ -108,6 +132,14 @@ matching decision receipt and offline failure. HTTP server calls are mocked in t
 WordPress runtime tests; server API behavior is separately tested in Python.
 Full MolaviShop entry point loads. See reference-dashboard-runtime-evidence.txt.
 No visual browser or Elementor/Wordfence compatibility pass is claimed.
+
+For the 2026-10-30 browser-route change, the focused Python snapshots suite passed all
+6 tests, including signed-token expiry, owner checks, preflight and restricted CORS.
+The browser script passed Node syntax and a DOM-mock render check. The live owner page
+returned HTTP 200 with the script and a short-lived token, and the token/origin request
+returned the two staged snapshots. PHP CLI was unavailable in the workspace; the live
+WordPress page parsed and served the deployed PHP. A visual interaction check in user 2's
+browser remains open.
 
 The deployed plugin also contains separate owner screens for supplier-price verification,
 crash recovery, AI confirmations, reference item decisions, reference refresh retry and
