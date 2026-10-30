@@ -74,6 +74,16 @@ function molavi_reference_snapshots_screen(): void {
                 && is_string($diagnostic['transport_detail'] ?? null)) {
                 echo '<p>' . esc_html('تشخیص اتصال: ' . $diagnostic['transport_code'] . ' · ' . $diagnostic['transport_detail']) . '</p>';
             }
+            $egressProbe=wp_safe_remote_request('https://example.com/',[
+                'method'=>'GET','timeout'=>8,'redirection'=>0,
+            ]);
+            if (is_wp_error($egressProbe)) {
+                echo '<p>' . esc_html('آزمایش HTTPS عمومی: ' . $egressProbe->get_error_code() . ' · '
+                    . substr(sanitize_text_field($egressProbe->get_error_message()),0,200)) . '</p>';
+            } else {
+                echo '<p>' . esc_html('آزمایش HTTPS عمومی: HTTP '
+                    . (string)wp_remote_retrieve_response_code($egressProbe)) . '</p>';
+            }
         }
         echo '</div>';
         return;
