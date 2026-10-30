@@ -17,7 +17,11 @@ function molavi_reference_snapshots_request(string $method, ?array $payload = nu
             'X-Molavi-Actor'=>'wp:' . get_current_user_id(),'Content-Type'=>'application/json']];
     if ($payload!==null) { $args['body']=wp_json_encode($payload); }
     $response=wp_safe_remote_request(rtrim($base,'/') . '/reference/snapshots',$args);
-    if (is_wp_error($response)) { return new WP_Error('offline','ارتباط با سرور برقرار نشد.'); }
+    if (is_wp_error($response)) {
+        $diagnostic=sanitize_text_field($response->get_error_message());
+        error_log('[Molavi reference snapshots] ' . $response->get_error_code() . ': ' . substr($diagnostic,0,300));
+        return new WP_Error('offline','ارتباط با سرور برقرار نشد.');
+    }
     $body=json_decode(wp_remote_retrieve_body($response),true);
     if (wp_remote_retrieve_response_code($response)!==200 || !is_array($body) || ($body['ok'] ?? false)!==true) {
         return new WP_Error('failed','عملیات فهرست مرجع تأیید نشد؛ صفحه را تازه کنید.');
