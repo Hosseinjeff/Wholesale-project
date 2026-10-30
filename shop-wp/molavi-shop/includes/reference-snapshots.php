@@ -19,8 +19,10 @@ function molavi_reference_snapshots_request(string $method, ?array $payload = nu
     $response=wp_safe_remote_request(rtrim($base,'/') . '/reference/snapshots',$args);
     if (is_wp_error($response)) {
         $diagnostic=sanitize_text_field($response->get_error_message());
-        error_log('[Molavi reference snapshots] ' . $response->get_error_code() . ': ' . substr($diagnostic,0,300));
-        return new WP_Error('offline','ارتباط با سرور برقرار نشد.');
+        return new WP_Error('offline','ارتباط با سرور برقرار نشد.',[
+            'transport_code'=>sanitize_key($response->get_error_code()),
+            'transport_detail'=>substr($diagnostic,0,300),
+        ]);
     }
     $body=json_decode(wp_remote_retrieve_body($response),true);
     if (wp_remote_retrieve_response_code($response)!==200 || !is_array($body) || ($body['ok'] ?? false)!==true) {
@@ -64,7 +66,18 @@ function molavi_reference_snapshots_screen(): void {
     echo '<p>' . esc_html('کارگر سرور به‌صورت روزانه PDF رزوان را با Gemini استخراج می‌کند. نسخه تازه ابتدا برای بررسی مالک ذخیره می‌شود؛ فقط پس از بررسی و فعال‌سازی به ReferencePrices نوشته می‌شود.') . '</p>';
     if (($_GET['saved'] ?? '')==='1') { echo '<div class="notice notice-success"><p>' . esc_html('رسید بررسی یا همگام‌سازی ثبت شد.') . '</p></div>'; }
     $result=molavi_reference_snapshots_request('GET');
-    if (is_wp_error($result)) { echo '<div class="notice notice-error"><p>' . esc_html($result->get_error_message()) . '</p></div></div>'; return; }
+    if (is_wp_error($result)) {
+        echo '<div class="notice notice-error"><p>' . esc_html($result->get_error_message()) . '</p></div>';
+        if (get_current_user_id()===1) {
+            $diagnostic=$result->get_error_data();
+            if (is_array($diagnostic) && is_string($diagnostic['transport_code'] ?? null)
+                && is_string($diagnostic['transport_detail'] ?? null)) {
+                echo '<p>' . esc_html('تشخیص اتصال: ' . $diagnostic['transport_code'] . ' · ' . $diagnostic['transport_detail']) . '</p>';
+            }
+        }
+        echo '</div>';
+        return;
+    }
     $refresh=$result['refresh_state'];
     if (is_array($refresh)) {
         echo '<p>' . esc_html('وضعیت آخرین تلاش: ' . (string)($refresh['state'] ?? 'نامشخص') . ' · '
