@@ -99,7 +99,7 @@ class ReferenceImportTests(unittest.TestCase):
         output=__import__('io').BytesIO();writer.write(output)
         return output.getvalue()
 
-    def session(self, finish='STOP', pdf=None, omit_row=None):
+    def session(self, finish='STOP', pdf=None, omit_row=None, empty_halves=()):
         if pdf is None:
             pdf=self.pdf_bytes()
         session = MagicMock()
@@ -112,7 +112,7 @@ class ReferenceImportTests(unittest.TestCase):
             page=int(instruction.split('original PDF page ',1)[1].split('.',1)[0])
             half='left' if instruction.lstrip().startswith('the left half') else 'right'
             start=(page-1)*60+(1 if half=='left' else 31)
-            products=[dict(raw_name=f'کالای نمونه {number}',clean_name=f'کالای نمونه {number}',
+            products=[] if (page,half) in empty_halves else [dict(raw_name=f'کالای نمونه {number}',clean_name=f'کالای نمونه {number}',
                 package_price=10000,package_count=1,unit_price=0,pdf_row_number=str(number),
                 product_code=f'P-{number}') for number in range(start,start+30)
                 if not (page==1 and half=='left' and number==omit_row)]
@@ -154,6 +154,14 @@ class ReferenceImportTests(unittest.TestCase):
         with self.assertRaises(ImportFailure) as caught:
             self.extract(session,'synthetic-key','explicit-model')
         self.assertEqual(caught.exception.code,'extraction_batch_row_count_mismatch_page_1_left')
+
+    def test_blank_final_crop_is_allowed_but_final_page_cannot_be_empty(self):
+        candidate=self.extract(self.session(empty_halves={(1,'right')}),'synthetic-key','explicit-model')
+        self.assertEqual(candidate['row_count'],30)
+        with self.assertRaises(ImportFailure) as caught:
+            self.extract(self.session(empty_halves={(1,'left'),(1,'right')}),
+                         'synthetic-key','explicit-model')
+        self.assertEqual(caught.exception.code,'extraction_final_page_empty')
 
     def test_environment_key_and_model_are_used_when_not_passed(self):
         session = self.session()

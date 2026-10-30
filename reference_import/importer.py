@@ -85,7 +85,7 @@ def _gemini_http_error_code(response):
     return mapped.get(status,code)
 
 
-def parse_rows(ai_text, timestamp):
+def parse_rows(ai_text, timestamp, *, allow_empty=False):
     """Fail the whole candidate on invalid rows; never silently drop a product."""
     try:
         text = ai_text.strip()
@@ -100,6 +100,8 @@ def parse_rows(ai_text, timestamp):
         if len(arrays) != 1:
             raise ImportFailure('Ambiguous extraction envelope', code='extraction_ambiguous_envelope')
         items = arrays[0]
+    if isinstance(items, list) and not items and allow_empty:
+        return []
     if not isinstance(items, list) or not items:
         raise ImportFailure('Empty or non-array extraction', code='extraction_empty')
     rows = []
@@ -209,7 +211,7 @@ def _extract_pdf_batch(batch_pdf, *, api_key, model, prompt, source_page_number,
         'and title only within that row. Copy the full title and preserve its details in the separate fields. '
         'Leave uncertain title attributes blank and keep the uncertainty in raw_name_details. Set unit_price to 0; '
         'the server calculates it from package_price and package_count. '
-        + ('This table crop may be partially filled; do not invent rows.'
+        + ('This table crop may be partially filled. If it has no product rows, return [] exactly; do not invent rows.'
            if allow_partial else 'This table crop contains exactly 30 product rows.')
     )
     payload = {
@@ -299,7 +301,7 @@ def extract_pdf(session, api_key=None, model=None, *, max_pdf_bytes=15_000_000):
         text = _extract_pdf_batch(batch_pdf, api_key=api_key, model=model,
                                   prompt=prompt, source_page_number=page_index + 1,
                                   table_half=half, allow_partial=allow_partial)
-        rows = parse_rows(text, extracted_at)
+        rows = parse_rows(text, extracted_at, allow_empty=allow_partial)
         if page_index < page_count - 2:
             if len(rows) != 30:
                 raise ImportFailure('A PDF table batch did not return every product row',
@@ -317,6 +319,9 @@ def extract_pdf(session, api_key=None, model=None, *, max_pdf_bytes=15_000_000):
             results = list(pool.map(run, batches))
     except ImportFailure:
         raise
+    if not any(batch_rows for page_index, _, batch_rows in results if page_index == page_count - 1):
+        raise ImportFailure('No product rows were extracted from the final PDF page',
+                            code='extraction_final_page_empty')
     rows = [row for _, _, batch_rows in sorted(results) for row in batch_rows]
     rows.sort(key=lambda row: int(row[15]))
     numbers = _verified_row_numbers(rows, page_count=page_count)
