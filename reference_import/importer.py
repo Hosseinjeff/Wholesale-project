@@ -9,7 +9,7 @@ import os
 import re
 import tempfile
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -299,29 +299,63 @@ def extract_pdf(session, api_key=None, model=None, *, max_pdf_bytes=15_000_000):
     def run(batch):
         page_index, half, batch_pdf = batch
         allow_partial = page_index >= max(0, page_count - 2)
-        try:
-            text = _extract_pdf_batch(batch_pdf, api_key=api_key, model=model,
-                                      prompt=prompt, source_page_number=page_index + 1,
-                                      table_half=half, allow_partial=allow_partial)
-            rows = parse_rows(text, extracted_at, allow_empty=allow_partial)
-        except ImportFailure as exc:
-            raise ImportFailure(str(exc),
-                                code=f'{exc.code}_page_{page_index + 1}_{half}') from exc
+        expected_numbers = None
         if page_index < page_count - 2:
-            if len(rows) != 30:
-                raise ImportFailure('A PDF table batch did not return every product row',
-                                    code=f'extraction_batch_row_count_mismatch_page_{page_index + 1}_{half}')
             expected_start = page_index * 60 + (1 if half == 'left' else 31)
             expected_numbers = list(range(expected_start, expected_start + 30))
-            numbers = [int(row[15]) for row in rows]
-            if sorted(numbers) != expected_numbers:
-                raise ImportFailure('A PDF table batch has missing or mismatched row numbers',
-                                    code=f'extraction_batch_row_numbers_mismatch_page_{page_index + 1}_{half}')
-        return page_index, half, rows
+        retryable_prefixes = (
+            'extraction_duplicate_row_number_', 'extraction_invalid_json',
+            'extraction_missing_name', 'extraction_row_number_invalid',
+            'extraction_field_invalid', 'extraction_package_invalid',
+            'extraction_currency_mismatch', 'extraction_empty', 'numeric_invalid',
+            'extraction_batch_row_count_mismatch', 'extraction_batch_row_numbers_mismatch',
+        )
+        last_failure = None
+        for attempt in range(2):
+            attempt_prompt = prompt
+            if attempt:
+                correction = ('The previous response failed a structural check. Re-read this same crop from '
+                              'scratch. Return each visible product exactly once, with one unique printed row '
+                              'number per row. Do not invent, repeat, or skip a row number.')
+                if expected_numbers:
+                    correction += (f' The required printed row numbers for this crop are '
+                                  f'{expected_numbers[0]} through {expected_numbers[-1]}.')
+                attempt_prompt += '\n\n' + correction
+            try:
+                text = _extract_pdf_batch(batch_pdf, api_key=api_key, model=model,
+                                          prompt=attempt_prompt, source_page_number=page_index + 1,
+                                          table_half=half, allow_partial=allow_partial)
+                rows = parse_rows(text, extracted_at, allow_empty=allow_partial)
+                if expected_numbers is not None:
+                    if len(rows) != 30:
+                        raise ImportFailure('A PDF table batch did not return every product row',
+                                            code='extraction_batch_row_count_mismatch')
+                    numbers = [int(row[15]) for row in rows]
+                    if sorted(numbers) != expected_numbers:
+                        raise ImportFailure('A PDF table batch has missing or mismatched row numbers',
+                                            code='extraction_batch_row_numbers_mismatch')
+                return page_index, half, rows
+            except ImportFailure as exc:
+                last_failure = exc
+                can_retry = (exc.code in ('gemini_incomplete', 'gemini_response_invalid')
+                             or exc.code.startswith(retryable_prefixes))
+                if attempt == 0 and can_retry:
+                    continue
+                raise ImportFailure(str(exc),
+                                    code=f'{exc.code}_page_{page_index + 1}_{half}') from exc
+        raise last_failure
 
     try:
         with ThreadPoolExecutor(max_workers=2) as pool:
-            results = list(pool.map(run, batches))
+            futures = [pool.submit(run, batch) for batch in batches]
+            results = []
+            try:
+                for future in as_completed(futures):
+                    results.append(future.result())
+            except ImportFailure:
+                for future in futures:
+                    future.cancel()
+                raise
     except ImportFailure:
         raise
     if not any(batch_rows for page_index, _, batch_rows in results if page_index == page_count - 1):

@@ -99,24 +99,28 @@ class ReferenceImportTests(unittest.TestCase):
         output=__import__('io').BytesIO();writer.write(output)
         return output.getvalue()
 
-    def session(self, finish='STOP', pdf=None, omit_row=None, empty_halves=(), duplicate_row=None):
+    def session(self, finish='STOP', pdf=None, omit_row=None, empty_halves=(),
+                duplicate_row=None, duplicate_once=False):
         if pdf is None:
             pdf=self.pdf_bytes()
         session = MagicMock()
         download = session.get.return_value.__enter__.return_value
         download.status_code = 200
         download.iter_content.return_value = [pdf]
+        crop_calls={}
         def post(*args, **kwargs):
             prompt=kwargs['json']['contents'][0]['parts'][0]['text']
             instruction=prompt.split('This attachment contains exactly one cropped product table:',1)[1]
             page=int(instruction.split('original PDF page ',1)[1].split('.',1)[0])
             half='left' if instruction.lstrip().startswith('the left half') else 'right'
+            crop_key=(page,half);crop_calls[crop_key]=crop_calls.get(crop_key,0)+1
             start=(page-1)*60+(1 if half=='left' else 31)
             products=[] if (page,half) in empty_halves else [dict(raw_name=f'کالای نمونه {number}',clean_name=f'کالای نمونه {number}',
                 package_price=10000,package_count=1,unit_price=0,pdf_row_number=str(number),
                 product_code=f'P-{number}') for number in range(start,start+30)
                 if not (page==1 and half=='left' and number==omit_row)]
-            if products and page==1 and half=='left' and duplicate_row is not None:
+            if (products and page==1 and half=='left' and duplicate_row is not None
+                    and (not duplicate_once or crop_calls[crop_key]==1)):
                 duplicate=next((item for item in products if item['pdf_row_number']==str(duplicate_row)),None)
                 if duplicate: products.append(dict(duplicate))
             response=MagicMock();response.status_code=200
@@ -163,6 +167,12 @@ class ReferenceImportTests(unittest.TestCase):
         with self.assertRaises(ImportFailure) as caught:
             self.extract(session,'synthetic-key','explicit-model')
         self.assertEqual(caught.exception.code,'extraction_duplicate_row_number_5_page_1_left')
+
+    def test_structural_retry_repeats_only_the_malformed_crop(self):
+        session=self.session(duplicate_row=5,duplicate_once=True)
+        candidate=self.extract(session,'synthetic-key','explicit-model')
+        self.assertEqual(candidate['row_count'],60)
+        self.assertEqual(session.post.call_count,3)
 
     def test_blank_final_crop_is_allowed_but_final_page_cannot_be_empty(self):
         candidate=self.extract(self.session(empty_halves={(1,'right')}),'synthetic-key','explicit-model')
