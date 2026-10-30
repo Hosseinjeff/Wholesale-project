@@ -10,6 +10,7 @@ import json
 import logging
 import requests
 import os
+import re
 import time
 import threading
 from urllib.parse import urlparse
@@ -1411,6 +1412,19 @@ def reference_snapshots_route():
     try:
         store=ReferenceStore(path,owner_ids=owners)
         if request.method=='GET':
+            if request.args.get('include_rows')=='1':
+                snapshot_id=request.args.get('snapshot_id','')
+                if not re.fullmatch(r'[a-f0-9]{64}',snapshot_id):
+                    return jsonify({'ok':False,'error':'invalid_fields'}),400
+                candidate=store.snapshot(snapshot_id)
+                if candidate is None:
+                    return jsonify({'ok':False,'error':'snapshot_not_found'}),404
+                response=jsonify({'ok':True,'snapshot_id':snapshot_id,
+                    'row_count':candidate.get('row_count'),
+                    'coverage_verified':candidate.get('coverage_verified') is True,
+                    'rows':store.snapshot_rows(snapshot_id)})
+                response.headers['Cache-Control']='no-store'
+                return response
             result=store.snapshots()
             try:
                 from reference_import.refresh_scheduler import ReferenceRefreshScheduler
@@ -1469,6 +1483,9 @@ def reference_snapshots_route():
             candidate=store.snapshot(snapshot_id)
             if candidate is None:
                 return jsonify({'ok':False,'error':'snapshot_not_found'}),404
+            from reference_import.snapshots import has_verified_coverage
+            if not has_verified_coverage(candidate):
+                return jsonify({'ok':False,'error':'snapshot_incomplete'}),409
             if body['action']=='review':
                 note=body['note']
                 if not isinstance(note,str) or not note.strip() or len(note)>1000:

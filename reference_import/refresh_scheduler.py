@@ -68,7 +68,7 @@ class ReferenceRefreshScheduler:
                     elapsed=self.interval_seconds
                     due=True
             if force:
-                if previous.get('state') not in (None, 'failed', 'running'):
+                if previous.get('state') not in (None, 'failed', 'running', 'staged'):
                     due = False
                 else:
                     due = True

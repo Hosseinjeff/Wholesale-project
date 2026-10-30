@@ -1,11 +1,15 @@
 """Opt-in, staging-only Rezvan PDF importer. Never writes Sheets or activates data."""
 import base64
+import copy
 import hashlib
+import io
 import json
 import math
 import os
 import re
 import tempfile
+import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -110,6 +114,9 @@ def parse_rows(ai_text, timestamp):
                 raise ImportFailure('Conflicting retail hint', code='extraction_retail_conflict')
             consumer = retail
         code = str(item.get('product_code') or '').strip()
+        row_number = str(item.get('pdf_row_number') or '').translate(DIGITS).strip()
+        if not re.fullmatch(r'\d{1,6}', row_number) or int(row_number) < 1:
+            raise ImportFailure('Missing or invalid printed row number', code='extraction_row_number_invalid')
         key = normalize_name(clean)
         attributes=(key,str(count),str(set_count),str(item.get('unit_label') or ''),
                     *(str(item.get(k) or '') for k in ('brand','variant','volume','weight')))
@@ -119,10 +126,17 @@ def parse_rows(ai_text, timestamp):
         if identity in seen:
             raise ImportFailure('Duplicate reference identity', code='extraction_duplicate_identity')
         seen.add(identity)
+        if any(str(existing[15]) == row_number for existing in rows):
+            raise ImportFailure('Duplicate printed row number', code='extraction_duplicate_row_number')
+        def text_value(field):
+            value = item.get(field) or ''
+            if isinstance(value, (dict, list, bool)):
+                raise ImportFailure('Invalid structured text field', code='extraction_field_invalid')
+            return str(value).strip()
         values = [raw, clean, key, package, unit or '', consumer or '', count or '',
-                  *(item.get(k) or '' for k in ('unit_label', 'volume', 'weight')),
-                  set_count or '', *(item.get(k) or '' for k in ('variant', 'brand', 'category',
-                  'raw_name_details', 'pdf_row_number')), code, 'TOMAN',
+                  *(text_value(k) for k in ('unit_label', 'volume', 'weight')),
+                  set_count or '', *(text_value(k) for k in ('variant', 'brand', 'category',
+                  'raw_name_details')), row_number, code, 'TOMAN',
                   'rezvanpakhsh_pdf_ai', SOURCE_URL, timestamp]
         if any(isinstance(v, (dict, list, bool)) for v in values):
             raise ImportFailure('Invalid structured column value', code='extraction_field_invalid')
@@ -130,15 +144,123 @@ def parse_rows(ai_text, timestamp):
     return rows
 
 
+def _pdf_page_batches(pdf, pages_per_batch=2):
+    """Split each source page into its two independent product tables."""
+    try:
+        from pypdf import PdfReader, PdfWriter
+    except ImportError as exc:
+        raise ImportFailure('PDF table splitting is unavailable', code='pdf_split_unavailable') from exc
+    try:
+        reader = PdfReader(io.BytesIO(pdf), strict=False)
+        if reader.is_encrypted:
+            raise ImportFailure('Encrypted source PDF', code='source_pdf_encrypted')
+        page_count = len(reader.pages)
+        if page_count < 1 or page_count > 120:
+            raise ImportFailure('Unexpected source PDF page count', code='source_page_count_invalid')
+        batches = []
+        for start in range(0, page_count, pages_per_batch):
+            end = min(page_count, start + pages_per_batch)
+            writer = PdfWriter()
+            for page_index in range(start, end):
+                source_page = reader.pages[page_index]
+                if source_page.rotation % 360:
+                    raise ImportFailure('Rotated source pages need review', code='source_page_rotation')
+                left = float(source_page.mediabox.left)
+                bottom = float(source_page.mediabox.bottom)
+                right = float(source_page.mediabox.right)
+                top = float(source_page.mediabox.top)
+                midpoint = left + (right - left) / 2
+                for bounds in ((left, bottom, midpoint, top), (midpoint, bottom, right, top)):
+                    page = copy.copy(source_page)
+                    page.cropbox.lower_left = (bounds[0], bounds[1])
+                    page.cropbox.upper_right = (bounds[2], bounds[3])
+                    writer.add_page(page)
+            output = io.BytesIO()
+            writer.write(output)
+            batches.append((start, end, output.getvalue()))
+        return page_count, batches
+    except ImportFailure:
+        raise
+    except Exception as exc:
+        raise ImportFailure('Could not split the source PDF into tables', code='source_pdf_split_failed') from exc
+
+
+def _extract_pdf_batch(batch_pdf, *, api_key, model, prompt, page_count):
+    import requests
+
+    instruction = (
+        f'This attachment contains {page_count} cropped table pages, ordered as left half then right half '
+        'for each original PDF page. Each crop has only one product table, not two side-by-side product blocks. '
+        'Read every visible product row exactly once, including the printed row number. Match its price, code, '
+        'and title only within that row. Copy the full title and preserve its details in the separate fields. '
+        'Leave uncertain title attributes blank and keep the uncertainty in raw_name_details. Set unit_price to 0; '
+        'the server calculates it from package_price and package_count. The final PDF page may be partially filled.'
+    )
+    payload = {
+        'contents': [{'parts': [{'text': prompt + '\n\n' + instruction}, {'inline_data': {
+            'mime_type': 'application/pdf', 'data': base64.b64encode(batch_pdf).decode('ascii')}}]}],
+        'generationConfig': {'temperature': 0, 'responseMimeType': 'application/json', 'maxOutputTokens': 32768},
+    }
+    endpoint = f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent'
+    for attempt in range(5):
+        try:
+            response = requests.post(endpoint, headers={'x-goog-api-key': api_key},
+                                     timeout=(10, 180), json=payload)
+        except requests.RequestException as exc:
+            if attempt < 4:
+                time.sleep(min(20, 2 ** (attempt + 1)))
+                continue
+            raise ImportFailure('Gemini request failed', code='gemini_transport_failed') from exc
+        if response.status_code in (429, 500, 502, 503, 504) and attempt < 4:
+            try:
+                retry_after = min(30, max(1, int(float(response.headers.get('Retry-After', '0')))))
+            except (AttributeError, TypeError, ValueError):
+                retry_after = min(20, 2 ** (attempt + 1))
+            time.sleep(retry_after)
+            continue
+        if response.status_code != 200:
+            raise ImportFailure('Gemini request failed', code=_gemini_http_error_code(response))
+        try:
+            candidates = response.json()['candidates']
+            if len(candidates) != 1 or candidates[0].get('finishReason') != 'STOP':
+                raise ImportFailure('Incomplete or ambiguous Gemini extraction', code='gemini_incomplete')
+            parts = candidates[0]['content']['parts']
+            text = ''.join(p['text'] for p in parts if p.get('text') and not p.get('thought'))
+            if not text:
+                raise ImportFailure('Empty Gemini extraction', code='extraction_empty')
+            return text
+        except ImportFailure:
+            raise
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ImportFailure('Invalid Gemini response', code='gemini_response_invalid') from exc
+    raise ImportFailure('Gemini request failed', code='gemini_rate_limited')
+
+
+def _verified_row_numbers(rows, *, page_count):
+    numbers = []
+    for row in rows:
+        value = str(row[15]).translate(DIGITS)
+        if not value.isdigit() or int(value) < 1:
+            raise ImportFailure('Missing printed PDF row number', code='extraction_row_number_invalid')
+        numbers.append(int(value))
+    if not numbers or numbers[0] != 1 or len(numbers) != len(set(numbers)):
+        raise ImportFailure('PDF row coverage is incomplete', code='extraction_coverage_incomplete')
+    if numbers != list(range(1, max(numbers) + 1)):
+        raise ImportFailure('PDF rows contain gaps', code='extraction_coverage_incomplete')
+    if len(numbers) < page_count * 30:
+        raise ImportFailure('Too few products were extracted from the source PDF',
+                            code='extraction_coverage_incomplete')
+    return numbers
+
+
 def extract_pdf(session, api_key=None, model=None, *, max_pdf_bytes=15_000_000):
-    """Explicit invocation only; credentials/models default to server environment."""
-    from catalog.gemini import DEFAULT_GEMINI_MODEL, gemini_model, google_api_key
+    """Extract cropped table batches and stage only a coverage-checked candidate."""
+    from catalog.gemini import google_api_key
 
     api_key = (api_key or google_api_key()).strip()
-    model = model or gemini_model() or DEFAULT_GEMINI_MODEL
+    model = (model or os.getenv('REFERENCE_GEMINI_MODEL') or 'gemini-3.5-flash-lite').strip()
     if not api_key or not re.fullmatch(r'[A-Za-z0-9._-]+', model or ''):
-        raise ImportFailure('Google API key and valid Gemini model required', code='configuration_missing')
-    # Stream and bound the PDF before allocating the base64 request.
+        raise ImportFailure('Google API key and valid reference model required', code='configuration_missing')
     with session.get(SOURCE_URL, timeout=(10, 60), stream=True) as response:
         if response.status_code != 200:
             raise ImportFailure('PDF download failed', code=f'source_http_{response.status_code}')
@@ -151,29 +273,43 @@ def extract_pdf(session, api_key=None, model=None, *, max_pdf_bytes=15_000_000):
     pdf = b''.join(chunks)
     if not pdf.startswith(b'%PDF-'):
         raise ImportFailure('Source is not a PDF', code='source_not_pdf')
-    prompt = Path(__file__).with_name('prompt.txt').read_text()
-    response = session.post(
-        f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent',
-        headers={'x-goog-api-key': api_key}, timeout=(10, 120),
-        json={'contents': [{'parts': [{'text': prompt}, {'inline_data': {
-            'mime_type': 'application/pdf', 'data': base64.b64encode(pdf).decode()}}]}],
-              'generationConfig': {'temperature': 0, 'responseMimeType': 'application/json'}})
-    if response.status_code != 200:
-        raise ImportFailure('Gemini request failed', code=_gemini_http_error_code(response))
+    page_count, batches = _pdf_page_batches(pdf)
+    prompt = Path(__file__).with_name('prompt.txt').read_text(encoding='utf-8')
+    extracted_at = datetime.now(timezone.utc).isoformat()
+
+    def run(batch):
+        start, end, batch_pdf = batch
+        text = _extract_pdf_batch(batch_pdf, api_key=api_key, model=model,
+                                  prompt=prompt, page_count=(end - start) * 2)
+        rows = parse_rows(text, extracted_at)
+        page_span = end - start
+        if end < page_count:
+            expected = page_span * 60
+            if len(rows) != expected:
+                raise ImportFailure('A PDF table batch did not return every product row',
+                                    code='extraction_coverage_incomplete')
+            expected_start = start * 60 + 1
+            expected_numbers = list(range(expected_start, expected_start + expected))
+            numbers = [int(row[15]) for row in rows]
+            if sorted(numbers) != expected_numbers:
+                raise ImportFailure('A PDF table batch has missing or mismatched row numbers',
+                                    code='extraction_coverage_incomplete')
+        return start, rows
+
     try:
-        candidates = response.json()['candidates']
-        if len(candidates) != 1 or candidates[0].get('finishReason') != 'STOP':
-            raise ImportFailure('Incomplete or ambiguous Gemini extraction', code='gemini_incomplete')
-        parts = candidates[0]['content']['parts']
-        text = ''.join(p['text'] for p in parts if p.get('text') and not p.get('thought'))
-    except (KeyError, TypeError, ValueError) as exc:
-        raise ImportFailure('Invalid Gemini response', code='gemini_response_invalid') from exc
-    now = datetime.now(timezone.utc).isoformat()
-    rows = parse_rows(text, now)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(run, batches))
+    except ImportFailure:
+        raise
+    rows = [row for _, batch_rows in sorted(results) for row in batch_rows]
+    rows.sort(key=lambda row: int(row[15]))
+    numbers = _verified_row_numbers(rows, page_count=page_count)
     return {'schema_version': 1, 'status': 'staged', 'requires_review': True,
             'source_url': SOURCE_URL, 'pdf_sha256': hashlib.sha256(pdf).hexdigest(),
-            'model': model, 'extracted_at': now, 'row_count': len(rows),
-            'headers': HEADERS, 'rows': rows}
+            'model': model, 'extracted_at': extracted_at, 'row_count': len(rows),
+            'source_page_count': page_count, 'processed_page_count': page_count,
+            'first_pdf_row_number': numbers[0], 'last_pdf_row_number': numbers[-1],
+            'coverage_verified': True, 'headers': HEADERS, 'rows': rows}
 
 
 def save_candidate(candidate, destination):

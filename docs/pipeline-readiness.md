@@ -103,6 +103,24 @@ order, charge, refund or supplier purchase was made.
   `ReferencePrices` write was made. User 2 should visually check the page before taking
   an owner action.
 
+## Latest owner access and snapshot UI — 2026-10-30
+
+- At the user's direction, both existing WordPress users 1 and 2 are now approved in the
+  protected WordPress owner list and Railway's matching `REFERENCE_OWNER_IDS`. The
+  WordPress file was privately backed up, only the owner list was changed, and read-back
+  verified `[1, 2]`.
+- Commit `e071d3b0263f38c97464316fc697d0b449a53ba7` simplified the Persian review screen
+  with status labels, a price table, sample counts, and clear confirmations before PDF
+  retry or writing prices. Deployment `1ede0c85-287d-4ec7-a811-9566a4ed4822` succeeded
+  from `molavisale-release-2026-10-28`; the deployed JavaScript matches the committed file.
+- Signed in as WordPress user 1, the owner page and script returned HTTP 200. Read-only
+  snapshots requests for `wp:1` and `wp:2` each returned HTTP 200; CORS preflight returned
+  HTTP 204. The API still lists two candidates, no active snapshot, and `staged` refresh
+  state. The public homepage and Railway `/health` returned HTTP 200.
+- A synthetic DOM render check passed. The connected browser extension was unavailable
+  for a screenshot-based visual check. No refresh, review, activation, or
+  `ReferencePrices` write was submitted.
+
 ## Customer-page and Git check — 2026-10-29 22:36 UTC
 
 - The site-wide Persian header, footer and WooCommerce styling were deployed from
@@ -147,7 +165,7 @@ that customers can receive a delivery rate on the public checkout.
 | Reference → extraction/review | The real Rezvan PDF → Gemini path staged 10 rows in snapshot `3adf331cfe5877a05b0637774f8dbdb1e02422a1da1cc7437880f62893edcca4`. It is not active and has written nothing to `ReferencePrices`. Owner approval remains required. |
 | Offers → pricing/catalog | Woo now publishes the customer price band and keeps supplier cost private. Freshness gating and fixed-pack minimums are active. Clearance formula, near-cost alert behavior and connected recalculation still need review. |
 | Catalog → WordPress/basket | Two products are synced in IRT; `/` and `/shop/` render the storefront. The delivery calculation exists, but the live Tehran zone has no matching locations. |
-| Checkout → operator work | Woo page assignments are present. User 2 is the sole owner, and the reference browser bridge returns two staged snapshots for actor `wp:2`. Visual review in that account's browser session remains open. |
+| Checkout → operator work | Woo page assignments are present. WordPress users 1 and 2 can access the reference page; both actor IDs return two snapshots through the browser bridge. Owner review remains pending. |
 | Payment → fulfillment/follow-up | Paid-order lifecycle is synthetic-tested. No live payment callback or order was run; inventory/workflow ledger remains on Railway SQLite and is not mirrored to Sheets. |
 | Daily reconciliation/recovery | The server worker and owner review surfaces exist. Bilateral Sheet edits and cutover of legacy/GAS writers remain unverified; legacy writers can bypass server locks. |
 
@@ -156,8 +174,9 @@ that customers can receive a delivery rate on the public checkout.
 1. Set the exact coverage locations for the already configured Tehran shipping zone.
    The fee and free-delivery threshold are recorded; the actual eligible addresses are
    not. The live zone currently has no location rules.
-2. Visually review the owner dashboards in the user 2 browser session. The reference
-   WordPress-to-Railway endpoint and owner identity have already returned a valid response.
+2. Review the reference candidate from WooCommerce → بررسی قیمت‌های مرجع using either
+   allowlisted owner account. The page and API now load; a screenshot-based visual check
+   remains open, and the other owner dashboards were not rechecked.
 3. Review the staged Rezvan/Gemini sample and activate it only after owner approval and
    a matching `ReferencePrices` write receipt. It is not active and has written nothing
    to that sheet.

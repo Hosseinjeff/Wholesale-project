@@ -67,6 +67,25 @@ HTTP 401. The active snapshot is still unset, refresh state is `staged`, and no 
 refresh, activation or `ReferencePrices` write was made. A visual interaction check in
 user 2's browser remains open.
 
+**User 1 access and simplified review page (2026-10-30):** at the user's direction,
+WordPress user 1 was added alongside user 2 in both protected WordPress configuration
+and Railway's `REFERENCE_OWNER_IDS`. The private WordPress config was backed up under
+`/tmp`, changed only for the owner list, and read back as `[1, 2]`. The deployed Railway
+source remains `molavisale-release-2026-10-28`; deployment
+`1ede0c85-287d-4ec7-a811-9566a4ed4822` succeeded at commit `e071d3b0263f38c97464316fc697d0b449a53ba7`.
+That commit simplifies the Persian page with clear status labels, a compact price table,
+sample counts, and confirmations before PDF retry or price activation. It hides internal
+snapshot hashes, extraction model names, and owner IDs.
+
+Read-only checks signed in as WordPress user 1 and loaded WooCommerce → بررسی قیمت‌های
+مرجع with its deployed script. User 1's page token and a separately signed user 2 token
+both returned HTTP 200 from `/reference/snapshots`; CORS preflight returned HTTP 204.
+The API still lists two candidates, `active_snapshot_id` is unset, and refresh state is
+`staged`. The Railway health route and public homepage returned HTTP 200. A synthetic DOM
+render check confirmed the simplified labels and table; the connected browser extension
+was unavailable for a screenshot-based visual review. No refresh, review, activation, or
+`ReferencePrices` write was made.
+
 Confirmed: owner decisions belong in the private WordPress dashboard, integrated with
 current WordPress functionality/plugins. Not Telegram as the decision surface.
 
@@ -93,9 +112,9 @@ Configuration contract (the secret values remain outside the repository):
 - `MOLAVI_REFERENCE_OWNER_IDS`: array of actual integer WP user IDs approved by the
   business owner. A user must also hold `manage_woocommerce`; general shop managers
   are not automatically entitled to this business-owner decision. The earlier record
-  for production owner ID `3` was stale; the user selected the existing second
-  Administrator as sole owner. The exact ID remains in protected configuration and must
-  be changed in WordPress and Railway together.
+  for production owner ID `3` was stale. At the user's latest direction, WordPress users
+  1 and 2 are both approved. The IDs remain in protected configuration and must stay
+  aligned between WordPress and Railway.
 - Server owner IDs use matching `wp:<ID>` identities. Empty/missing configuration denies
   access.
 
@@ -139,7 +158,11 @@ The browser script passed Node syntax and a DOM-mock render check. The live owne
 returned HTTP 200 with the script and a short-lived token, and the token/origin request
 returned the two staged snapshots. PHP CLI was unavailable in the workspace; the live
 WordPress page parsed and served the deployed PHP. A visual interaction check in user 2's
-browser remains open.
+browser remained open at that checkpoint. The later UI commit passed Node syntax and a
+synthetic DOM render check; live WordPress user 1 and user 2 snapshot GETs each returned
+HTTP 200 and the deployed JavaScript matched the committed file. No activation or other
+state-changing snapshot action was submitted. A screenshot-based browser review remains
+unverified because the browser extension was unavailable.
 
 The deployed plugin also contains separate owner screens for supplier-price verification,
 crash recovery, AI confirmations, reference item decisions, reference refresh retry and

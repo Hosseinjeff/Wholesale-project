@@ -14,6 +14,7 @@ class RecoveredParserTests(unittest.TestCase):
         return json.loads(result.stdout)
 
     def server(self, item):
+        item = {**item, 'pdf_row_number': item.get('pdf_row_number', '1')}
         row = parse_rows(json.dumps([item]), 'synthetic-time')[0]
         return dict(package_price=row[3], unit_price=row[4] or 0,
                     consumer_unit_price=row[5] or 0, package_count=row[6] or 0,

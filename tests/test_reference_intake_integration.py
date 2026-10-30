@@ -9,7 +9,7 @@ class IntakeReferenceIntegrationTests(unittest.TestCase):
   msg='کنسرو ماهی ۱۸۰ گرمی تاپ\nدونه ای: ۵۲,۰۰۰ تومان\nقیمت مصرف: ۶۵,۰۰۰ تومان\nتعداد در باکس: ۲۴ عددی'
   from catalog.extract import extract_products
   extracted=extract_products(msg,'@bonakdarjavan')[0];name=extracted['name']
-  rows=parse_rows(json.dumps([dict(raw_name=name,clean_name=name,package_price=1250000,package_count=24,product_code='r1',volume=extracted.get('volume',''),brand=extracted.get('brand',''))]),now)
+  rows=parse_rows(json.dumps([dict(raw_name=name,clean_name=name,package_price=1250000,package_count=24,product_code='r1',pdf_row_number='1',volume=extracted.get('volume',''),brand=extracted.get('brand',''))]),now)
   snapshot={'snapshot_id':'snapshot-test','rows':rows}
   payload={'batch_id':'batch-1','messages':[{'id':'m1','content':msg,'channel_username':'@bonakdarjavan'}]}
   result=finalize_batch(store,payload,reference_snapshot=snapshot)
@@ -32,7 +32,7 @@ class IntakeReferenceIntegrationTests(unittest.TestCase):
   from catalog.sync import import_product_data
   store=MemoryStore();stamp=datetime.now(timezone.utc).isoformat()
   rows=parse_rows(json.dumps([dict(raw_name='چای',clean_name='چای',package_price=50000,
-      package_count=1,product_code='single-reference')]),stamp)
+      package_count=1,product_code='single-reference',pdf_row_number='1')]),stamp)
   product={'name':'چای','sale_price':50000,'price':50000,'consumer_price':70000,
       'actual_price':70000,'price_type':'unit','packaging':'','extraction_confidence':0.9}
   result=import_product_data(store,{'id':'ambiguous','batch_id':'ambiguous-batch',
@@ -85,8 +85,10 @@ class ReferenceQueueIntegrationTests(unittest.TestCase):
    now=datetime.now(timezone.utc);stamp=(now-timedelta(hours=25)).isoformat()
    msg='کنسرو ماهی ۱۸۰ گرمی تاپ\nدونه ای: ۵۲,۰۰۰ تومان\nقیمت مصرف: ۶۵,۰۰۰ تومان\nتعداد در باکس: ۲۴ عددی'
    extracted=extract_products(msg,'@bonakdarjavan')[0];name=extracted['name']
-   rows=parse_rows(json.dumps([dict(raw_name=name,clean_name=name,package_price=1250000,package_count=24,product_code='r1',volume=extracted.get('volume',''))]),stamp)
-   snapshot={'status':'staged','source_url':SOURCE_URL,'headers':list(HEADERS),'extracted_at':stamp,'row_count':1,'rows':rows}
+   rows=parse_rows(json.dumps([dict(raw_name=name,clean_name=name,package_price=1250000,package_count=24,product_code='r1',pdf_row_number='1',volume=extracted.get('volume',''))]),stamp)
+   snapshot={'status':'staged','source_url':SOURCE_URL,'headers':list(HEADERS),'extracted_at':stamp,
+       'row_count':1,'source_page_count':1,'processed_page_count':1,'first_pdf_row_number':1,
+       'last_pdf_row_number':1,'coverage_verified':True,'rows':rows}
    version=snapshot_store.stage(snapshot);snapshot_store.review(version,actor_id='wp:7',note='synthetic coverage')
    snapshot_store.activate(version,actor_id='wp:7',expected_active_id=None)
    queue=Handoffs(db);queue.receive({'id':'m1','content':msg,'channel_username':'@bonakdarjavan'});job=queue.batch()
@@ -120,10 +122,11 @@ class ReferenceQueueIntegrationTests(unittest.TestCase):
    db=str(Path(directory)/'pipeline.sqlite');ref=str(Path(directory)/'reference.sqlite')
    now=datetime.now(timezone.utc).isoformat()
    item=dict(raw_name='چای سبز',clean_name='چای سبز',package_price=480000,package_count=12,
-             unit_price=40000,product_code='R-1',brand='الف',category='نوشیدنی')
+             unit_price=40000,product_code='R-1',brand='الف',category='نوشیدنی',pdf_row_number='1')
    rows=parse_rows(json.dumps([item]),now)
    reference={'status':'staged','source_url':SOURCE_URL,'headers':list(HEADERS),
-       'extracted_at':now,'row_count':1,'rows':rows}
+       'extracted_at':now,'row_count':1,'source_page_count':1,'processed_page_count':1,
+       'first_pdf_row_number':1,'last_pdf_row_number':1,'coverage_verified':True,'rows':rows}
    references=ReferenceStore(ref,owner_ids=['wp:7']);snapshot_id=references.stage(reference)
    references.review(snapshot_id,actor_id='wp:7',note='synthetic current reference reviewed')
    references.activate(snapshot_id,actor_id='wp:7',expected_active_id=None)

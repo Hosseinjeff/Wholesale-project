@@ -5,9 +5,36 @@ from contextlib import contextmanager
 import hashlib
 import json
 import math
+import re
 from datetime import datetime, timezone
 from .decisions import DecisionConflict, ReferenceDecisions
 from .importer import HEADERS, SOURCE_URL, ImportFailure
+
+
+def has_verified_coverage(candidate):
+    if not isinstance(candidate, dict) or candidate.get('coverage_verified') is not True:
+        return False
+    total = candidate.get('source_page_count')
+    processed = candidate.get('processed_page_count')
+    rows = candidate.get('rows')
+    if (not isinstance(total, int) or isinstance(total, bool) or total < 1
+            or not isinstance(processed, int) or isinstance(processed, bool) or processed != total
+            or not isinstance(rows, list)
+            or not isinstance(candidate.get('row_count'), int)
+            or isinstance(candidate.get('row_count'), bool)
+            or candidate.get('row_count') != len(rows) or not rows):
+        return False
+    try:
+        row_values = [row[15] for row in rows]
+        if any(not isinstance(value, str) or not re.fullmatch(r'[0-9]{1,6}', value)
+               for value in row_values):
+            return False
+        numbers = [int(value) for value in row_values]
+    except (IndexError, TypeError, ValueError):
+        return False
+    return (numbers == list(range(1, len(numbers) + 1))
+            and candidate.get('first_pdf_row_number') == 1
+            and candidate.get('last_pdf_row_number') == len(numbers))
 
 
 class ReferenceStore(ReferenceDecisions):
@@ -30,6 +57,9 @@ class ReferenceStore(ReferenceDecisions):
         if (candidate.get('status') != 'staged' or candidate.get('source_url') != SOURCE_URL
                 or list(candidate.get('headers', [])) != list(HEADERS)):
             raise ImportFailure('Invalid candidate contract')
+        if not has_verified_coverage(candidate):
+            raise ImportFailure('Candidate PDF row coverage was not verified',
+                                code='extraction_coverage_incomplete')
         rows = candidate.get('rows')
         if not isinstance(rows, list) or not rows or candidate.get('row_count') != len(rows):
             raise ImportFailure('Empty or partial candidate')
@@ -64,8 +94,10 @@ class ReferenceStore(ReferenceDecisions):
         if not isinstance(note, str) or not note.strip():
             raise ValueError('Output coverage/price review note required')
         with self._connect() as db:
-            existing = db.execute('SELECT reviewed_by,review_note FROM reference_snapshots WHERE snapshot_id=?',
+            existing = db.execute('SELECT payload,reviewed_by,review_note FROM reference_snapshots WHERE snapshot_id=?',
                                   (snapshot_id,)).fetchone()
+            if not existing or not has_verified_coverage(json.loads(existing['payload'])):
+                raise DecisionConflict('Snapshot extraction coverage is not verified')
             if existing and existing['reviewed_by']:
                 if existing['reviewed_by'] == actor_id and existing['review_note'] == note.strip():
                     return
@@ -85,21 +117,38 @@ class ReferenceStore(ReferenceDecisions):
         result=[]
         for row in rows:
             candidate=json.loads(row['payload'])
-            preview=[]
-            for values in candidate.get('rows',[])[:8]:
-                if not isinstance(values,list) or len(values)!=len(HEADERS):
-                    continue
-                preview.append({'product_name':values[0],'product_code':values[16],
-                    'package_price':values[3],'unit_price':values[4],
-                    'consumer_unit_price':values[5],'package_count':values[6],
-                    'unit_label':values[7],'pdf_row_number':values[15]})
+            preview=[self._preview_row(values) for values in candidate.get('rows',[])[:8]
+                     if isinstance(values,list) and len(values)==len(HEADERS)]
             result.append({'snapshot_id':row['snapshot_id'],'extracted_at':candidate.get('extracted_at'),
                 'row_count':candidate.get('row_count'),'pdf_sha256':candidate.get('pdf_sha256'),
                 'model':candidate.get('model'),'source_url':candidate.get('source_url'),
-                'preview':preview,
+                'source_page_count':candidate.get('source_page_count'),
+                'processed_page_count':candidate.get('processed_page_count'),
+                'first_pdf_row_number':candidate.get('first_pdf_row_number'),
+                'last_pdf_row_number':candidate.get('last_pdf_row_number'),
+                'coverage_verified':has_verified_coverage(candidate),
+                'preview':preview,'preview_total':candidate.get('row_count',0),
                 'reviewed_by':row['reviewed_by'],'review_note':row['review_note'],
                 'reviewed_at':row['reviewed_at'],'active':row['snapshot_id']==active_id})
         return {'active_snapshot_id':active_id,'snapshots':result}
+
+    @staticmethod
+    def _preview_row(values):
+        return {'product_name':values[0],'clean_name':values[1],
+            'package_price':values[3],'unit_price':values[4],
+            'consumer_unit_price':values[5],'package_count':values[6],
+            'unit_label':values[7],'volume':values[8],'weight':values[9],
+            'set_count':values[10],'variant':values[11],'brand':values[12],
+            'category':values[13],'raw_name_details':values[14],
+            'pdf_row_number':values[15],'product_code':values[16]}
+
+    def snapshot_rows(self, snapshot_id):
+        candidate=self.snapshot(snapshot_id)
+        if candidate is None:
+            return None
+        rows=candidate.get('rows',[])
+        return [self._preview_row(row) for row in rows
+                if isinstance(row,list) and len(row)==len(HEADERS)]
 
     def snapshot(self, snapshot_id):
         with self._connect() as db:
@@ -132,6 +181,8 @@ class ReferenceStore(ReferenceDecisions):
             row = db.execute('SELECT * FROM reference_snapshots WHERE snapshot_id=?', (snapshot_id,)).fetchone()
             if not row or not row['reviewed_by']:
                 raise DecisionConflict('Snapshot must be reviewed before activation')
+            if not has_verified_coverage(json.loads(row['payload'])):
+                raise DecisionConflict('Snapshot extraction coverage is not verified')
             if previous == snapshot_id:
                 return
             # No rollback to previously active data without a separate designed recovery policy.

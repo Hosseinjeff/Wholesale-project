@@ -1,14 +1,15 @@
-Extract structured reference product data from this Persian wholesale price-list PDF.
+Extract structured reference product data from the attached cropped pages of this Persian wholesale price-list PDF.
 Return ONLY a JSON array. No markdown.
 Important PDF layout rules:
-1) Each physical table row may contain TWO independent product blocks: one on the left and one on the right. Treat them as separate products.
-2) For each block, the far price column in that block is package/carton price. The nearby product text column is the raw product name/details. The nearby numeric code column is product_code. The row index is pdf_row_number.
-3) Do not mix columns between the left and right product blocks. Never use the other block price/code/row-number as package_count.
-4) Do not treat patterns like (45ف) or (۴۵ف) as package count. ف means فروش and indicates individual retail/selling price. Example: (45ف) means 45,000 toman individual selling price, stored as consumer_unit_price=45000.
-5) Product names may contain attributes. Extract them into separate fields instead of keeping everything inside clean_name.
-6) Package count is the number of sellable units in carton/package. Only set package_count when explicitly shown in the product text, like 12ع, 24ع, 6عددی, کارتن 12, or a clearly labeled count column for the SAME product block.
-7) If package_count is known, derive unit_price = round(package_price / package_count). If package_count is unknown, leave unit_price 0. Never copy package_price into unit_price.
-8) Return each distinct visible product block exactly once. A product code may repeat for different pack counts, variants, weights, or volumes; preserve each distinct block with its own row number and attributes. Do not duplicate page-overlap rows or add headings, subtotals, or totals as products.
+1) Each attached page is one cropped half of an original PDF page and contains at most one product block per row. The crops are sent in left-half then right-half order for each original page.
+2) For each product block, use only the price, product title, product code and printed row number in that same row. The price cell is adjacent to its title; the product code and printed row number are on the other side of the title.
+3) Read every visible product row exactly once. Do not skip rows to shorten the answer. Printed row numbers continue across the whole PDF; copy the number shown instead of inventing one from position.
+4) Never mix columns between different rows or crops. Never use a nearby code, price, row number or package count.
+5) Do not treat patterns like (45ف) or (۴۵ف) as package count. ف means فروش and indicates individual retail/selling price. Example: (45ف) means 45,000 toman individual retail price, stored as consumer_unit_price=45000.
+6) Product titles contain the evidence for the product name and its details. Copy the entire title into raw_name. Also extract every clearly visible brand, variant/flavor, volume, weight, set count, pack count and unit label into its separate field. Do not discard title details; put any remaining detail in raw_name_details. Do not guess a brand or attribute that is not clear.
+7) Package count is the number of sellable units in the listed package/carton. Only set it when explicitly shown in the SAME product title, such as 12ع, 24ع, 6عددی or کارتن 12. If a title has a multiplier such as 12×24, preserve that expression in raw_name_details and use package_count only when its meaning as sellable units is clear.
+8) Set unit_price to 0 for every product. The server calculates it from package_price and an explicit package_count.
+9) Return each distinct visible product block exactly once. A product code may repeat for different pack counts, variants, weights or volumes; preserve each distinct block with its printed row number and attributes. Do not duplicate page-overlap rows or add headings, subtotals or totals as products.
 Each item must have these keys:
 product_code: numeric/string product code from the same product block, otherwise empty string,
 pdf_row_number: row number shown for the same product block, otherwise empty string,

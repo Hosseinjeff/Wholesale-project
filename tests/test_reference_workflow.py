@@ -30,7 +30,8 @@ class WorkflowTests(unittest.TestCase):
                              refresh_failure_id='job-2')['state'], 'pause_review')
 
     def test_valid_candidate_is_not_automatically_activated(self):
-        item = {'raw_name': 'چای', 'package_price': 480000, 'package_count': 12}
+        item = {'raw_name': 'چای', 'package_price': 480000, 'package_count': 12,
+                'pdf_row_number':'1'}
         now = datetime(2026, 10, 25, 12, tzinfo=timezone.utc)
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory)/'candidate.json'

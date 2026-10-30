@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "snapshot_version": "4.52-live-reference-browser-route-verified",
+  "snapshot_version": "4.53-reference-owner-access-and-simple-ui-live",
   "updated_at_local_date": "2026-10-30",
   "timezone": "Asia/Tehran",
   "shared_brief_url": "https://www.molavisale.ir/molavi-workflow-e73014a831.html",
@@ -8,7 +8,7 @@
   "project": "MolaviSale",
   "scope": "Entire operating stream: supplier data entry, processing, pricing, site publication and efficient UI, durable order receipt, order management, fulfillment, and follow-up",
   "current_scene": "WF-00",
-  "status": "backend_live_catalog_synced_reference_browser_route_verified_owner_review_pending",
+  "status": "backend_live_catalog_synced_reference_two_owner_ui_live_owner_review_pending",
   "completed_scenes": [],
   "persona": {
     "first": "household_bulk",
@@ -105,7 +105,7 @@
     "Iran payment provider selection and integration",
     "Supplier/reference price-difference review policy question; unanswered, deprioritized by latest user steering"
   ],
-  "next_action": "Open the private WooCommerce owner page as user 2 and review the staged Rezvan/Gemini candidate. Activate it only after explicit owner approval and a matching ReferencePrices write receipt; verify live Sheet reconciliation before completing WF-00. Payment setup remains separate.",
+  "next_action": "Open WooCommerce → بررسی قیمت‌های مرجع as WordPress user 1 or 2 and review the staged Rezvan/Gemini candidate. Activate it only after explicit owner approval and a matching ReferencePrices write receipt; verify live Sheet reconciliation before completing WF-00. Payment setup remains separate.",
   "continuity": "Published snapshot must be updated explicitly after decisions; chats do not synchronize automatically.",
   "legacy_scene_order": "RP-00 through RP-08 is superseded; no previous scene was completed.",
   "intake_model": {
@@ -153,7 +153,7 @@
     "refresh_server_discovery_required": "Conditional: only if actual configuration/use establishes a dependency; declaration in code alone is insufficient"
   },
   "next_dependencies": [
-    "The reference snapshot page now uses a short-lived owner-browser capability; live page token, GET, CORS preflight and wp:2 authorization were verified. Visually check the page in user 2's browser before taking an owner action.",
+    "The reference snapshot page uses a short-lived owner-browser capability. WordPress users 1 and 2 are allowlisted; user 1's live page and both actors' read-only GETs work. The simplified UI is deployed; a screenshot-based browser review remains open before owner actions.",
     "Choose and configure a full-prepayment WooCommerce gateway with its provider credentials/account details. No payment methods are enabled; Woo remains in Coming soon mode.",
     "Review the staged 10-row Rezvan/Gemini snapshot, and activate only after explicit owner approval and a matching ReferencePrices write receipt.",
     "Verify direct Products-sheet edits, row-level conflict receipts and Woo publication; then cut over legacy/GAS writers after a guarded replay. No isolated Railway staging environment exists.",
@@ -202,7 +202,7 @@
     "evidence": "docs/pipeline-readiness-evidence.json",
     "whole_stream_gaps": [
       "Fresh WordPress/WooCommerce is live on h434558_Salesman, but the public site is in Coming soon mode. Two current Sheet products are synced with customer-facing IRT prices; legacy products, orders and media were not restored.",
-      "Reference snapshots are reachable through the owner-browser bridge: authenticated GET and preflight pass, and Railway accepts wp:2 only. User 2 should visually review the page; other owner screens and host-to-Railway PHP transport remain unverified.",
+      "Reference snapshots are reachable through the owner-browser bridge for both allowlisted users 1 and 2. User 1's owner page and both API actors were verified; the simplified UI has a synthetic DOM render check. Screenshot-based visual review and other owner dashboards remain unverified; the earlier PHP-to-Railway transport issue does not apply to this snapshots page.",
       "No Woo payment methods are enabled. Connected checkout/payment callback, a live order and fulfillment have not been verified.",
       "Bilateral Products-sheet edits/conflicts and legacy/GAS writer cutover remain unverified; the server worker reads two current products from Sheets.",
       "Paid-order inventory/workflow remains in persistent Railway SQLite and is not mirrored to Sheets; clearance and near-cost alert behavior still needs connected review."
@@ -222,19 +222,20 @@
       "owner_review_required_before_activation": true,
       "owner_dashboard_bridge_currently_reachable": true,
       "authenticated_api_get_as_wp2_http": 200,
+      "authenticated_api_get_as_wp1_http": 200,
       "authenticated_api_snapshot_count": 2,
       "owner_review_screen_installed": true,
       "browser_api_get_http": 200,
       "browser_api_cors_preflight_http": 204,
       "browser_snapshot_count": 2,
-      "owner_ids": "wp:2"
+      "owner_ids": "wp:1,wp:2"
     },
     "live_wordpress_site": {
       "apex_http": 200,
       "www_http": 200,
       "root_wp_config_bytes": 2035,
       "wordpress_admin_login_verified": true,
-      "owner_pages_error": "WordPress PHP outbound calls to Railway time out. The reference snapshot page now uses a ten-minute signed browser capability; API and preflight passed. A visual user-2 review remains open, and other owner dashboards were not rechecked.",
+      "owner_pages_error": "The earlier direct WordPress PHP transport timed out. The reference snapshot page now uses a ten-minute signed browser capability; user 1's owner page, wp:1 and wp:2 API access, and preflight pass. Other owner dashboards were not rechecked; a screenshot-based UI review remains open.",
       "railway_backend_healthy": true,
       "database": "h434558_Salesman",
       "woocommerce_active": true,
@@ -257,7 +258,14 @@
       "reference_snapshot_browser_api_get_http": 200,
       "reference_snapshot_browser_preflight_http": 204,
       "reference_snapshot_visual_browser_verified": false,
-      "reference_snapshot_page_functional": true
+      "reference_snapshot_page_functional": true,
+      "reference_snapshot_owner_page_user1_http": 200,
+      "reference_snapshot_script_http": 200,
+      "reference_snapshot_script_matches_commit": true,
+      "reference_snapshot_synthetic_dom_render_check": true,
+      "reference_snapshot_wp1_api_get_http": 200,
+      "reference_snapshot_wp2_api_get_http": 200,
+      "reference_snapshot_mutating_actions_run": false
     }
   },
   "working_preference": "Prioritize whole-project handoffs and roleplay; defer component-level micro-policy questions unless blocking a scene",
@@ -400,7 +408,7 @@
   "implementation_progress": {
     "python_tests_passed": 246,
     "isolated_wordpress_assertions_passed": 102,
-    "operations_dashboard": "User 2 is the sole WordPress/Railway owner. The reference snapshot page uses a signed browser bridge; actor wp:2 returns HTTP 200 and user 1 is denied. Visual user-2 review remains open; other owner screens were not rechecked.",
+    "operations_dashboard": "WordPress users 1 and 2 are both allowlisted in protected WordPress and Railway configuration. The simplified reference snapshot page uses a signed browser bridge; user 1's owner page and wp:1/wp:2 read-only snapshot requests return HTTP 200. A synthetic DOM render check passed; screenshot-based visual review and other owner screens remain unverified.",
     "supplier_out_of_stock_projection": "explicit supplier-unavailable rows are excluded from server quotes and projected unavailable to Woo; owned-stock and alternate-supplier eligibility remain unconnected",
     "reference_publication_recovery": "persistent cross-process publication hold, coordinated reference activation lock, private Woo owner review and audited explicit replay; legacy/GAS writers bypassing these server locks still require cutover control",
     "bidirectional_sheet_conflict_logic": "all normalized non-provenance Products columns; source-aware three-way reconciliation; durable owner review in Woo dashboard; conflicted products blocked from server quotes and Woo projection; supervised worker polls Products/Shop every 60 seconds by default and queues Woo publication; live staging remains unverified",
@@ -414,14 +422,14 @@
     "reference_matching": "Durable intake, snapshot gating, owner corrections and item/price-role review are deployed with the production server and MolaviShop plugin. The live Rezvan/Gemini path staged a 10-row candidate with an 8-row Woo preview; no snapshot is active and no ReferencePrices write occurred. Owner review and explicit activation remain required.",
     "procurement": "Paid-order shortfalls create owner-noted fixed-pack/minimum/multiple/cost/surplus proposals tied to source offer IDs; no supplier purchase is submitted; current supplier-term freshness and purchase completion remain owner/staging work",
     "gemini_supplier_extraction": "Gemini remains the default per D-035; GOOGLE_API_KEY/AI_API_KEY compatibility and gemini-3.1-flash-lite are configured. The replacement Railway key was accepted by Gemini for a real Rezvan PDF extraction; 10 rows are staged for owner review. Secret remains redacted.",
-    "railway_staged_variables": "2026-10-30: production now tracks molavisale-release-2026-10-28 at commit 6062fc3d37a581f9666a24612288df63fd1da084; deployment SUCCESS. Dedicated REFERENCE_BRIDGE_TOKEN was rotated and paired with protected WordPress wp-config.php. Persistent /data volume remains attached; no Railway configuration changes are staged. GOOGLE_SERVICE_ACCOUNT_JSON and GOOGLE_SHEET_ID remain redacted; connected row-level Sheets writes/reconciliation remain unverified. Only production exists; separate FollowUP-bot untouched.",
+    "railway_staged_variables": "2026-10-30: production tracks molavisale-release-2026-10-28; latest deployment SUCCESS at commit e071d3b0263f38c97464316fc697d0b449a53ba7. REFERENCE_OWNER_IDS is wp:1,wp:2; dedicated REFERENCE_BRIDGE_TOKEN remains paired with protected WordPress wp-config.php. Persistent /data volume remains attached; no Railway configuration changes are staged. GOOGLE_SERVICE_ACCOUNT_JSON and GOOGLE_SHEET_ID remain redacted; connected row-level Sheets writes/reconciliation remain unverified. Only production exists; separate FollowUP-bot untouched.",
     "order_payment_handoff": "Woo payment_complete sends receipt-checked paid snapshots with transaction/time, SKU and exact supplier offer provenance; cancellation/refund/failure snapshots release open lot reservations; Action Scheduler/WP-Cron retries pass synthetic runtime. Persistent /data storage is deployed, while installed gateway, live amount/callback and connected checkout remain unverified.",
     "paid_order_fulfillment": "Owner dashboard workflow covers assignment, supplier purchase recording/receipts, unavailable lines, substitutions/customer choices, refunds/additional-payment receipts, packing, dispatch/tracking, aftercare and closure. The SQLite database is persistent on Railway /data, not mirrored to Sheets. No automated supplier purchase, refund or extra charge is sent.",
     "reference_item_review": "Private Woo owner screen and authenticated /reference/item-reviews API are deployed; ranked suggestions, explicit reference/price-role choice, no-match hold, audited corrections, Products projection update and guarded publication are implemented. Live Sheet reconciliation and a usable active reference snapshot remain unverified.",
     "google_sheets_readonly_probe": "Railway service-account reader and the production /api/shop returned two current Products rows. Row-level Sheet edits, reconciliation and conflict receipts remain unverified.",
     "ai_confirmation": "Owner-only Woo review can confirm extracted offer fields or mark a message not-a-product; decisions persist idempotently, append derived Offers rather than modifying supplier source rows, refresh MessageData AI status and queue guarded publication. Tested locally with mocks; connected extraction and dashboard staging remain unverified.",
-    "reference_refresh": "Production fetched Rezvan PDF and Gemini staged 10 candidate rows in snapshot 3adf331cfe5877a05b0637774f8dbdb1e02422a1da1cc7437880f62893edcca4. Candidate remains inactive with no ReferencePrices write. A read-only authenticated GET as wp:2 returned HTTP 200 with two snapshot entries and refresh_state=staged; user 2 must review before activation.",
-    "deployed_commit": "6062fc3d37a581f9666a24612288df63fd1da084",
+    "reference_refresh": "Production fetched Rezvan PDF and Gemini staged 10 candidate rows in snapshot 3adf331cfe5877a05b0637774f8dbdb1e02422a1da1cc7437880f62893edcca4. Candidate remains inactive with no ReferencePrices write. Read-only authenticated GETs as wp:1 and wp:2 each returned HTTP 200 with two snapshot entries and refresh_state=staged; owner review remains required before activation.",
+    "deployed_commit": "e071d3b0263f38c97464316fc697d0b449a53ba7",
     "supervised_worker": "The latest Railway deployment db46d33c-adca-4bad-8a5d-2c2207e1947d succeeded with the 500 MB /data volume attached; free-plan sleep remains enabled.",
     "live_site_incident": "2026-10-28/29: Fresh WordPress uses h434558_Salesman and existing MolaviShop/Woo. Two live Sheet products are published with customer-facing IRT prices and private supplier cost. Shop page 7 has a Woo products shortcode but the site is in Coming soon mode; no payment method is enabled. The user-created admin login works. Original site files are preserved outside public_html; legacy catalog/orders/media were not restored."
   },
@@ -437,7 +445,7 @@
     "environment": "production",
     "project": "stellar-solace",
     "service": "Wholesale-project",
-    "service_state": "verified reference browser deployment SUCCESS on molavisale-release-2026-10-28; snapshots API returns HTTP 200; no staged Railway changes",
+    "service_state": "simplified reference snapshot UI and owner access deployment SUCCESS on molavisale-release-2026-10-28; wp:1 and wp:2 snapshots API requests return HTTP 200; no staged Railway changes",
     "latest_deployment_state": "SUCCESS",
     "staged_change_count": 0,
     "staged_change": "No Railway config work is pending; the independent Rezvan/Gemini reference candidate remains staged for owner approval.",
@@ -445,7 +453,7 @@
     "GOOGLE_SHEET_ID": "present; value not read",
     "PIPELINE_DB_PATH": "/data/pipeline.sqlite",
     "REFERENCE_BRIDGE_TOKEN": "rotated on Railway and paired in protected public_html/wp-config.php; value redacted",
-    "REFERENCE_OWNER_IDS": "wp:2",
+    "REFERENCE_OWNER_IDS": "wp:1,wp:2",
     "separate_followup_bot_touched": false,
     "deployment_or_configuration_mutation_by_agent": true,
     "latest_user_report": "User chose a fresh WordPress setup and provided h434558_Salesman. Fresh WordPress was installed against that database; cPanel-managed DB user h434558_mvsf1029 has access, wp-config.php is 2035 bytes after the private bridge repair, admin login and core storefront routes were verified. Original site files are preserved outside public_html; legacy products/orders/media are not restored.",
@@ -463,12 +471,12 @@
     "SHOP_SITE_URL": "https://molavisale.ir",
     "SHOP_NOTIFY_SECRET": "rotated and paired with private WordPress config; value redacted",
     "source_branch": "molavisale-release-2026-10-28",
-    "verified_reference_deployment_commit": "cf252f1dcbe4d0caeb9a6da29029a21cb5b8b069",
-    "verified_reference_deployment_id": "17f7f764-9199-4b81-8222-5e7a89cee594"
+    "verified_reference_deployment_commit": "e071d3b0263f38c97464316fc697d0b449a53ba7",
+    "verified_reference_deployment_id": "1ede0c85-287d-4ec7-a811-9566a4ed4822"
   },
   "whole_stream_gaps": [
     "Fresh WordPress/WooCommerce is live on h434558_Salesman, but the public site is in Coming soon mode. Two current Sheet products are synced with customer-facing IRT prices; legacy products, orders and media were not restored.",
-    "Reference snapshots are reachable through the owner-browser bridge: authenticated GET and preflight pass, and Railway accepts wp:2 only. User 2 should visually review the page; other owner screens and host-to-Railway PHP transport remain unverified.",
+    "Reference snapshots are reachable through the owner-browser bridge for both allowlisted users 1 and 2. User 1's owner page and both API actors were verified; the simplified UI has a synthetic DOM render check. Screenshot-based visual review and other owner dashboards remain unverified; the earlier PHP-to-Railway transport issue does not apply to this snapshots page.",
     "No Woo payment methods are enabled. Connected checkout/payment callback, a live order and fulfillment have not been verified.",
     "Bilateral Products-sheet edits/conflicts and legacy/GAS writer cutover remain unverified; the server worker reads two current products from Sheets.",
     "Paid-order inventory/workflow remains in persistent Railway SQLite and is not mirrored to Sheets; clearance and near-cost alert behavior still needs connected review."

@@ -17,6 +17,7 @@
             active_snapshot_changed: 'نسخه فعال تغییر کرده است. فهرست را دوباره بررسی کنید.',
             snapshot_changed_or_unreviewed: 'وضعیت نسخه تغییر کرده است. فهرست را دوباره بررسی کنید.',
             snapshot_not_found: 'این نسخه دیگر در دسترس نیست.',
+            snapshot_incomplete: 'کامل بودن استخراج این نسخه تأیید نشده است و نمی‌توان آن را بررسی یا فعال کرد.',
             sheets_unavailable: 'ثبت قیمت‌ها موقتاً در دسترس نیست.',
             refresh_state_changed: 'وضعیت دریافت تغییر کرده است. فهرست را دوباره بررسی کنید.',
             refresh_cooldown: 'برای تلاش دوباره هنوز باید کمی صبر کنید.',
@@ -67,7 +68,7 @@
         })[state] || 'وضعیت دریافت مشخص نیست';
     }
 
-    async function request(method, payload) {
+    async function request(method, payload, url) {
         const options = {
             method,
             mode: 'cors',
@@ -78,7 +79,7 @@
             options.headers['Content-Type'] = 'application/json';
             options.body = JSON.stringify(payload);
         }
-        const response = await fetch(config.apiUrl, options);
+        const response = await fetch(url || config.apiUrl, options);
         const body = await response.json().catch(() => null);
         if (!response.ok || !body || body.ok !== true) {
             throw new Error(body && typeof body.error === 'string' ? body.error : 'request_failed');
@@ -150,13 +151,13 @@
 
     function appendRefreshForm(parent, refresh) {
         const form = element('form');
-        const button = element('button', 'دریافت دوباره PDF', 'button');
+        const button = element('button', 'استخراج نسخه تازه از PDF', 'button');
         button.type = 'submit';
         form.appendChild(button);
         form.addEventListener('submit', async (event) => {
             event.preventDefault();
             if (!window.confirm(
-                'PDF رزوان دوباره دریافت و بررسی می‌شود. نتیجه فقط برای بررسی آماده می‌شود و خودکار فعال نخواهد شد. ادامه می‌دهید؟')) {
+                'PDF رزوان دریافت و جدول‌های آن دوباره استخراج می‌شود. نسخه تازه فقط برای بررسی ساخته می‌شود و قیمت‌ها خودکار تغییر نمی‌کنند. ادامه می‌دهید؟')) {
                 return;
             }
             button.disabled = true;
@@ -170,7 +171,7 @@
                     throw new Error('invalid_receipt');
                 }
                 await load(receipt.state === 'staged'
-                    ? 'نسخه تازه آماده بررسی است.'
+                    ? 'استخراج تمام شد؛ پیش‌نویس تازه به فهرست اضافه شد.'
                     : 'تلاش انجام شد، اما PDF دریافت نشد. بعداً دوباره تلاش کنید.');
             } catch (error) {
                 root.prepend(notice(messageText(error.message), 'error'));
@@ -184,15 +185,28 @@
         if (!refresh || typeof refresh !== 'object') return;
         const card = element('section', undefined, 'card');
         card.appendChild(element('h2', 'دریافت روزانه PDF رزوان'));
-        card.appendChild(element('p', 'وضعیت: ' + refreshLabel(refresh.state)));
+        const label = refresh.state === 'staged'
+            ? 'دریافت موفق بود؛ پیش‌نویس در فهرست پایین است'
+            : refreshLabel(refresh.state);
+        card.appendChild(element('p', 'وضعیت: ' + label));
         if (refresh.last_attempt_at) {
             card.appendChild(element('p', 'آخرین تلاش: ' + formatDate(refresh.last_attempt_at), 'description'));
         }
-        if (refresh.state === 'failed') {
-            card.appendChild(element('p', 'می‌توانید دریافت فایل را دوباره امتحان کنید.', 'description'));
+        if (refresh.state === 'failed' || refresh.state === 'staged') {
+            card.appendChild(element('p', 'استخراج تازه فقط یک پیش‌نویس می‌سازد؛ فهرست مرجع با آن تغییر نمی‌کند.', 'description'));
             appendRefreshForm(card, refresh);
         }
         parent.appendChild(card);
+    }
+
+    function attributeList(item) {
+        const attributes = [
+            ['برند', item.brand], ['نوع / طعم', item.variant], ['حجم', item.volume],
+            ['وزن', item.weight], ['تعداد در مجموعه', item.set_count],
+            ['دسته', item.category], ['سایر جزئیات عنوان', item.raw_name_details]
+        ].filter(([, value]) => value !== null && value !== undefined && String(value).trim() !== '' && String(value) !== '0');
+        return attributes.map(([label, value]) => label + ': ' + value).join(' · ')
+            || 'مشخصه دیگری از عنوان استخراج نشده است';
     }
 
     function appendPreview(card, snapshot) {
@@ -203,8 +217,11 @@
         const table = element('table', undefined, 'widefat striped');
         const head = element('thead');
         const headerRow = element('tr');
-        ['کالا', 'قیمت بسته', 'قیمت هر عدد', 'قیمت فروش تک‌عدد', 'تعداد در بسته'].forEach((label) => {
-            headerRow.appendChild(element('th', label, 'column-primary'));
+        ['ردیف PDF / کد کالا', 'عنوان استخراج‌شده از PDF', 'مشخصاتی که از عنوان درآمده', 'قیمت‌ها', 'تعداد در بسته'].forEach((label, index) => {
+            const th = element('th', label);
+            th.setAttribute('scope', 'col');
+            if (index === 0) th.className = 'column-primary';
+            headerRow.appendChild(th);
         });
         head.appendChild(headerRow);
         table.appendChild(head);
@@ -213,18 +230,92 @@
         preview.forEach((item) => {
             if (!item || typeof item !== 'object') return;
             const row = element('tr');
-            row.appendChild(element('td', item.product_name || 'بدون نام'));
-            row.appendChild(element('td', formatAmount(item.package_price)));
-            row.appendChild(element('td', formatAmount(item.unit_price)));
-            row.appendChild(element('td', formatAmount(item.consumer_unit_price)));
+            const idCell = element('td');
+            idCell.appendChild(element('strong', 'ردیف ' + (item.pdf_row_number || '—')));
+            idCell.appendChild(element('p', 'کد کالا: ' + (item.product_code || 'ثبت نشده'), 'description'));
+            row.appendChild(idCell);
+
+            const nameCell = element('td');
+            nameCell.appendChild(element('strong', item.product_name || 'عنوان پیدا نشد'));
+            nameCell.appendChild(element('p', 'نام مرتب‌شده: ' + (item.clean_name || 'ثبت نشده'), 'description'));
+            row.appendChild(nameCell);
+            row.appendChild(element('td', attributeList(item)));
+
+            const prices = element('td');
+            prices.appendChild(element('p', 'قیمت بسته: ' + formatAmount(item.package_price)));
+            prices.appendChild(element('p', 'قیمت هر عدد: ' + formatAmount(item.unit_price)));
+            prices.appendChild(element('p', 'قیمت فروش تک‌عدد: ' + formatAmount(item.consumer_unit_price)));
+            row.appendChild(prices);
             row.appendChild(element('td', formatCount(item.package_count, item.unit_label)));
             body.appendChild(row);
         });
         table.appendChild(body);
         card.appendChild(table);
-        card.appendChild(element('p', 'این نمونه شامل ' + new Intl.NumberFormat('fa-IR').format(preview.length)
-            + ' کالا از ' + new Intl.NumberFormat('fa-IR').format(Number(snapshot.row_count) || preview.length)
-            + ' کالای نسخه است.', 'description'));
+        card.appendChild(element('p', 'این نمونه ' + new Intl.NumberFormat('fa-IR').format(preview.length)
+            + ' ردیف از ' + new Intl.NumberFormat('fa-IR').format(Number(snapshot.row_count) || preview.length)
+            + ' ردیف نسخه را نشان می‌دهد. فایل CSV همه ردیف‌ها و مشخصات استخراج‌شده را دارد.', 'description'));
+        if (snapshot.coverage_verified === true) {
+            card.appendChild(element('p', 'شماره ردیف‌های PDF پیوسته‌اند؛ این بررسی به معنی درست بودن عنوان، مشخصات یا قیمت نیست. همه موارد را با PDF تطبیق دهید.', 'description'));
+        }
+        try {
+            const source = new URL(snapshot.source_url);
+            if (source.protocol === 'https:' && source.hostname === 'rezvanpakhsh.com') {
+                const link = element('a', 'باز کردن PDF منبع');
+                link.href = source.toString();
+                link.target = '_blank';
+                link.rel = 'noopener noreferrer';
+                card.appendChild(link);
+            }
+        } catch (_) { /* An absent or invalid source link does not block local review. */ }
+        appendDownloadButton(card, snapshot);
+    }
+
+    function csvCell(value) {
+        return '"' + String(value === null || value === undefined ? '' : value).replace(/"/g, '""') + '"';
+    }
+
+    function appendDownloadButton(parent, snapshot) {
+        const button = element('button', 'دانلود همه ردیف‌ها برای بررسی (CSV)', 'button');
+        button.type = 'button';
+        button.addEventListener('click', async () => {
+            button.disabled = true;
+            try {
+                const url = new URL(config.apiUrl);
+                url.searchParams.set('snapshot_id', snapshot.snapshot_id);
+                url.searchParams.set('include_rows', '1');
+                const result = await request('GET', undefined, url.toString());
+                if (result.snapshot_id !== snapshot.snapshot_id || !Array.isArray(result.rows)
+                    || result.rows.length !== Number(snapshot.row_count)) {
+                    throw new Error('invalid_receipt');
+                }
+                const columns = [
+                    ['ردیف PDF', 'pdf_row_number'], ['کد کالا', 'product_code'],
+                    ['عنوان در PDF', 'product_name'], ['نام مرتب‌شده', 'clean_name'],
+                    ['برند', 'brand'], ['نوع / طعم', 'variant'], ['دسته', 'category'],
+                    ['حجم', 'volume'], ['وزن', 'weight'], ['تعداد در مجموعه', 'set_count'],
+                    ['تعداد در بسته', 'package_count'], ['واحد', 'unit_label'],
+                    ['قیمت بسته (تومان)', 'package_price'], ['قیمت هر عدد (تومان)', 'unit_price'],
+                    ['قیمت فروش تک‌عدد (تومان)', 'consumer_unit_price'], ['سایر جزئیات عنوان', 'raw_name_details']
+                ];
+                const csv = '\uFEFF' + [
+                    columns.map(([label]) => csvCell(label)).join(','),
+                    ...result.rows.map((item) => columns.map(([, key]) => csvCell(item[key])).join(','))
+                ].join('\r\n');
+                const blobUrl = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+                const link = element('a');
+                link.href = blobUrl;
+                link.download = 'molavi-reference-review.csv';
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+                window.setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+            } catch (error) {
+                root.prepend(notice(messageText(error.message), 'error'));
+            } finally {
+                button.disabled = false;
+            }
+        });
+        parent.appendChild(button);
     }
 
     function render(data, successMessage) {
@@ -244,16 +335,25 @@
             const card = element('section', undefined, 'card');
             const active = data.active_snapshot_id === snapshot.snapshot_id || Boolean(snapshot.active);
             const reviewed = Boolean(snapshot.reviewed_by);
+            const complete = snapshot.coverage_verified === true;
             const status = active ? 'فعال و در حال استفاده'
-                : (reviewed ? 'بررسی شده؛ آماده فعال‌سازی' : 'نیاز به بررسی');
+                : (!complete ? 'کامل بودن استخراج تأیید نشده'
+                    : (reviewed ? 'بررسی شده؛ آماده فعال‌سازی' : 'نیاز به بررسی'));
 
-            card.appendChild(element('h2', 'نسخه قیمت‌ها'));
+            card.appendChild(element('h2', complete ? 'پیش‌نویس قیمت‌ها' : 'پیش‌نویس ناقص قیمت‌ها'));
             card.appendChild(element('p', 'وضعیت: ' + status, 'description'));
             card.appendChild(element('p', 'زمان استخراج: ' + formatDate(snapshot.extracted_at)
-                + ' · تعداد کالا: ' + new Intl.NumberFormat('fa-IR').format(Number(snapshot.row_count) || 0)));
+                + ' · تعداد ردیف: ' + new Intl.NumberFormat('fa-IR').format(Number(snapshot.row_count) || 0)
+                + (snapshot.source_page_count ? ' · صفحات PDF: ' + new Intl.NumberFormat('fa-IR').format(snapshot.source_page_count) : '')
+                + (snapshot.first_pdf_row_number && snapshot.last_pdf_row_number
+                    ? ' · ردیف‌های PDF: ' + snapshot.first_pdf_row_number + ' تا ' + snapshot.last_pdf_row_number : '')));
             appendPreview(card, snapshot);
 
-            if (reviewed) {
+            if (!complete) {
+                card.appendChild(notice(active
+                    ? 'این نسخه در حال حاضر فعال است، اما کامل بودن استخراج آن قابل تأیید نیست؛ از این صفحه نمی‌توان دوباره آن را ثبت یا فعال کرد.'
+                    : 'این نسخه از استخراج قبلی است و کامل بودن داده‌هایش بررسی نشده؛ برای جلوگیری از ثبت قیمت ناقص، بررسی و فعال‌سازی آن غیرفعال است. نسخه تازه را از بخش «دریافت روزانه PDF رزوان» بسازید.', 'error'));
+            } else if (reviewed) {
                 if (snapshot.review_note) {
                     card.appendChild(element('p', 'یادداشت بررسی: ' + snapshot.review_note, 'notice notice-info'));
                 }

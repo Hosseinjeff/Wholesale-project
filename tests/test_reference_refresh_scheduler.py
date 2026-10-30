@@ -12,11 +12,12 @@ from reference_import.snapshots import ReferenceStore
 def candidate(at):
     rows=parse_rows(json.dumps([{'raw_name':'چای نمونه ۱۲ عددی','clean_name':'چای نمونه',
         'package_price':1200000,'package_count':12,'unit_price':100000,
-        'category':'Tea','product_code':'TEA-12','currency':'TOMAN'}],ensure_ascii=False),at.isoformat())
+        'category':'Tea','product_code':'TEA-12','currency':'TOMAN','pdf_row_number':'1'}],ensure_ascii=False),at.isoformat())
     return {'schema_version':1,'status':'staged','requires_review':True,'source_url':SOURCE_URL,
-        'pdf_sha256':'a'*64,'model':'gemini-3.1-flash-lite','extracted_at':at.isoformat(),
+        'pdf_sha256':'a'*64,'model':'gemini-3.5-flash-lite','extracted_at':at.isoformat(),
         'row_count':len(rows),'headers':list(__import__('reference_import.importer',fromlist=['HEADERS']).HEADERS),
-        'rows':rows}
+        'source_page_count':1,'processed_page_count':1,'first_pdf_row_number':1,
+        'last_pdf_row_number':1,'coverage_verified':True,'rows':rows}
 
 
 class ReferenceRefreshSchedulerTests(unittest.TestCase):
@@ -59,12 +60,16 @@ class ReferenceRefreshSchedulerTests(unittest.TestCase):
             now=self.now+timedelta(seconds=61),force=True)
         self.assertEqual(retry['state'],'staged')
 
-    def test_owner_retry_cannot_replace_a_staged_candidate(self):
+    def test_owner_can_stage_new_retry_without_overwriting_prior_staged_candidate(self):
         first=self.scheduler.run_if_due(lambda:candidate(self.now),now=self.now)
         retry=self.scheduler.run_if_due(lambda:candidate(self.now+timedelta(minutes=2)),
             now=self.now+timedelta(minutes=2),force=True)
-        self.assertEqual(retry['state'],'not_due')
-        self.assertEqual(self.scheduler.store.snapshots()['snapshots'][0]['snapshot_id'],first['snapshot_id'])
+        self.assertEqual(retry['state'],'staged')
+        snapshots=self.scheduler.store.snapshots()['snapshots']
+        self.assertEqual(len(snapshots),2)
+        self.assertEqual(snapshots[0]['snapshot_id'],retry['snapshot_id'])
+        self.assertEqual(snapshots[1]['snapshot_id'],first['snapshot_id'])
+        self.assertIsNone(self.scheduler.store.active_snapshot())
 
     def test_worker_crash_is_recorded_before_recovery_attempt(self):
         with self.scheduler._connect() as db:

@@ -19,10 +19,12 @@ def staged_candidate():
     timestamp=datetime.now(timezone.utc).isoformat()
     rows=parse_rows(json.dumps([{'raw_name':'چای نمونه','clean_name':'چای نمونه',
         'package_price':1200000,'package_count':12,'unit_price':100000,
-        'category':'Tea','product_code':'TEA-12','currency':'TOMAN'}],ensure_ascii=False),timestamp)
+        'category':'Tea','product_code':'TEA-12','currency':'TOMAN','pdf_row_number':'1'}],ensure_ascii=False),timestamp)
     return {'schema_version':1,'status':'staged','requires_review':True,'source_url':SOURCE_URL,
-        'pdf_sha256':'b'*64,'model':'gemini-3.1-flash-lite','extracted_at':timestamp,
-        'row_count':len(rows),'headers':list(HEADERS),'rows':rows}
+        'pdf_sha256':'b'*64,'model':'gemini-3.5-flash-lite','extracted_at':timestamp,
+        'row_count':len(rows),'source_page_count':1,'processed_page_count':1,
+        'first_pdf_row_number':1,'last_pdf_row_number':1,'coverage_verified':True,
+        'headers':list(HEADERS),'rows':rows}
 
 
 class ReferenceSnapshotRouteTests(unittest.TestCase):
@@ -55,6 +57,12 @@ class ReferenceSnapshotRouteTests(unittest.TestCase):
                 self.assertEqual(listing.status_code,200,listing.get_json())
                 self.assertEqual(listing.get_json()['snapshots'][0]['snapshot_id'],snapshot_id)
                 self.assertEqual(listing.headers.get('Access-Control-Allow-Origin'),origin)
+                exported=client.get('/reference/snapshots?include_rows=1&snapshot_id='+snapshot_id,
+                    headers=headers)
+                self.assertEqual(exported.status_code,200,exported.get_json())
+                self.assertEqual(exported.get_json()['row_count'],1)
+                self.assertEqual(exported.get_json()['rows'][0]['pdf_row_number'],'1')
+                self.assertEqual(exported.get_json()['rows'][0]['brand'],'')
                 review=client.post('/reference/snapshots',json={
                     'action':'review','snapshot_id':snapshot_id,'note':'Reviewed from owner browser',
                     'expected_active_id':None},headers=headers)
@@ -99,10 +107,33 @@ class ReferenceSnapshotRouteTests(unittest.TestCase):
                 conflict=client.post('/reference/snapshots',json=payload,headers=headers)
                 self.assertEqual(conflict.status_code,409)
 
+    def test_legacy_incomplete_snapshot_cannot_be_reviewed_or_activated(self):
+        from importlib import import_module
+        import sqlite3
+        server=import_module('app')
+        with tempfile.TemporaryDirectory() as tmp:
+            path=str(Path(tmp)/'reference.sqlite');gate=ReferenceStore(path,owner_ids=['wp:7'])
+            legacy=staged_candidate();legacy.pop('coverage_verified')
+            legacy.pop('source_page_count');legacy.pop('processed_page_count')
+            legacy.pop('first_pdf_row_number');legacy.pop('last_pdf_row_number')
+            snapshot_id='d'*64
+            with sqlite3.connect(path) as db:
+                db.execute('INSERT INTO reference_snapshots VALUES (?, ?, NULL, NULL, NULL)',
+                    (snapshot_id,json.dumps(legacy,ensure_ascii=False)))
+            with patch.dict(os.environ,{'REFERENCE_STORE_PATH':path,'REFERENCE_BRIDGE_TOKEN':'z'*40,
+                    'REFERENCE_OWNER_IDS':'wp:7'}),patch.object(server,'ensure_telegram_webhook',return_value=None):
+                client=server.app.test_client()
+                headers={'X-Molavi-Reference-Token':'z'*40,'X-Molavi-Actor':'wp:7'}
+                for action,body in (('review',{'note':'Must be blocked'}),('activate',{})):
+                    response=client.post('/reference/snapshots',json={
+                        'action':action,'snapshot_id':snapshot_id,
+                        'expected_active_id':None,**body},headers=headers)
+                    self.assertEqual(response.status_code,409,response.get_json())
+
     def test_projection_replaces_shorter_snapshot_and_clears_old_managed_rows(self):
         rows=parse_rows(json.dumps([{'raw_name':'New reference','clean_name':'New reference',
             'package_price':100000,'package_count':1,'unit_price':100000,
-            'category':'Food','product_code':'NEW','currency':'TOMAN'}]),
+            'category':'Food','product_code':'NEW','currency':'TOMAN','pdf_row_number':'1'}]),
             datetime.now(timezone.utc).isoformat())
         snapshot={'status':'staged','snapshot_id':'c'*64,'headers':list(HEADERS),'rows':rows}
         sheets=MemoryStore();sheets.ensure('ReferencePrices',list(HEADERS))

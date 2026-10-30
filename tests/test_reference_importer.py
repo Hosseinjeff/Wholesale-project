@@ -4,15 +4,20 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+from pypdf import PdfWriter
 from reference_import.importer import ImportFailure, HEADERS, extract_pdf, parse_rows, save_candidate
 
 class ReferenceImportTests(unittest.TestCase):
     def item(self):
         return dict(raw_name='چای (۴۵ف) ۱۲ع', clean_name='چای', package_price='۴۸۰٬۰۰۰',
-                    package_count=12, unit_price=40000, product_code='10')
+                    package_count=12, unit_price=40000, product_code='10', pdf_row_number='1')
 
     def rows(self, item):
         return parse_rows(json.dumps([item]), '2026-10-25T00:00:00+00:00')
+
+    def extract(self, session, *args):
+        with patch('requests.post',side_effect=session.post):
+            return extract_pdf(session,*args)
 
     def test_schema_and_retail_hint(self):
         row = self.rows(self.item())[0]
@@ -51,39 +56,60 @@ class ReferenceImportTests(unittest.TestCase):
         self.assertEqual(len(rows),2)
         self.assertEqual([row[6] for row in rows],[12,24])
 
-    def session(self, finish='STOP', pdf=b'%PDF-test'):
+    def pdf_bytes(self):
+        writer=PdfWriter();writer.add_blank_page(width=600,height=800)
+        output=__import__('io').BytesIO();writer.write(output)
+        return output.getvalue()
+
+    def session(self, finish='STOP', pdf=None):
+        if pdf is None:
+            pdf=self.pdf_bytes()
         session = MagicMock()
         download = session.get.return_value.__enter__.return_value
         download.status_code = 200
         download.iter_content.return_value = [pdf]
         response = session.post.return_value
         response.status_code = 200
+        products=[dict(raw_name=f'کالای نمونه {number}',clean_name=f'کالای نمونه {number}',
+            package_price=10000,package_count=1,unit_price=0,pdf_row_number=str(number),
+            product_code=f'P-{number}') for number in range(1,31)]
         response.json.return_value = {'candidates': [{'finishReason': finish,
             'content': {'parts': [{'thought': True, 'text': 'ignore'},
-                                  {'text': json.dumps([self.item()])}]}}]}
+                                  {'text': json.dumps(products,ensure_ascii=False)}]}}]}
         return session
 
     def test_stages_only_and_keeps_key_out_of_url(self):
         session = self.session()
-        candidate = extract_pdf(session, 'synthetic-key', 'explicit-model')
+        candidate = self.extract(session, 'synthetic-key', 'explicit-model')
         self.assertEqual(candidate['status'], 'staged')
         self.assertTrue(candidate['requires_review'])
-        self.assertEqual(candidate['row_count'], 1)
+        self.assertEqual(candidate['row_count'], 30)
+        self.assertTrue(candidate['coverage_verified'])
+        self.assertEqual(candidate['source_page_count'], 1)
+        self.assertEqual(candidate['processed_page_count'], 1)
         self.assertNotIn('synthetic-key', session.post.call_args.args[0])
 
     def test_environment_key_and_model_are_used_when_not_passed(self):
         session = self.session()
         with patch.dict(os.environ, {'GOOGLE_API_KEY': 'environment-key',
-                                     'AI_MODEL': 'environment-model'}, clear=True):
-            candidate = extract_pdf(session)
+                                     'REFERENCE_GEMINI_MODEL': 'environment-model'}, clear=True):
+            candidate = self.extract(session)
         self.assertEqual(candidate['model'], 'environment-model')
         self.assertEqual(session.post.call_args.kwargs['headers']['x-goog-api-key'], 'environment-key')
         self.assertNotIn('environment-key', session.post.call_args.args[0])
+        self.assertIn('environment-model', session.post.call_args.args[0])
+
+    def test_default_model_is_flash_lite_35(self):
+        session=self.session()
+        with patch.dict(os.environ,{'GOOGLE_API_KEY':'environment-key'},clear=True):
+            candidate=self.extract(session)
+        self.assertEqual(candidate['model'],'gemini-3.5-flash-lite')
+        self.assertIn('gemini-3.5-flash-lite',session.post.call_args.args[0])
 
     def test_partial_output_and_non_pdf_fail(self):
         for session in (self.session(finish='MAX_TOKENS'), self.session(pdf=b'<html>error')):
             with self.assertRaises(ImportFailure):
-                extract_pdf(session, 'synthetic-key', 'explicit-model')
+                self.extract(session, 'synthetic-key', 'explicit-model')
 
     def test_download_failure_and_oversize_pdf(self):
         session = self.session()
@@ -101,7 +127,7 @@ class ReferenceImportTests(unittest.TestCase):
             'status':'INVALID_ARGUMENT','message':'API key not valid: secret-detail',
             'details':[{'reason':'API_KEY_INVALID'}]}}
         with self.assertRaises(ImportFailure) as caught:
-            extract_pdf(session,'synthetic-key','explicit-model')
+            self.extract(session,'synthetic-key','explicit-model')
         self.assertEqual(caught.exception.code,'gemini_key_invalid')
         self.assertNotIn('secret-detail',str(caught.exception))
 
