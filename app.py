@@ -4,7 +4,9 @@ Flask app for Railway/Render deployment with Telegram webhooks.
 """
 
 from flask import Flask, Response, request, jsonify
+import base64
 import hmac
+import json
 import logging
 import requests
 import os
@@ -1324,9 +1326,71 @@ def reference_decisions_route():
     return response, code
 
 
-@app.route('/reference/snapshots', methods=['GET','POST'])
+def _reference_browser_actor(authorization, bridge_token, owners):
+    """Verify a short-lived WordPress-signed token scoped to the snapshots API."""
+    prefix = 'Bearer '
+    if not isinstance(authorization, str) or not authorization.startswith(prefix):
+        return None
+    bearer = authorization[len(prefix):].strip()
+    if not bearer or len(bearer) > 4096 or '.' not in bearer:
+        return None
+    encoded_payload, encoded_signature = bearer.split('.', 1)
+    try:
+        payload_bytes = base64.b64decode(
+            encoded_payload + '=' * (-len(encoded_payload) % 4), altchars=b'-_', validate=True)
+        signature = base64.b64decode(
+            encoded_signature + '=' * (-len(encoded_signature) % 4), altchars=b'-_', validate=True)
+        expected = hmac.new(bridge_token.encode('utf-8'), encoded_payload.encode('ascii'), 'sha256').digest()
+        claims = json.loads(payload_bytes.decode('utf-8'))
+    except (ValueError, UnicodeError, json.JSONDecodeError):
+        return None
+    if not hmac.compare_digest(signature, expected) or not isinstance(claims, dict):
+        return None
+    actor = claims.get('actor')
+    issued_at = claims.get('iat')
+    expires_at = claims.get('exp')
+    now = int(time.time())
+    if (claims.get('iss') != 'molavi-wordpress'
+            or claims.get('aud') != 'reference-snapshots'
+            or claims.get('scope') != 'reference:snapshots'
+            or not isinstance(actor, str) or actor not in owners
+            or not isinstance(issued_at, int) or isinstance(issued_at, bool)
+            or not isinstance(expires_at, int) or isinstance(expires_at, bool)
+            or issued_at > now + 30 or issued_at < now - 900
+            or expires_at <= now or expires_at <= issued_at or expires_at > now + 900):
+        return None
+    return actor
+
+
+@app.after_request
+def reference_snapshots_browser_cors(response):
+    if request.path != '/reference/snapshots':
+        return response
+    response.headers.setdefault('Cache-Control', 'no-store')
+    origin = request.headers.get('Origin', '')
+    allowed_origins = {
+        value.strip().rstrip('/')
+        for value in (os.getenv('REFERENCE_BROWSER_ORIGINS')
+                      or 'https://www.molavisale.ir,https://molavisale.ir').split(',')
+        if value.strip()
+    }
+    if origin and origin in allowed_origins:
+        response.headers['Access-Control-Allow-Origin'] = origin
+        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Authorization, Content-Type'
+        response.headers['Access-Control-Max-Age'] = '600'
+        vary = [value.strip() for value in response.headers.get('Vary', '').split(',') if value.strip()]
+        if 'Origin' not in vary:
+            vary.append('Origin')
+        response.headers['Vary'] = ', '.join(vary)
+    return response
+
+
+@app.route('/reference/snapshots', methods=['GET','POST','OPTIONS'])
 def reference_snapshots_route():
     """Owner reviews PDF/Gemini candidates before activating ReferencePrices."""
+    if request.method == 'OPTIONS':
+        return '', 204
     from reference_import.decisions import DecisionConflict
     from reference_import.snapshots import ReferenceStore
     path=os.getenv('REFERENCE_STORE_PATH') or ''
@@ -1336,8 +1400,12 @@ def reference_snapshots_route():
         return jsonify({'ok':False,'error':'unconfigured'}),503
     sent=request.headers.get('X-Molavi-Reference-Token','')
     actor=request.headers.get('X-Molavi-Actor','')
-    if not sent or not hmac.compare_digest(sent,token):
-        return jsonify({'ok':False,'error':'unauthorized'}),401
+    if sent and hmac.compare_digest(sent,token):
+        pass
+    else:
+        actor = _reference_browser_actor(request.headers.get('Authorization', ''), token, owners)
+        if actor is None:
+            return jsonify({'ok':False,'error':'unauthorized'}),401
     if actor not in owners:
         return jsonify({'ok':False,'error':'owner_required'}),403
     try:

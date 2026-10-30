@@ -219,6 +219,7 @@ $other = wp_create_user('reference_other_admin', 'local-test-only-password', 'ot
 (new WP_User($other))->set_role('administrator');
 wp_set_current_user($other);
 ref_assert(!molavi_reference_owner(), 'another administrator is not implicitly the owner');
+ref_assert(molavi_reference_snapshots_browser_token()==='', 'non-owner cannot mint a browser capability');
 ref_assert(is_wp_error(molavi_reference_bridge('GET')), 'non-owner cannot access server bridge');
 wp_set_current_user($owner->ID);
 ob_start(); molavi_reference_screen(); $html=ob_get_clean();
@@ -262,13 +263,14 @@ $http_mode='ai_bad_receipt'; ref_assert(is_wp_error(molavi_ai_confirmation_reque
 $http_mode='accepted'; ref_assert(!is_wp_error(molavi_ai_confirmation_request('POST',$ai_payload)),
     'AI confirmation accepts matching durable owner receipt');
 $http_mode='queue'; ob_start(); molavi_reference_snapshots_screen(); $snapshot_html=ob_get_clean();
-ref_assert(strpos($snapshot_html,substr($reference_snapshot['snapshot_id'],0,12))!==false
-    && strpos($snapshot_html,'_wpnonce')!==false,
-    'PDF/Gemini snapshot review appears in private Woo admin with nonce-bound actions');
-ref_assert(strpos($snapshot_html,'تعداد ردیف: 1')!==false
-    && strpos($snapshot_html,'نمونه زنده')!==false
-    && strpos($snapshot_html,MOLAVI_REFERENCE_BRIDGE_TOKEN)===false,
-    'reference candidate shows sample price rows without exposing the bridge token');
+ref_assert(strpos($snapshot_html,'id="molavi-reference-snapshots"')!==false,
+    'PDF/Gemini snapshot review loads through the owner browser');
+ref_assert(strpos($snapshot_html,MOLAVI_REFERENCE_BRIDGE_TOKEN)===false
+    && file_exists(dirname(__DIR__) . '/shop-wp/molavi-shop/includes/reference-snapshots.js'),
+    'browser dashboard does not render the long-lived bridge secret');
+$browser_token=molavi_reference_snapshots_browser_token();
+ref_assert(strlen($browser_token)>64 && $browser_token!==MOLAVI_REFERENCE_BRIDGE_TOKEN,
+    'owner browser receives a short-lived signed capability, not the bridge secret');
 $snapshot_review=['action'=>'review','snapshot_id'=>$reference_snapshot['snapshot_id'],
     'note'=>'Reviewed coverage and sample prices','expected_active_id'=>null];
 $http_mode='snapshot_bad_receipt'; ref_assert(is_wp_error(molavi_reference_snapshots_request('POST',$snapshot_review)),
@@ -285,10 +287,9 @@ $http_mode='accepted'; ref_assert(!is_wp_error(molavi_reference_snapshots_reques
 $http_mode='snapshot_bad_receipt'; ref_assert(is_wp_error(molavi_reference_snapshots_request('POST',$snapshot_refresh)),
     'manual reference retry rejects an invalid server receipt');
 $http_mode='snapshot_refresh_failed'; ob_start(); molavi_reference_snapshots_screen(); $failed_snapshot_html=ob_get_clean();
-ref_assert(strpos($failed_snapshot_html,'gemini_http_404')!==false
-    && strpos($failed_snapshot_html,'تلاش دوباره برای دریافت و بررسی PDF')!==false
-    && strpos($failed_snapshot_html,'_wpnonce')!==false,
-    'failed PDF/Gemini refresh exposes safe error code and nonce-bound owner retry');
+ref_assert(strpos($failed_snapshot_html,'id="molavi-reference-snapshots"')!==false
+    && strpos($failed_snapshot_html,MOLAVI_REFERENCE_BRIDGE_TOKEN)===false,
+    'owner browser dashboard stays available without a WordPress-to-Railway connection');
 $http_mode='queue';
 $http_mode='offline';
 add_filter('wp_die_handler', static function () { return static function () { throw new RuntimeException('wp_die'); }; });

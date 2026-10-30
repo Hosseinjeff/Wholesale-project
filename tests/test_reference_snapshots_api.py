@@ -1,4 +1,6 @@
 import json
+import base64
+import hmac
 import os
 import tempfile
 import unittest
@@ -24,6 +26,53 @@ def staged_candidate():
 
 
 class ReferenceSnapshotRouteTests(unittest.TestCase):
+    def test_short_lived_browser_token_is_scoped_to_snapshots_and_cors_origin(self):
+        from importlib import import_module
+        server=import_module('app')
+        with tempfile.TemporaryDirectory() as tmp:
+            path=str(Path(tmp)/'reference.sqlite')
+            store=ReferenceStore(path,owner_ids=['wp:7'])
+            snapshot_id=store.stage(staged_candidate())
+            secret='browser-test-bridge-secret-'*2
+            now=int(datetime.now(timezone.utc).timestamp())
+            claims={'iss':'molavi-wordpress','aud':'reference-snapshots','scope':'reference:snapshots',
+                'actor':'wp:7','iat':now,'exp':now+600}
+            encoded=base64.urlsafe_b64encode(json.dumps(claims,separators=(',',':')).encode()).decode().rstrip('=')
+            signature=base64.urlsafe_b64encode(hmac.new(secret.encode(),encoded.encode(),'sha256').digest()).decode().rstrip('=')
+            authorization='Bearer '+encoded+'.'+signature
+            with patch.dict(os.environ,{'REFERENCE_STORE_PATH':path,'REFERENCE_BRIDGE_TOKEN':secret,
+                    'REFERENCE_OWNER_IDS':'wp:7'}),patch.object(server,'ensure_telegram_webhook',return_value=None):
+                client=server.app.test_client()
+                origin='https://www.molavisale.ir'
+                headers={'Authorization':authorization,'Origin':origin}
+                preflight=client.options('/reference/snapshots',headers={
+                    'Origin':origin,'Access-Control-Request-Method':'POST',
+                    'Access-Control-Request-Headers':'authorization,content-type'})
+                self.assertEqual(preflight.status_code,204)
+                self.assertEqual(preflight.headers.get('Access-Control-Allow-Origin'),origin)
+                self.assertIn('authorization',preflight.headers.get('Access-Control-Allow-Headers','').lower())
+                listing=client.get('/reference/snapshots',headers=headers)
+                self.assertEqual(listing.status_code,200,listing.get_json())
+                self.assertEqual(listing.get_json()['snapshots'][0]['snapshot_id'],snapshot_id)
+                self.assertEqual(listing.headers.get('Access-Control-Allow-Origin'),origin)
+                review=client.post('/reference/snapshots',json={
+                    'action':'review','snapshot_id':snapshot_id,'note':'Reviewed from owner browser',
+                    'expected_active_id':None},headers=headers)
+                self.assertEqual(review.status_code,200,review.get_json())
+                self.assertEqual(review.get_json()['action'],'review')
+                denied_origin=client.get('/reference/snapshots',headers={
+                    'Authorization':authorization,'Origin':'https://attacker.example'})
+                self.assertEqual(denied_origin.status_code,200)
+                self.assertIsNone(denied_origin.headers.get('Access-Control-Allow-Origin'))
+                expired_claims={**claims,'iat':now-901,'exp':now-1}
+                expired_payload=base64.urlsafe_b64encode(
+                    json.dumps(expired_claims,separators=(',',':')).encode()).decode().rstrip('=')
+                expired_sig=base64.urlsafe_b64encode(
+                    hmac.new(secret.encode(),expired_payload.encode(),'sha256').digest()).decode().rstrip('=')
+                expired=client.get('/reference/snapshots',headers={
+                    'Authorization':'Bearer '+expired_payload+'.'+expired_sig,'Origin':origin})
+                self.assertEqual(expired.status_code,401)
+
     def test_owner_can_retry_failed_refresh_without_activating_or_replaying_stale_state(self):
         from importlib import import_module
         server=import_module('app')

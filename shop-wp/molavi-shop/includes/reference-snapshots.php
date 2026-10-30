@@ -18,11 +18,7 @@ function molavi_reference_snapshots_request(string $method, ?array $payload = nu
     if ($payload!==null) { $args['body']=wp_json_encode($payload); }
     $response=wp_safe_remote_request(rtrim($base,'/') . '/reference/snapshots',$args);
     if (is_wp_error($response)) {
-        $diagnostic=sanitize_text_field($response->get_error_message());
-        return new WP_Error('offline','ارتباط با سرور برقرار نشد.',[
-            'transport_code'=>sanitize_key($response->get_error_code()),
-            'transport_detail'=>substr($diagnostic,0,300),
-        ]);
+        return new WP_Error('offline','ارتباط با سرور برقرار نشد.');
     }
     $body=json_decode(wp_remote_retrieve_body($response),true);
     if (wp_remote_retrieve_response_code($response)!==200 || !is_array($body) || ($body['ok'] ?? false)!==true) {
@@ -53,6 +49,38 @@ function molavi_reference_snapshots_request(string $method, ?array $payload = nu
     return $body;
 }
 
+function molavi_reference_snapshots_browser_token(): string {
+    if (!molavi_reference_owner()) { return ''; }
+    $secret=defined('MOLAVI_REFERENCE_BRIDGE_TOKEN') ? MOLAVI_REFERENCE_BRIDGE_TOKEN : '';
+    if (!is_string($secret) || strlen($secret)<32) { return ''; }
+    $issued=time();
+    $claims=wp_json_encode([
+        'iss'=>'molavi-wordpress','aud'=>'reference-snapshots',
+        'scope'=>'reference:snapshots','actor'=>'wp:' . get_current_user_id(),
+        'iat'=>$issued,'exp'=>$issued+600,
+    ]);
+    if (!is_string($claims)) { return ''; }
+    $payload=rtrim(strtr(base64_encode($claims),'+/','-_'),'=');
+    $signature=rtrim(strtr(base64_encode(hash_hmac('sha256',$payload,$secret,true)),'+/','-_'),'=');
+    return $payload . '.' . $signature;
+}
+
+add_action('admin_enqueue_scripts', static function (string $hook): void {
+    $page=isset($_GET['page']) && is_string($_GET['page']) ? sanitize_key(wp_unslash($_GET['page'])) : '';
+    if ($page!=='molavi-reference-snapshots' || !molavi_reference_owner()) { return; }
+    $base=defined('MOLAVI_REFERENCE_SERVER_URL') ? MOLAVI_REFERENCE_SERVER_URL : '';
+    $token=molavi_reference_snapshots_browser_token();
+    $script=__DIR__ . '/reference-snapshots.js';
+    if (!is_string($base) || wp_parse_url($base,PHP_URL_SCHEME)!=='https'
+        || $token==='' || !is_readable($script)) { return; }
+    wp_enqueue_script('molavi-reference-snapshots',plugins_url('reference-snapshots.js',__FILE__),[],
+        (string)filemtime($script),true);
+    wp_localize_script('molavi-reference-snapshots','molaviReferenceSnapshots',[
+        'apiUrl'=>rtrim($base,'/') . '/reference/snapshots',
+        'token'=>$token,
+    ]);
+});
+
 add_action('admin_menu', static function (): void {
     if (!molavi_reference_owner()) { return; }
     add_submenu_page('woocommerce','نسخه‌های قیمت مرجع','نسخه‌های قیمت مرجع',
@@ -64,81 +92,8 @@ function molavi_reference_snapshots_screen(): void {
     nocache_headers();
     echo '<div class="wrap"><h1>' . esc_html('تازه‌سازی و نسخه‌های قیمت مرجع') . '</h1>';
     echo '<p>' . esc_html('کارگر سرور به‌صورت روزانه PDF رزوان را با Gemini استخراج می‌کند. نسخه تازه ابتدا برای بررسی مالک ذخیره می‌شود؛ فقط پس از بررسی و فعال‌سازی به ReferencePrices نوشته می‌شود.') . '</p>';
-    if (($_GET['saved'] ?? '')==='1') { echo '<div class="notice notice-success"><p>' . esc_html('رسید بررسی یا همگام‌سازی ثبت شد.') . '</p></div>'; }
-    $result=molavi_reference_snapshots_request('GET');
-    if (is_wp_error($result)) {
-        echo '<div class="notice notice-error"><p>' . esc_html($result->get_error_message()) . '</p></div>';
-        if (get_current_user_id()===1) {
-            $diagnostic=$result->get_error_data();
-            if (is_array($diagnostic) && is_string($diagnostic['transport_code'] ?? null)
-                && is_string($diagnostic['transport_detail'] ?? null)) {
-                echo '<p>' . esc_html('تشخیص اتصال: ' . $diagnostic['transport_code'] . ' · ' . $diagnostic['transport_detail']) . '</p>';
-            }
-            $healthUrl=defined('MOLAVI_REFERENCE_SERVER_URL')
-                ? rtrim(MOLAVI_REFERENCE_SERVER_URL,'/') . '/health' : '';
-            $healthProbe=$healthUrl!=='' ? wp_safe_remote_request($healthUrl,[
-                'method'=>'GET','timeout'=>8,'redirection'=>0,
-            ]) : new WP_Error('config','URL تنظیم نشده است.');
-            if (is_wp_error($healthProbe)) {
-                echo '<p>' . esc_html('آزمایش سلامت Railway: ' . $healthProbe->get_error_code() . ' · '
-                    . substr(sanitize_text_field($healthProbe->get_error_message()),0,200)) . '</p>';
-            } else {
-                echo '<p>' . esc_html('آزمایش سلامت Railway: HTTP '
-                    . (string)wp_remote_retrieve_response_code($healthProbe)) . '</p>';
-            }
-        }
-        echo '</div>';
-        return;
-    }
-    $refresh=$result['refresh_state'];
-    if (is_array($refresh)) {
-        echo '<p>' . esc_html('وضعیت آخرین تلاش: ' . (string)($refresh['state'] ?? 'نامشخص') . ' · '
-            . (string)($refresh['last_attempt_at'] ?? 'هنوز اجرا نشده')
-            . (!empty($refresh['error_code']) ? ' · کد خطا: ' . (string)$refresh['error_code'] : '')) . '</p>';
-        if (($refresh['state'] ?? '')==='failed') {
-            molavi_reference_snapshot_refresh_form((string)($refresh['last_attempt_at'] ?? ''));
-        }
-    }
-    $snapshots=$result['snapshots'];
-    if ($snapshots===[]) { echo '<p>' . esc_html('نسخه استخراج‌شده‌ای در انتظار بررسی نیست.') . '</p>'; }
-    foreach ($snapshots as $snapshot) {
-        if (!is_array($snapshot) || !is_string($snapshot['snapshot_id'] ?? null)
-            || !preg_match('/^[a-f0-9]{64}$/',$snapshot['snapshot_id'])) { continue; }
-        $id=$snapshot['snapshot_id'];
-        echo '<div class="card"><h2>' . esc_html('نسخه ' . substr($id,0,12)) . '</h2>';
-        echo '<p>' . esc_html('استخراج: ' . (string)($snapshot['extracted_at'] ?? '') . ' · '
-            . 'تعداد ردیف: ' . (string)($snapshot['row_count'] ?? '') . ' · '
-            . 'مدل: ' . (string)($snapshot['model'] ?? '')) . '</p>';
-        echo '<p>' . esc_html('هش PDF: ' . substr((string)($snapshot['pdf_sha256'] ?? ''),0,16)
-            . ' · وضعیت: ' . (!empty($snapshot['active']) ? 'فعال' : (!empty($snapshot['reviewed_by']) ? 'بررسی‌شده' : 'در انتظار بررسی'))) . '</p>';
-        $preview=is_array($snapshot['preview'] ?? null) ? array_slice($snapshot['preview'],0,8) : [];
-        if ($preview!==[]) {
-            echo '<h3>' . esc_html('نمونه ردیف‌های استخراج‌شده') . '</h3><ul>';
-            foreach ($preview as $item) {
-                if (!is_array($item)) { continue; }
-                $line=(string)($item['product_name'] ?? '') . ' · '
-                    . 'قیمت بسته: ' . (string)($item['package_price'] ?? '') . ' · '
-                    . 'قیمت واحد: ' . (string)($item['unit_price'] ?? '') . ' · '
-                    . 'تعداد بسته: ' . (string)($item['package_count'] ?? '') . ' '
-                    . (string)($item['unit_label'] ?? '') . ' · '
-                    . 'کد: ' . (string)($item['product_code'] ?? '') . ' · '
-                    . 'ردیف PDF: ' . (string)($item['pdf_row_number'] ?? '');
-                echo '<li>' . esc_html($line) . '</li>';
-            }
-            echo '</ul>';
-        }
-        if (!empty($snapshot['reviewed_by'])) {
-            echo '<p>' . esc_html('بررسی مالک: ' . (string)$snapshot['reviewed_by'] . ' · '
-                . (string)($snapshot['review_note'] ?? '')) . '</p>';
-        }
-        if (empty($snapshot['reviewed_by'])) {
-            molavi_reference_snapshot_form($id,'review',$result['active_snapshot_id']);
-        } else {
-            molavi_reference_snapshot_form($id,'activate',$result['active_snapshot_id']);
-        }
-        echo '</div>';
-    }
-    echo '</div>';
+    echo '<div id="molavi-reference-snapshots" aria-live="polite"><p>'
+        . esc_html('در حال دریافت نسخه‌های قیمت مرجع…') . '</p></div></div>';
 }
 
 function molavi_reference_snapshot_refresh_form(string $lastAttempt): void {
