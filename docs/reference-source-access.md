@@ -11,6 +11,13 @@ The importer converts IRR to toman and retains the full product title. The PDF/G
 code and snapshots described below are historical; old PDF candidates must stay inactive
 and cannot be reviewed or activated.
 
+Production confirmation — 2026-10-30: commit `3d8a7d2` deployed as Railway
+`f87efd11-381c-4195-b82e-ce26263b78be`; Woo candidate
+`4bf9d367c07dcf1af29e4fc61dfb1eddcb23cbbc4db3ffcdeb63fc987e80f7a9` staged 3,895/3,895
+rows across 39/39 pages. Its coverage is verified, its active state is false, and no
+`ReferencePrices` write occurred. The page's sample title/SKU/category/toman price was
+checked against the live API. Owner review is the remaining reference decision.
+
 Updated 2026-10-25, Asia/Tehran. The user supplied source as `gas.rar`; Google sign-in
 is no longer needed to inspect those files. Do not ask the user to export them again.
 

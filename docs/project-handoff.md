@@ -1,6 +1,6 @@
 # MolaviSale — whole-workflow handoff
 
-Snapshot 4.51. Updated 2026-10-30, Asia/Tehran. The canonical roleplay decisions are in
+Snapshot 4.55. Updated 2026-10-30, Asia/Tehran. The canonical roleplay decisions are in
 `roleplay-state.json`; current live evidence and release gates are in
 `pipeline-readiness.md` and `pipeline-readiness-evidence.json`.
 
@@ -13,16 +13,20 @@ fresh on `h434558_Salesman`, and Shop page 7 uses the `[molavi_storefront]` WooC
 storefront derived from mockup v2. At the user's direction the site is now public, and
 the static front page points to Shop page 7. Live `/` and `/shop/` both render two
 products without the Coming Soon screen. Responsive visual/business review remains
-pending.
+pending. Railway now runs source commit `3d8a7d2b7eb1f74b7ed72257730d0627f6949a07`
+(deployment `f87efd11-381c-4195-b82e-ce26263b78be`) on the release branch. The MolaviShop
+reference-page PHP/JS files were deployed from the same commit and read back successfully.
 
 The live Tehran shipping zone has no location rules, so customers do not match the
-configured delivery method. The current source correction is that Rezvan reference
-products must come from its WooCommerce Store API, not its official PDF. The previous
-PDF/Gemini drafts are legacy, incomplete and inactive. The active snapshot is still
-unset and no `ReferencePrices` write or customer order was made. Payment configuration
-is explicitly outside the current work.
+configured delivery method. Rezvan reference products now come from its WooCommerce Store
+API, not its official PDF. Candidate `4bf9d367c07dcf1af29e4fc61dfb1eddcb23cbbc4db3ffcdeb63fc987e80f7a9`
+contains all 3,895 products from 39 pages with verified coverage and is staged for owner
+review. The active snapshot remains unset, the two PDF/Gemini drafts are incomplete and
+inactive, and `ReferencePrices` has not been written. Production supplier-message
+Gemini defaults to `gemini-3.5-flash-lite`; reference acquisition does not use Gemini.
+Payment configuration is explicitly outside the current work.
 
-The remaining non-payment work is to set the delivery coverage, review a complete
+The remaining non-payment work is to set the delivery coverage, review the staged
 WooCommerce-sourced reference candidate, verify Sheets and Woo handoffs in connected
 staging, and complete recovery, policy, and end-to-end workflow review. Do not mark a
 roleplay scene complete until the integrated stream is validated.

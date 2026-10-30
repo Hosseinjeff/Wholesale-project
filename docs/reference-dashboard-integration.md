@@ -3,11 +3,15 @@
 ## Current source correction — 2026-10-30
 
 The user clarified that Rezvan reference products must come from the WooCommerce Store
-API, not the official PDF. The live Store API read returned 3,895 products in 39 pages;
-all have titles, SKUs, categories and positive IRR prices. The active refresh now stages
-an inactive API-sourced candidate, converting IRR to toman and preserving each complete
-title. Legacy PDF/Gemini candidates remain visible for history but cannot be reviewed or
-activated. No active snapshot or `ReferencePrices` write is authorized by refresh.
+API, not the official PDF. Railway deployment `f87efd11-381c-4195-b82e-ce26263b78be`
+from commit `3d8a7d2` runs the API importer; the deployed MolaviShop owner-page PHP/JS
+files were read back from that same commit. The live API returned 3,895 products in 39
+pages; all have titles, SKUs, categories and positive IRR prices. Candidate
+`4bf9d367c07dcf1af29e4fc61dfb1eddcb23cbbc4db3ffcdeb63fc987e80f7a9` is staged with
+verified full coverage, converting IRR to toman and preserving each complete title.
+It remains inactive pending owner review; refresh does not write to `ReferencePrices`.
+Legacy PDF/Gemini candidates remain visible for history but cannot be reviewed or
+activated.
 
 ## Historical deployment checkpoint — 2026-10-28 (PDF source superseded)
 
@@ -16,7 +20,7 @@ bridge config is outside Git; the production server and persistent volume are li
 PDF refresh staged two incomplete 10-row legacy candidates; they were never activated or
 written to `ReferencePrices`. This old path is superseded by the user-confirmed API source.
 
-**Current outage (2026-10-29, Asia/Tehran):** the public WordPress entry point now fails
+**Historical outage (2026-10-29, Asia/Tehran):** the public WordPress entry point failed
 before plugins load because `public_html/wp-config.php` is zero bytes. The Railway API
 and staged candidate remain available, but Woo admin review cannot be reached until the
 hosting provider restores the original config. The accessible cPanel account exposes no
@@ -192,13 +196,13 @@ list; stale forms cannot overwrite a newer decision.
 
 Weighted candidates use the recovered attribute weights as suggestions only; manual
 owner choice remains required when the exact resolver cannot safely decide. Local code
-now includes category/history price-scale fallback, the owner AI confirmation state
-machine, scheduled PDF/Gemini candidate staging, and owner-controlled activation and
-`ReferencePrices` projection. The owner bridge and storage are deployed; live Gemini
-extraction succeeds, while live Sheets edits/projection and connected checkout remain
-unverified. Latest local validation is 246 Python tests and 100 disposable
-WordPress 7.1.3/WooCommerce 11.2.1 assertions. Browser and active-plugin compatibility
-remain unverified.
+includes category/history price-scale fallback, the owner AI confirmation state
+machine, scheduled Woo API candidate staging, and owner-controlled activation and
+`ReferencePrices` projection. The complete API candidate is staged and inactive.
+Supplier-message Gemini is separate; Rezvan reference acquisition does not use it.
+Live Sheets edits/projection and connected checkout remain unverified. Latest local
+validation is 268 Python tests and 104 disposable WordPress 7.1.3/WooCommerce 11.2.1
+assertions. Browser and active-plugin compatibility remain unverified.
 
 ## Read-only live inspection receipt — 2026-10-25
 

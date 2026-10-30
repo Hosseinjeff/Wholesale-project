@@ -4,10 +4,14 @@
 
 Rezvan reference products must come from its WooCommerce Store API. A read-only audit
 returned 3,895 products across 39 pages, all with title, SKU, category and positive IRR
-price. The previous PDF/Gemini refresh failed before creating a new snapshot; the two
-older 10-row drafts are incomplete and inactive. The new importer and owner-page copy
-are being deployed, after which a complete API candidate will be staged for review.
-No `ReferencePrices` write or snapshot activation has occurred.
+price. Commit `3d8a7d2b7eb1f74b7ed72257730d0627f6949a07` is deployed as Railway
+deployment `f87efd11-381c-4195-b82e-ce26263b78be`, and the MolaviShop owner-page files
+were deployed and read back from that commit. Candidate
+`4bf9d367c07dcf1af29e4fc61dfb1eddcb23cbbc4db3ffcdeb63fc987e80f7a9` now contains
+3,895/3,895 rows across 39/39 pages with verified coverage and awaits owner review.
+The previous PDF/Gemini refresh failed before creating a snapshot; its two older 10-row
+drafts are incomplete and inactive. No `ReferencePrices` write or snapshot activation
+has occurred. Production supplier-message Gemini is set to `gemini-3.5-flash-lite`.
 
 ## Historical production checkpoint — 2026-10-29 (superseded)
 
@@ -129,8 +133,9 @@ reference-dashboard-runtime-evidence.txt.
    staging, then replay the reference-to-catalog path. Snapshot-scoped owner matching
    and item-level correction are locally implemented as described below.
 2. Validate lot receipts, sheet ownership and paid-order reservations with persistent
-   staging storage. The dashboard lot ledger is not mirrored to Sheets and the
-   pipeline database/worker is not provisioned or enabled in production.
+   staging storage. Railway's pipeline database and worker are deployed on persistent
+   `/data`; the dashboard lot ledger is not mirrored to Sheets, and connected stock/order
+   recovery still needs validation.
 3. Validate the paid-order follow-up described below against connected staging and
    the installed checkout/gateway. The local workflow does not send customer messages,
    issue refunds, charge additional payments, place supplier purchases or arrange a
@@ -257,9 +262,10 @@ override and Sheets mirroring remain unresolved or unimplemented. `docs/clearanc
 records the candidate model and boundaries.
 
 At this local checkpoint, 235 offline Python tests and 93 disposable WordPress
-7.1.3/WooCommerce 11.2.1 assertions passed. Current validation is 246 Python tests and
-100 disposable runtime assertions. These are synthetic checks; Sheets reconciliation,
-plugin/browser compatibility and whole-stream staging remain unverified.
+7.1.3/WooCommerce 11.2.1 assertions passed. Current validation is 268 Python tests and
+104 disposable runtime assertions. The Woo Store API candidate is live and staged; no
+activation or Sheets write occurred. Sheets reconciliation, browser compatibility and
+whole-stream staging remain unverified.
 
 ### 2026-10-28 audited inventory continuation
 

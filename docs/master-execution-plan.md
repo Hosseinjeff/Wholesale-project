@@ -489,18 +489,17 @@ resolve it in the plan rather than silently inventing policy. Keep unsupported f
 - Mockup v2 source, existing Woo/Elementor widgets and basket-pricing tests. Draft is not approved.
 - Reference acquisition/store/owner-decision gate/private dashboard prototypes.
 - Durable intake/batch/publish/order/notification jobs and Woo written-receipt/scheduled retry.
-- Current evidence: 235 offline Python tests and 93 isolated WP/Woo assertions pass.
+- Current evidence: 268 Python tests and 104 isolated WP/Woo assertions pass.
   These are building blocks, not completed E1–E7 or a full live end-to-end pass.
 - Read-only live server, bot, storefront and plugin checks; credentials already provided.
   Verify deployed model/settings/jobs when needed; do not ask for another archive/upload
   or presumed external refresh service. Inventory actual secrets by presence/readiness only.
 
-Known prototype work: opt-in persistent storage/worker and owner bridge are not installed
-on the service; connected customer fulfillment/recovery remains open. Local reference
-history/category fallback, AI confirmation, scheduled Woo API candidate staging and
-owner-reviewed `ReferencePrices` projection are implemented. The complete live API
-catalog has been read, but candidate deployment/review remain separate steps. The
-paid-order mirror connects to audited
+The persistent production storage, worker and owner bridge are deployed; connected
+customer fulfillment/recovery remains open. Local reference history/category fallback,
+AI confirmation, scheduled Woo API candidate staging and owner-reviewed
+`ReferencePrices` projection are implemented. The complete live API catalog has been
+read, and a 3,895-row candidate is staged for review. The paid-order mirror connects to audited
 stock-lot receipts, FEFO reservations, fixed-pack shortfall proposals and owner-managed
 follow-up in the Woo dashboard; lot/workflow data stays in SQLite and supplier purchases
 are never submitted automatically. Clearance pricing and its alert thresholds remain a

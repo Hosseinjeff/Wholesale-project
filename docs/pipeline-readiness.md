@@ -5,10 +5,11 @@ now opens the Shop storefront. Payment setup is out of scope for the current wor
 non-payment release gaps are the unset Tehran delivery area, owner dashboard review,
 connected handoff verification, and remaining business review.**
 **Reference-source correction — 2026-10-30:** Rezvan reference products are required
-from its WooCommerce Store API, not the supplier PDF. The previous scheduled PDF/Gemini
-attempt failed before staging a new candidate; the two older 10-row PDF snapshots are
-historical, incomplete and inactive. Code changes for the API importer and review UI
-are being deployed and will then be used to stage a complete owner-review candidate.
+from its WooCommerce Store API, not the supplier PDF. Commit `3d8a7d2` is deployed to
+Railway as deployment `f87efd11-381c-4195-b82e-ce26263b78be`, the owner review files are
+deployed and read back, and fresh candidate `4bf9d367c07dcf1af29e4fc61dfb1eddcb23cbbc4db3ffcdeb63fc987e80f7a9`
+contains 3,895 products from 39 API pages. It is inactive pending owner review. The two
+older 10-row PDF snapshots are historical, incomplete and inactive.
 The latest `Wholesale-project` deployment is healthy, with one running replica, the
 500 MB `/data` volume, no staged Railway changes and no active service warnings. The
 production `/health`, `/health/detailed` and `/api/shop` routes return HTTP 200. The
@@ -132,10 +133,12 @@ order, charge, refund or supplier purchase was made.
   all products have a title, SKU, category and positive IRR price. The new importer
   retains each full product title, SKU and category, converts IRR to toman, and derives
   package/set/volume/weight hints only from explicit title markers and API attributes.
-- The refresh worker now uses the Woo API. The owner page identifies that source and
-  prevents review or activation of the old PDF/Gemini snapshots. The fresh API candidate
-  is staged only after the updated code is deployed; no snapshot activation or
-  `ReferencePrices` write has been performed.
+- The refresh worker now uses the Woo API. Commit `3d8a7d2` / deployment
+  `f87efd11-381c-4195-b82e-ce26263b78be` is healthy, and the owner page identifies the
+  source and prevents review or activation of old PDF/Gemini snapshots. Candidate
+  `4bf9d367c07dcf1af29e4fc61dfb1eddcb23cbbc4db3ffcdeb63fc987e80f7a9` is staged with
+  3,895 rows, 39/39 pages and verified coverage. It is inactive; `ReferencePrices` has
+  not been written.
 - The previous PDF failure (`extraction_batch_row_count_mismatch_page_15_left`) did not
   create a snapshot. The two existing 10-row PDF/Gemini snapshots remain preserved for
   history, with coverage unverified and inactive.
@@ -181,7 +184,7 @@ that customers can receive a delivery rate on the public checkout.
 | Handoff | Current evidence and status |
 |---|---|
 | Supplier → bot/server | Railway and its worker are online. The live Sheets-backed catalog returns two products. Row-level bilateral edits, conflict receipts and publication cadence still need connected verification. |
-| Reference → extraction/review | Current source is the Rezvan WooCommerce Store API (3,895 products / 39 pages); the complete candidate refresh follows deployment. Two older PDF/Gemini candidates remain incomplete and inactive. No `ReferencePrices` write has occurred. |
+| Reference → extraction/review | Candidate `4bf9d367c07dcf1af29e4fc61dfb1eddcb23cbbc4db3ffcdeb63fc987e80f7a9` is staged from the Rezvan WooCommerce Store API (3,895 products / 39 pages); it awaits owner review. Two older PDF/Gemini candidates remain incomplete and inactive. No `ReferencePrices` write has occurred. |
 | Offers → pricing/catalog | Woo now publishes the customer price band and keeps supplier cost private. Freshness gating and fixed-pack minimums are active. Clearance formula, near-cost alert behavior and connected recalculation still need review. |
 | Catalog → WordPress/basket | Two products are synced in IRT; `/` and `/shop/` render the storefront. The delivery calculation exists, but the live Tehran zone has no matching locations. |
 | Checkout → operator work | Woo page assignments are present. WordPress users 1 and 2 can access the reference page; both actor IDs return two snapshots through the browser bridge. Owner review remains pending. |
@@ -193,9 +196,8 @@ that customers can receive a delivery rate on the public checkout.
 1. Set the exact coverage locations for the already configured Tehran shipping zone.
    The fee and free-delivery threshold are recorded; the actual eligible addresses are
    not. The live zone currently has no location rules.
-2. Deploy the source correction, stage a complete WooCommerce API candidate, and review
-   it from WooCommerce → بررسی قیمت‌های مرجع. The older PDF/Gemini drafts cannot be
-   reviewed or activated.
+2. Review the complete WooCommerce API candidate from WooCommerce → بررسی قیمت‌های مرجع.
+   The older PDF/Gemini drafts cannot be reviewed or activated.
 3. Activate the Woo API snapshot only after owner review and explicit approval, then
    verify its `ReferencePrices` write receipt. No snapshot is active and no write has
    occurred.
@@ -222,7 +224,7 @@ marked complete.
 
 ## Verification record
 
-The latest disposable WordPress 7.1.3/WooCommerce 11.2.1 runtime run passed 102
+The latest disposable WordPress 7.1.3/WooCommerce 11.2.1 runtime run passed 104
 assertions, including the new regression checks that customer-facing Woo prices use
 the calculated band while supplier cost remains private and continues driving the
 cart formula. The previous 246 offline Python tests remain the applicable server

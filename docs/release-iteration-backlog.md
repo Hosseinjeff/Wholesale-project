@@ -4,8 +4,10 @@
 record any remaining items for later iterations. The server, production volume, and
 existing MolaviShop plugin integration are deployed. The current Rezvan reference source
 is its WooCommerce Store API (3,895 products over 39 pages); the old PDF/Gemini drafts
-are incomplete and inactive. The API importer and matching owner UI are being deployed
-before staging a full candidate for review. This file distinguishes incomplete release
+are incomplete and inactive. Commit `3d8a7d2` and the matching owner UI are deployed;
+candidate `4bf9d367c07dcf1af29e4fc61dfb1eddcb23cbbc4db3ffcdeb63fc987e80f7a9` is staged
+with verified 3,895-row coverage for owner review. The active snapshot remains unset,
+and no `ReferencePrices` write occurred. This file distinguishes incomplete release
 connections from optional business settings; mockup v2 remains unapproved and no
 credentials are stored.
 
@@ -42,9 +44,9 @@ to make integration easy.
    fence legacy/GAS writers that bypass the server locks, so cutover remains required.
    The previously deployed worker fetched the official PDF and Gemini staged two
    incomplete 10-row drafts. Those drafts remain historical and cannot be reviewed or
-   activated. Stage a complete API candidate, review title/price/package interpretation,
-   explicitly approve activation, then verify the `ReferencePrices` projection. Treat
-   stale/missing refreshes according to the agreed owner-review gate.
+   activated. The full API candidate is now staged; review title/price/package
+   interpretation, explicitly approve activation, then verify the `ReferencePrices`
+   projection. Treat stale/missing refreshes according to the agreed owner-review gate.
 2. Validate the local bidirectional Products-sheet adapter in connected staging.
    It handles every normalized non-provenance product column, performs three-way
    reconciliation on supplier updates, preserves source posts, records owner-visible

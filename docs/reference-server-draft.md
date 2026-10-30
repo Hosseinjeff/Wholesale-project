@@ -98,5 +98,6 @@ removed afterwards. See reference-dashboard-runtime-evidence.txt.
 Run tools/download_reference_dashboard_runtime.py followed by
 tools/test_reference_dashboard_runtime.py. Default assets go under ignored work/.
 Downloads use the configured proxy/trust; Docker must be available. Do not supply
-production credentials. Current local validation passes 235 offline Python tests and
-93 WordPress assertions; neither proves live end-to-end refresh or production readiness.
+production credentials. Current local validation passes 268 Python tests and 104
+WordPress assertions. These synthetic checks do not replace owner review or verify a
+`ReferencePrices` write.
