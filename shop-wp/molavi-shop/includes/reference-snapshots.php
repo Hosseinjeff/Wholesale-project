@@ -83,44 +83,17 @@ add_action('admin_enqueue_scripts', static function (string $hook): void {
 
 add_action('admin_menu', static function (): void {
     if (!molavi_reference_owner()) { return; }
-    add_submenu_page('woocommerce','نسخه‌های قیمت مرجع','نسخه‌های قیمت مرجع',
+    add_submenu_page('woocommerce','بررسی قیمت‌های مرجع','بررسی قیمت‌های مرجع',
         'manage_woocommerce','molavi-reference-snapshots','molavi_reference_snapshots_screen');
 });
 
 function molavi_reference_snapshots_screen(): void {
     if (!molavi_reference_owner()) { wp_die('دسترسی مجاز نیست.','',['response'=>403]); }
     nocache_headers();
-    echo '<div class="wrap"><h1>' . esc_html('تازه‌سازی و نسخه‌های قیمت مرجع') . '</h1>';
-    echo '<p>' . esc_html('کارگر سرور به‌صورت روزانه PDF رزوان را با Gemini استخراج می‌کند. نسخه تازه ابتدا برای بررسی مالک ذخیره می‌شود؛ فقط پس از بررسی و فعال‌سازی به ReferencePrices نوشته می‌شود.') . '</p>';
+    echo '<div class="wrap"><h1>' . esc_html('بررسی قیمت‌های مرجع') . '</h1>';
+    echo '<p>' . esc_html('نسخه‌های استخراج‌شده از PDF رزوان را بررسی کنید. «ثبت بررسی» فقط یادداشت شما را ذخیره می‌کند. قیمت‌ها فقط با «فعال‌سازی و ثبت قیمت‌ها» وارد فهرست مرجع می‌شوند.') . '</p>';
     echo '<div id="molavi-reference-snapshots" aria-live="polite"><p>'
-        . esc_html('در حال دریافت نسخه‌های قیمت مرجع…') . '</p></div></div>';
-}
-
-function molavi_reference_snapshot_refresh_form(string $lastAttempt): void {
-    echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
-    wp_nonce_field('molavi_reference_snapshot:refresh:' . $lastAttempt);
-    echo '<input type="hidden" name="action" value="molavi_reference_snapshot_choice">';
-    echo '<input type="hidden" name="choice" value="refresh">';
-    echo '<input type="hidden" name="expected_last_attempt_at" value="' . esc_attr($lastAttempt) . '">';
-    echo '<button class="button" type="submit">' . esc_html('تلاش دوباره برای دریافت و بررسی PDF') . '</button>';
-    echo '</form>';
-}
-
-function molavi_reference_snapshot_form(string $snapshotId,string $choice,?string $activeId): void {
-    echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
-    wp_nonce_field('molavi_reference_snapshot:' . $snapshotId . ':' . $choice);
-    echo '<input type="hidden" name="action" value="molavi_reference_snapshot_choice">';
-    echo '<input type="hidden" name="choice" value="' . esc_attr($choice) . '">';
-    echo '<input type="hidden" name="snapshot_id" value="' . esc_attr($snapshotId) . '">';
-    echo '<input type="hidden" name="expected_active_id" value="' . esc_attr($activeId ?? '') . '">';
-    if ($choice==='review') {
-        echo '<p><label>' . esc_html('یادداشت بررسی پوشش و قیمت‌ها') . ' <textarea name="note" required maxlength="1000"></textarea></label></p>';
-        echo '<button class="button" name="submit_choice" value="review">' . esc_html('ثبت بررسی مالک') . '</button>';
-    } else {
-        echo '<button class="button button-primary" name="submit_choice" value="activate">'
-            . esc_html($snapshotId===$activeId ? 'تلاش دوباره برای همگام‌سازی ReferencePrices' : 'فعال‌سازی و همگام‌سازی ReferencePrices') . '</button>';
-    }
-    echo '</form>';
+        . esc_html('در حال بارگذاری قیمت‌ها…') . '</p></div></div>';
 }
 
 add_action('admin_post_molavi_reference_snapshot_choice', static function (): void {
