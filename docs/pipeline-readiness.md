@@ -21,11 +21,12 @@ order, charge, refund or supplier purchase was made.
   and 5,000,000 toman free-delivery threshold. Its Tehran zone has no locations, so the
   current zone configuration does not match customer addresses and cannot provide a
   shipping rate. Define the actual coverage before changing the zone.
-- The authenticated environment login is administrator user 1 with Woo management
-  capability. The project design reserves owner screens for user 3; the user 1 session
-  receives WordPress's access-denied page. No owner access list was changed. Owner-only
-  data and the live WordPress-to-Railway bridge therefore have not been rechecked in the
-  authorized owner session.
+- The 2026-10-29 environment Administrator was denied by a private owner allowlist
+  recorded as pointing at a third account. A fresh live Users-page check on 2026-10-30
+  found two Administrator accounts and no third account. At the user's direction, the
+  existing second account was made the sole owner in protected WordPress and Railway
+  configuration. The live owner screen's data connection still needs a check from that
+  account.
 - No order was placed and no payment, shipping-zone, gateway, or supplier-data setting
   was changed in this recheck.
 
@@ -49,6 +50,18 @@ order, charge, refund or supplier purchase was made.
   treating these posts as processed.
 - The message contents and chat identity are intentionally not copied into this
   project record.
+
+## Owner access correction — 2026-10-30
+
+- The authenticated live Users page contained two Administrator accounts; the account
+  named by the previous owner configuration did not exist.
+- At the user's explicit direction, the existing second Administrator was set as the
+  sole Molavi owner. Protected WordPress configuration and Railway's `REFERENCE_OWNER_IDS`
+  were updated and read back. The Railway deployment completed successfully, and the
+  public homepage still returned HTTP 200.
+- This access change does not approve the staged reference snapshot or process the 27
+  queued Telegram posts. The owner must still review the reference candidate. Account
+  identifiers and private configuration values are kept out of Git.
 
 ## Customer-page and Git check — 2026-10-29 22:36 UTC
 
@@ -103,10 +116,9 @@ that customers can receive a delivery rate on the public checkout.
 1. Set the exact coverage locations for the already configured Tehran shipping zone.
    The fee and free-delivery threshold are recorded; the actual eligible addresses are
    not. The live zone currently has no location rules.
-2. Inspect owner dashboards from the documented owner account (user 3). The available
-   environment login is user 1 and is correctly denied by the project allowlist. Do not
-   grant owner privileges to another account without explicit approval. Recheck the
-   WordPress-to-Railway transport from the owner dashboard after authorized access.
+2. Open the owner dashboards with the newly authorized owner account and verify the
+   WordPress-to-Railway connection. A previous outbound HTTPS failure was recorded;
+   current connectivity has not yet been checked in that session.
 3. Review the staged Rezvan/Gemini sample and activate it only after owner approval and
    a matching `ReferencePrices` write receipt. It is not active and has written nothing
    to that sheet.

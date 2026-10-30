@@ -21,9 +21,15 @@ backup feature or saved copy; database credentials are not present in the enviro
 the bootstrap outage above is historical and resolved. The available authenticated
 session is administrator user 1; the project owner allowlist remains user 3, so the
 owner-only Molavi operations page is not registered for user 1 and WordPress returns its
-standard access-denied response. The owner list was not widened. Recheck the bridge and
-staged candidate using the documented owner account; the earlier outbound-network error
-has not been revalidated from that account.
+standard access-denied response at that time.
+
+**Owner access correction (2026-10-30):** a fresh live Users-page check found two
+Administrator accounts and no account 3. At the user's direction, the existing second
+Administrator became the sole owner in protected WordPress configuration, with the
+matching Railway `REFERENCE_OWNER_IDS` value. The WordPress config read-back matched;
+Railway accepted the variable update and its deployment succeeded. Exact account
+identifiers and private values are kept out of Git. The owner screen's live bridge still
+needs verification from that account.
 
 The current cPanel listing of the plugin's `includes` directory did not show
 `runtime-config.php`, despite the earlier deployment note naming that path. The bridge
@@ -55,9 +61,10 @@ Configuration contract (the secret values remain outside the repository):
   Do not reuse catalog/order tokens. Browser HTML never includes this secret.
 - `MOLAVI_REFERENCE_OWNER_IDS`: array of actual integer WP user IDs approved by the
   business owner. A user must also hold `manage_woocommerce`; general shop managers
-  are not automatically entitled to this business-owner decision. Production owner
-  ID `3` was confirmed through the authenticated WordPress user endpoint for the current
-  administrator; do not add other IDs without authorization.
+  are not automatically entitled to this business-owner decision. The earlier record
+  for production owner ID `3` was stale; the user selected the existing second
+  Administrator as sole owner. The exact ID remains in protected configuration and must
+  be changed in WordPress and Railway together.
 - Server owner IDs use matching `wp:<ID>` identities. Empty/missing configuration denies
   access.
 
