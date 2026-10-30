@@ -2,6 +2,10 @@
 .env
 shop-wp/molavi-shop/includes/runtime-config.php
 
+# WordPress configuration can contain database and bridge secrets
+wp-config.php
+wp-config.php.*
+
 # Python
 __pycache__/
 *.pyc

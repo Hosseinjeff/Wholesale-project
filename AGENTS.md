@@ -23,6 +23,9 @@ upstream before deploying. Use `tools/deploy_wordpress_plugin.py` for live plugi
 files; it refuses an uncommitted or unpushed tree, keeps a local pre-deploy copy,
 and never deploys `includes/runtime-config.php`.
 
+Keep WordPress bridge constants in protected `wp-config.php` or the excluded private
+`includes/runtime-config.php`; never commit either file or copy secret values into docs.
+
 The checked-in `.githooks/post-commit` pushes each commit to its configured upstream
 when that hook path is installed. After cloning, run `tools/install_git_hooks.sh`.
 If a push fails, the commit is still local and must be pushed before deployment.

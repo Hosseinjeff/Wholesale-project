@@ -25,8 +25,8 @@ order, charge, refund or supplier purchase was made.
   recorded as pointing at a third account. A fresh live Users-page check on 2026-10-30
   found two Administrator accounts and no third account. At the user's direction, the
   existing second account was made the sole owner in protected WordPress and Railway
-  configuration. The live owner screen's data connection still needs a check from that
-  account.
+  configuration. At this 2026-10-29 checkpoint, the live owner screen's data connection
+  still needed a check from that account.
 - No order was placed and no payment, shipping-zone, gateway, or supplier-data setting
   was changed in this recheck.
 
@@ -58,10 +58,27 @@ order, charge, refund or supplier purchase was made.
 - At the user's explicit direction, the existing second Administrator was set as the
   sole Molavi owner. Protected WordPress configuration and Railway's `REFERENCE_OWNER_IDS`
   were updated and read back. The Railway deployment completed successfully, and the
-  public homepage still returned HTTP 200.
+  public homepage still returned HTTP 200. The missing reference bridge and backend route
+  were repaired later the same day; see the next section.
 - This access change does not approve the staged reference snapshot or process the 27
   queued Telegram posts. The owner must still review the reference candidate. Account
   identifiers and private configuration values are kept out of Git.
+
+## Reference bridge repair — 2026-10-30
+
+- The owner page's “reference list refresh connection is not configured” message was
+  caused by missing URL/token constants in protected WordPress configuration. The optional
+  plugin `includes/runtime-config.php` was absent. A fresh dedicated bridge token was set
+  on Railway and matched in protected `wp-config.php`; user 2 remains the sole owner.
+- The Railway service had been running `main` at commit `2e32dea`, which returned 404 for
+  `/reference/snapshots`. It now tracks the pushed release branch
+  `molavisale-release-2026-10-28`; deployment
+  `6062fc3d37a581f9666a24612288df63fd1da084` completed successfully with the existing
+  `/data` volume attached.
+- A read-only authenticated request using actor `wp:2` returned HTTP 200 and two snapshots;
+  the active snapshot remains unset and refresh state remains `staged`. The public homepage
+  also returned HTTP 200. No refresh, review, activation, or `ReferencePrices` write was
+  performed. The owner page still needs a visual check in the user 2 browser session.
 
 ## Customer-page and Git check — 2026-10-29 22:36 UTC
 
@@ -107,7 +124,7 @@ that customers can receive a delivery rate on the public checkout.
 | Reference → extraction/review | The real Rezvan PDF → Gemini path staged 10 rows in snapshot `3adf331cfe5877a05b0637774f8dbdb1e02422a1da1cc7437880f62893edcca4`. It is not active and has written nothing to `ReferencePrices`. Owner approval remains required. |
 | Offers → pricing/catalog | Woo now publishes the customer price band and keeps supplier cost private. Freshness gating and fixed-pack minimums are active. Clearance formula, near-cost alert behavior and connected recalculation still need review. |
 | Catalog → WordPress/basket | Two products are synced in IRT; `/` and `/shop/` render the storefront. The delivery calculation exists, but the live Tehran zone has no matching locations. |
-| Checkout → operator work | Woo page assignments are present. The environment login is not on the documented owner allowlist, so owner dashboards and their live bridge cannot be checked in this session. |
+| Checkout → operator work | Woo page assignments are present. User 2 is the sole owner, and the reference bridge returned a valid server response for actor `wp:2`. The owner pages still need visual review in that account's browser session. |
 | Payment → fulfillment/follow-up | Paid-order lifecycle is synthetic-tested. No live payment callback or order was run; inventory/workflow ledger remains on Railway SQLite and is not mirrored to Sheets. |
 | Daily reconciliation/recovery | The server worker and owner review surfaces exist. Bilateral Sheet edits and cutover of legacy/GAS writers remain unverified; legacy writers can bypass server locks. |
 
@@ -116,9 +133,8 @@ that customers can receive a delivery rate on the public checkout.
 1. Set the exact coverage locations for the already configured Tehran shipping zone.
    The fee and free-delivery threshold are recorded; the actual eligible addresses are
    not. The live zone currently has no location rules.
-2. Open the owner dashboards with the newly authorized owner account and verify the
-   WordPress-to-Railway connection. A previous outbound HTTPS failure was recorded;
-   current connectivity has not yet been checked in that session.
+2. Visually review the owner dashboards in the user 2 browser session. The reference
+   WordPress-to-Railway endpoint and owner identity have already returned a valid response.
 3. Review the staged Rezvan/Gemini sample and activate it only after owner approval and
    a matching `ReferencePrices` write receipt. It is not active and has written nothing
    to that sheet.
@@ -149,5 +165,6 @@ The latest disposable WordPress 7.1.3/WooCommerce 11.2.1 runtime run passed 102
 assertions, including the new regression checks that customer-facing Woo prices use
 the calculated band while supplier cost remains private and continues driving the
 cart formula. The previous 246 offline Python tests remain the applicable server
-baseline. Railway deployment `75b43fb6-8cd9-49f7-9c0a-4666ff3ff7cd` is successful;
-the separate `FollowUP-bot` service was not changed.
+baseline. The latest Railway deployment `db46d33c-adca-4bad-8a5d-2c2207e1947d` is
+successful, and its logs confirm both `web` and `pipeline-worker` entered RUNNING state.
+The separate `FollowUP-bot` service was not changed.

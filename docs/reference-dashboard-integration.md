@@ -28,14 +28,24 @@ Administrator accounts and no account 3. At the user's direction, the existing s
 Administrator became the sole owner in protected WordPress configuration, with the
 matching Railway `REFERENCE_OWNER_IDS` value. The WordPress config read-back matched;
 Railway accepted the variable update and its deployment succeeded. Exact account
-identifiers and private values are kept out of Git. The owner screen's live bridge still
-needs verification from that account.
+identifiers and private values are kept out of Git. The owner screen's bridge was repaired
+later that day as described below.
 
-The current cPanel listing of the plugin's `includes` directory did not show
-`runtime-config.php`, despite the earlier deployment note naming that path. The bridge
-constants may be supplied by the separate private WordPress configuration include; their
-values were not inspected. Confirm configuration and transport through the authorized
-owner screen before changing it.
+**Reference bridge repair (2026-10-30, Asia/Tehran):** the user reported
+`اتصال تازه‌سازی فهرست مرجع تنظیم نشده است.` A read-only cPanel check confirmed that
+`includes/runtime-config.php` was absent and the protected `wp-config.php` did not define
+the reference server URL or bridge token. The existing owner allowlist remained user 2
+only. A new dedicated bridge token was set on Railway and the matching URL/token constants
+were added to protected `wp-config.php`; secret values and the backup remain outside Git.
+
+The Railway service was still running its `main` deployment at `2e32dea`, which did not
+contain `/reference/snapshots`. It now tracks the pushed release branch
+`molavisale-release-2026-10-28`; deployment `6062fc3d37a581f9666a24612288df63fd1da084`
+completed successfully with the existing `/data` volume attached. A read-only authenticated
+GET using actor `wp:2` returned HTTP 200 with two snapshots and refresh state `staged`. The
+public WordPress homepage returned HTTP 200. No review, activation, refresh, or
+`ReferencePrices` write was performed. The owner page still needs a visual check in the
+user 2 browser session.
 
 Confirmed: owner decisions belong in the private WordPress dashboard, integrated with
 current WordPress functionality/plugins. Not Telegram as the decision surface.
@@ -70,8 +80,9 @@ Configuration contract (the secret values remain outside the repository):
 
 The server exposes the `DashboardAPI` through `/reference/decisions` and the snapshot
 workflow through `/reference/snapshots`. Railway stores `REFERENCE_STORE_PATH`,
-`REFERENCE_OWNER_IDS` and `REFERENCE_BRIDGE_TOKEN`; the existing plugin reads its
-private endpoint and token from `includes/runtime-config.php`. Both reference and
+`REFERENCE_OWNER_IDS` and `REFERENCE_BRIDGE_TOKEN`; the plugin loads an optional
+`includes/runtime-config.php`, while production currently defines its private endpoint and
+token in protected `wp-config.php`. Both reference and
 pipeline SQLite databases are on Railway's persistent `/data` volume. Multi-instance
 ownership and reconciliation still need an operational design.
 

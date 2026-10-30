@@ -49,5 +49,5 @@ those records. When changing customer-facing page content in WordPress, export t
 safe content or recreate the change in a tracked template before calling that
 change version-controlled.
 
-Never commit `runtime-config.php`, service-account keys, supplier source contents,
-customer data, order data, database files or `/tmp` backups.
+Never commit `wp-config.php`, `runtime-config.php`, service-account keys, supplier
+source contents, customer data, order data, database files or `/tmp` backups.
