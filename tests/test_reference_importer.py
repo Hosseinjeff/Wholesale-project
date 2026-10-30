@@ -5,7 +5,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 from pypdf import PdfWriter
-from reference_import.importer import ImportFailure, HEADERS, extract_pdf, parse_rows, save_candidate
+from reference_import.importer import (ImportFailure, HEADERS, _pdf_page_batches,
+    extract_pdf, parse_rows, save_candidate)
 
 class ReferenceImportTests(unittest.TestCase):
     def item(self):
@@ -104,6 +105,19 @@ class ReferenceImportTests(unittest.TestCase):
         self.assertEqual(candidate['source_page_count'], 1)
         self.assertEqual(candidate['processed_page_count'], 1)
         self.assertNotIn('synthetic-key', session.post.call_args.args[0])
+        prompt_text=session.post.call_args.kwargs['json']['contents'][0]['parts'][0]['text']
+        self.assertIn('final batch may be partially filled',prompt_text)
+
+    def test_pdf_is_split_into_one_request_per_original_page(self):
+        writer=PdfWriter()
+        for _ in range(3):writer.add_blank_page(width=600,height=800)
+        output=__import__('io').BytesIO();writer.write(output)
+        page_count,batches=_pdf_page_batches(output.getvalue())
+        self.assertEqual(page_count,3)
+        self.assertEqual([(start,end) for start,end,_ in batches],[(0,1),(1,2),(2,3)])
+        for _,_,batch in batches:
+            from pypdf import PdfReader
+            self.assertEqual(len(PdfReader(__import__('io').BytesIO(batch)).pages),2)
 
     def test_environment_key_and_model_are_used_when_not_passed(self):
         session = self.session()

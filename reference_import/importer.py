@@ -151,7 +151,7 @@ def parse_rows(ai_text, timestamp):
     return rows
 
 
-def _pdf_page_batches(pdf, pages_per_batch=2):
+def _pdf_page_batches(pdf, pages_per_batch=1):
     """Split each source page into its two independent product tables."""
     try:
         from pypdf import PdfReader, PdfWriter
@@ -192,7 +192,7 @@ def _pdf_page_batches(pdf, pages_per_batch=2):
         raise ImportFailure('Could not split the source PDF into tables', code='source_pdf_split_failed') from exc
 
 
-def _extract_pdf_batch(batch_pdf, *, api_key, model, prompt, page_count):
+def _extract_pdf_batch(batch_pdf, *, api_key, model, prompt, page_count, allow_partial=False):
     import requests
 
     instruction = (
@@ -201,7 +201,9 @@ def _extract_pdf_batch(batch_pdf, *, api_key, model, prompt, page_count):
         'Read every visible product row exactly once, including the printed row number. Match its price, code, '
         'and title only within that row. Copy the full title and preserve its details in the separate fields. '
         'Leave uncertain title attributes blank and keep the uncertainty in raw_name_details. Set unit_price to 0; '
-        'the server calculates it from package_price and package_count. The final PDF page may be partially filled.'
+        'the server calculates it from package_price and package_count. '
+        + ('The original PDF page in this final batch may be partially filled; do not invent rows.'
+           if allow_partial else 'Each original page in this batch has 30 rows in each table half.')
     )
     payload = {
         'contents': [{'parts': [{'text': prompt + '\n\n' + instruction}, {'inline_data': {
@@ -251,12 +253,12 @@ def _verified_row_numbers(rows, *, page_count):
             raise ImportFailure('Missing printed PDF row number', code='extraction_row_number_invalid')
         numbers.append(int(value))
     if not numbers or numbers[0] != 1 or len(numbers) != len(set(numbers)):
-        raise ImportFailure('PDF row coverage is incomplete', code='extraction_coverage_incomplete')
+        raise ImportFailure('PDF row coverage is incomplete', code='extraction_row_sequence_invalid')
     if numbers != list(range(1, max(numbers) + 1)):
-        raise ImportFailure('PDF rows contain gaps', code='extraction_coverage_incomplete')
+        raise ImportFailure('PDF rows contain gaps', code='extraction_row_gap')
     if len(numbers) < page_count * 30:
         raise ImportFailure('Too few products were extracted from the source PDF',
-                            code='extraction_coverage_incomplete')
+                            code='extraction_too_few_rows')
     return numbers
 
 
@@ -287,20 +289,21 @@ def extract_pdf(session, api_key=None, model=None, *, max_pdf_bytes=15_000_000):
     def run(batch):
         start, end, batch_pdf = batch
         text = _extract_pdf_batch(batch_pdf, api_key=api_key, model=model,
-                                  prompt=prompt, page_count=(end - start) * 2)
+                                  prompt=prompt, page_count=(end - start) * 2,
+                                  allow_partial=start >= max(0, page_count - 2))
         rows = parse_rows(text, extracted_at)
         page_span = end - start
-        if end < page_count:
+        if end < page_count - 1:
             expected = page_span * 60
             if len(rows) != expected:
                 raise ImportFailure('A PDF table batch did not return every product row',
-                                    code='extraction_coverage_incomplete')
+                                    code=f'extraction_batch_row_count_mismatch_page_{start + 1}')
             expected_start = start * 60 + 1
             expected_numbers = list(range(expected_start, expected_start + expected))
             numbers = [int(row[15]) for row in rows]
             if sorted(numbers) != expected_numbers:
                 raise ImportFailure('A PDF table batch has missing or mismatched row numbers',
-                                    code='extraction_coverage_incomplete')
+                                    code=f'extraction_batch_row_numbers_mismatch_page_{start + 1}')
         return start, rows
 
     try:
