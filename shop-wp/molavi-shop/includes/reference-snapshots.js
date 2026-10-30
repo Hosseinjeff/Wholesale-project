@@ -63,9 +63,49 @@
     function refreshLabel(state) {
         return ({
             staged: 'نسخه تازه آماده بررسی است',
-            failed: 'دریافت PDF ناموفق بود',
+            failed: 'خواندن PDF کامل نشد',
             running: 'دریافت و بررسی PDF در حال انجام است'
         })[state] || 'وضعیت دریافت مشخص نیست';
+    }
+
+    function refreshErrorText(errorCode) {
+        const code = String(errorCode || '');
+        const baseCode = code.replace(/_page_\d+_(left|right)$/, '');
+        const batch = code.match(/^extraction_batch_row_count_mismatch_page_(\d+)_(left|right)$/);
+        if (batch) {
+            return 'جدول سمت ' + (batch[2] === 'left' ? 'چپ' : 'راست') + ' صفحه ' + batch[1]
+                + ' کامل خوانده نشد؛ پیش‌نویس تازه ساخته نشد.';
+        }
+        const rowNumbers = code.match(/^extraction_batch_row_numbers_mismatch_page_(\d+)_(left|right)$/);
+        if (rowNumbers) {
+            return 'شماره ردیف‌های جدول سمت ' + (rowNumbers[2] === 'left' ? 'چپ' : 'راست')
+                + ' صفحه ' + rowNumbers[1] + ' با PDF تطبیق نداشت؛ پیش‌نویس تازه ساخته نشد.';
+        }
+        const duplicate = code.match(/^extraction_duplicate_row_number_(\d+)_page_(\d+)_(left|right)$/);
+        if (duplicate) {
+            return 'مدل در جدول سمت ' + (duplicate[3] === 'left' ? 'چپ' : 'راست')
+                + ' صفحه ' + duplicate[2] + ' شماره ردیف ' + duplicate[1]
+                + ' را تکرار کرد؛ پیش‌نویس تازه ساخته نشد.';
+        }
+        if (/^extraction_duplicate_row_number(?:_page_\d+_(?:left|right))?$/.test(code)) {
+            return 'یک شماره ردیف تکراری بود؛ پیش‌نویس تازه ساخته نشد.';
+        }
+        const finalPage = code.match(/^extraction_final_page_empty_page_(\d+)$/);
+        if (finalPage) {
+            return 'از صفحه پایانی ' + finalPage[1] + ' هیچ کالایی خوانده نشد؛ پیش‌نویس تازه ساخته نشد.';
+        }
+        if (code === 'extraction_row_gap' || code === 'extraction_row_sequence_invalid'
+            || code === 'extraction_too_few_rows') {
+            return 'شماره ردیف‌ها کامل و پیوسته نبود؛ پیش‌نویس تازه ساخته نشد.';
+        }
+        if (baseCode === 'gemini_rate_limited') return 'سرویس Gemini موقتاً درخواست بیشتری نمی‌پذیرد.';
+        if (baseCode === 'gemini_key_invalid') return 'کلید اتصال Gemini معتبر نیست یا از دسترس خارج شده است.';
+        if (baseCode === 'gemini_model_not_found' || baseCode === 'gemini_permission_denied') {
+            return 'مدل Gemini در دسترس نبود یا اجازه استفاده از آن وجود نداشت.';
+        }
+        if (baseCode === 'gemini_transport_failed') return 'ارتباط با سرویس Gemini پایدار نبود.';
+        if (/^source_http_\d+$/.test(code)) return 'PDF رزوان دریافت نشد (' + code.replace('source_http_', 'HTTP ') + ').';
+        return 'استخراج کامل نشد؛ پیش‌نویس تازه ساخته نشد. کد پیگیری: ' + (code || 'نامشخص');
     }
 
     async function request(method, payload, url) {
@@ -172,7 +212,7 @@
                 }
                 await load(receipt.state === 'staged'
                     ? 'استخراج تمام شد؛ پیش‌نویس تازه به فهرست اضافه شد.'
-                    : 'تلاش انجام شد، اما PDF دریافت نشد. بعداً دوباره تلاش کنید.');
+                    : 'تلاش انجام شد، اما استخراج کامل نشد. هیچ پیش‌نویس تازه‌ای ذخیره نشد.');
             } catch (error) {
                 root.prepend(notice(messageText(error.message), 'error'));
                 button.disabled = false;
@@ -191,6 +231,9 @@
         card.appendChild(element('p', 'وضعیت: ' + label));
         if (refresh.last_attempt_at) {
             card.appendChild(element('p', 'آخرین تلاش: ' + formatDate(refresh.last_attempt_at), 'description'));
+        }
+        if (refresh.state === 'failed' && refresh.error_code) {
+            card.appendChild(element('p', 'علت: ' + refreshErrorText(refresh.error_code), 'description'));
         }
         if (refresh.state === 'failed' || refresh.state === 'staged') {
             card.appendChild(element('p', 'استخراج تازه فقط یک پیش‌نویس می‌سازد؛ فهرست مرجع با آن تغییر نمی‌کند.', 'description'));

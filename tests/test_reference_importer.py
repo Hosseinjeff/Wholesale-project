@@ -99,7 +99,7 @@ class ReferenceImportTests(unittest.TestCase):
         output=__import__('io').BytesIO();writer.write(output)
         return output.getvalue()
 
-    def session(self, finish='STOP', pdf=None, omit_row=None, empty_halves=()):
+    def session(self, finish='STOP', pdf=None, omit_row=None, empty_halves=(), duplicate_row=None):
         if pdf is None:
             pdf=self.pdf_bytes()
         session = MagicMock()
@@ -116,6 +116,9 @@ class ReferenceImportTests(unittest.TestCase):
                 package_price=10000,package_count=1,unit_price=0,pdf_row_number=str(number),
                 product_code=f'P-{number}') for number in range(start,start+30)
                 if not (page==1 and half=='left' and number==omit_row)]
+            if products and page==1 and half=='left' and duplicate_row is not None:
+                duplicate=next((item for item in products if item['pdf_row_number']==str(duplicate_row)),None)
+                if duplicate: products.append(dict(duplicate))
             response=MagicMock();response.status_code=200
             response.json.return_value={'candidates':[{'finishReason':finish,
                 'content':{'parts':[{'thought':True,'text':'ignore'},
@@ -155,13 +158,19 @@ class ReferenceImportTests(unittest.TestCase):
             self.extract(session,'synthetic-key','explicit-model')
         self.assertEqual(caught.exception.code,'extraction_batch_row_count_mismatch_page_1_left')
 
+    def test_duplicate_row_failure_identifies_the_page_and_table(self):
+        session=self.session(duplicate_row=5)
+        with self.assertRaises(ImportFailure) as caught:
+            self.extract(session,'synthetic-key','explicit-model')
+        self.assertEqual(caught.exception.code,'extraction_duplicate_row_number_5_page_1_left')
+
     def test_blank_final_crop_is_allowed_but_final_page_cannot_be_empty(self):
         candidate=self.extract(self.session(empty_halves={(1,'right')}),'synthetic-key','explicit-model')
         self.assertEqual(candidate['row_count'],30)
         with self.assertRaises(ImportFailure) as caught:
             self.extract(self.session(empty_halves={(1,'left'),(1,'right')}),
                          'synthetic-key','explicit-model')
-        self.assertEqual(caught.exception.code,'extraction_final_page_empty')
+        self.assertEqual(caught.exception.code,'extraction_final_page_empty_page_1')
 
     def test_environment_key_and_model_are_used_when_not_passed(self):
         session = self.session()
@@ -203,7 +212,7 @@ class ReferenceImportTests(unittest.TestCase):
             'details':[{'reason':'API_KEY_INVALID'}]}}
         with self.assertRaises(ImportFailure) as caught:
             self.extract(session,'synthetic-key','explicit-model')
-        self.assertEqual(caught.exception.code,'gemini_key_invalid')
+        self.assertEqual(caught.exception.code,'gemini_key_invalid_page_1_left')
         self.assertNotIn('secret-detail',str(caught.exception))
 
     def test_atomic_candidate_does_not_overwrite(self):

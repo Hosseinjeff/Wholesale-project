@@ -137,7 +137,8 @@ def parse_rows(ai_text, timestamp, *, allow_empty=False):
         # Keep repeated product identities when they occupy distinct printed PDF
         # rows. A repeated row number is the reliable signal for duplicated output.
         if any(str(existing[15]) == row_number for existing in rows):
-            raise ImportFailure('Duplicate printed row number', code='extraction_duplicate_row_number')
+            raise ImportFailure('Duplicate printed row number',
+                                code=f'extraction_duplicate_row_number_{row_number}')
         def text_value(field):
             value = item.get(field) or ''
             if isinstance(value, (dict, list, bool)):
@@ -298,10 +299,14 @@ def extract_pdf(session, api_key=None, model=None, *, max_pdf_bytes=15_000_000):
     def run(batch):
         page_index, half, batch_pdf = batch
         allow_partial = page_index >= max(0, page_count - 2)
-        text = _extract_pdf_batch(batch_pdf, api_key=api_key, model=model,
-                                  prompt=prompt, source_page_number=page_index + 1,
-                                  table_half=half, allow_partial=allow_partial)
-        rows = parse_rows(text, extracted_at, allow_empty=allow_partial)
+        try:
+            text = _extract_pdf_batch(batch_pdf, api_key=api_key, model=model,
+                                      prompt=prompt, source_page_number=page_index + 1,
+                                      table_half=half, allow_partial=allow_partial)
+            rows = parse_rows(text, extracted_at, allow_empty=allow_partial)
+        except ImportFailure as exc:
+            raise ImportFailure(str(exc),
+                                code=f'{exc.code}_page_{page_index + 1}_{half}') from exc
         if page_index < page_count - 2:
             if len(rows) != 30:
                 raise ImportFailure('A PDF table batch did not return every product row',
@@ -321,7 +326,7 @@ def extract_pdf(session, api_key=None, model=None, *, max_pdf_bytes=15_000_000):
         raise
     if not any(batch_rows for page_index, _, batch_rows in results if page_index == page_count - 1):
         raise ImportFailure('No product rows were extracted from the final PDF page',
-                            code='extraction_final_page_empty')
+                            code=f'extraction_final_page_empty_page_{page_count}')
     rows = [row for _, _, batch_rows in sorted(results) for row in batch_rows]
     rows.sort(key=lambda row: int(row[15]))
     numbers = _verified_row_numbers(rows, page_count=page_count)
