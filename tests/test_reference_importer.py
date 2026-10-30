@@ -25,9 +25,16 @@ class ReferenceImportTests(unittest.TestCase):
         self.assertEqual(row[3:7], [480000, 40000, 45000, 12])
         self.assertEqual(row[16:19], ['10', 'TOMAN', 'rezvanpakhsh_pdf_ai'])
 
+    def test_title_is_authoritative_for_pack_and_retail_prices(self):
+        item=self.item();item.update(package_count=0,unit_price=0,consumer_unit_price=90000)
+        row=self.rows(item)[0]
+        self.assertEqual(row[5],45000)
+        self.assertEqual(row[6],12)
+        self.assertEqual(row[7],'عدد')
+
     def test_unknown_and_single_count(self):
         item = self.item()
-        item.update(package_count=0, unit_price=0)
+        item.update(raw_name='چای (۴۵ف)',package_count=0,unit_price=0)
         self.assertEqual(self.rows(item)[0][4], '')
         item.update(package_count=1, unit_price=480000)
         self.assertEqual(self.rows(item)[0][4], 480000)
@@ -35,9 +42,11 @@ class ReferenceImportTests(unittest.TestCase):
     def test_invalid_or_conflicting_values_reject_candidate(self):
         for changes in ({'package_price': -5}, {'package_price': 'NaN'},
                         {'package_count': 1.5}, {'package_count': True},
-                        {'unit_price': 123}, {'consumer_unit_price': 90000},
+                        {'unit_price': 123},
                         {'currency': 'RIAL'}, {'package_price': '۴۸۰ هزار'}):
             item = self.item()
+            if 'package_count' in changes:
+                item['raw_name']='چای (۴۵ف)'
             item.update(changes)
             with self.subTest(changes=changes), self.assertRaises(ImportFailure):
                 self.rows(item)

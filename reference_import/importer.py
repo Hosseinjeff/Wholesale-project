@@ -46,6 +46,16 @@ def normalize_name(value):
     return re.sub(r'\s+', ' ', re.sub(r'[^\w\s]', ' ', text)).strip().lower()
 
 
+def title_package_count(raw_name):
+    """Read an explicit count marker from the PDF title when the model misses it."""
+    title = raw_name.translate(DIGITS)
+    matches = re.findall(r'(?<!\d)(\d{1,4})\s*(?:عددی|عدد|تایی|ع)(?=$|[^\w])', title)
+    if matches:
+        return int(matches[-1])
+    carton = re.search(r'(?:کارتن|باکس|بسته)\s*(\d{1,4})(?=$|[^\w])', title)
+    return int(carton.group(1)) if carton else None
+
+
 def _gemini_http_error_code(response):
     status_code=getattr(response,'status_code',0)
     code=f'gemini_http_{status_code}' if isinstance(status_code,int) and 100<=status_code<=599 else 'gemini_http_error'
@@ -98,6 +108,9 @@ def parse_rows(ai_text, timestamp):
             raise ImportFailure('Unexpected currency; conversion requires explicit policy', code='extraction_currency_mismatch')
         package = number(item.get('package_price'))
         count = number(item.get('package_count'))
+        title_count = title_package_count(raw)
+        if title_count is not None:
+            count = title_count
         supplied_unit = number(item.get('unit_price'))
         consumer = number(item.get('consumer_unit_price'))
         set_count = number(item.get('set_count'))
@@ -110,8 +123,7 @@ def parse_rows(ai_text, timestamp):
         hint = re.search(r'[（(]\s*(\d{1,4})\s*ف\s*[）)]', raw.translate(DIGITS))
         if hint:
             retail = int(hint.group(1)) * 1000
-            if consumer and consumer != retail:
-                raise ImportFailure('Conflicting retail hint', code='extraction_retail_conflict')
+            # The printed title marker is explicit; derive the retail amount from it.
             consumer = retail
         code = str(item.get('product_code') or '').strip()
         row_number = str(item.get('pdf_row_number') or '').translate(DIGITS).strip()
@@ -127,8 +139,9 @@ def parse_rows(ai_text, timestamp):
             if isinstance(value, (dict, list, bool)):
                 raise ImportFailure('Invalid structured text field', code='extraction_field_invalid')
             return str(value).strip()
+        unit_label=text_value('unit_label') or ('عدد' if title_count is not None else '')
         values = [raw, clean, key, package, unit or '', consumer or '', count or '',
-                  *(text_value(k) for k in ('unit_label', 'volume', 'weight')),
+                  unit_label, *(text_value(k) for k in ('volume', 'weight')),
                   set_count or '', *(text_value(k) for k in ('variant', 'brand', 'category',
                   'raw_name_details')), row_number, code, 'TOMAN',
                   'rezvanpakhsh_pdf_ai', SOURCE_URL, timestamp]
