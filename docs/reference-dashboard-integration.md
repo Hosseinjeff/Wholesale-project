@@ -258,7 +258,10 @@ stores the number `952459`. This was a readback-format mismatch, not a failed sh
 The live raw-value comparison found all 3,925 rows present and no differences across the
 17 row fields exposed to the owner snapshot API. The projection now requests
 `UNFORMATTED_VALUE` for both its pre-write and post-write reads, so numeric values are
-compared in their stored form. A repeated activation request for the already-active
-snapshot is safe: it skips changing the active pointer and retries the idempotent sheet
-projection. Focused tests cover the REST query, store read and projection read path.
-Production receipt retry and deployment details are recorded after they complete.
+compared in their stored form. Deployment `bd943de8-afc9-4285-b613-53ef05fe9b62`
+succeeded at commit `dff0cd2aae851ebe3426f98ebd93419c336eb5a5`. A repeated activation
+request for the already-active snapshot safely skipped changing the active pointer,
+retried the idempotent sheet projection, and returned HTTP 200 with
+`projection_state=written` and `row_count=3925`. The server's full 21-column, all-row
+receipt check passed. Focused tests cover the REST query, store read and projection read
+path; all three passed.
