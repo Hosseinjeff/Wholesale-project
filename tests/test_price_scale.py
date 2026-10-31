@@ -121,6 +121,16 @@ class PriceScaleTests(unittest.TestCase):
             [reference('A'),reference('B',code='2'),reference('C',code='3')])
         self.assertEqual(assessment['action'],'explicit_role')
 
+    def test_explicit_package_role_without_count_is_not_reclassified_as_unit(self):
+        product={'name':'Tea','package_count':0,'detected_price':100000,
+            'price_type':'pack','needs_review':True}
+        refs=[reference('A',unit=100000,package=1200000),
+            reference('B',code='2',unit=100000,package=1200000),
+            reference('C',code='3',unit=100000,package=1200000)]
+        assessment=assess_price_scale(product,{},[],refs)
+        self.assertEqual(assessment['action'],'explicit_role')
+        self.assertNotIn('suggested_unit_price',assessment)
+
 
 if __name__ == '__main__':
     unittest.main()

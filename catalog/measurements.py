@@ -9,9 +9,15 @@ import re
 
 
 _DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
+_NUMBER_WORDS = {
+    "یک": 1, "دو": 2, "سه": 3, "چهار": 4, "پنج": 5,
+    "شش": 6, "هفت": 7, "هشت": 8, "نه": 9, "ده": 10,
+}
+_NUMBER_WORD = r"(?<!\w)(?:" + "|".join(_NUMBER_WORDS) + r")(?!\w)"
 _NUMBER = (
-    r"(?P<number>(?:\d{1,3}(?:,\d{3})+|\d{1,6})"
-    r"(?:\s*(?:/|⁄)\s*\d{1,4}|\s*[.٫]\s*\d{1,4})?)"
+    r"(?P<number>(?:(?:\d{1,3}(?:,\d{3})+|\d{1,6})"
+    r"(?:\s*(?:/|⁄)\s*\d{1,4}|\s*[.٫]\s*\d{1,4})?|"
+    + _NUMBER_WORD + r"))"
 )
 _VOLUME_UNIT = (
     r"(?P<unit>milliliters?|millilitres?|liters?|litres?|"
@@ -54,7 +60,9 @@ def _format_fraction(value: Fraction) -> str:
 
 
 def _parse_value(raw: str) -> Fraction | None:
-    raw = raw.translate(_DIGITS).replace(" ", "").replace(",", "")
+    raw = raw.translate(_DIGITS).replace("ي", "ی").replace("ك", "ک").replace(" ", "").replace(",", "")
+    if raw in _NUMBER_WORDS:
+        return Fraction(_NUMBER_WORDS[raw])
     try:
         if "⁄" in raw:
             numerator, denominator = raw.split("⁄", maxsplit=1)
@@ -101,7 +109,7 @@ def parse_measurements(text: str, kind: str) -> list[Measurement]:
     """
     if kind not in _UNIT_PATTERNS:
         raise ValueError("kind must be 'volume' or 'weight'")
-    source = str(text or "").translate(_DIGITS)
+    source = str(text or "").translate(_DIGITS).replace("ي", "ی").replace("ك", "ک")
     found: list[Measurement] = []
     for match in _UNIT_PATTERNS[kind].finditer(source):
         value = _parse_value(match.group("number"))

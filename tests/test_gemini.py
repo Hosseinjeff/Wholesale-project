@@ -113,6 +113,21 @@ class GeminiExtractionTests(unittest.TestCase):
         self.assertEqual(product['price_type'], 'unit')
         self.assertFalse(product['needs_review'])
 
+    def test_unit_and_consumer_labels_after_pack_count_are_scoped_to_product(self):
+        title = 'تی بگ چای شهرزاد کاوردار'
+        content = (
+            title + ':\n\n✅درکارتن ۲۴تایی\n\n'
+            '✅️دونه ای: ۱۲۰/۰۰۰تومن\n✅قیمت مصرف: ۲۰۰/۰۰۰تومن\n\nآدرس و خرید حضوری'
+        )
+        product = parse_message_products(json.dumps([{
+            'name': title, 'unit_price': 120000, 'consumer_price': 200000,
+            'package_count': 24, 'currency': 'IRT', 'confidence': 0.99,
+        }], ensure_ascii=False), content, '@supplier')[0]
+        self.assertEqual(product['sale_price'], 120000)
+        self.assertEqual(product['consumer_price'], 200000)
+        self.assertEqual(product['price_type'], 'unit')
+        self.assertFalse(product['needs_review'])
+
     def test_inline_source_package_label_resolves_product_title_and_price_basis(self):
         title = 'محصول نمونه 6ع'
         product = parse_message_products(json.dumps([{
@@ -122,6 +137,47 @@ class GeminiExtractionTests(unittest.TestCase):
         self.assertEqual(product['name'], title)
         self.assertEqual(product['sale_price'], 10000)
         self.assertEqual(product['package_price'], 60000)
+        self.assertFalse(product['needs_review'])
+
+    def test_unit_and_package_labels_match_their_amounts_and_drop_unlabeled_consumer_field(self):
+        title = 'موکو کوکو با تیکه نارگیل'
+        content = (
+            title + ':\n\n✅در باکس ۲۴تایی\n\n'
+            '✅️دونه ای: ۴۱/۰۰۰تومن\n✅قیمت باکس: ۹۸۴/۰۰۰تومن'
+        )
+        product = parse_message_products(json.dumps([{
+            'name': title, 'unit_price': 41000, 'package_price': 984000,
+            'consumer_price': 41000, 'package_count': 24,
+            'currency': 'IRT', 'confidence': 0.99,
+        }], ensure_ascii=False), content, '@supplier')[0]
+        self.assertEqual(product['sale_price'], 41000)
+        self.assertEqual(product['package_price'], 984000)
+        self.assertIsNone(product['consumer_price'])
+        self.assertFalse(product['needs_review'])
+
+    def test_each_package_label_and_short_consumer_label_are_explicit(self):
+        title = 'چای شهرزاد ۴۰۰گرمی'
+        content = (
+            title + ':\n✅در کارتن ۱۰تایی\n'
+            '✅قیمت هر یک بسته: ۶۲۰/۰۰۰تومن\n✅قیمت مصرف: ۹۴۰/۰۰۰تومن'
+        )
+        product = parse_message_products(json.dumps([{
+            'name': title, 'package_price': 620000, 'package_count': 10,
+            'consumer_price': 940000, 'currency': 'IRT', 'confidence': 0.99,
+        }], ensure_ascii=False), content, '@supplier')[0]
+        self.assertEqual(product['sale_price'], 62000)
+        self.assertEqual(product['package_price'], 620000)
+        self.assertEqual(product['consumer_price'], 940000)
+        self.assertFalse(product['needs_review'])
+
+    def test_spelled_out_measurement_in_source_title_corrects_model(self):
+        title = 'زعفران یک گرم بهمنان'
+        product = parse_message_products(json.dumps([{
+            'name': title, 'weight': '500 گرم', 'unit_price': 375000,
+            'currency': 'IRT', 'confidence': 0.99,
+        }], ensure_ascii=False), title + ':\nدونه ای: ۳۷۵/۰۰۰تومن', '@supplier')[0]
+        self.assertEqual(product['weight'], '1 گرم')
+        self.assertEqual(product['sale_price'], 375000)
         self.assertFalse(product['needs_review'])
 
     def test_single_unlabelled_consumer_field_is_supplier_sale_amount(self):
@@ -150,6 +206,22 @@ class GeminiExtractionTests(unittest.TestCase):
         self.assertIsNone(product['consumer_price'])
         self.assertEqual(product['price_type'], 'needs_review')
         self.assertTrue(product['needs_review'])
+
+    def test_same_consumer_amount_on_another_product_is_not_attributed(self):
+        first, second = 'محصول الف', 'محصول ب'
+        content = (
+            first + '\nدونه ای: ۴۰٬۰۰۰ تومان\nقیمت مصرف: ۵۰٬۰۰۰ تومان\n'
+            + second + '\nقیمت مصرف: ۴۰٬۰۰۰ تومان'
+        )
+        products = parse_message_products(json.dumps([
+            {'name': first, 'unit_price': 40000, 'consumer_price': 40000,
+             'currency': 'IRT', 'confidence': 0.99},
+            {'name': second, 'consumer_price': 40000,
+             'currency': 'IRT', 'confidence': 0.99},
+        ], ensure_ascii=False), content, '@supplier')
+        self.assertIsNone(products[0]['consumer_price'])
+        self.assertEqual(products[0]['sale_price'], 40000)
+        self.assertEqual(products[1]['consumer_price'], 40000)
 
     def test_arabic_digits_are_parsed_and_missing_confidence_requires_review(self):
         title = 'تن ٢٤ عددی'

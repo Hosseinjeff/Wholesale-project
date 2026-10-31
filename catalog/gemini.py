@@ -19,11 +19,13 @@ _UNIT_PRICE_LABEL = re.compile(
     r'(?:هر\s*|قیمت\s*هر\s*)(?:عدد|دونه|دانه|واحد)|فی\s*(?:عدد|دونه|دانه)|'
     r'\b(?:unit\s+price|price\s+per\s+(?:unit|item)|per[- ]?(?:unit|item))\b)', re.I)
 _PACKAGE_PRICE_LABEL = re.compile(
-    r'(?:قیمت\s*(?:باکس|کارتن|کارتون|بسته)|هر\s*(?:باکس|کارتن|کارتون|بسته)|'
+    r'(?:قیمت\s*(?:(?:هر\s*)?(?:یک\s*)?)?(?:باکس|کارتن|کارتون|بسته)(?:ی)?|'
+    r'هر\s*(?:یک\s*)?(?:باکس|کارتن|کارتون|بسته)(?:ی)?|'
+    r'(?:باکسی|کارتنی|کارتونی|بسته‌ای|ورق\s*\d*\s*تایی)\s*[:=]|'
     r'\b(?:package|carton|box|case)\s+price\b|'
     r'\bprice\s+(?:per|of)\s+(?:package|carton|box|case)\b)', re.I)
 _CONSUMER_PRICE_LABEL = re.compile(
-    r'(?:قیمت\s*(?:مصرف\s*کننده|خرده\s*فروشی)|'
+    r'(?:قیمت\s*(?:مصرف\s*(?:کننده)?|خرده\s*فروشی)|'
     r'\b(?:consumer|retail)\s+price\b)', re.I)
 
 
@@ -64,7 +66,9 @@ or currency. All source channels are wholesalers: a single unlabeled amount is t
 supplier sale amount, never a consumer price. Keep that amount exactly as written. Set
 unit_price only when explicitly a per-item/unit/kilo price. Set package_price only when
 explicitly a box/carton/package price. Set consumer_price only for an explicit retail or
-consumer amount; if it is labeled as a package amount, use consumer_package_price. When
+consumer amount; do not copy a supplier/unit amount into consumer_price without its own
+consumer label. If the consumer amount is labeled as a package amount, use
+consumer_package_price. When
 unit-versus-package basis is unclear, keep the supplier amount but set needs_review=true;
 do not guess a unit price. Split different sizes, flavors, variants and pack counts into
 separate products.
@@ -91,9 +95,10 @@ ambiguity remains. If the adapter can recover a unique exact title, including a 
 count marker, keep that exact title and do not request review only because a generated
 structured measurement or count conflicts with it; the title is the source of truth.
 
-Recognize these explicit price labels: `قیمت مصرف کننده` is a consumer price;
+Recognize these explicit price labels: `قیمت مصرف` and `قیمت مصرف کننده` are consumer prices;
 `دونه ای`, `هر عدد` and `قیمت تکی` are unit prices; `قیمت باکس`, `قیمت کارتن`,
-`هر باکس` and `هر کارتن` are package prices. Keep the amount exactly as written.
+`باکسی`, `قیمت هر یک بسته`, `هر باکس` and `هر کارتن` are package prices. Keep the
+amount exactly as written.
 If no label or structure establishes unit-versus-package basis, leave that basis
 uncertain and request review instead of guessing. The supplier-versus-consumer role of
 a single unlabeled amount is not uncertain: it is a supplier sale amount.
@@ -115,6 +120,8 @@ def _number(value):
     if isinstance(value, bool):
         raise GeminiError('Invalid numeric extraction')
     raw = _english_numbers(value).strip().replace(',', '').replace('٬', '').replace('٫', '.')
+    if re.fullmatch(r'\d{1,3}(?:/\d{3})+', raw):
+        raw = raw.replace('/', '')
     if not re.fullmatch(r'\d+(?:\.\d+)?', raw):
         raise GeminiError('Invalid numeric extraction')
     try:
@@ -190,65 +197,97 @@ def _source_title_evidence(name, content):
     return None, len(matches) > 1
 
 
-def _price_roles_in_text(value):
-    text = str(value or '').replace('\u200c', ' ').replace('ي', 'ی').replace('ك', 'ک')
-    roles = set()
-    if _UNIT_PRICE_LABEL.search(text):
-        roles.add('unit')
-    if _PACKAGE_PRICE_LABEL.search(text):
-        roles.add('package')
-    return roles
+def _labeled_amounts(content, label_pattern):
+    """Read amounts only from lines carrying the corresponding explicit label."""
+    amounts = set()
+    for line in str(content or '').splitlines():
+        text = _english_numbers(line).replace('\u200c', ' ').replace('ي', 'ی').replace('ك', 'ک')
+        for label in label_pattern.finditer(text):
+            suffix = text[label.end():]
+            match = re.search(r'(?<!\d)\d(?:[\d,٬٫./ ]*\d)?(?!\d)', suffix)
+            if not match:
+                continue
+            digits = re.sub(r'\D', '', match.group())
+            if digits:
+                amounts.add(int(digits))
+    return amounts
 
 
-def _source_title_context(source_title, content, ambiguous=False):
-    """Return price lines attached to one uniquely recovered source title."""
+def _source_title_context(source_title, content, source_titles=(), ambiguous=False):
+    """Collect one product's listing lines, ending at another recovered product title."""
     if not source_title or ambiguous:
         return []
     lines = [line.strip() for line in str(content or '').splitlines()]
-    title = source_title[0]
-    indexes = []
-    for index, line in enumerate(lines):
-        if line == title:
-            indexes.append(index)
-            continue
-        if not line.startswith(title):
-            continue
-        suffix = line[len(title):]
-        labels = [pattern.search(suffix) for pattern in (
-            _UNIT_PRICE_LABEL, _PACKAGE_PRICE_LABEL, _CONSUMER_PRICE_LABEL)]
-        if any(found and re.search(r'\d', suffix[found.end():]) for found in labels):
-            indexes.append(index)
-    if len(indexes) != 1:
+
+    def indexes_for(title):
+        found = []
+        for index, line in enumerate(lines):
+            if line == title:
+                found.append(index)
+                continue
+            if line.startswith(title):
+                suffix = line[len(title):]
+                labels = [pattern.search(suffix) for pattern in (
+                    _UNIT_PRICE_LABEL, _PACKAGE_PRICE_LABEL, _CONSUMER_PRICE_LABEL)]
+                if any(match and re.search(r'\d', suffix[match.end():]) for match in labels):
+                    found.append(index)
+        return found
+
+    current_indexes = indexes_for(source_title[0])
+    if len(current_indexes) != 1:
         return []
-    context = [lines[indexes[0]]]
-    index = indexes[0] + 1
-    while index < len(lines):
+    start = current_indexes[0]
+    other_indexes = {
+        index for title in source_titles if title and title[0] != source_title[0]
+        for index in indexes_for(title[0]) if index != start
+    }
+    context = [lines[start]]
+    detail_terms = re.compile(
+        r'(?:\bدر\s*(?:کارتن|کارتون|باکس|بسته)|عدد|تعداد|تایی|ع|طعم|رنگ|'
+        r'لیتری|گرمی|میل|مصرف|فروش|قیمت|دونه|دانه|واحد|باکس|کارتن|بسته)', re.I)
+    footer = re.compile(r'(?:https?://|آدرس|شعبه\s*[۱۲12]?|ثبت\s*سفارش|خرید\s*(?:آنلاین|حضوری))', re.I)
+    for index in range(start + 1, len(lines)):
         line = lines[index]
         if not line:
-            index += 1
             continue
-        # Keep explicit role labels and price/currency lines, but stop at the next
-        # product title or unrelated detail so its labels cannot leak across products.
-        if _price_roles_in_text(line) or re.search(
-                r'(?:قیمت|price|تومان|تومن|ریال|\bIRT\b|\bIRR\b)', line, re.I):
-            context.append(line)
-            index += 1
-            continue
-        break
+        if index in other_indexes or footer.search(line):
+            break
+        has_price_marker = bool(
+            _UNIT_PRICE_LABEL.search(line) or _PACKAGE_PRICE_LABEL.search(line)
+            or _CONSUMER_PRICE_LABEL.search(line)
+            or re.search(r'(?:قیمت|price|تومان|تومن|ریال|\bIRT\b|\bIRR\b)', line, re.I))
+        if not has_price_marker and not re.search(r'\d', _english_numbers(line)) and not detail_terms.search(line):
+            break
+        context.append(line)
     return context
 
 
-def _source_price_role(source_title, content, ambiguous=False):
-    """Accept a unit/package role only when the matched title has a nearby label."""
-    context = _source_title_context(source_title, content, ambiguous)
-    roles = set().union(*(_price_roles_in_text(line) for line in context)) if context else set()
-    return next(iter(roles)) if len(roles) == 1 else ''
+def _source_price_role(source_title, content, candidate_amounts, source_titles=(), ambiguous=False):
+    """Map only model amounts that also appear beside a matching source price label."""
+    if not source_title or ambiguous:
+        return {}
+    context = _source_title_context(source_title, content, source_titles, ambiguous)
+    if not context:
+        return {}
+    candidates = {int(amount) for amount in candidate_amounts if amount and int(amount) > 0}
+    if not candidates:
+        return {}
+    roles = {}
+    for role, pattern in (('unit', _UNIT_PRICE_LABEL), ('package', _PACKAGE_PRICE_LABEL)):
+        matches = candidates.intersection(_labeled_amounts('\n'.join(context), pattern))
+        if len(matches) == 1:
+            roles[role] = next(iter(matches))
+    return roles
 
 
-def _has_explicit_consumer_price_label(source_title, content, ambiguous=False):
-    context = _source_title_context(source_title, content, ambiguous)
-    text = '\n'.join(context).replace('\u200c', ' ').replace('ي', 'ی').replace('ك', 'ک')
-    return bool(_CONSUMER_PRICE_LABEL.search(text))
+def _has_explicit_consumer_price_label(content, amount, source_context=None):
+    if not amount:
+        return False
+    if source_context:
+        # Once a product has a scoped listing context, a matching amount on a
+        # different product must not lend it a consumer-price label.
+        return int(amount) in _labeled_amounts('\n'.join(source_context), _CONSUMER_PRICE_LABEL)
+    return int(amount) in _labeled_amounts(content, _CONSUMER_PRICE_LABEL)
 
 
 def _array(response_text):
@@ -272,7 +311,7 @@ def _array(response_text):
     return data
 
 
-def _product(item, content, channel):
+def _product(item, content, channel, source_titles=()):
     name = item.get('name') or item.get('product_name')
     if not isinstance(name, str) or not name.strip():
         raise GeminiError('Gemini product name is missing')
@@ -282,7 +321,8 @@ def _product(item, content, channel):
     measurement_review_reasons = []
     source_title, ambiguous_source_title = _source_title_evidence(name, content)
     source_title_verified = bool(source_title)
-    source_price_role = _source_price_role(source_title, content, ambiguous_source_title)
+    source_context = _source_title_context(
+        source_title, content, source_titles, ambiguous_source_title)
     if source_title:
         name, source_volume, source_weight = source_title
         explicit_volume = source_volume
@@ -319,15 +359,28 @@ def _product(item, content, channel):
     consumer_package = _number(
         item.get('consumer_package_price') or item.get('regular_package_price'))
     sale_raw = _number(item.get('sale_price') or item.get('price') or item.get('wholesale_price'))
-    if not _has_explicit_consumer_price_label(
-            source_title, content, ambiguous_source_title) and not (sale_raw or unit or package):
-        unlabelled_consumer_amounts = {amount for amount in (consumer, consumer_package) if amount > 0}
-        if len(unlabelled_consumer_amounts) == 1:
-            # A sole amount from a wholesale channel is a supplier sale amount even if
-            # Gemini placed it in a consumer field. Its unit/package basis is separate.
-            sale_raw = next(iter(unlabelled_consumer_amounts))
-            consumer = 0
-            consumer_package = 0
+    source_price_roles = _source_price_role(
+        source_title, content, (unit, package, sale_raw), source_titles, ambiguous_source_title)
+    source_unit_price = source_price_roles.get('unit', 0)
+    source_package_price = source_price_roles.get('package', 0)
+    conflicting_role_amount = bool(
+        source_unit_price and source_package_price and source_unit_price == source_package_price)
+    consumer_is_labeled = _has_explicit_consumer_price_label(content, consumer, source_context)
+    consumer_package_is_labeled = _has_explicit_consumer_price_label(
+        content, consumer_package, source_context)
+    unlabelled_consumer_amounts = {
+        amount for amount, labeled in (
+            (consumer, consumer_is_labeled), (consumer_package, consumer_package_is_labeled))
+        if amount > 0 and not labeled
+    }
+    if not (sale_raw or unit or package) and len(unlabelled_consumer_amounts) == 1:
+        # A sole unlabeled amount from a wholesale channel is a supplier sale amount,
+        # even if Gemini put it in a consumer field. Its unit/package basis is separate.
+        sale_raw = next(iter(unlabelled_consumer_amounts))
+    if not consumer_is_labeled:
+        consumer = 0
+    if not consumer_package_is_labeled:
+        consumer_package = 0
     original_review_reasons = [part.strip() for part in str(item.get('review_reason') or '').split(';') if part.strip()]
     role_review_reasons = {
         'supplier price role is unclear',
@@ -335,11 +388,12 @@ def _product(item, content, channel):
         'sale price role is ambiguous: unit or package',
         'pack count is detected but sale price role is not explicit',
     }
+    confirmed_source_role = bool(source_unit_price or source_package_price) and not conflicting_role_amount
     reasons = [reason for reason in original_review_reasons if not (
-        source_price_role and reason.lower() in role_review_reasons)]
+        confirmed_source_role and reason.lower() in role_review_reasons)]
     role_only_model_review = bool(original_review_reasons) and all(
         reason.lower() in role_review_reasons for reason in original_review_reasons)
-    review = bool(item.get('needs_review')) and not (source_price_role and role_only_model_review)
+    review = bool(item.get('needs_review')) and not (confirmed_source_role and role_only_model_review)
     reasons.extend(measurement_review_reasons)
     if count_conflict:
         review = True
@@ -347,15 +401,22 @@ def _product(item, content, channel):
     if measurement_review_reasons:
         review = True
 
-    # A model's unit/package field is not enough by itself: the matched source title
-    # must carry the corresponding label, or history/reference evidence may resolve the
-    # raw supplier amount later.
-    if source_price_role == 'unit' and (unit or sale_raw or package) > 0:
-        sale = unit or sale_raw or package
+    # A model's unit/package field is not enough by itself: the matched product title
+    # and a source line with that same amount and explicit role must agree.
+    if conflicting_role_amount:
+        sale = 0
+        package = 0
+        price_type = 'needs_review'
+        confirmed_role = ''
+        review = True
+        reasons.append('same supplier amount is labeled as both unit and package')
+    elif source_unit_price:
+        sale = source_unit_price
         price_type = 'unit'
         confirmed_role = 'unit'
-    elif source_price_role == 'package' and (package or sale_raw or unit) > 0:
-        package = package or sale_raw or unit
+        package = source_package_price
+    elif source_package_price:
+        package = source_package_price
         if count > 0:
             sale = (package + count // 2) // count
             price_type = 'unit'
@@ -405,12 +466,12 @@ def _product(item, content, channel):
         'sale_price': sale,
         'price': sale,
         'detected_price': unit or package or sale_raw or 0,
-        'source_price_amount': package or sale_raw or unit or 0,
+        'source_price_amount': source_package_price or sale_raw or unit or package or 0,
         'confirmed_price_role': confirmed_role,
         'actual_price': consumer or None,
         'consumer_price': consumer or None,
-        'package_price': package if source_price_role == 'package' and package else None,
-        'double_pack_price': package if source_price_role == 'package' and package else None,
+        'package_price': package if source_package_price and package else None,
+        'double_pack_price': package if source_package_price and package else None,
         'double_pack_consumer_price': consumer_package or None,
         'price_type': price_type,
         'currency': currency,
@@ -434,7 +495,16 @@ def _product(item, content, channel):
 
 
 def parse_message_products(response_text, content, channel):
-    return [_product(item, content, channel) for item in _array(response_text)]
+    items = _array(response_text)
+    source_titles = []
+    for item in items:
+        name = item.get('name') or item.get('product_name')
+        if not isinstance(name, str) or not name.strip():
+            continue
+        source_title, _ambiguous = _source_title_evidence(name.strip(), content)
+        if source_title and source_title not in source_titles:
+            source_titles.append(source_title)
+    return [_product(item, content, channel, source_titles) for item in items]
 
 
 def extract_message_products(content, channel, *, session=None, api_key=None, model=None):

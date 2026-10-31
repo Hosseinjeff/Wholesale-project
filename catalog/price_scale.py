@@ -149,7 +149,7 @@ def assess_price_scale(product, message, offers, reference_rows=(), *, min_histo
         return {'certain': False, 'action': 'currency_review',
                 'reason': 'Currency must be reviewed before reference/history price comparison'}
     explicit_role = str(product.get('confirmed_price_role') or product.get('price_type') or '').strip().lower()
-    if explicit_role in {'unit', 'package', 'both'}:
+    if explicit_role in {'unit', 'single', 'per_unit', 'package', 'pack', 'carton', 'both'}:
         return {'certain': True, 'action': 'explicit_role', 'package_count': count}
     raw = _number(product.get('detected_price') or product.get('source_price_amount')
                   or product.get('unit_price') or product.get('sale_price') or product.get('price')

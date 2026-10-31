@@ -25,6 +25,10 @@ class PersianMeasurementTests(unittest.TestCase):
         self.assertEqual(extract_measurement('محصول 1/2 کیلوگرم', 'weight'), '1.2 کیلوگرم')
         self.assertEqual(extract_measurement('محصول 1⁄2 کیلوگرم', 'weight'), '0.5 کیلوگرم')
 
+    def test_spelled_out_persian_measurement_numbers(self):
+        self.assertEqual(extract_measurement('بلک ولف یک لیتری', 'volume'), '1 لیتر')
+        self.assertEqual(extract_measurement('زعفران یک گرم', 'weight'), '1 گرم')
+
     def test_normalized_matching_title_preserves_measurement_meaning(self):
         self.assertEqual(
             normalize_measurement_tokens('آبلیمو دست چین1/2ل (304ف)6ع'),
