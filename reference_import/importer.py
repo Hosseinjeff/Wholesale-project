@@ -206,20 +206,32 @@ def _build_woocommerce_candidate(products, page_count, source_currency, timestam
 
 def _fetch_woocommerce_page(get, page, *, per_page, expected_total=None, expected_pages=None):
     params = {'per_page': per_page, 'page': page, 'orderby': 'id', 'order': 'asc'}
-    for attempt in range(4):
+    for attempt in range(3):
         try:
-            response = get(SOURCE_URL, params=params, timeout=(10, 45))
+            response = get(SOURCE_URL, params=params, timeout=(10, 30))
         except Exception as exc:
-            if attempt < 3:
-                time.sleep(min(8, 2 ** attempt))
+            if attempt < 2:
+                time.sleep(2 ** attempt)
                 continue
-            raise ImportFailure('WooCommerce request failed', code='woocommerce_transport_failed') from exc
+            exception_names = {cls.__name__ for cls in type(exc).__mro__}
+            if 'ReadTimeout' in exception_names:
+                category = 'read_timeout'
+            elif 'ConnectTimeout' in exception_names:
+                category = 'connect_timeout'
+            elif 'SSLError' in exception_names:
+                category = 'tls_failed'
+            elif 'Timeout' in exception_names:
+                category = 'timeout'
+            else:
+                category = 'connection_failed'
+            raise ImportFailure('WooCommerce request failed',
+                                code=f'woocommerce_transport_{category}_page_{page}') from exc
         status = getattr(response, 'status_code', 0)
-        if status in (429, 500, 502, 503, 504) and attempt < 3:
+        if status in (429, 500, 502, 503, 504) and attempt < 2:
             try:
                 delay = min(15, max(1, int(float(response.headers.get('Retry-After', '0')))))
             except (AttributeError, TypeError, ValueError):
-                delay = min(8, 2 ** attempt)
+                delay = 2 ** attempt
             time.sleep(delay)
             continue
         if status != 200:
@@ -255,23 +267,7 @@ def _fetch_woocommerce_page(get, page, *, per_page, expected_total=None, expecte
     raise ImportFailure('WooCommerce products could not be read', code='woocommerce_http_error')
 
 
-def extract_woocommerce_store_api(session=None, *, per_page=100):
-    """Fetch every published product and stage a deterministic, review-only candidate."""
-    if isinstance(per_page, bool) or not isinstance(per_page, int) or not 1 <= per_page <= 100:
-        raise ImportFailure('WooCommerce page size is invalid', code='woocommerce_pagination_invalid')
-    if session is None:
-        import requests
-        thread_sessions = threading.local()
-
-        def get(url, **kwargs):
-            client = getattr(thread_sessions, 'client', None)
-            if client is None:
-                client = requests.Session()
-                thread_sessions.client = client
-            return client.get(url, **kwargs)
-    else:
-        get = session.get
-
+def _extract_woocommerce_attempt(get, per_page, *, session, max_workers):
     first, total, page_count = _fetch_woocommerce_page(get, 1, per_page=per_page)
     pages = [first]
     if page_count > 1:
@@ -281,7 +277,7 @@ def extract_woocommerce_store_api(session=None, *, per_page=100):
                     expected_total=total, expected_pages=page_count)
                 pages.append(products)
         else:
-            with ThreadPoolExecutor(max_workers=8) as pool:
+            with ThreadPoolExecutor(max_workers=max_workers) as pool:
                 futures = {pool.submit(_fetch_woocommerce_page, get, page, per_page=per_page,
                     expected_total=total, expected_pages=page_count): page
                     for page in range(2, page_count + 1)}
@@ -329,6 +325,40 @@ def extract_woocommerce_store_api(session=None, *, per_page=100):
                             code='woocommerce_product_coverage_incomplete')
     candidate['processed_page_count'] = len(pages)
     return candidate
+
+
+def extract_woocommerce_store_api(session=None, *, per_page=100):
+    """Fetch every product, retrying transport failures with smaller pages and less load."""
+    if isinstance(per_page, bool) or not isinstance(per_page, int) or not 1 <= per_page <= 100:
+        raise ImportFailure('WooCommerce page size is invalid', code='woocommerce_pagination_invalid')
+    if session is None:
+        import requests
+        thread_sessions = threading.local()
+
+        def get(url, **kwargs):
+            client = getattr(thread_sessions, 'client', None)
+            if client is None:
+                client = requests.Session()
+                thread_sessions.client = client
+            return client.get(url, **kwargs)
+    else:
+        get = session.get
+
+    strategies = [(per_page, 4 if session is None else 1)]
+    if session is None and per_page > 50:
+        strategies.append((per_page // 2, 2))
+    for index, (page_size, workers) in enumerate(strategies):
+        try:
+            return _extract_woocommerce_attempt(get, page_size, session=session,
+                                                max_workers=workers)
+        except ImportFailure as exc:
+            retryable = (exc.code.startswith('woocommerce_transport_')
+                         or exc.code == 'woocommerce_http_429'
+                         or exc.code in {'woocommerce_http_500','woocommerce_http_502',
+                                         'woocommerce_http_503','woocommerce_http_504'})
+            if index + 1 >= len(strategies) or not retryable:
+                raise
+    raise ImportFailure('WooCommerce products could not be read', code='woocommerce_transport_failed')
 
 
 def _gemini_http_error_code(response):

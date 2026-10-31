@@ -101,6 +101,14 @@
         if (code.startsWith('extraction_') || baseCode.startsWith('gemini_')) {
             return 'تلاش قبلی از PDF/Gemini بود و کامل نشد؛ پیش‌نویس تازه‌ای ساخته نشد. از این پس فهرست از API ووکامرس دریافت می‌شود.';
         }
+        const transport = code.match(/^woocommerce_transport_(read_timeout|connect_timeout|timeout|tls_failed|connection_failed)_page_(\d+)$/);
+        if (transport) {
+            const page = 'صفحه ' + transport[2];
+            if (transport[1] === 'read_timeout') return 'API ووکامرس پاسخ کامل ' + page + ' را نفرستاد؛ پیش‌نویس ساخته نشد.';
+            if (transport[1] === 'connect_timeout') return 'اتصال به API ووکامرس برای ' + page + ' به‌موقع برقرار نشد؛ پیش‌نویس ساخته نشد.';
+            if (transport[1] === 'tls_failed') return 'ارتباط امن با API ووکامرس برای ' + page + ' برقرار نشد؛ پیش‌نویس ساخته نشد.';
+            return 'ارتباط با API ووکامرس برای ' + page + ' قطع شد؛ پیش‌نویس ساخته نشد.';
+        }
         if (code === 'woocommerce_transport_failed') return 'ارتباط با API ووکامرس پایدار نبود.';
         if (code === 'woocommerce_currency_unsupported' || code === 'woocommerce_currency_mismatch') {
             return 'واحد پول محصولات از نوع پشتیبانی‌شده نبود؛ پیش‌نویس تازه ساخته نشد.';
@@ -220,7 +228,7 @@
                 }
                 await load(receipt.state === 'staged'
                     ? 'استخراج تمام شد؛ پیش‌نویس تازه به فهرست اضافه شد.'
-                    : 'تلاش انجام شد، اما استخراج کامل نشد. هیچ پیش‌نویس تازه‌ای ذخیره نشد.');
+                    : refreshErrorText(receipt.error_code));
             } catch (error) {
                 root.prepend(notice(messageText(error.message), 'error'));
                 button.disabled = false;

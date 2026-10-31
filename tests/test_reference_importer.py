@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 from pypdf import PdfWriter
 from reference_import.importer import (ImportFailure, HEADERS, _pdf_page_batches,
-    _build_woocommerce_candidate, extract_pdf, extract_woocommerce_store_api,
+    _build_woocommerce_candidate, _fetch_woocommerce_page, extract_pdf, extract_woocommerce_store_api,
     parse_rows, save_candidate)
 
 class ReferenceImportTests(unittest.TestCase):
@@ -307,6 +307,35 @@ class WooCommerceReferenceImportTests(unittest.TestCase):
                     self.assertIn('0.5 لیتر', row[1])
                 if weight:
                     self.assertIn('180 گرم', row[1])
+
+    def test_read_timeout_has_a_safe_page_specific_error_code(self):
+        class ReadTimeout(Exception):
+            pass
+
+        def fail(*args, **kwargs):
+            raise ReadTimeout('private transport detail')
+
+        with patch('reference_import.importer.time.sleep'):
+            with self.assertRaises(ImportFailure) as caught:
+                _fetch_woocommerce_page(fail, 7, per_page=100)
+        self.assertEqual(caught.exception.code, 'woocommerce_transport_read_timeout_page_7')
+        self.assertNotIn('private transport detail', str(caught.exception))
+
+    def test_transport_failure_restarts_from_first_page_with_smaller_batches(self):
+        product = self.product(1, 'SKU-1', 'محصول اول')
+        calls = []
+
+        def fetch(get, page, *, per_page, expected_total=None, expected_pages=None):
+            calls.append((per_page, page))
+            if per_page == 100:
+                raise ImportFailure('transport failed', code='woocommerce_transport_read_timeout_page_1')
+            return [product], 1, 1
+
+        with patch('reference_import.importer._fetch_woocommerce_page', side_effect=fetch):
+            candidate = extract_woocommerce_store_api(per_page=100)
+        self.assertEqual(calls, [(100, 1), (50, 1)])
+        self.assertEqual(candidate['source_total'], 1)
+        self.assertTrue(candidate['coverage_verified'])
 
     def test_pagination_is_complete_and_rows_keep_source_order(self):
         pages = {
