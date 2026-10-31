@@ -109,8 +109,16 @@
     "active": false,
     "referenceprices_write": false,
     "sample_products": [
-      {"name": "آبلیمو مجید کوچک180گ(138ف)20ع***", "weight": "180 گرم", "package_count": 20},
-      {"name": "آبلیمو دست چین1/2ل (304ف)6ع***", "previously_parsed_volume": "0.5 لیتر (incorrect old parser)", "package_count": 6}
+      {
+        "name": "آبلیمو مجید کوچک180گ(138ف)20ع***",
+        "weight": "180 گرم",
+        "package_count": 20
+      },
+      {
+        "name": "آبلیمو دست چین1/2ل (304ف)6ع***",
+        "previously_parsed_volume": "0.5 لیتر (incorrect old parser)",
+        "package_count": 6
+      }
     ]
   },
   "reference_source_correction": {
@@ -139,8 +147,8 @@
     "project": "stellar-solace",
     "environment": "production",
     "service": "Wholesale-project",
-    "commit": "47c4ee799228f2ec3f1c3b229e5972d0d6c020c8",
-    "deployment_id": "a2c53fc2-25f8-41f2-9204-b90ec196c196",
+    "commit": "1d6c2de1179aeddaf1e3297c854dee7e040c204e",
+    "deployment_id": "de2b3571-fda5-4809-a2c2-eeda357ecedb",
     "deployment_status": "SUCCESS",
     "health_http": 200,
     "service_domain": "https://wholesale-project-production.up.railway.app",
@@ -154,7 +162,12 @@
     ],
     "sleep_enabled": true,
     "isolated_staging_environment": false,
-    "pending_railway_changes": 0
+    "pending_railway_changes": 0,
+    "wordpress_owner_workflows_commit": "4c5d83852e4eb6ec2a627f433ed9286d1a8aa637",
+    "wordpress_owner_workflows_readback_verified": true,
+    "pending_railway_patch_count": 1,
+    "pending_railway_patch_changes": 0,
+    "pending_railway_patch_left_untouched": true
   },
   "latest_ai_review_triage": {
     "date": "2026-10-31",
@@ -182,12 +195,15 @@
     "messages_reprocessed": false,
     "owner_decisions_submitted": false,
     "published_products_changed": false,
-    "fix_commit": "7abe6d6a7f2afb47d6e1cd7f3cd548f8783a018e",
-    "deployment_id": "c98011ca-4a05-4a92-8cf5-2738faf3312f",
+    "fix_commit": "1d6c2de1179aeddaf1e3297c854dee7e040c204e",
+    "deployment_id": "de2b3571-fda5-4809-a2c2-eeda357ecedb",
     "deployment_status": "SUCCESS",
     "health_http": 200,
     "post_deployment_pending_cases": 47,
-    "post_deployment_publication_held": true
+    "post_deployment_publication_held": true,
+    "post_deployment_queue_http": 200,
+    "focused_tests": 32,
+    "wordpress_review_ui_readback_verified": true
   },
   "live_reference_sample": {
     "status": "historical_legacy_pdf_candidate_superseded_by_woocommerce_api",

@@ -1,17 +1,17 @@
 # MolaviSale — whole-workflow handoff
 
-Snapshot 4.57. Updated 2026-10-31, Asia/Tehran. The canonical roleplay decisions are in
+Snapshot 4.58. Updated 2026-10-31, Asia/Tehran. The canonical roleplay decisions are in
 `roleplay-state.json`; current live evidence and release gates are in
 `pipeline-readiness.md` and `pipeline-readiness-evidence.json`.
 
 ## Current live checkpoint — 2026-10-31
 
-Railway deployment `c1d067de-5c64-4583-af4b-32230b7dae0e` is successful and online at
-commit `62173404ece9e09a2348c19429e451559d73c688`. The streamlined product pipeline
-dashboard is live; all eight owner product setup screens and their scoped APIs returned
-HTTP 200 in the authenticated read-only audit. The production services report online
-with no active warnings or recent deployment failures. The matching WordPress plugin
-files were uploaded from this commit and read back successfully.
+Railway deployment `de2b3571-fda5-4809-a2c2-eeda357ecedb` is successful and online at
+commit `1d6c2de1179aeddaf1e3297c854dee7e040c204e`. `/health` and `/health/detailed`
+returned HTTP 200, and both Railway production services report online with no active
+warnings or recent deployment failures. The streamlined product pipeline dashboard
+remains live; the owner review UI file was uploaded and read back from commit
+`4c5d83852e4eb6ec2a627f433ed9286d1a8aa637`.
 
 The latest product setup audit found a blocking catalog handoff: Railway `/api/shop`
 returns zero products, while WooCommerce's public Store API returns two records, both
@@ -23,6 +23,15 @@ pending product/reference matching cases and 100 supplier-price freshness result
 (61 blocked, 37 review, 2 warning). No owner decisions, product publication, Sheet write,
 order or payment action was submitted during this audit. See `pipeline-readiness.md` for
 exact counts and the current verification boundaries.
+
+The post-deployment read-only AI queue check returned 47 cases with publication held.
+The extraction fix corrects unsupported title-measurement conflicts, ordinary zero/small
+discount alerts, supplier/consumer classification of a single unlabeled amount, and
+product-local unit/package labels. The user's rule is that one unlabeled amount from a
+wholesale channel is supplier sale; its per-unit/per-package basis stays unconfirmed
+unless source labels or reliable history/reference evidence establish it. Existing
+queued messages were not reprocessed and no owner decision was submitted, so the fixes
+apply to future or deliberately reprocessed messages; the queue remains under review.
 
 The active reference snapshot now contains 3,925 rows from the WooCommerce Store API and
 reports fresh. Read-only checks confirm `آبلیمو دست چین1/2ل (304ف)6ع***` as 1.2 liters

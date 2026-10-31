@@ -39,10 +39,11 @@ the plugin directory.
 After a successful deploy, record the deployed commit here or in the relevant
 release note and use it as `--since` for the next deployment.
 
-Most recent plugin deployment: commit `62173404ece9e09a2348c19429e451559d73c688`
-(2026-10-31). The five changed plugin files were uploaded and read back successfully
-with `python tools/deploy_wordpress_plugin.py --since 879e4fd7b3c357f50c7c5fadddcdb5792f989711`.
-Use that commit as the next deployment's `--since` value.
+Most recent plugin deployment: commit `4c5d83852e4eb6ec2a627f433ed9286d1a8aa637`
+(2026-10-31). `includes/owner-workflows.js` was uploaded and read back successfully
+with `python tools/deploy_wordpress_plugin.py --since 7abe6d6a7f2afb47d6e1cd7f3cd548f8783a018e`.
+The later pipeline commit `1d6c2de1179aeddaf1e3297c854dee7e040c204e` contains no plugin
+file changes. Use the deployed plugin commit as the next deployment's `--since` value.
 
 ## WordPress data
 
