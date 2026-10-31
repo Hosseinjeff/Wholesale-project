@@ -13,7 +13,7 @@ add_action('admin_menu', static function (): void {
         'manage_woocommerce', 'molavi-operations', 'molavi_operations_dashboard_screen');
 }, 20);
 
-add_action('admin_menu', static function (): void {
+add_action('admin_footer', static function (): void {
     if (!molavi_reference_owner()) { return; }
     $pages = [
         'molavi-reference-decisions', 'molavi-reference-snapshots', 'molavi-reference-items',
@@ -21,8 +21,14 @@ add_action('admin_menu', static function (): void {
         'molavi-sheet-conflicts', 'molavi-paid-orders', 'molavi-clearance-pricing',
         'molavi-inventory-management',
     ];
-    foreach ($pages as $page) { remove_submenu_page('woocommerce', $page); }
-}, 999);
+    echo '<script>(function(){var pages=' . wp_json_encode($pages)
+        . ';var menu=document.querySelector("#toplevel_page_woocommerce .wp-submenu");'
+        . 'if(!menu)return;menu.querySelectorAll("a[href]").forEach(function(link){'
+        . 'var href=link.getAttribute("href")||"";'
+        . 'if(pages.some(function(page){return href.indexOf("page="+page)!==-1;}))'
+        . '{var item=link.closest("li");if(item)item.hidden=true;}'
+        . '});})();</script>';
+}, 1000);
 
 function molavi_operations_dashboard_screen(): void {
     if (!molavi_reference_owner()) { wp_die('دسترسی مجاز نیست.', '', ['response'=>403]); }

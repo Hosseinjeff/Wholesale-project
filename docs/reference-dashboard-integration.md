@@ -134,7 +134,9 @@ once after the existing includes. Do not install a duplicate storefront/plugin o
 create a separate customer account/login system. Keep the custom workflow screens
 under one WooCommerce → خط لوله مولوی‌سل entry. Elementor remains for storefront
 widgets, and WooCommerce remains the existing order/product administration surface.
-The owner workflow screens are private and are not cached.
+The owner workflow screens are private and are not cached. Child screen registrations
+stay intact for WordPress authorization; their menu links are visually hidden after
+render so the single hub remains the visible entry point.
 
 Configuration contract (the secret values remain outside the repository):
 
