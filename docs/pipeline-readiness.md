@@ -16,6 +16,16 @@ production `/health`, `/health/detailed` and `/api/shop` routes return HTTP 200.
 service-account reader returns the two current Products rows from Sheets. No customer
 order, charge, refund or supplier purchase was made.
 
+## Measurement extraction correction — 2026-10-31
+
+The title parser now separates explicit weight and volume, accepts compact Persian unit
+suffixes and fractional measures, and preserves the exact source title. Supplier Gemini
+is instructed to keep the full title; its response is checked against title evidence and
+ambiguous source-line matches are sent for review. Live read-only checks of Rezvan API
+products `24674` and `24670` produce `180 گرم` and `0.5 لیتر`, with retail markers and
+package counts intact. The full local suite passes 280 tests. A new reference snapshot has
+not been refreshed or activated, and `ReferencePrices` was not written.
+
 ## Current live recheck — 2026-10-29
 
 - `/` and `/shop/` return HTTP 200 and render the production storefront with two live

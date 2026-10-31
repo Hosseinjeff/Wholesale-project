@@ -13,6 +13,25 @@ The previous PDF/Gemini refresh failed before creating a snapshot; its two older
 drafts are incomplete and inactive. No `ReferencePrices` write or snapshot activation
 has occurred. Production supplier-message Gemini is set to `gemini-3.5-flash-lite`.
 
+## Product-title measurement extraction — 2026-10-31
+
+`catalog/measurements.py` is the shared, deterministic parser for explicit Persian and
+English product measurements. It recognizes compact suffixes such as `180گ` (180 grams)
+and `1/2ل` (0.5 liters), converts Persian/Arabic digits and common unit aliases, and keeps
+weight separate from volume. Unlabeled numbers and retail/package markers such as `(304ف)`
+and `6ع` are not measurements. The WooCommerce reference importer keeps the source title
+verbatim and canonicalizes recognized size tokens only in its matching name.
+
+The supplier Gemini prompt now requires the exact full source title in `name`, with
+normalized measurement values in separate fields. The adapter validates those fields
+against explicit title evidence. If Gemini shortened the name, the adapter restores the
+source title only when exactly one message line has the same base product identity; if
+multiple title lines could match, it leaves the measurement blank and marks the product
+for review. Exact live Rezvan Store API rows `24674` and `24670` now parse as `180 گرم`
+and `0.5 لیتر`; each retains its full title, retail hint and package count. The full local
+Python suite passes 280 tests. This verification did not refresh or activate a snapshot,
+write `ReferencePrices`, or change the live product catalog.
+
 ## Historical production checkpoint — 2026-10-29 (superseded)
 
 The user authorized whole-plan deployment. Commit

@@ -10,6 +10,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from catalog.measurements import extract_measurement
+
 PERSIAN_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789")
 
 MESSAGE_HEADERS = [
@@ -227,7 +229,7 @@ _SALE_LINE = re.compile(
     r"(?:فروش|خرید|\bما\b|همکار|دونه\s*ای|فی|هر\s*عدد|یک\s*باکس|قیمت\s*باکس)",
     re.I | re.ASCII,
 )
-_PRICE_TOKEN = re.compile(r"[\d,/\.]{4,}")
+_PRICE_TOKEN = re.compile(r"[\d,/\.\u066C]{4,}")
 _STANDALONE_PRICE = re.compile(r"^\s*[\d,/]{4,}\s*(?:تومان|ت|ریال)?\s*$")
 
 
@@ -304,10 +306,6 @@ def extract_packaging(text: str) -> str:
     return match.group(0) if match else ""
 
 
-_VOLUME_TEXT = re.compile(
-    r"(\d+\s*(?:گرم|کیلویی|کیلوگرم|میلی\s*لیتر|میلی|میل|لیتری|لیتر|gr|ml)|یک\s*لیتری)",
-    re.I,
-)
 _TITLE_CARTON = re.compile(
     r"^(?P<name>.+?)(?:\s*[،,]\s*|\s+)(?P<pack>(?:در\s*)?(?:کارتن|باکس|بسته)\s*[\d۰-۹]+\s*(?:عددی|عدد|تایی))\s*$"
 )
@@ -321,8 +319,11 @@ _FLAVOR_LINE = re.compile(r"^طعم\s*[:：]?\s*(.+)$")
 
 
 def extract_volume(text: str) -> str:
-    match = _VOLUME_TEXT.search(text or "")
-    return match.group(0) if match else ""
+    return extract_measurement(text, "volume")
+
+
+def extract_weight(text: str) -> str:
+    return extract_measurement(text, "weight")
 
 
 _SHELL_COUNTS = {6, 12, 24}
@@ -437,7 +438,7 @@ def extract_prices_from_line(line: str) -> dict[str, int]:
     result = {"sale": 0, "consumer": 0}
     clean_line = persian_to_english_numbers(line or "")
     clean_line = re.sub(r"(\d+)/(\d+)", r"\1\2", clean_line)
-    clean_line = re.sub(r"[,\.\u066B]", "", clean_line)
+    clean_line = re.sub(r"[,\.\u066B\u066C]", "", clean_line)
     numbers = re.findall(r"\d+", clean_line)
     vals = [int(n) for n in numbers if 4 <= len(n) <= 8 and int(n) > 1000]
     if re.search(r"(?:مصرف|روی جلد)", line or ""):
@@ -469,6 +470,7 @@ def finalize_product(product: dict[str, Any], channel: str) -> dict[str, Any]:
         "currency": "IRT",
         "packaging": packaging,
         "volume": product.get("volume") or "",
+        "weight": product.get("weight") or "",
         "stock_status": product.get("stock_status") or "Available",
         "variation_type": product.get("variation_type") or "",
         "channel_username": channel,
@@ -566,6 +568,7 @@ def extract_channel_bonakdarjavan(content: str) -> list[dict[str, Any]]:
             "package_price": pricing["package_price"],
             "packaging": packaging,
             "volume": extract_volume(normalize(product_lines[0])),
+            "weight": extract_weight(normalize(product_lines[0])),
             "variation_type": variation,
             "channel": "@bonakdarjavan",
             "currency": "IRT",
@@ -623,6 +626,7 @@ def extract_channel_top_shop_rahimi(content: str) -> list[dict[str, Any]]:
             "package_price": package_price,
             "packaging": packaging.strip(),
             "volume": extract_volume(normalize(chunks[0])),
+            "weight": extract_weight(normalize(chunks[0])),
             "channel": "@top_shop_rahimi",
             "currency": "IRT",
             "stock_status": "Available",
@@ -683,12 +687,14 @@ def extract_channel_nobelshop118(content: str) -> list[dict[str, Any]]:
             "stock_status": "Available",
             "variation_type": "",
             "original_message": content,
+            "volume": extract_volume(normalized_lines[0]),
+            "weight": extract_weight(normalized_lines[0]),
         })
     return products
 
 
 _UNIVERSAL_PRICE = re.compile(
-    r"[:\s]([\d,]+(?:/[\d]{3})?|[\d,]+)(?:\s*(?:تومان|تومن|ت|T))?",
+    r"[:\s]([\d,٬٫]+(?:/[\d]{3})?|[\d,٬٫]+)(?:\s*(?:تومان|تومن|ت|T))?",
     re.I,
 )
 _UNIVERSAL_CONTACT = re.compile(r"(wa\.me|https?://|@|📞|تماس|واتساپ|خرید\s*آنلاین|خرید\s*انلاین|لینک)", re.I)
@@ -731,6 +737,7 @@ def extract_universal_products(content: str, channel_username: str) -> list[dict
                 "consumer_price": 0,
                 "packaging": extract_packaging(line),
                 "volume": extract_volume(line),
+                "weight": extract_weight(line),
                 "stock_status": "Out of Stock" if _OOS.search(line) else "Available",
                 "description": line,
                 "extraction_confidence": 0.8,
@@ -749,6 +756,10 @@ def extract_universal_products(content: str, channel_username: str) -> list[dict
             volume = extract_volume(line)
             if volume:
                 current["volume"] = volume
+        if not current.get("weight"):
+            weight = extract_weight(line)
+            if weight:
+                current["weight"] = weight
         if is_price_line:
             prices = extract_prices_from_line(line)
             if prices["sale"] > 0:

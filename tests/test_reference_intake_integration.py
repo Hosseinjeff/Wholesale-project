@@ -9,7 +9,7 @@ class IntakeReferenceIntegrationTests(unittest.TestCase):
   msg='کنسرو ماهی ۱۸۰ گرمی تاپ\nدونه ای: ۵۲,۰۰۰ تومان\nقیمت مصرف: ۶۵,۰۰۰ تومان\nتعداد در باکس: ۲۴ عددی'
   from catalog.extract import extract_products
   extracted=extract_products(msg,'@bonakdarjavan')[0];name=extracted['name']
-  rows=parse_rows(json.dumps([dict(raw_name=name,clean_name=name,package_price=1250000,package_count=24,product_code='r1',pdf_row_number='1',volume=extracted.get('volume',''),brand=extracted.get('brand',''))]),now)
+  rows=parse_rows(json.dumps([dict(raw_name=name,clean_name=name,package_price=1250000,package_count=24,product_code='r1',pdf_row_number='1',volume=extracted.get('volume',''),weight=extracted.get('weight',''),brand=extracted.get('brand',''))]),now)
   snapshot={'snapshot_id':'snapshot-test','rows':rows}
   payload={'batch_id':'batch-1','messages':[{'id':'m1','content':msg,'channel_username':'@bonakdarjavan'}]}
   result=finalize_batch(store,payload,reference_snapshot=snapshot)

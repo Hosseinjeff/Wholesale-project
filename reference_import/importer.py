@@ -15,6 +15,8 @@ from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 
+from catalog.measurements import extract_measurement, normalize_measurement_tokens
+
 SOURCE_URL = 'https://rezvanpakhsh.com/wp-json/wc/store/v1/products'
 PDF_SOURCE_URL = 'https://rezvanpakhsh.com/pdf/price-list.pdf'
 SOURCE_TYPE = 'woocommerce_store_api'
@@ -72,7 +74,7 @@ def title_set_count(raw_name):
 
 def clean_title_for_matching(raw_name):
     """Remove explicit package/retail markers from the match name, keeping the source title intact."""
-    title = str(raw_name or '')
+    title = normalize_measurement_tokens(str(raw_name or ''))
     title = re.sub(r'[（(]\s*\d{1,4}\s*ف\s*[）)]', ' ', title.translate(DIGITS))
     title = re.sub(r'(?<!\d)\d{1,4}\s*(?:عددی|عدد|ع)(?=$|[^\w])', ' ', title)
     title = re.sub(r'(?:کارتن|باکس|بسته)\s*\d{1,4}(?=$|[^\w])', ' ', title)
@@ -82,30 +84,7 @@ def clean_title_for_matching(raw_name):
 
 def _title_measurements(raw_name, *, volume):
     """Extract only explicit volume/weight tokens; keep the full title separately."""
-    title = str(raw_name or '').translate(DIGITS)
-    if volume:
-        units = r'(?:میلی\s*لیتر|میلیلیتر|میل|مل|لیتر(?:ی)?|milliliters?|millilitres?|ml|cc|سی\s*سی)'
-    else:
-        units = r'(?:میلی\s*گرم|میلیگرم|کیلو\s*گرمی|کیلوگرم|کیلو|گرمی|گرم|milligrams?|kilograms?|grams?|mg|kg|g)'
-    pattern = re.compile(r'(?<!\d)(\d{1,6}(?:[.,]\d{1,3})?)\s*(' + units + r')(?=$|[^\w])', re.I)
-    found = []
-    for match in pattern.finditer(title):
-        unit = normalize_name(match.group(2))
-        if volume:
-            if unit in {'میل', 'مل', 'میلی لیتر', 'میلیلیتر', 'ml', 'cc', 'سی سی'}:
-                unit = 'میل'
-            elif unit in {'لیتر', 'لیتری', 'liter', 'liters', 'litre', 'litres'}:
-                unit = 'لیتر'
-        elif unit in {'گرم', 'گرمی', 'g', 'gram', 'grams'}:
-            unit = 'گرم'
-        elif unit in {'کیلو', 'کیلوگرم', 'کیلو گرمی', 'kg', 'kilogram', 'kilograms'}:
-            unit = 'کیلوگرم'
-        elif unit in {'میلی گرم', 'میلیگرم', 'mg', 'milligram', 'milligrams'}:
-            unit = 'میلی‌گرم'
-        value = f'{match.group(1)} {unit}'
-        if value not in found:
-            found.append(value)
-    return '، '.join(found)
+    return extract_measurement(raw_name, 'volume' if volume else 'weight')
 
 
 def _woocommerce_attribute_values(product):

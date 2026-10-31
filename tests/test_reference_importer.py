@@ -290,6 +290,24 @@ class WooCommerceReferenceImportTests(unittest.TestCase):
         self.assertEqual(row[10], 2)
         self.assertEqual(row[4], '')
 
+    def test_compact_persian_measures_are_extracted_without_changing_source_title(self):
+        titles = [
+            ('آبلیمو مجید کوچک180گ(138ف)20ع***', '', '180 گرم', 138000, 20),
+            ('آبلیمو دست چین1/2ل (304ف)6ع***', '0.5 لیتر', '', 304000, 6),
+        ]
+        for index, (title, volume, weight, retail, count) in enumerate(titles, 1):
+            with self.subTest(title=title):
+                row = _build_woocommerce_candidate(
+                    [self.product(index, f'SKU-{index}', title)], 1,
+                    'IRT', '2026-10-30T00:00:00+00:00')['rows'][0]
+                self.assertEqual(row[0], title)
+                self.assertEqual(row[5:7], [retail, count])
+                self.assertEqual(row[8:10], [volume, weight])
+                if volume:
+                    self.assertIn('0.5 لیتر', row[1])
+                if weight:
+                    self.assertIn('180 گرم', row[1])
+
     def test_pagination_is_complete_and_rows_keep_source_order(self):
         pages = {
             1: [self.product(1, 'SKU-1', 'محصول اول'), self.product(2, 'SKU-2', 'محصول دوم')],

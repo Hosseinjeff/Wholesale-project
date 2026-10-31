@@ -8,11 +8,17 @@ from math import isfinite
 import hashlib
 import json
 import re
+from catalog.measurements import normalize_measurement_tokens
 from .importer import normalize_name, HEADERS
 
 
 def _text(value):
     return normalize_name(str(value or ''))
+
+
+def _name(value):
+    """Normalize explicit size tokens before punctuation is removed for matching."""
+    return _text(normalize_measurement_tokens(str(value or '')))
 
 
 def _number(value):
@@ -35,7 +41,7 @@ def package_count(product):
 def product_signature(product):
     """Stable identity for a human-approved mapping, scoped to its snapshot."""
     identity = [
-        _text(product.get('clean_name') or product.get('name')),
+        _name(product.get('clean_name') or product.get('name')),
         _text(product.get('brand')),
         _text(product.get('category')),
         _text(product.get('variant') or product.get('variation_type')),
@@ -59,7 +65,7 @@ def ranked_candidates(product, rows, *, limit=10):
     columns = {'name': 1, 'brand': 12, 'category': 13, 'variant': 11,
                'package_count': 6, 'volume': 8, 'weight': 9}
     incoming = {
-        'name': _text(product.get('clean_name') or product.get('name')),
+        'name': _name(product.get('clean_name') or product.get('name')),
         'brand': _text(product.get('brand')),
         'category': _text(product.get('category')),
         'variant': _text(product.get('variant') or product.get('variation_type')),
@@ -81,7 +87,7 @@ def ranked_candidates(product, rows, *, limit=10):
             if key == 'package_count':
                 right = str(_number(right) or '')
             else:
-                right = _text(right)
+                right = _name(right) if key == 'name' else _text(right)
             if not left:
                 continue
             denominator += weight
@@ -106,13 +112,13 @@ def candidate_match(product, rows, *, overrides=None):
     Unspecified attributes cannot confirm an explicitly specified one. Multiple
     candidates and conflicting attributes require operator review, not selection.
     """
-    name=_text(product.get('clean_name') or product.get('name'))
+    name=_name(product.get('clean_name') or product.get('name'))
     if not name:return {'state':'needs_review','reason':'missing_name','candidates':[]}
     candidates=[]
     for row in rows:
         if not isinstance(row,(list,tuple)) or len(row)!=len(HEADERS):
             return {'state':'needs_review','reason':'invalid_reference_rows','candidates':[]}
-        if _text(row[1] or row[0]) != name:continue
+        if _name(row[1] or row[0]) != name:continue
         compatible=True
         for key,index in (('brand',12),('variant',11),('volume',8),('weight',9)):
             incoming=_text(product.get(key)); reference=_text(row[index])

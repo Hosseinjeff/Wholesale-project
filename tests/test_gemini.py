@@ -89,6 +89,64 @@ class GeminiExtractionTests(unittest.TestCase):
         self.assertTrue(product['needs_review'])
         self.assertIn('low confidence', product['review_reason'])
 
+    def test_measurements_are_recovered_from_title_and_title_is_kept_exact(self):
+        title = 'آبلیمو دست چین1/2ل (304ف)6ع***'
+        product = parse_message_products(json.dumps([{
+            'name': title, 'package_price': 600000, 'package_count': 6,
+            'currency': 'IRT', 'confidence': 0.99,
+        }], ensure_ascii=False), title, '@supplier')[0]
+        self.assertEqual(product['name'], title)
+        self.assertEqual(product['volume'], '0.5 لیتر')
+        self.assertEqual(product['weight'], '')
+        self.assertFalse(product['needs_review'])
+
+    def test_unverified_or_conflicting_ai_measurement_is_replaced_and_flagged(self):
+        title = 'آبلیمو مجید کوچک180گ(138ف)20ع***'
+        product = parse_message_products(json.dumps([{
+            'name': title, 'weight': '500 گرم', 'volume': '1 لیتر',
+            'package_price': 600000, 'package_count': 20,
+            'currency': 'IRT', 'confidence': 0.99,
+        }], ensure_ascii=False), title, '@supplier')[0]
+        self.assertEqual(product['name'], title)
+        self.assertEqual(product['weight'], '180 گرم')
+        self.assertEqual(product['volume'], '')
+        self.assertTrue(product['needs_review'])
+        self.assertIn('does not match an explicit measurement', product['review_reason'])
+
+    def test_unique_source_title_restores_size_omitted_by_gemini(self):
+        title = 'آبلیمو دست چین1/2ل (304ف)6ع***'
+        product = parse_message_products(json.dumps([{
+            'name': 'آبلیمو دست چین', 'package_price': 600000,
+            'package_count': 6, 'currency': 'IRT', 'confidence': 0.99,
+        }], ensure_ascii=False), title + '\nقیمت باکس: ۶۰۰٬۰۰۰ تومان', '@supplier')[0]
+        self.assertEqual(product['name'], title)
+        self.assertEqual(product['volume'], '0.5 لیتر')
+        self.assertFalse(product['needs_review'])
+
+    def test_ambiguous_source_titles_are_not_used_to_guess_a_measurement(self):
+        content = 'آبلیمو دست چین1/2ل\nآبلیمو دست چین1ل'
+        product = parse_message_products(json.dumps([{
+            'name': 'آبلیمو دست چین', 'package_price': 600000,
+            'package_count': 6, 'currency': 'IRT', 'confidence': 0.99,
+        }], ensure_ascii=False), content, '@supplier')[0]
+        self.assertEqual(product['name'], 'آبلیمو دست چین')
+        self.assertEqual(product['volume'], '')
+        self.assertTrue(product['needs_review'])
+        self.assertIn('multiple source lines', product['review_reason'])
+
+    def test_api_prompt_specifies_compact_measurement_and_full_title_rules(self):
+        session = FakeSession(json.dumps([{
+            'name': 'آب 1/2ل', 'package_price': 24000, 'package_count': 6,
+            'currency': 'IRT', 'confidence': 0.99,
+        }], ensure_ascii=False))
+        with patch.dict(os.environ, {'GOOGLE_API_KEY': 'test-key'}, clear=True):
+            extract_message_products('supplier post', '@supplier', session=session)
+        prompt = session.call[1]['json']['contents'][0]['parts'][0]['text']
+        self.assertIn('exactly as written', prompt.replace('\n', ' '))
+        self.assertIn('`گ` means', prompt)
+        self.assertIn('`1/2ل` is `0.5 لیتر`', prompt)
+        self.assertIn('`ع` labels', prompt)
+
     def test_bad_output_is_rejected_without_partial_products(self):
         with self.assertRaises(GeminiError):
             parse_message_products('[{"name":"ok"}, null]', 'post', '@supplier')
