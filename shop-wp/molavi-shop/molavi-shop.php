@@ -20,6 +20,7 @@ require_once __DIR__ . '/includes/pricing.php';
 require_once __DIR__ . '/includes/sync.php';
 require_once __DIR__ . '/includes/reference-decisions.php';
 require_once __DIR__ . '/includes/reference-snapshots.php';
+require_once __DIR__ . '/includes/owner-browser-api.php';
 require_once __DIR__ . '/includes/reference-item-reviews.php';
 require_once __DIR__ . '/includes/ai-confirmations.php';
 require_once __DIR__ . '/includes/pipeline-holds.php';

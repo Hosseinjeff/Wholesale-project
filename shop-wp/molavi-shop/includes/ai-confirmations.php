@@ -96,36 +96,7 @@ function molavi_ai_confirmations_screen(): void {
     nocache_headers();
     echo '<div class="wrap"><h1>' . esc_html('تأیید استخراج هوشمند کالا') . '</h1>';
     echo '<p>' . esc_html('کالاهای نامطمئن تا تصمیم مالک از فروشگاه پنهان می‌مانند. تصمیم تأیید، پیشنهاد مشتق‌شده‌ای به سابقه Offers اضافه می‌کند و پیام تأمین‌کننده را تغییر نمی‌دهد.') . '</p>';
-    if (($_GET['saved'] ?? '')==='1') { echo '<div class="notice notice-success"><p>' . esc_html('تصمیم ثبت شد؛ وضعیت انتشار در سرور صف شد.') . '</p></div>'; }
-    $result=molavi_ai_confirmation_request('GET');
-    if (is_wp_error($result)) { echo '<div class="notice notice-error"><p>' . esc_html($result->get_error_message()) . '</p></div></div>'; return; }
-    $cases=$result['cases'];
-    if (!empty($result['publication_held'])) {
-        echo '<div class="notice notice-warning"><p>' . esc_html('تا زمان بررسی توقف ایمنی خط پردازش، تصمیم‌های استخراج ثبت نمی‌شوند.') . '</p></div>';
-    }
-    $caseRows=[];
-    foreach (array_merge($cases,$result['recent_decisions']) as $case) {
-        if (is_array($case) && !empty($case['case_id'])) { $caseRows[(string)$case['case_id']]=$case; }
-    }
-    if ($cases===[]) { echo '<p>' . esc_html('مورد استخراج در انتظار تصمیم وجود ندارد.') . '</p>'; }
-    foreach ($caseRows as $case) {
-        if (!is_array($case) || !is_string($case['case_id'] ?? null)) { continue; }
-        echo '<div class="card"><h2>' . esc_html((string)($case['product_name'] ?? 'کالای بدون نام')) . '</h2>';
-        echo '<p>' . esc_html('تأمین‌کننده: ' . (string)($case['channel'] ?? '') . ' · قیمت استخراج‌شده: '
-            . (string)($case['detected_price'] ?? $case['sale_price'] ?? '') . ' · نقش: ' . (string)($case['price_type'] ?? 'نامشخص')) . '</p>';
-        echo '<p>' . esc_html('دلیل: ' . (string)($case['reason'] ?? '') . ' · حداقل خرید: ' . (string)($case['min_qty'] ?? '')) . '</p>';
-        if (!empty($case['original_message'])) {
-            echo '<details><summary>' . esc_html('نمایش پیام اصلی تأمین‌کننده') . '</summary><pre>'
-                . esc_html((string)$case['original_message']) . '</pre></details>';
-        }
-        $decision=$case['decision'] ?? null;
-        if (is_array($decision)) {
-            echo '<p>' . esc_html('تصمیم قبلی: ' . (string)($decision['choice'] ?? '') . ' · '
-                . (string)($decision['note'] ?? '')) . '</p>';
-        }
-        molavi_ai_confirmation_form($case);
-        echo '</div>';
-    }
+    molavi_owner_workflow_mount('در حال دریافت موارد نیازمند بررسی…');
     echo '</div>';
 }
 

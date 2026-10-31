@@ -1,0 +1,23 @@
+#molavi-owner-workflow { direction: rtl; }
+#molavi-owner-workflow .molavi-workflow-heading { display:flex; align-items:center; justify-content:space-between; gap:1rem; }
+#molavi-owner-workflow .molavi-workflow-heading h1 { margin-block:.5rem; }
+#molavi-owner-workflow .card { box-sizing:border-box; padding:1rem; margin:1rem 0; border:1px solid #dcdcde; border-radius:8px; background:#fff; }
+#molavi-owner-workflow form { display:flex; flex-wrap:wrap; align-items:end; gap:.75rem; }
+#molavi-owner-workflow form p { display:flex; flex-wrap:wrap; gap:.75rem; width:100%; margin:.5rem 0; }
+#molavi-owner-workflow label { display:inline-flex; flex-direction:column; gap:.35rem; min-width:12rem; }
+#molavi-owner-workflow input,
+#molavi-owner-workflow select,
+#molavi-owner-workflow textarea { min-width:12rem; max-width:100%; }
+#molavi-owner-workflow textarea { min-height:4rem; }
+#molavi-owner-workflow details { margin:.75rem 0; }
+#molavi-owner-workflow pre { white-space:pre-wrap; overflow-wrap:anywhere; background:#f6f7f7; padding:.75rem; }
+#molavi-owner-workflow table { direction:rtl; margin-top:.75rem; }
+#molavi-owner-workflow .notice { margin:.75rem 0; }
+@media (max-width:782px) {
+    #molavi-owner-workflow .molavi-workflow-heading { align-items:flex-start; flex-direction:column; }
+    #molavi-owner-workflow .card { padding:.75rem; }
+    #molavi-owner-workflow label { width:100%; min-width:0; }
+    #molavi-owner-workflow input,
+    #molavi-owner-workflow select,
+    #molavi-owner-workflow textarea { width:100%; min-width:0; }
+}

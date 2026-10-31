@@ -131,10 +131,10 @@ not an inventory of currently installed/active production plugin versions.
 
 Extend the existing MolaviShop plugin with `includes/reference-decisions.php`, loaded
 once after the existing includes. Do not install a duplicate storefront/plugin or
-create a separate customer account/login system. The new native admin submenu is
-WooCommerce → تصمیم‌های مولوی‌سل. Elementor remains for storefront widgets, and
-WooCommerce remains the existing order/product administration surface. Native admin
-cards/buttons inherit WordPress styles. The page is not public and is not cached.
+create a separate customer account/login system. Keep the custom workflow screens
+under one WooCommerce → خط لوله مولوی‌سل entry. Elementor remains for storefront
+widgets, and WooCommerce remains the existing order/product administration surface.
+The owner workflow screens are private and are not cached.
 
 Configuration contract (the secret values remain outside the repository):
 
@@ -142,8 +142,8 @@ Configuration contract (the secret values remain outside the repository):
   setting, not evidence of a legacy REFERENCE_REFRESH_SERVER_URL service.
 - `MOLAVI_REFERENCE_BRIDGE_TOKEN`: dedicated random bridge secret, at least 32
   characters, held in server secret storage and protected WordPress configuration. Do
-  not reuse catalog/order tokens. Browser HTML never includes this secret; it may carry
-  only a ten-minute HMAC capability scoped to the snapshots route.
+  not reuse catalog/order tokens. Browser HTML never includes this secret; workflow
+  pages may carry only a ten-minute HMAC capability scoped to that page's API route.
 - `MOLAVI_REFERENCE_OWNER_IDS`: array of actual integer WP user IDs approved by the
   business owner. A user must also hold `manage_woocommerce`; general shop managers
   are not automatically entitled to this business-owner decision. The earlier record
@@ -163,12 +163,13 @@ need an operational design.
 
 GET lists durable unresolved events. POST sends event ID, expected snapshot ID and
 choice only. The trusted WordPress backend asserts the logged-in actor using the
-long-lived bridge token; TLS is mandatory. The snapshots API additionally accepts a
-short-lived HMAC capability for direct owner-browser requests because the live PHP host
-cannot route to Railway. That capability is scoped to this route, expires after ten
-minutes, and is accepted only for a configured owner. CORS is limited to the two exact
-WordPress origins; the long-lived bridge token is never sent to a browser. Server errors
-are generic and responses use no-store.
+long-lived bridge token; TLS is mandatory. The snapshots API accepts a short-lived HMAC
+capability for direct owner-browser requests because the live PHP host cannot reach
+Railway. The same pattern is used by the operations, AI-confirmation, reference-decision
+and item-review screens. Each token has a distinct audience and exact route scope,
+expires after ten minutes, and is accepted only for a configured owner. CORS is limited
+to the two exact WordPress origins; the long-lived bridge token is never sent to a
+browser. Server errors are generic and responses use no-store.
 
 Decision form submissions check capability, owner allowlist and an event-bound nonce.
 Snapshot actions use the signed browser capability and send the expected active snapshot

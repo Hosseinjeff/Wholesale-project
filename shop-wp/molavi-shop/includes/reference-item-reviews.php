@@ -55,73 +55,9 @@ function molavi_reference_item_reviews_screen(): void {
     nocache_headers();
     echo '<div class="wrap"><h1>' . esc_html('بررسی تطبیق کالای تأمین‌کننده') . '</h1>';
     echo '<p>' . esc_html('هر تطبیق و نقش قیمت باید دستی تأیید شود. قیمت و پیام اصلی تأمین‌کننده دست‌نخورده می‌ماند. کالای بدون تطبیق در فروشگاه متوقف می‌ماند.') . '</p>';
-    if (($_GET['saved'] ?? '')==='1') {
-        echo '<div class="notice notice-success"><p>' . esc_html('تصمیم ثبت و رسید سرور بررسی شد.') . '</p></div>';
-    }
-    $result=molavi_reference_item_review_request('GET');
-    if (is_wp_error($result)) {
-        echo '<div class="notice notice-error"><p>' . esc_html($result->get_error_message()) . '</p></div></div>';
-        return;
-    }
-    $referenceState=$result['reference_state'];
-    if (empty($referenceState['allow_automatic'])) {
-        echo '<div class="notice notice-warning"><p>' . esc_html('نسخه قیمت مرجع هنوز اجازه استفاده ندارد؛ ابتدا تصمیم تازگی مرجع را در صفحه تصمیم‌های مولوی‌سل بررسی کنید.') . '</p></div>';
-    }
-    $cases=$result['cases'];
-    if ($cases===[]) { echo '<p>' . esc_html('مورد تطبیق در انتظار بررسی وجود ندارد.') . '</p>'; }
-    $recent=$result['recent_decisions'];
-    if ($recent!==[]) { echo '<h2>' . esc_html('تصمیم‌های اخیر؛ برای اصلاح دوباره انتخاب کنید') . '</h2>'; }
-    $caseRows=array_merge($cases,$recent);
-    foreach ($caseRows as $case) {
-        if (!is_array($case) || !is_string($case['case_id'] ?? null)
-            || !is_string($case['offer_id'] ?? null) || !is_string($case['snapshot_id'] ?? null)) { continue; }
-        $id=$case['case_id'];
-        echo '<div class="card"><h2>' . esc_html((string)($case['product_name'] ?? 'کالای بدون نام')) . '</h2>';
-        echo '<p>' . esc_html('تأمین‌کننده: ' . (string)($case['channel'] ?? '')) . ' · '
-            . esc_html('قیمت ثبت‌شده: ' . (string)($case['supplier_price'] ?? '')) . '</p>';
-        echo '<p>' . esc_html('دلیل بررسی: ' . (string)($case['reason'] ?? '')) . ' · '
-            . esc_html('نقش پیشنهادی قیمت: ' . (string)($case['price_role_hint'] ?? 'نیازمند بررسی')) . '</p>';
-        echo '<p>' . esc_html('شناسه پیشنهاد: ' . $case['offer_id']) . '</p>';
-        $decision=$case['decision'] ?? null;
-        if (is_array($decision)) {
-            echo '<p>' . esc_html('تصمیم فعلی: ' . (string)($decision['choice'] ?? '') . ' · مرجع '
-                . (string)($decision['reference_id'] ?? 'ندارد') . ' · نقش '
-                . (string)($decision['price_role'] ?? '') . ' · یادداشت '
-                . (string)($decision['note'] ?? '')) . '</p>';
-        }
-        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
-        wp_nonce_field('molavi_reference_item:' . $id);
-        echo '<input type="hidden" name="action" value="molavi_reference_item_choice">';
-        echo '<input type="hidden" name="case_id" value="' . esc_attr($id) . '">';
-        echo '<input type="hidden" name="offer_id" value="' . esc_attr($case['offer_id']) . '">';
-        echo '<input type="hidden" name="snapshot_id" value="' . esc_attr($case['snapshot_id']) . '">';
-        echo '<input type="hidden" name="expected_decision_id" value="' . esc_attr(is_array($decision) ? (string)($decision['decision_id'] ?? '') : '') . '">';
-        echo '<p><label>' . esc_html('نامزدهای پیشنهادی') . ' <select name="candidate_reference_id"><option value="">' . esc_html('انتخاب مرجع') . '</option>';
-        $currentReference=is_array($decision) ? (string)($decision['reference_id'] ?? '') : '';
-        if ($currentReference!=='') {
-            echo '<option value="' . esc_attr($currentReference) . '" selected>' . esc_html('انتخاب فعلی: ' . $currentReference) . '</option>';
-        }
-        foreach (($case['candidates'] ?? []) as $candidate) {
-            if (!is_array($candidate) || !is_string($candidate['reference_id'] ?? null)) { continue; }
-            $label=(string)($candidate['name'] ?? '') . ' · ' . (string)($candidate['score'] ?? '')
-                . ' · تکی ' . (string)($candidate['unit_price'] ?? '') . ' · بسته ' . (string)($candidate['package_price'] ?? '');
-            $selected=$currentReference!=='' && $currentReference===$candidate['reference_id'] ? ' selected' : '';
-            echo '<option value="' . esc_attr($candidate['reference_id']) . '"' . $selected . '>' . esc_html($label) . '</option>';
-        }
-        echo '</select></label> ' . '<label>' . esc_html('یا شناسه دقیق مرجع')
-            . ' <input name="reference_id" maxlength="300"></label></p>';
-        $currentRole=is_array($decision) ? (string)($decision['price_role'] ?? '') : '';
-        echo '<p><label>' . esc_html('نقش قیمت') . ' <select name="price_role"><option value="unit"' . ($currentRole==='unit'?' selected':'') . '>' . esc_html('قیمت واحد')
-            . '</option><option value="package"' . ($currentRole==='package'?' selected':'') . '>' . esc_html('قیمت بسته / کارتن') . '</option></select></label></p>';
-        echo '<p><label>' . esc_html('یادداشت مالک') . ' <textarea name="note" required maxlength="1000">'
-            . esc_textarea(is_array($decision) ? (string)($decision['note'] ?? '') : '') . '</textarea></label></p>';
-        echo '<button class="button button-primary" name="choice" value="match">' . esc_html(is_array($decision) ? 'اصلاح تطبیق و نقش قیمت' : 'ثبت تطبیق و نقش قیمت') . '</button> ';
-        echo '<button class="button" name="choice" value="no_match">' . esc_html('تأیید نبود تطبیق و نگه داشتن کالا در بررسی') . '</button>';
-        echo '</form></div>';
-    }
+    molavi_owner_workflow_mount('در حال دریافت پیشنهادهای تطبیق…');
     echo '</div>';
 }
-
 add_action('admin_post_molavi_reference_item_choice', static function (): void {
     if (!molavi_reference_owner()) { wp_die('دسترسی مجاز نیست.', '', ['response'=>403]); }
     if (($_SERVER['REQUEST_METHOD'] ?? '')!=='POST') { wp_die('درخواست نامعتبر است.', '', ['response'=>405]); }

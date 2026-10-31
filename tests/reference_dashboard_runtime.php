@@ -10,6 +10,10 @@ function ref_assert($condition, $label) {
     if (!$condition) { throw new RuntimeException('FAILED: ' . $label); }
     echo 'PASS: ' . $label . "\n";
 }
+function ref_prepare_owner_workflow_page($page) {
+    $_GET['page'] = $page;
+    do_action('admin_enqueue_scripts', '');
+}
 $event = ['event_id' => 'failure:<script>alert(1)</script>', 'snapshot_id' => 'A',
     'reason' => 'refresh_failed', 'created_at' => '2026-10-25T00:00:00+00:00'];
 $price_offer = ['product_id'=>'price-1','name'=>'<script>price</script>','channel'=>'@supplier',
@@ -220,27 +224,32 @@ $other = wp_create_user('reference_other_admin', 'local-test-only-password', 'ot
 wp_set_current_user($other);
 ref_assert(!molavi_reference_owner(), 'another administrator is not implicitly the owner');
 ref_assert(molavi_reference_snapshots_browser_token()==='', 'non-owner cannot mint a browser capability');
+ref_assert(molavi_owner_workflow_token('owner:/pipeline/operations-dashboard')==='', 'non-owner cannot mint a pipeline browser capability');
 ref_assert(is_wp_error(molavi_reference_bridge('GET')), 'non-owner cannot access server bridge');
 wp_set_current_user($owner->ID);
+ref_assert((bool)preg_match('/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/', molavi_owner_workflow_token('owner:/pipeline/operations-dashboard')),
+    'owner receives a short-lived scoped pipeline capability');
+ref_assert(molavi_owner_workflow_token('owner:/pipeline/paid-orders')==='', 'pipeline capability cannot be minted for an unlisted route');
+ref_prepare_owner_workflow_page('molavi-reference-decisions');
 ob_start(); molavi_reference_screen(); $html=ob_get_clean();
-ref_assert(strpos($html,'<script>alert(1)</script>')===false, 'event text is escaped');
-ref_assert(strpos($html,'_wpnonce')!==false, 'decision forms carry native WordPress nonce');
-ref_assert(strpos($html,'use_last_snapshot')!==false, 'snapshot has continue option');
+ref_assert(strpos($html,'id="molavi-owner-workflow"')!==false, 'reference decisions load in the shared owner workflow UI');
 ref_assert(strpos($html,MOLAVI_REFERENCE_BRIDGE_TOKEN)===false, 'bridge token absent from HTML');
+ref_assert(!is_wp_error(molavi_reference_bridge('GET')), 'reference decision API returns the live workflow data contract');
 ref_assert($captured[0]['headers']['X-Molavi-Actor']==='wp:'.$owner->ID, 'backend asserts logged-in actor');
 ref_assert($captured[0]['redirection']===0, 'bridge does not follow redirects with token');
-$http_mode='missing'; ob_start(); molavi_reference_screen(); $html=ob_get_clean();
-ref_assert(strpos($html,'use_last_snapshot')===false, 'missing snapshot hides continue');
+$http_mode='missing'; $missing=molavi_reference_bridge('GET');
+ref_assert(!is_wp_error($missing) && $missing['events'][0]['snapshot_id']===null, 'missing snapshot state is returned to the browser UI');
 $http_mode='queue';
 ref_assert(is_wp_error(molavi_reference_bridge('POST',['event_id'=>'job-1','snapshot_id'=>'A','choice'=>'pause_review'])), 'generic success without matching receipt rejected');
 $http_mode='accepted';
 ref_assert(!is_wp_error(molavi_reference_bridge('POST',['event_id'=>'job-1','snapshot_id'=>'A','choice'=>'pause_review'])), 'matching durable decision receipt accepted');
 $http_mode='offline'; ref_assert(is_wp_error(molavi_reference_bridge('POST',[])), 'network failure is not acknowledged');
-$http_mode='queue'; ob_start(); molavi_reference_item_reviews_screen(); $item_html=ob_get_clean();
-ref_assert(strpos($item_html,'runtime-offer:1')!==false && strpos($item_html,'_wpnonce')!==false,
-    'item review appears in private Woo admin with nonce-bound actions');
-ref_assert(strpos($item_html,MOLAVI_REFERENCE_BRIDGE_TOKEN)===false && strpos($item_html,'R-1')!==false,
-    'item review lists escaped candidates without exposing bridge token');
+$http_mode='queue'; ref_prepare_owner_workflow_page('molavi-reference-items');
+ob_start(); molavi_reference_item_reviews_screen(); $item_html=ob_get_clean();
+ref_assert(strpos($item_html,'id="molavi-owner-workflow"')!==false,
+    'item review mounts the owner-scoped browser workflow UI');
+ref_assert(strpos($item_html,MOLAVI_REFERENCE_BRIDGE_TOKEN)===false,
+    'item review page does not expose the static bridge token');
 $item_payload=['case_id'=>'item:runtime-case','offer_id'=>'runtime-offer:1','snapshot_id'=>'runtime-snapshot',
     'choice'=>'match','reference_id'=>'R-1','price_role'=>'package','note'=>'Owner verified carton price',
     'expected_decision_id'=>null];
@@ -248,11 +257,15 @@ $http_mode='item_bad_receipt'; ref_assert(is_wp_error(molavi_reference_item_revi
     'item review rejects a receipt for another offer');
 $http_mode='accepted'; ref_assert(!is_wp_error(molavi_reference_item_review_request('POST',$item_payload)),
     'item review accepts matching decision and publication receipt');
-$http_mode='queue'; ob_start(); molavi_ai_confirmations_screen(); $ai_html=ob_get_clean();
-ref_assert(strpos($ai_html,'runtime-ai-offer:1')!==false && strpos($ai_html,'_wpnonce')!==false,
-    'AI extraction review appears in private Woo admin with nonce-bound actions');
-ref_assert(strpos($ai_html,'لوبیا ۱۲ عدد')!==false && strpos($ai_html,MOLAVI_REFERENCE_BRIDGE_TOKEN)===false,
-    'AI review shows escaped source context without exposing the bridge token');
+$http_mode='queue'; ref_prepare_owner_workflow_page('molavi-ai-confirmations');
+ob_start(); molavi_ai_confirmations_screen(); $ai_html=ob_get_clean();
+ref_assert(strpos($ai_html,'id="molavi-owner-workflow"')!==false,
+    'AI extraction review mounts the owner-scoped browser workflow UI');
+ref_assert(strpos($ai_html,MOLAVI_REFERENCE_BRIDGE_TOKEN)===false,
+    'AI review page does not expose the static bridge token');
+ $workflow_js=file_get_contents(__DIR__ . '/../shop-wp/molavi-shop/includes/owner-workflows.js');
+ref_assert(strpos($workflow_js,'original_message')!==false && strpos($workflow_js,'expected_decision_id')!==false,
+    'browser review UI displays source messages and submits optimistic decision revisions');
 $ai_payload=['case_id'=>$ai_case['case_id'],'offer_id'=>$ai_case['offer_id'],
     'signature'=>$ai_case['signature'],'choice'=>'confirm','fields'=>[
         'price_role'=>'package','sale_price'=>120000,'actual_price'=>150000,
@@ -547,9 +560,9 @@ ref_assert(!is_wp_error($operation_request) && $operation_request['workflow']['l
 $http_mode='paid_bad_action';
 ref_assert(is_wp_error(molavi_paid_orders_request('POST',$operation_payload)), 'workflow action with a mismatched receipt is rejected');
 
-$http_mode='queue';ob_start();molavi_operations_dashboard_screen();$operations_html=ob_get_clean();
-ref_assert(strpos($operations_html,'<script>job</script>')===false, 'unified operations dashboard escapes job error data');
-ref_assert(strpos($operations_html,'batch:runtime-1')!==false && strpos($operations_html,'needs_review')!==false, 'unified operations dashboard lists held pipeline work');
-ref_assert(strpos($operations_html,'page=molavi-ai-confirmations')!==false && strpos($operations_html,'page=molavi-paid-orders')!==false, 'unified operations dashboard links existing Woo review workflows');
+$http_mode='queue';ref_prepare_owner_workflow_page('molavi-operations');
+ob_start();molavi_operations_dashboard_screen();$operations_html=ob_get_clean();
+ref_assert(strpos($operations_html,'id="molavi-owner-workflow"')!==false, 'pipeline hub mounts its live status panel');
+ref_assert(strpos($operations_html,'page=molavi-ai-confirmations')!==false && strpos($operations_html,'page=molavi-paid-orders')!==false, 'pipeline hub keeps all workflow destinations reachable');
 wp_set_current_user($other);
 ref_assert(is_wp_error(molavi_operations_dashboard_request()), 'non-owner cannot read unified operations dashboard');

@@ -770,12 +770,9 @@ def operations_dashboard_route():
     queue=handoff_queue()
     if queue is None or len(token)<32 or not owners:
         return jsonify({'ok':False,'error':'unconfigured'}),503
-    sent=request.headers.get('X-Molavi-Reference-Token','')
-    actor=request.headers.get('X-Molavi-Actor','')
-    if not sent or not hmac.compare_digest(sent,token):
-        return jsonify({'ok':False,'error':'unauthorized'}),401
-    if actor not in owners:
-        return jsonify({'ok':False,'error':'owner_required'}),403
+    actor,auth_error=_owner_api_actor('owner:/pipeline/operations-dashboard',token,owners)
+    if auth_error:
+        return jsonify({'ok':False,'error':'unauthorized' if auth_error==401 else 'owner_required'}),auth_error
     summary=queue.operations_snapshot(limit=100)
     summary['publication_holds']=len(queue.publication_holds())
     summary['sheet_conflicts']=len(queue.sheet_sync_conflicts(state='open'))
@@ -1313,11 +1310,14 @@ def reference_decisions_route():
     owners = [x.strip() for x in (os.getenv("REFERENCE_OWNER_IDS") or "").split(",") if x.strip()]
     if not path or len(token) < 32 or not owners:
         return jsonify({"ok": False, "error": "unconfigured"}), 503
+    actor, auth_error = _owner_api_actor('owner:/reference/decisions', token, owners)
+    if auth_error:
+        return jsonify({"ok": False, "error": "unauthorized" if auth_error == 401 else "owner_required"}), auth_error
     try:
         api = DashboardAPI(ReferenceStore(path, owner_ids=owners), bridge_token=token)
         code, result = api.handle(request.method,
-            token=request.headers.get("X-Molavi-Reference-Token", ""),
-            actor=request.headers.get("X-Molavi-Actor", ""),
+            token=token,
+            actor=actor,
             body=request.get_json(silent=True) if request.method == "POST" else None)
     except Exception:
         logger.exception("Reference decision store unavailable")
@@ -1327,8 +1327,8 @@ def reference_decisions_route():
     return response, code
 
 
-def _reference_browser_actor(authorization, bridge_token, owners):
-    """Verify a short-lived WordPress-signed token scoped to the snapshots API."""
+def _signed_browser_actor(authorization, bridge_token, owners, *, audience, scope):
+    """Verify a short-lived WordPress-signed token for one owner API scope."""
     prefix = 'Bearer '
     if not isinstance(authorization, str) or not authorization.startswith(prefix):
         return None
@@ -1352,8 +1352,8 @@ def _reference_browser_actor(authorization, bridge_token, owners):
     expires_at = claims.get('exp')
     now = int(time.time())
     if (claims.get('iss') != 'molavi-wordpress'
-            or claims.get('aud') != 'reference-snapshots'
-            or claims.get('scope') != 'reference:snapshots'
+            or claims.get('aud') != audience
+            or claims.get('scope') != scope
             or not isinstance(actor, str) or actor not in owners
             or not isinstance(issued_at, int) or isinstance(issued_at, bool)
             or not isinstance(expires_at, int) or isinstance(expires_at, bool)
@@ -1363,9 +1363,33 @@ def _reference_browser_actor(authorization, bridge_token, owners):
     return actor
 
 
+def _reference_browser_actor(authorization, bridge_token, owners):
+    """Verify the dedicated browser capability for reference snapshot actions."""
+    return _signed_browser_actor(authorization, bridge_token, owners,
+                                 audience='reference-snapshots', scope='reference:snapshots')
+
+
+def _owner_api_actor(scope, bridge_token, owners):
+    """Resolve a legacy server bridge or an owner-only, route-scoped browser token."""
+    sent = request.headers.get('X-Molavi-Reference-Token', '')
+    actor = request.headers.get('X-Molavi-Actor', '')
+    if sent and hmac.compare_digest(sent, bridge_token):
+        return actor, (None if actor in owners else 403)
+    actor = _signed_browser_actor(request.headers.get('Authorization', ''), bridge_token, owners,
+                                  audience='molavi-owner-workflows', scope=scope)
+    return actor, (None if actor else 401)
+
+
 @app.after_request
 def reference_snapshots_browser_cors(response):
-    if request.path != '/reference/snapshots':
+    browser_paths = {
+        '/reference/snapshots',
+        '/reference/decisions',
+        '/reference/item-reviews',
+        '/pipeline/operations-dashboard',
+        '/pipeline/ai-confirmations',
+    }
+    if request.path not in browser_paths:
         return response
     response.headers.setdefault('Cache-Control', 'no-store')
     origin = request.headers.get('Origin', '')
@@ -1525,12 +1549,9 @@ def ai_confirmations_route():
     queue = handoff_queue()
     if not USE_SHEETS or queue is None or len(token) < 32 or not owners:
         return jsonify({'ok': False, 'error': 'unconfigured'}), 503
-    sent = request.headers.get('X-Molavi-Reference-Token', '')
-    actor = request.headers.get('X-Molavi-Actor', '')
-    if not sent or not hmac.compare_digest(sent, token):
-        return jsonify({'ok': False, 'error': 'unauthorized'}), 401
-    if actor not in owners:
-        return jsonify({'ok': False, 'error': 'owner_required'}), 403
+    actor, auth_error = _owner_api_actor('owner:/pipeline/ai-confirmations', token, owners)
+    if auth_error:
+        return jsonify({'ok': False, 'error': 'unauthorized' if auth_error == 401 else 'owner_required'}), auth_error
     ledger = AIConfirmationLedger(queue.path)
     try:
         store = build_store()
@@ -1596,18 +1617,16 @@ def reference_item_reviews_route():
     queue = handoff_queue()
     if not path or len(token) < 32 or not owners or queue is None or not USE_SHEETS:
         return jsonify({'ok': False, 'error': 'unconfigured'}), 503
-    sent = request.headers.get('X-Molavi-Reference-Token', '')
-    actor = request.headers.get('X-Molavi-Actor', '')
-    if not sent or not hmac.compare_digest(sent, token):
-        return jsonify({'ok': False, 'error': 'unauthorized'}), 401
-    if actor not in owners:
-        return jsonify({'ok': False, 'error': 'owner_required'}), 403
+    actor, auth_error = _owner_api_actor('owner:/reference/item-reviews', token, owners)
+    if auth_error:
+        return jsonify({'ok': False, 'error': 'unauthorized' if auth_error == 401 else 'owner_required'}), auth_error
     try:
         reference_store = ReferenceStore(path, owner_ids=owners)
         snapshot = reference_store.active_snapshot()
         eligibility = active_reference_use(reference_store, now=datetime.now(timezone.utc))
         if not eligibility['allow_automatic'] or not snapshot or snapshot['snapshot_id'] != eligibility['snapshot_id']:
-            response = jsonify({'ok': True, 'reference_state': eligibility, 'cases': []})
+            response = jsonify({'ok': True, 'reference_state': eligibility,
+                                'cases': [], 'recent_decisions': []})
             response.headers['Cache-Control'] = 'no-store'
             return response
         sheet_store = build_store()
