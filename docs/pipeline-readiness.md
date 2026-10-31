@@ -1,10 +1,22 @@
-# Whole-pipeline readiness — 2026-10-29
+# Whole-pipeline readiness — 2026-10-31
 
 **Current state: the public storefront is live at the user's direction. The root page
 now opens the Shop storefront. Payment setup is out of scope for the current work. The
 non-payment release gaps are the unset Tehran delivery area, owner dashboard review,
 connected handoff verification, and remaining business review.**
-**Reference-source correction — 2026-10-30:** Rezvan reference products are required
+**Latest reference-refresh verification — 2026-10-31:** the previous owner attempts
+returned `woocommerce_transport_failed`. Commit `a157ee5` retries complete WooCommerce
+fetches with smaller pages and fewer concurrent requests after transport, rate-limit or
+server failures, and the page now reports a safe failing-page error. The Railway release
+and WordPress JavaScript are deployed. The owner-authorized retry staged snapshot
+`2976f2004a643e5546dc242ec876607dad1fd03d2fb6ee7cd124881d30497380` with 3,919/3,919
+products across 40/40 pages and verified coverage. Titles
+`آبلیمو مجید کوچک180گ(138ف)20ع***` and
+`آبلیمو دست چین1/2ل (304ف)6ع***` are intact; extracted values are 180 g / 20 per package
+and 0.5 L / 6 per package. It remains inactive pending owner review; no `ReferencePrices`
+write occurred.
+
+**Initial reference-source correction — 2026-10-30:** Rezvan reference products are required
 from its WooCommerce Store API, not the supplier PDF. Commit `3d8a7d2` is deployed to
 Railway as deployment `f87efd11-381c-4195-b82e-ce26263b78be`, the owner review files are
 deployed and read back, and fresh candidate `4bf9d367c07dcf1af29e4fc61dfb1eddcb23cbbc4db3ffcdeb63fc987e80f7a9`
@@ -16,7 +28,7 @@ production `/health`, `/health/detailed` and `/api/shop` routes return HTTP 200.
 service-account reader returns the two current Products rows from Sheets. No customer
 order, charge, refund or supplier purchase was made.
 
-## Measurement extraction correction — 2026-10-31
+## Measurement extraction check before refresh — 2026-10-31
 
 The title parser now separates explicit weight and volume, accepts compact Persian unit
 suffixes and fractional measures, and preserves the exact source title. Supplier Gemini
@@ -194,10 +206,10 @@ that customers can receive a delivery rate on the public checkout.
 | Handoff | Current evidence and status |
 |---|---|
 | Supplier → bot/server | Railway and its worker are online. The live Sheets-backed catalog returns two products. Row-level bilateral edits, conflict receipts and publication cadence still need connected verification. |
-| Reference → extraction/review | Candidate `4bf9d367c07dcf1af29e4fc61dfb1eddcb23cbbc4db3ffcdeb63fc987e80f7a9` is staged from the Rezvan WooCommerce Store API (3,895 products / 39 pages); it awaits owner review. Two older PDF/Gemini candidates remain incomplete and inactive. No `ReferencePrices` write has occurred. |
+| Reference → extraction/review | Candidate `2976f2004a643e5546dc242ec876607dad1fd03d2fb6ee7cd124881d30497380` is staged from the Rezvan WooCommerce Store API (3,919 products / 40 pages) with verified coverage; it awaits owner review. Two older PDF/Gemini candidates remain incomplete and inactive. No `ReferencePrices` write has occurred. |
 | Offers → pricing/catalog | Woo now publishes the customer price band and keeps supplier cost private. Freshness gating and fixed-pack minimums are active. Clearance formula, near-cost alert behavior and connected recalculation still need review. |
 | Catalog → WordPress/basket | Two products are synced in IRT; `/` and `/shop/` render the storefront. The delivery calculation exists, but the live Tehran zone has no matching locations. |
-| Checkout → operator work | Woo page assignments are present. WordPress users 1 and 2 can access the reference page; both actor IDs return two snapshots through the browser bridge. Owner review remains pending. |
+| Checkout → operator work | Woo page assignments are present. WordPress users 1 and 2 can access the reference page; the owner bridge lists four candidates, including the latest staged version. Owner review remains pending. |
 | Payment → fulfillment/follow-up | Paid-order lifecycle is synthetic-tested. No live payment callback or order was run; inventory/workflow ledger remains on Railway SQLite and is not mirrored to Sheets. |
 | Daily reconciliation/recovery | The server worker and owner review surfaces exist. Bilateral Sheet edits and cutover of legacy/GAS writers remain unverified; legacy writers can bypass server locks. |
 

@@ -1,6 +1,20 @@
 # WordPress dashboard integration
 
-## Current source correction — 2026-10-30
+## Latest production refresh — 2026-10-31
+
+Repeated owner refresh attempts had returned a generic transport failure. Commit
+`a157ee5` lowers page size and concurrency for a complete retry after transport,
+rate-limit or server errors, and reports a page-specific transport code if retries
+still fail. Railway deployment `b7901971-078f-44f7-8ce5-46586d807e91` is healthy; the
+WordPress browser client from the same commit was uploaded and read back successfully.
+An owner-authorized retry staged snapshot
+`2976f2004a643e5546dc242ec876607dad1fd03d2fb6ee7cd124881d30497380` with 3,919/3,919
+products across 40/40 pages and verified coverage. Both reported sample titles now
+retain their full source names and parse as 180 grams / 20 per package and 0.5 liters /
+6 per package. The snapshot is inactive; no `ReferencePrices` write or activation was
+made. It awaits owner review.
+
+## Source correction and initial API snapshot — 2026-10-30 (superseded checkpoint)
 
 The user clarified that Rezvan reference products must come from the WooCommerce Store
 API, not the official PDF. Railway deployment `f87efd11-381c-4195-b82e-ce26263b78be`

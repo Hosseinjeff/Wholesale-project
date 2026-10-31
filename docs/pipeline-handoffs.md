@@ -1,6 +1,20 @@
 # Whole-flow handoff implementation record — 2026-10-26 onward (Asia/Tehran)
 
-## Current Rezvan source correction — 2026-10-30
+## Production refresh retry — 2026-10-31
+
+The repeated generic `woocommerce_transport_failed` refresh was traced to the importer
+failing its full WooCommerce fetch without identifying the page or retaining the
+transport exception. Commit `a157ee5` adds a full low-load restart (50-item pages,
+two concurrent requests) for transport, rate-limit and server failures, plus
+page-specific safe errors. Railway deployment `b7901971-078f-44f7-8ce5-46586d807e91`
+and the matching WordPress browser client are deployed. An owner-authorized production
+retry staged candidate `2976f2004a643e5546dc242ec876607dad1fd03d2fb6ee7cd124881d30497380`
+with 3,919 rows over 40 pages and verified coverage. The two sample titles were
+preserved and parsed as 180 g / 20 per package and 0.5 L / 6 per package. The candidate
+is inactive and awaits review; no `ReferencePrices` write was made. The full local
+Python suite passes 282 tests.
+
+## Initial Rezvan source correction — 2026-10-30 (superseded checkpoint)
 
 Rezvan reference products must come from its WooCommerce Store API. A read-only audit
 returned 3,895 products across 39 pages, all with title, SKU, category and positive IRR

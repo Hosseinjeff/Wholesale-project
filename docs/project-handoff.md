@@ -1,10 +1,10 @@
 # MolaviSale — whole-workflow handoff
 
-Snapshot 4.55. Updated 2026-10-30, Asia/Tehran. The canonical roleplay decisions are in
+Snapshot 4.56. Updated 2026-10-31, Asia/Tehran. The canonical roleplay decisions are in
 `roleplay-state.json`; current live evidence and release gates are in
 `pipeline-readiness.md` and `pipeline-readiness-evidence.json`.
 
-## Current live checkpoint — 2026-10-30
+## Current live checkpoint — 2026-10-31
 
 Railway is healthy and its Sheet-backed catalog currently returns two products. Their
 public Woo prices now use the customer price band while supplier costs stay private.
@@ -13,18 +13,24 @@ fresh on `h434558_Salesman`, and Shop page 7 uses the `[molavi_storefront]` WooC
 storefront derived from mockup v2. At the user's direction the site is now public, and
 the static front page points to Shop page 7. Live `/` and `/shop/` both render two
 products without the Coming Soon screen. Responsive visual/business review remains
-pending. Railway now runs source commit `3d8a7d2b7eb1f74b7ed72257730d0627f6949a07`
-(deployment `f87efd11-381c-4195-b82e-ce26263b78be`) on the release branch. The MolaviShop
-reference-page PHP/JS files were deployed from the same commit and read back successfully.
+pending. Railway now runs source commit `a157ee59d464910708f2f22083bb7ded7eac172e`
+(deployment `b7901971-078f-44f7-8ce5-46586d807e91`) on the release branch. The updated
+MolaviShop reference-page JavaScript was deployed from the same commit and read back
+successfully.
 
 The live Tehran shipping zone has no location rules, so customers do not match the
 configured delivery method. Rezvan reference products now come from its WooCommerce Store
-API, not its official PDF. Candidate `4bf9d367c07dcf1af29e4fc61dfb1eddcb23cbbc4db3ffcdeb63fc987e80f7a9`
-contains all 3,895 products from 39 pages with verified coverage and is staged for owner
-review. The active snapshot remains unset, the two PDF/Gemini drafts are incomplete and
-inactive, and `ReferencePrices` has not been written. Production supplier-message
-Gemini defaults to `gemini-3.5-flash-lite`; reference acquisition does not use Gemini.
-Payment configuration is explicitly outside the current work.
+API, not its official PDF. After repeated refresh failures, the importer now restarts a
+complete fetch at lower concurrency with smaller pages on transport, rate-limit or
+server errors. The owner-authorized production retry staged candidate
+`2976f2004a643e5546dc242ec876607dad1fd03d2fb6ee7cd124881d30497380` with 3,919 products
+from 40 pages and verified coverage. The two reported product titles were preserved;
+their 180 g / 20-per-package and 0.5 L / 6-per-package measurements were extracted. The
+candidate is inactive and awaits owner review. The active snapshot remains unset, the
+two PDF/Gemini drafts are incomplete and inactive, and `ReferencePrices` has not been
+written. Production supplier-message Gemini defaults to `gemini-3.5-flash-lite`;
+reference acquisition does not use Gemini. Payment configuration is explicitly outside
+the current work.
 
 The remaining non-payment work is to set the delivery coverage, review the staged
 WooCommerce-sourced reference candidate, verify Sheets and Woo handoffs in connected

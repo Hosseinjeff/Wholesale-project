@@ -1,5 +1,24 @@
 # ReferencePrices source recovery checkpoint
 
+## Latest production refresh — 2026-10-31
+
+The owner reported repeated refresh failures. Railway recorded the generic
+`woocommerce_transport_failed` result, but the old importer did not preserve which
+page or transport exception failed. Commit `a157ee5` now retries a complete fetch with
+smaller pages and lower concurrency after transport, rate-limit or server errors, and
+returns a safe page-specific error if retry still fails. It also improves the Persian
+owner-page error message. Railway deployment `b7901971-078f-44f7-8ce5-46586d807e91`
+and the WordPress JavaScript from that commit are live; the plugin uploader read the
+file back successfully.
+
+The owner-authorized retry succeeded: snapshot
+`2976f2004a643e5546dc242ec876607dad1fd03d2fb6ee7cd124881d30497380` contains 3,919 of
+3,919 products across 40 of 40 pages with verified coverage. It remains inactive and
+`active_snapshot_id` is unset; no `ReferencePrices` write occurred. The full titles
+`آبلیمو مجید کوچک180گ(138ف)20ع***` and `آبلیمو دست چین1/2ل (304ف)6ع***` were preserved;
+their extracted values are respectively 180 grams / 20 per package and 0.5 liters / 6
+per package. The candidate awaits owner review and explicit activation.
+
 ## Current source decision — 2026-10-30
 
 The user has explicitly corrected the source: Rezvan Pakhsh reference products must be

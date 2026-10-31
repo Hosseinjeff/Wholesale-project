@@ -1,6 +1,6 @@
 {
-  "date": "2026-10-30",
-  "mode": "Rezvan WooCommerce API source correction; no customer order/payment or reference activation",
+  "date": "2026-10-31",
+  "mode": "WooCommerce reference refresh retry and verified staging; no customer order/payment or reference activation",
   "results": {
     "health": {
       "http": 200,
@@ -76,7 +76,24 @@
     }
   },
   "sheets_note": "Railway reports a service-account writer and /api/shop returns the two live Products rows. Bilateral edits, conflict receipts and automatic publication cadence are not verified.",
-  "limits": "The Rezvan reference source is the WooCommerce Store API. Snapshot 4bf9d367c07dcf1af29e4fc61dfb1eddcb23cbbc4db3ffcdeb63fc987e80f7a9 is staged for owner review with complete coverage; it remains inactive and has not been written to ReferencePrices. The older 10-row PDF/Gemini candidates are historical, incomplete and inactive. Payment setup and the complete order-to-aftercare flow remain separate open work.",
+  "limits": "The Rezvan reference source is the WooCommerce Store API. Snapshot 2976f2004a643e5546dc242ec876607dad1fd03d2fb6ee7cd124881d30497380 is staged for owner review with complete coverage; it remains inactive and has not been written to ReferencePrices. The older 10-row PDF/Gemini candidates are historical, incomplete and inactive. Payment setup and the complete order-to-aftercare flow remain separate open work.",
+  "latest_reference_refresh": {
+    "date": "2026-10-31",
+    "previous_failure_code": "woocommerce_transport_failed",
+    "fix_commit": "a157ee59d464910708f2f22083bb7ded7eac172e",
+    "retry_policy": "Restart the full import with 50-item pages and two concurrent requests after transport, rate-limit, or server errors; preserve a page-specific safe error if retries fail",
+    "result": "staged",
+    "snapshot_id": "2976f2004a643e5546dc242ec876607dad1fd03d2fb6ee7cd124881d30497380",
+    "rows": 3919,
+    "pages": 40,
+    "coverage_verified": true,
+    "active": false,
+    "referenceprices_write": false,
+    "sample_products": [
+      {"name": "آبلیمو مجید کوچک180گ(138ف)20ع***", "weight": "180 گرم", "package_count": 20},
+      {"name": "آبلیمو دست چین1/2ل (304ف)6ع***", "volume": "0.5 لیتر", "package_count": 6}
+    ]
+  },
   "reference_source_correction": {
     "date": "2026-10-30",
     "authoritative_source": "https://rezvanpakhsh.com/wp-json/wc/store/v1/products",
@@ -103,8 +120,8 @@
     "project": "stellar-solace",
     "environment": "production",
     "service": "Wholesale-project",
-    "commit": "3d8a7d2b7eb1f74b7ed72257730d0627f6949a07",
-    "deployment_id": "f87efd11-381c-4195-b82e-ce26263b78be",
+    "commit": "a157ee59d464910708f2f22083bb7ded7eac172e",
+    "deployment_id": "b7901971-078f-44f7-8ce5-46586d807e91",
     "deployment_status": "SUCCESS",
     "health_http": 200,
     "service_domain": "https://wholesale-project-production.up.railway.app",

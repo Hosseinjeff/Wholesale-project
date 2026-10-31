@@ -1,15 +1,19 @@
 # Whole-plan release and later-iteration backlog
 
-2026-10-30, Asia/Tehran. The user asked to execute/deploy the plan as a whole and
+2026-10-31, Asia/Tehran. The user asked to execute/deploy the plan as a whole and
 record any remaining items for later iterations. The server, production volume, and
 existing MolaviShop plugin integration are deployed. The current Rezvan reference source
-is its WooCommerce Store API (3,895 products over 39 pages); the old PDF/Gemini drafts
-are incomplete and inactive. Commit `3d8a7d2` and the matching owner UI are deployed;
-candidate `4bf9d367c07dcf1af29e4fc61dfb1eddcb23cbbc4db3ffcdeb63fc987e80f7a9` is staged
-with verified 3,895-row coverage for owner review. The active snapshot remains unset,
-and no `ReferencePrices` write occurred. This file distinguishes incomplete release
+is its WooCommerce Store API. After repeated transport failures, commit `a157ee5` and
+the updated owner UI are deployed; a full retry staged candidate
+`2976f2004a643e5546dc242ec876607dad1fd03d2fb6ee7cd124881d30497380` with verified
+3,919-row coverage over 40 pages. It is inactive and awaits owner review; the active
+snapshot remains unset and no `ReferencePrices` write occurred. The two older PDF/Gemini
+drafts are incomplete and inactive. This file distinguishes incomplete release
 connections from optional business settings; mockup v2 remains unapproved and no
 credentials are stored.
+
+The 2026-10-30 text below records an earlier deployment checkpoint; current production
+reference status is recorded above and in `pipeline-readiness.md`.
 
 **Historical production incident — 2026-10-29:** WordPress previously failed during
 bootstrap. A later same-day live recheck found the site and Woo storefront responding
@@ -28,7 +32,9 @@ to make integration easy.
 
 ## Whole-release integration still required
 
-1. Validate the Rezvan WooCommerce API/reference path end to end in production. Local
+1. Review the staged Rezvan WooCommerce API/reference candidate, explicitly approve
+   activation, then verify the `ReferencePrices` projection in production. The full
+   fetch and verified-coverage staging path have now succeeded. Local
    code now includes recovered category/history price-scale fallback, durable AI owner
    confirmations, a crash-aware 24-hour Woo API refresh,
    staged candidates, Woo owner review and verified projection to `ReferencePrices`.
@@ -44,9 +50,8 @@ to make integration easy.
    fence legacy/GAS writers that bypass the server locks, so cutover remains required.
    The previously deployed worker fetched the official PDF and Gemini staged two
    incomplete 10-row drafts. Those drafts remain historical and cannot be reviewed or
-   activated. The full API candidate is now staged; review title/price/package
-   interpretation, explicitly approve activation, then verify the `ReferencePrices`
-   projection. Treat stale/missing refreshes according to the agreed owner-review gate.
+   activated. Review title/price/package interpretation and treat stale/missing refreshes
+   according to the agreed owner-review gate.
 2. Validate the local bidirectional Products-sheet adapter in connected staging.
    It handles every normalized non-provenance product column, performs three-way
    reconciliation on supplier updates, preserves source posts, records owner-visible

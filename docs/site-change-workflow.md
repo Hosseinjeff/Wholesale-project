@@ -39,9 +39,9 @@ the plugin directory.
 After a successful deploy, record the deployed commit here or in the relevant
 release note and use it as `--since` for the next deployment.
 
-Most recent plugin deployment: commit `3d8a7d2b7eb1f74b7ed72257730d0627f6949a07`
-(2026-10-30). The reference-snapshot PHP and JavaScript files were uploaded and read
-back successfully. Use that commit as the next deployment's `--since` value.
+Most recent plugin deployment: commit `a157ee59d464910708f2f22083bb7ded7eac172e`
+(2026-10-31). `includes/reference-snapshots.js` was uploaded and read back
+successfully. Use that commit as the next deployment's `--since` value.
 
 ## WordPress data
 
