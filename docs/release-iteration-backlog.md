@@ -3,10 +3,12 @@
 2026-10-31, Asia/Tehran. The user asked to execute/deploy the plan as a whole and
 record any remaining items for later iterations. The server, production volume, and
 existing MolaviShop plugin integration are deployed. The current Rezvan reference source
-is its WooCommerce Store API. After repeated transport failures, commit `a157ee5` and
-the updated owner UI are deployed; a full retry staged candidate
-`2976f2004a643e5546dc242ec876607dad1fd03d2fb6ee7cd124881d30497380` with verified
-3,919-row coverage over 40 pages. It is inactive and awaits owner review; the active
+is its WooCommerce Store API. Commit `47c4ee7` corrects Persian ASCII slash parsing:
+`1/2ل` is 1.2 L and `1/5ل` is 1.5 L. A new full refresh timed out on API page 1; direct
+site/API probes also timed out. The previous candidate
+`2976f2004a643e5546dc242ec876607dad1fd03d2fb6ee7cd124881d30497380` has verified
+3,919-row coverage over 40 pages but retains the old 0.5 L interpretation. It remains
+inactive and must not be activated until a corrected candidate can be staged. The active
 snapshot remains unset and no `ReferencePrices` write occurred. The two older PDF/Gemini
 drafts are incomplete and inactive. This file distinguishes incomplete release
 connections from optional business settings; mockup v2 remains unapproved and no

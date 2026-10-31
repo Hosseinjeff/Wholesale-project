@@ -13,22 +13,21 @@ fresh on `h434558_Salesman`, and Shop page 7 uses the `[molavi_storefront]` WooC
 storefront derived from mockup v2. At the user's direction the site is now public, and
 the static front page points to Shop page 7. Live `/` and `/shop/` both render two
 products without the Coming Soon screen. Responsive visual/business review remains
-pending. Railway now runs source commit `a157ee59d464910708f2f22083bb7ded7eac172e`
-(deployment `b7901971-078f-44f7-8ce5-46586d807e91`) on the release branch. The updated
-MolaviShop reference-page JavaScript was deployed from the same commit and read back
-successfully.
+pending. Railway now runs source commit `47c4ee799228f2ec3f1c3b229e5972d0d6c020c8`
+(deployment `a2c53fc2-25f8-41f2-9204-b90ec196c196`) on the release branch. The updated
+MolaviShop reference-page JavaScript from commit `a157ee5` was deployed and read back.
 
 The live Tehran shipping zone has no location rules, so customers do not match the
 configured delivery method. Rezvan reference products now come from its WooCommerce Store
-API, not its official PDF. After repeated refresh failures, the importer now restarts a
-complete fetch at lower concurrency with smaller pages on transport, rate-limit or
-server errors. The owner-authorized production retry staged candidate
-`2976f2004a643e5546dc242ec876607dad1fd03d2fb6ee7cd124881d30497380` with 3,919 products
-from 40 pages and verified coverage. The two reported product titles were preserved;
-their 180 g / 20-per-package and 0.5 L / 6-per-package measurements were extracted. The
-candidate is inactive and awaits owner review. The active snapshot remains unset, the
-two PDF/Gemini drafts are incomplete and inactive, and `ReferencePrices` has not been
-written. Production supplier-message Gemini defaults to `gemini-3.5-flash-lite`;
+API, not its official PDF. ASCII `/` in Persian measurements means a decimal point:
+`1/2ل` is 1.2 L and `1/5ل` is 1.5 L. Commit `47c4ee7` corrects the parser and prompt.
+The new full refresh failed on page 1 with a read timeout while the supplier API and its
+alternate host were not responding. The previous 3,919-row candidate
+`2976f2004a643e5546dc242ec876607dad1fd03d2fb6ee7cd124881d30497380` remains inactive
+but has the old, incorrect 0.5 L value for the `1/2ل` item; do not activate it. A full
+corrected candidate must be staged once source access returns. The active snapshot is
+unset and `ReferencePrices` has not been written. The two PDF/Gemini drafts are incomplete
+and inactive. Production supplier-message Gemini defaults to `gemini-3.5-flash-lite`;
 reference acquisition does not use Gemini. Payment configuration is explicitly outside
 the current work.
 

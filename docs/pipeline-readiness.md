@@ -4,17 +4,17 @@
 now opens the Shop storefront. Payment setup is out of scope for the current work. The
 non-payment release gaps are the unset Tehran delivery area, owner dashboard review,
 connected handoff verification, and remaining business review.**
-**Latest reference-refresh verification — 2026-10-31:** the previous owner attempts
-returned `woocommerce_transport_failed`. Commit `a157ee5` retries complete WooCommerce
-fetches with smaller pages and fewer concurrent requests after transport, rate-limit or
-server failures, and the page now reports a safe failing-page error. The Railway release
-and WordPress JavaScript are deployed. The owner-authorized retry staged snapshot
-`2976f2004a643e5546dc242ec876607dad1fd03d2fb6ee7cd124881d30497380` with 3,919/3,919
-products across 40/40 pages and verified coverage. Titles
-`آبلیمو مجید کوچک180گ(138ف)20ع***` and
-`آبلیمو دست چین1/2ل (304ف)6ع***` are intact; extracted values are 180 g / 20 per package
-and 0.5 L / 6 per package. It remains inactive pending owner review; no `ReferencePrices`
-write occurred.
+**Latest measurement-notation status — 2026-10-31:** ASCII `/` in Persian titles is a
+decimal separator: `1/2ل` means 1.2 L and `1/5ل` means 1.5 L. Commit `47c4ee7` updates
+the parser and Gemini prompt and is live in healthy Railway deployment
+`a2c53fc2-25f8-41f2-9204-b90ec196c196`; 54 focused tests pass. The owner refresh after
+deployment timed out on page 1 after 189 seconds (`woocommerce_transport_read_timeout_page_1`).
+Independent probes of the supplier site, WordPress JSON and Store API also timed out. No
+new snapshot was staged. The previous full snapshot
+`2976f2004a643e5546dc242ec876607dad1fd03d2fb6ee7cd124881d30497380` remains inactive,
+but its `1/2ل` value is the old, incorrect 0.5 L. Do not review or activate it; stage a
+corrected full candidate after the source API becomes reachable. The active snapshot is
+unset and `ReferencePrices` has not been written.
 
 **Initial reference-source correction — 2026-10-30:** Rezvan reference products are required
 from its WooCommerce Store API, not the supplier PDF. Commit `3d8a7d2` is deployed to
@@ -30,13 +30,12 @@ order, charge, refund or supplier purchase was made.
 
 ## Measurement extraction check before refresh — 2026-10-31
 
-The title parser now separates explicit weight and volume, accepts compact Persian unit
-suffixes and fractional measures, and preserves the exact source title. Supplier Gemini
-is instructed to keep the full title; its response is checked against title evidence and
-ambiguous source-line matches are sent for review. Live read-only checks of Rezvan API
-products `24674` and `24670` produce `180 گرم` and `0.5 لیتر`, with retail markers and
-package counts intact. The full local suite passes 280 tests. A new reference snapshot has
-not been refreshed or activated, and `ReferencePrices` was not written.
+The earlier title parser separated explicit weight and volume, accepted compact Persian
+unit suffixes, and preserved the exact source title. It incorrectly treated ASCII `/` as
+a fraction, so its old `1/2ل` check produced 0.5 L. The corrected parser now interprets
+ASCII slash as a decimal separator, while dedicated `⁄` remains a fraction. Its focused
+tests pass; the supplier API timeout prevented creation of a corrected production
+snapshot. The old candidate remains inactive and `ReferencePrices` was not written.
 
 ## Current live recheck — 2026-10-29
 
@@ -206,7 +205,7 @@ that customers can receive a delivery rate on the public checkout.
 | Handoff | Current evidence and status |
 |---|---|
 | Supplier → bot/server | Railway and its worker are online. The live Sheets-backed catalog returns two products. Row-level bilateral edits, conflict receipts and publication cadence still need connected verification. |
-| Reference → extraction/review | Candidate `2976f2004a643e5546dc242ec876607dad1fd03d2fb6ee7cd124881d30497380` is staged from the Rezvan WooCommerce Store API (3,919 products / 40 pages) with verified coverage; it awaits owner review. Two older PDF/Gemini candidates remain incomplete and inactive. No `ReferencePrices` write has occurred. |
+| Reference → extraction/review | Candidate `2976f2004a643e5546dc242ec876607dad1fd03d2fb6ee7cd124881d30497380` has verified 3,919-row / 40-page coverage but predates the corrected slash rule and contains a wrong 0.5 L value. Keep it inactive and do not activate. A corrected candidate awaits source API recovery. No `ReferencePrices` write has occurred. |
 | Offers → pricing/catalog | Woo now publishes the customer price band and keeps supplier cost private. Freshness gating and fixed-pack minimums are active. Clearance formula, near-cost alert behavior and connected recalculation still need review. |
 | Catalog → WordPress/basket | Two products are synced in IRT; `/` and `/shop/` render the storefront. The delivery calculation exists, but the live Tehran zone has no matching locations. |
 | Checkout → operator work | Woo page assignments are present. WordPress users 1 and 2 can access the reference page; the owner bridge lists four candidates, including the latest staged version. Owner review remains pending. |

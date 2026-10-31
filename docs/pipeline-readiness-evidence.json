@@ -1,6 +1,6 @@
 {
   "date": "2026-10-31",
-  "mode": "WooCommerce reference refresh retry and verified staging; no customer order/payment or reference activation",
+  "mode": "Persian slash-decimal correction deployed; supplier API timeout blocked a corrected refresh; no customer order/payment or reference activation",
   "results": {
     "health": {
       "http": 200,
@@ -76,8 +76,27 @@
     }
   },
   "sheets_note": "Railway reports a service-account writer and /api/shop returns the two live Products rows. Bilateral edits, conflict receipts and automatic publication cadence are not verified.",
-  "limits": "The Rezvan reference source is the WooCommerce Store API. Snapshot 2976f2004a643e5546dc242ec876607dad1fd03d2fb6ee7cd124881d30497380 is staged for owner review with complete coverage; it remains inactive and has not been written to ReferencePrices. The older 10-row PDF/Gemini candidates are historical, incomplete and inactive. Payment setup and the complete order-to-aftercare flow remain separate open work.",
-  "latest_reference_refresh": {
+  "limits": "The Rezvan reference source is the WooCommerce Store API. The last complete snapshot 2976f2004a643e5546dc242ec876607dad1fd03d2fb6ee7cd124881d30497380 is inactive but contains the superseded 0.5 L interpretation of title 1/2ل; do not activate it. The corrected parser is deployed, but the supplier API timed out before a corrected snapshot could be staged. No active snapshot or ReferencePrices write exists. The older PDF/Gemini candidates are historical, incomplete and inactive. Payment setup and the complete order-to-aftercare flow remain separate open work.",
+  "latest_measurement_notation_correction": {
+    "date": "2026-10-31",
+    "ascii_slash_semantics": "Persian decimal separator: 1/2 = 1.2 and 1/5 = 1.5",
+    "dedicated_fraction_slash_semantics": "U+2044 remains a mathematical fraction",
+    "commit": "47c4ee799228f2ec3f1c3b229e5972d0d6c020c8",
+    "deployment_id": "a2c53fc2-25f8-41f2-9204-b90ec196c196",
+    "deployment_status": "SUCCESS",
+    "health_http": 200,
+    "focused_tests": 54,
+    "refresh_attempt_at": "2026-10-31T09:55:16.448106+00:00",
+    "refresh_result": "failed",
+    "refresh_error_code": "woocommerce_transport_read_timeout_page_1",
+    "refresh_duration_ms": 189435,
+    "supplier_site_and_api_probes": "Timed out for the homepage, WordPress JSON root, Store API with per_page=1, and alternate www Store API",
+    "new_snapshot_staged": false,
+    "previous_snapshot_id": "2976f2004a643e5546dc242ec876607dad1fd03d2fb6ee7cd124881d30497380",
+    "previous_snapshot_active": false,
+    "referenceprices_write": false
+  },
+  "previous_successful_reference_refresh": {
     "date": "2026-10-31",
     "previous_failure_code": "woocommerce_transport_failed",
     "fix_commit": "a157ee59d464910708f2f22083bb7ded7eac172e",
@@ -91,7 +110,7 @@
     "referenceprices_write": false,
     "sample_products": [
       {"name": "آبلیمو مجید کوچک180گ(138ف)20ع***", "weight": "180 گرم", "package_count": 20},
-      {"name": "آبلیمو دست چین1/2ل (304ف)6ع***", "volume": "0.5 لیتر", "package_count": 6}
+      {"name": "آبلیمو دست چین1/2ل (304ف)6ع***", "previously_parsed_volume": "0.5 لیتر (incorrect old parser)", "package_count": 6}
     ]
   },
   "reference_source_correction": {
@@ -116,12 +135,12 @@
     }
   },
   "latest_deployment_checkpoint": {
-    "date": "2026-10-30",
+    "date": "2026-10-31",
     "project": "stellar-solace",
     "environment": "production",
     "service": "Wholesale-project",
-    "commit": "a157ee59d464910708f2f22083bb7ded7eac172e",
-    "deployment_id": "b7901971-078f-44f7-8ce5-46586d807e91",
+    "commit": "47c4ee799228f2ec3f1c3b229e5972d0d6c020c8",
+    "deployment_id": "a2c53fc2-25f8-41f2-9204-b90ec196c196",
     "deployment_status": "SUCCESS",
     "health_http": 200,
     "service_domain": "https://wholesale-project-production.up.railway.app",

@@ -1,6 +1,23 @@
 # ReferencePrices source recovery checkpoint
 
-## Latest production refresh — 2026-10-31
+## Persian slash notation correction — 2026-10-31
+
+In these Persian supplier titles, ASCII `/` is a decimal separator: `1/2ل` means
+`1.2 لیتر`, and `1/5ل` means `1.5 لیتر`. The dedicated fraction slash `⁄` remains an
+exact mathematical fraction. Commit `47c4ee7` updates the shared parser and Gemini
+prompt; Railway deployment `a2c53fc2-25f8-41f2-9204-b90ec196c196` succeeded and both
+health routes returned HTTP 200. The focused parser/importer/Gemini tests pass (54).
+
+A full owner refresh after deployment failed after 189 seconds with
+`woocommerce_transport_read_timeout_page_1`. The supplier homepage, WordPress JSON root,
+Store API (including `per_page=1`), and alternate `www` Store API all timed out in
+independent probes. No new snapshot was staged. The previous complete candidate
+`2976f2004a643e5546dc242ec876607dad1fd03d2fb6ee7cd124881d30497380` remains inactive
+and contains the old, incorrect `0.5 لیتر` reading for `آبلیمو دست چین1/2ل`; it must not
+be activated. `active_snapshot_id` remains unset and no `ReferencePrices` write occurred.
+A corrected full snapshot still requires a successful source fetch.
+
+## Previous successful full refresh before notation correction — 2026-10-31
 
 The owner reported repeated refresh failures. Railway recorded the generic
 `woocommerce_transport_failed` result, but the old importer did not preserve which
@@ -16,8 +33,9 @@ The owner-authorized retry succeeded: snapshot
 3,919 products across 40 of 40 pages with verified coverage. It remains inactive and
 `active_snapshot_id` is unset; no `ReferencePrices` write occurred. The full titles
 `آبلیمو مجید کوچک180گ(138ف)20ع***` and `آبلیمو دست چین1/2ل (304ف)6ع***` were preserved;
-their extracted values are respectively 180 grams / 20 per package and 0.5 liters / 6
-per package. The candidate awaits owner review and explicit activation.
+the parser at that time produced 180 grams / 20 per package and the now-known-wrong
+0.5-liter / 6-per-package value. This candidate must remain inactive and is superseded
+for review by a corrected full snapshot once the source API is reachable.
 
 ## Current source decision — 2026-10-30
 

@@ -1,6 +1,24 @@
 # Whole-flow handoff implementation record — 2026-10-26 onward (Asia/Tehran)
 
-## Production refresh retry — 2026-10-31
+## Persian slash notation correction — 2026-10-31
+
+ASCII `/` in Persian product measurements is a decimal separator: `1/2ل` means
+`1.2 لیتر`, and `1/5ل` means `1.5 لیتر`. The dedicated fraction slash `⁄` remains a
+fraction. Commit `47c4ee7` updates the shared parser and Gemini prompt and is live in
+Railway deployment `a2c53fc2-25f8-41f2-9204-b90ec196c196`; `/health` and
+`/health/detailed` return HTTP 200. The focused parser/importer/Gemini checks pass 54
+tests.
+
+The full refresh then failed after 189 seconds with
+`woocommerce_transport_read_timeout_page_1`. Independent reads of the supplier site,
+WordPress JSON and Store API timed out, including the one-product request. No new
+snapshot was staged. The last complete candidate
+`2976f2004a643e5546dc242ec876607dad1fd03d2fb6ee7cd124881d30497380` remains inactive;
+its `1/2ل` row says `0.5 لیتر` under the superseded parser and must not be activated.
+There is no active snapshot and no `ReferencePrices` write. A corrected full candidate
+is blocked on successful access to the supplier API.
+
+## Previous successful full refresh before slash correction — 2026-10-31
 
 The repeated generic `woocommerce_transport_failed` refresh was traced to the importer
 failing its full WooCommerce fetch without identifying the page or retaining the
@@ -9,10 +27,10 @@ two concurrent requests) for transport, rate-limit and server failures, plus
 page-specific safe errors. Railway deployment `b7901971-078f-44f7-8ce5-46586d807e91`
 and the matching WordPress browser client are deployed. An owner-authorized production
 retry staged candidate `2976f2004a643e5546dc242ec876607dad1fd03d2fb6ee7cd124881d30497380`
-with 3,919 rows over 40 pages and verified coverage. The two sample titles were
-preserved and parsed as 180 g / 20 per package and 0.5 L / 6 per package. The candidate
-is inactive and awaits review; no `ReferencePrices` write was made. The full local
-Python suite passes 282 tests.
+with 3,919 rows over 40 pages and verified coverage. The `1/2ل` sample was mistakenly
+parsed as 0.5 L. The candidate remains inactive and must not be activated; no
+`ReferencePrices` write was made. The full local Python suite passed 282 tests before the
+slash correction; 54 focused tests pass after it.
 
 ## Initial Rezvan source correction — 2026-10-30 (superseded checkpoint)
 
@@ -27,24 +45,25 @@ The previous PDF/Gemini refresh failed before creating a snapshot; its two older
 drafts are incomplete and inactive. No `ReferencePrices` write or snapshot activation
 has occurred. Production supplier-message Gemini is set to `gemini-3.5-flash-lite`.
 
-## Product-title measurement extraction — 2026-10-31
+## Product-title measurement extraction before slash correction — 2026-10-31
 
 `catalog/measurements.py` is the shared, deterministic parser for explicit Persian and
 English product measurements. It recognizes compact suffixes such as `180گ` (180 grams)
-and `1/2ل` (0.5 liters), converts Persian/Arabic digits and common unit aliases, and keeps
-weight separate from volume. Unlabeled numbers and retail/package markers such as `(304ف)`
-and `6ع` are not measurements. The WooCommerce reference importer keeps the source title
-verbatim and canonicalizes recognized size tokens only in its matching name.
+and initially treated `1/2ل` as `0.5 liters`; this ASCII-slash interpretation was wrong
+and is superseded above. The parser converts Persian/Arabic digits and common unit aliases
+and keeps weight separate from volume. Unlabeled numbers and retail/package markers such
+as `(304ف)` and `6ع` are not measurements. The WooCommerce reference importer keeps the
+source title verbatim and canonicalizes recognized size tokens only in its matching name.
 
 The supplier Gemini prompt now requires the exact full source title in `name`, with
 normalized measurement values in separate fields. The adapter validates those fields
 against explicit title evidence. If Gemini shortened the name, the adapter restores the
 source title only when exactly one message line has the same base product identity; if
 multiple title lines could match, it leaves the measurement blank and marks the product
-for review. Exact live Rezvan Store API rows `24674` and `24670` now parse as `180 گرم`
-and `0.5 لیتر`; each retains its full title, retail hint and package count. The full local
-Python suite passes 280 tests. This verification did not refresh or activate a snapshot,
-write `ReferencePrices`, or change the live product catalog.
+for review. An earlier check parsed the compact `1/2ل` sample as `0.5 لیتر`; that output is
+superseded by the decimal-slash correction. The earlier full-suite result was 280 tests;
+after the correction, 54 focused tests pass. The correction refresh attempt did not stage a
+new snapshot or write `ReferencePrices` because the source API timed out.
 
 ## Historical production checkpoint — 2026-10-29 (superseded)
 

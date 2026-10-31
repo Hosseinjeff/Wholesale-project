@@ -1,6 +1,19 @@
 # WordPress dashboard integration
 
-## Latest production refresh — 2026-10-31
+## Persian slash notation correction — 2026-10-31
+
+The parser and Gemini prompt now treat ASCII `/` in Persian measurements as a decimal
+separator: `1/2ل` is `1.2 لیتر`, and `1/5ل` is `1.5 لیتر`. Commit `47c4ee7` is deployed
+to healthy Railway deployment `a2c53fc2-25f8-41f2-9204-b90ec196c196`; 54 focused tests
+pass. A subsequent full refresh failed on page 1 with
+`woocommerce_transport_read_timeout_page_1` after 189 seconds. Read-only probes of the
+supplier homepage, WordPress JSON endpoint and Store API timed out. No candidate was
+created. The previous complete candidate `2976f2004a643e5546dc242ec876607dad1fd03d2fb6ee7cd124881d30497380`
+still carries the old `0.5 لیتر` interpretation for the `1/2ل` product, remains inactive,
+and must not be activated. No reference projection was written; restage after the source
+API is reachable.
+
+## Previous successful full refresh before notation correction — 2026-10-31
 
 Repeated owner refresh attempts had returned a generic transport failure. Commit
 `a157ee5` lowers page size and concurrency for a complete retry after transport,
@@ -9,10 +22,9 @@ still fail. Railway deployment `b7901971-078f-44f7-8ce5-46586d807e91` is healthy
 WordPress browser client from the same commit was uploaded and read back successfully.
 An owner-authorized retry staged snapshot
 `2976f2004a643e5546dc242ec876607dad1fd03d2fb6ee7cd124881d30497380` with 3,919/3,919
-products across 40/40 pages and verified coverage. Both reported sample titles now
-retain their full source names and parse as 180 grams / 20 per package and 0.5 liters /
-6 per package. The snapshot is inactive; no `ReferencePrices` write or activation was
-made. It awaits owner review.
+products across 40/40 pages and verified coverage. The parser preserved both titles but
+misread the slash in `1/2ل` as a fraction, producing `0.5 لیتر`. This snapshot remains
+inactive and must not be activated. No `ReferencePrices` write was made.
 
 ## Source correction and initial API snapshot — 2026-10-30 (superseded checkpoint)
 
