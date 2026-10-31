@@ -113,6 +113,17 @@ class GeminiExtractionTests(unittest.TestCase):
         self.assertEqual(product['price_type'], 'unit')
         self.assertFalse(product['needs_review'])
 
+    def test_inline_source_package_label_resolves_product_title_and_price_basis(self):
+        title = 'محصول نمونه 6ع'
+        product = parse_message_products(json.dumps([{
+            'name': title, 'package_price': 60000, 'package_count': 6,
+            'currency': 'IRT', 'confidence': 0.99,
+        }], ensure_ascii=False), title + ' | قیمت باکس: ۶۰٬۰۰۰ تومان', '@supplier')[0]
+        self.assertEqual(product['name'], title)
+        self.assertEqual(product['sale_price'], 10000)
+        self.assertEqual(product['package_price'], 60000)
+        self.assertFalse(product['needs_review'])
+
     def test_single_unlabelled_consumer_field_is_supplier_sale_amount(self):
         title = 'محصول نمونه'
         product = parse_message_products(json.dumps([{

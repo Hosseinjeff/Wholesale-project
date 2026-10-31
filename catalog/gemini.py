@@ -166,14 +166,25 @@ def _source_title_evidence(name, content):
         return None, False
     matches = []
     for line in str(content or '').splitlines():
-        title = line.strip()
-        if not title or _title_identity(title) != identity:
-            continue
-        volume = extract_measurement(title, 'volume')
-        weight = extract_measurement(title, 'weight')
-        match = (title, volume, weight)
-        if match not in matches:
-            matches.append(match)
+        source_line = line.strip()
+        candidates = [source_line]
+        # Some wholesalers put a labeled amount on the same line as the title.
+        # Strip that suffix only when the text before the label exactly matches the
+        # extracted product identity and an amount follows the label.
+        label_matches = [pattern.search(source_line) for pattern in (
+            _UNIT_PRICE_LABEL, _PACKAGE_PRICE_LABEL, _CONSUMER_PRICE_LABEL)]
+        for label_match in (found for found in label_matches if found):
+            prefix = source_line[:label_match.start()].strip(' \t:|-–—،')
+            if prefix and re.search(r'\d', source_line[label_match.end():]):
+                candidates.append(prefix)
+        for title in candidates:
+            if not title or _title_identity(title) != identity:
+                continue
+            volume = extract_measurement(title, 'volume')
+            weight = extract_measurement(title, 'weight')
+            match = (title, volume, weight)
+            if match not in matches:
+                matches.append(match)
     if len(matches) == 1:
         return matches[0], False
     return None, len(matches) > 1
@@ -194,7 +205,19 @@ def _source_title_context(source_title, content, ambiguous=False):
     if not source_title or ambiguous:
         return []
     lines = [line.strip() for line in str(content or '').splitlines()]
-    indexes = [index for index, line in enumerate(lines) if line == source_title[0]]
+    title = source_title[0]
+    indexes = []
+    for index, line in enumerate(lines):
+        if line == title:
+            indexes.append(index)
+            continue
+        if not line.startswith(title):
+            continue
+        suffix = line[len(title):]
+        labels = [pattern.search(suffix) for pattern in (
+            _UNIT_PRICE_LABEL, _PACKAGE_PRICE_LABEL, _CONSUMER_PRICE_LABEL)]
+        if any(found and re.search(r'\d', suffix[found.end():]) for found in labels):
+            indexes.append(index)
     if len(indexes) != 1:
         return []
     context = [lines[indexes[0]]]
