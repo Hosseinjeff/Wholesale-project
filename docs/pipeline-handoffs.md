@@ -1,5 +1,28 @@
 # Whole-flow handoff implementation record — 2026-10-26 onward (Asia/Tehran)
 
+## Current live product setup — 2026-10-31
+
+The streamlined owner pipeline screens are deployed from commit
+`62173404ece9e09a2348c19429e451559d73c688` (Railway deployment
+`c1d067de-5c64-4583-af4b-32230b7dae0e`). All eight owner setup screens and their scoped
+APIs returned HTTP 200 during the read-only audit. The active reference snapshot contains
+3,925 WooCommerce Store API rows, including the corrected 1.2 L and 180 g examples.
+Fifty-four item matches remain pending; no owner decision or `ReferencePrices` write was
+submitted during this audit.
+
+The current queue has 48 done, 125 failed publication, 1 needs-review, and 2 waiting-
+publication jobs. One `batch_in_progress` hold is active, 47 AI confirmations are held,
+and the batch with 514 attempts needs owner review. Two blocked publication jobs now wait
+for the hold decision; the 125 older generic `RuntimeError` failures remain failed. The
+freshness screen returned 100 offers (61 blocked, 37 needing review, 2 warning), and the
+Sheet-conflict screen returned zero conflicts.
+
+The customer handoff is not verified: Railway `/api/shop` returns an empty list while
+WooCommerce exposes two non-purchasable product records. The owner hold was not cleared,
+and no failed job was retried or product published. See
+[`pipeline-readiness.md`](pipeline-readiness.md) for the complete current checkpoint and
+remaining release gates.
+
 ## Persian slash notation correction — 2026-10-31
 
 ASCII `/` in Persian product measurements is a decimal separator: `1/2ل` means

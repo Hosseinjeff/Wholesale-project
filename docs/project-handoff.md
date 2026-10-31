@@ -1,40 +1,44 @@
 # MolaviSale — whole-workflow handoff
 
-Snapshot 4.56. Updated 2026-10-31, Asia/Tehran. The canonical roleplay decisions are in
+Snapshot 4.57. Updated 2026-10-31, Asia/Tehran. The canonical roleplay decisions are in
 `roleplay-state.json`; current live evidence and release gates are in
 `pipeline-readiness.md` and `pipeline-readiness-evidence.json`.
 
 ## Current live checkpoint — 2026-10-31
 
-Railway is healthy and its Sheet-backed catalog currently returns two products. Their
-public Woo prices now use the customer price band while supplier costs stay private.
-The Tehran 250,000-toman fee and free-delivery threshold are implemented. WordPress is
-fresh on `h434558_Salesman`, and Shop page 7 uses the `[molavi_storefront]` WooCommerce
-storefront derived from mockup v2. At the user's direction the site is now public, and
-the static front page points to Shop page 7. Live `/` and `/shop/` both render two
-products without the Coming Soon screen. Responsive visual/business review remains
-pending. Railway now runs source commit `47c4ee799228f2ec3f1c3b229e5972d0d6c020c8`
-(deployment `a2c53fc2-25f8-41f2-9204-b90ec196c196`) on the release branch. The updated
-MolaviShop reference-page JavaScript from commit `a157ee5` was deployed and read back.
+Railway deployment `c1d067de-5c64-4583-af4b-32230b7dae0e` is successful and online at
+commit `62173404ece9e09a2348c19429e451559d73c688`. The streamlined product pipeline
+dashboard is live; all eight owner product setup screens and their scoped APIs returned
+HTTP 200 in the authenticated read-only audit. The production services report online
+with no active warnings or recent deployment failures. The matching WordPress plugin
+files were uploaded from this commit and read back successfully.
 
-The live Tehran shipping zone has no location rules, so customers do not match the
-configured delivery method. Rezvan reference products now come from its WooCommerce Store
-API, not its official PDF. ASCII `/` in Persian measurements means a decimal point:
-`1/2ل` is 1.2 L and `1/5ل` is 1.5 L. Commit `47c4ee7` corrects the parser and prompt.
-The new full refresh failed on page 1 with a read timeout while the supplier API and its
-alternate host were not responding. The previous 3,919-row candidate
-`2976f2004a643e5546dc242ec876607dad1fd03d2fb6ee7cd124881d30497380` remains inactive
-but has the old, incorrect 0.5 L value for the `1/2ل` item; do not activate it. A full
-corrected candidate must be staged once source access returns. The active snapshot is
-unset and `ReferencePrices` has not been written. The two PDF/Gemini drafts are incomplete
-and inactive. Production supplier-message Gemini defaults to `gemini-3.5-flash-lite`;
-reference acquisition does not use Gemini. Payment configuration is explicitly outside
-the current work.
+The latest product setup audit found a blocking catalog handoff: Railway `/api/shop`
+returns zero products, while WooCommerce's public Store API returns two records, both
+non-purchasable. Do not treat those two Woo records as evidence that new products have
+completed setup. The queue has 125 failed publication jobs, two waiting on the active
+publication hold, one batch needing owner review, and 47 held AI confirmations. The
+active `batch_in_progress` hold and the 125 failures were left untouched. There are 54
+pending product/reference matching cases and 100 supplier-price freshness results
+(61 blocked, 37 review, 2 warning). No owner decisions, product publication, Sheet write,
+order or payment action was submitted during this audit. See `pipeline-readiness.md` for
+exact counts and the current verification boundaries.
 
-The remaining non-payment work is to set the delivery coverage, review the staged
-WooCommerce-sourced reference candidate, verify Sheets and Woo handoffs in connected
-staging, and complete recovery, policy, and end-to-end workflow review. Do not mark a
-roleplay scene complete until the integrated stream is validated.
+The active reference snapshot now contains 3,925 rows from the WooCommerce Store API and
+reports fresh. Read-only checks confirm `آبلیمو دست چین1/2ل (304ف)6ع***` as 1.2 liters
+and `آبلیمو مجید کوچک180گ(138ف)20ع***` as 180 grams with 20 units. The older 3,919-row
+candidate with the incorrect 0.5 L value remains inactive. The Woo source, not the
+supplier PDF, is authoritative for reference acquisition; the extraction step does not
+use Gemini. Production supplier-message Gemini defaults to `gemini-3.5-flash-lite`.
+
+The Tehran 250,000-toman fee and free-delivery threshold are implemented, but the live
+Tehran shipping zone still has no location rules. WordPress is on `h434558_Salesman`,
+Shop page 7 uses `[molavi_storefront]`, and the static front page points to Shop page 7.
+Responsive visual/business review remains pending. Payment configuration remains out of
+scope. The Telegram posts received on 2026-10-29 were acknowledged by the webhook, but
+their completion through Sheets and publication was not confirmed; the current queue
+still requires owner review and failure recovery. Do not mark the integrated workflow
+complete until the catalog handoff and recovery path are verified.
 
 The user also referenced an “Auditer” ChatGPT conversation for findings. Its `read_thread`
 connector was not available in this workspace, so repository audit records were used for

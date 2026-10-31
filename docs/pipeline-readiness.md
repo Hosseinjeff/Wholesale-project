@@ -1,20 +1,42 @@
 # Whole-pipeline readiness — 2026-10-31
 
-**Current state: the public storefront is live at the user's direction. The root page
-now opens the Shop storefront. Payment setup is out of scope for the current work. The
-non-payment release gaps are the unset Tehran delivery area, owner dashboard review,
-connected handoff verification, and remaining business review.**
-**Latest measurement-notation status — 2026-10-31:** ASCII `/` in Persian titles is a
-decimal separator: `1/2ل` means 1.2 L and `1/5ل` means 1.5 L. Commit `47c4ee7` updates
-the parser and Gemini prompt and is live in healthy Railway deployment
-`a2c53fc2-25f8-41f2-9204-b90ec196c196`; 54 focused tests pass. The owner refresh after
-deployment timed out on page 1 after 189 seconds (`woocommerce_transport_read_timeout_page_1`).
-Independent probes of the supplier site, WordPress JSON and Store API also timed out. No
-new snapshot was staged. The previous full snapshot
-`2976f2004a643e5546dc242ec876607dad1fd03d2fb6ee7cd124881d30497380` remains inactive,
-but its `1/2ل` value is the old, incorrect 0.5 L. Do not review or activate it; stage a
-corrected full candidate after the source API becomes reachable. The active snapshot is
-unset and `ReferencePrices` has not been written.
+**Current state — 2026-10-31:** The public storefront remains live, and the owner product
+pipeline menu was streamlined in commit `62173404ece9e09a2348c19429e451559d73c688`.
+Railway deployment `c1d067de-5c64-4583-af4b-32230b7dae0e` is successful and online.
+The latest read-only product setup audit is below. Payment setup remains out of scope.
+
+## Latest live product setup audit — 2026-10-31
+
+- All eight owner product setup screens and their scoped APIs returned HTTP 200 in the
+  authenticated audit. No review decision, snapshot activation, Sheet write, product
+  publication, order, or payment action was submitted during this audit.
+- The active reference snapshot contains 3,925 rows from the WooCommerce Store API and
+  reports fresh. Live rows confirm `آبلیمو دست چین1/2ل (304ف)6ع***` as 1.2 liters and
+  `آبلیمو مجید کوچک180گ(138ف)20ع***` as 180 grams with 20 units. Fifty-four product
+  matching cases remain pending; the freshness-decision endpoint returned zero events.
+- Supplier-price freshness returned 100 offers: 61 blocked, 37 needing review, and 2
+  warning. The conflicts screen returned zero open Sheet conflicts.
+- The operations dashboard returned all 128 actionable rows without truncation. Queue
+  states were 48 done, 125 failed, 1 needs review, and 2 waiting for publication. One
+  `batch_in_progress` hold remains; 47 AI confirmations are held behind it. One batch
+  with 514 attempts needs owner review. The 125 old failed publication jobs still have
+  generic `RuntimeError` failures; the two newer blocked jobs now wait explicitly for
+  publication-hold review. These jobs were not retried.
+- **Catalog handoff is still blocked:** Railway `/api/shop` returned zero products, while
+  WooCommerce's public Store API returned two records and marked both non-purchasable.
+  The public products therefore do not prove a current Sheet-to-Woo handoff. The precise
+  cause of the empty Railway catalog (source rows versus freshness eligibility) remains
+  unisolated. Do not publish or clear the hold as part of a read-only audit.
+- Railway reports both production services online, one replica for each, and no active
+  warnings or recent deployment failures. The updated WordPress plugin files were
+  uploaded from the same commit and read back successfully.
+- Eight local measurement and supplier-freshness core tests passed in this workspace.
+  The route-suite rerun was blocked because this executor's Python environment lacks
+  Flask; the 293-test post-commit run recorded earlier remains the full-suite evidence.
+
+The previous 2026-10-31 refresh-timeout note below is a historical checkpoint. The
+current active snapshot supersedes its statement that no snapshot was active. The older
+3,919-row snapshot still contains the incorrect 0.5 L parse and must remain inactive.
 
 **Initial reference-source correction — 2026-10-30:** Rezvan reference products are required
 from its WooCommerce Store API, not the supplier PDF. Commit `3d8a7d2` is deployed to
@@ -204,11 +226,11 @@ that customers can receive a delivery rate on the public checkout.
 
 | Handoff | Current evidence and status |
 |---|---|
-| Supplier → bot/server | Railway and its worker are online. The live Sheets-backed catalog returns two products. Row-level bilateral edits, conflict receipts and publication cadence still need connected verification. |
-| Reference → extraction/review | Candidate `2976f2004a643e5546dc242ec876607dad1fd03d2fb6ee7cd124881d30497380` has verified 3,919-row / 40-page coverage but predates the corrected slash rule and contains a wrong 0.5 L value. Keep it inactive and do not activate. A corrected candidate awaits source API recovery. No `ReferencePrices` write has occurred. |
-| Offers → pricing/catalog | Woo now publishes the customer price band and keeps supplier cost private. Freshness gating and fixed-pack minimums are active. Clearance formula, near-cost alert behavior and connected recalculation still need review. |
-| Catalog → WordPress/basket | Two products are synced in IRT; `/` and `/shop/` render the storefront. The delivery calculation exists, but the live Tehran zone has no matching locations. |
-| Checkout → operator work | Woo page assignments are present. WordPress users 1 and 2 can access the reference page; the owner bridge lists four candidates, including the latest staged version. Owner review remains pending. |
+| Supplier → bot/server | Railway and its worker are online. Durable queue records are present, but one batch needs owner review and 125 publication jobs remain failed. The Railway shop API currently returns zero products. |
+| Reference → extraction/review | The active snapshot has 3,925 WooCommerce Store API rows and fresh status. Corrected `1/2ل` and compact gram extraction are present. Fifty-four matching cases remain pending; the owner has not recorded a decision. |
+| Offers → pricing/catalog | Freshness gating is active. The latest response contains 100 offers (61 blocked, 37 needing review, 2 warning). The current publication hold keeps AI and publication actions from completing until owner review. |
+| Catalog → WordPress/basket | The public Woo Store API returns two records, both non-purchasable, while the Railway shop API returns none. The catalog handoff is not verified. The delivery calculation exists, but the live Tehran zone has no matching locations. |
+| Checkout → operator work | Woo page assignments are present and both existing owner accounts can access the owner reference page. The active snapshot is available; matching and hold decisions remain pending. The live Tehran shipping zone still has no location rules. |
 | Payment → fulfillment/follow-up | Paid-order lifecycle is synthetic-tested. No live payment callback or order was run; inventory/workflow ledger remains on Railway SQLite and is not mirrored to Sheets. |
 | Daily reconciliation/recovery | The server worker and owner review surfaces exist. Bilateral Sheet edits and cutover of legacy/GAS writers remain unverified; legacy writers can bypass server locks. |
 
@@ -217,18 +239,21 @@ that customers can receive a delivery rate on the public checkout.
 1. Set the exact coverage locations for the already configured Tehran shipping zone.
    The fee and free-delivery threshold are recorded; the actual eligible addresses are
    not. The live zone currently has no location rules.
-2. Review the complete WooCommerce API candidate from WooCommerce → بررسی قیمت‌های مرجع.
-   The older PDF/Gemini drafts cannot be reviewed or activated.
-3. Activate the Woo API snapshot only after owner review and explicit approval, then
-   verify its `ReferencePrices` write receipt. No snapshot is active and no write has
-   occurred.
-4. Verify bilateral Products-sheet edits, conflict receipts and Woo publication in
+2. Resolve the `batch_in_progress` publication hold through owner review. This also
+   releases the two publication jobs waiting on that hold; the 125 older failed jobs
+   still need separate diagnosis and replay planning.
+3. Trace why the Railway `/api/shop` response is empty while Woo still has two
+   non-purchasable records. Verify the Sheet projection and freshness eligibility before
+   publishing anything.
+4. Review the 54 pending reference matches and supplier-price cases in the owner screens.
+   Do not activate or write prices without the owner's decision.
+5. Verify bilateral Products-sheet edits, conflict receipts and Woo publication in
    connected staging, then reconcile and cut over legacy/GAS writers after a guarded
    replay. This Railway project has no isolated staging environment; legacy writers can
    bypass server locks.
-5. Finish the clearance formula, near-cost threshold, alert channel and approval rules;
+6. Finish the clearance formula, near-cost threshold, alert channel and approval rules;
    these require business settings and cannot be inferred from the code.
-6. Validate persistent inventory/order-ledger reporting, backups and restore, operator
+7. Validate persistent inventory/order-ledger reporting, backups and restore, operator
    recovery controls, browser/Elementor/Wordfence interactions, and the household then
    retailer end-to-end workflows. The v2 mockup's guest-request form is still only a
    demonstration; production uses WooCommerce checkout.
