@@ -187,6 +187,14 @@ class SheetsRest:
     def values_get(self, range_name: str) -> dict[str, Any]:
         return self._call("GET", f"/v4/spreadsheets/{self.spreadsheet_id}/values/{quote(range_name, safe='')}")
 
+    def values_get_unformatted(self, range_name: str) -> dict[str, Any]:
+        """Read the stored cell values rather than locale-formatted display text."""
+        return self._call(
+            "GET",
+            f"/v4/spreadsheets/{self.spreadsheet_id}/values/{quote(range_name, safe='')}",
+            params={"valueRenderOption": "UNFORMATTED_VALUE"},
+        )
+
     def values_append(self, range_name: str, value_input: str, insert_data: str, body: dict[str, Any]) -> dict[str, Any]:
         return self._call(
             "POST",
@@ -322,6 +330,11 @@ class GoogleSheetStore:
     def read_fresh(self, name: str) -> list[list[Any]]:
         self._values.pop(name,None)
         return self.read(name)
+
+    def read_fresh_unformatted(self, name: str) -> list[list[Any]]:
+        """Read raw cell values for reliable write receipts, bypassing the display cache."""
+        result = self._api().values_get_unformatted(_a1(name))
+        return _copy_table(result.get("values") or [])
 
     def write_cells(self,name: str,row_number: int,headers: list[str],values: dict[str,Any]) -> None:
         if not values:return

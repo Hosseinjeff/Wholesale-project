@@ -245,3 +245,20 @@ Git fetch succeeded with explicit network access; local review branch is based o
 2e32dea. The module now reads the preserved GAS file directly for differential tests.
 No duplicate legacy snapshot is required. PHP 8.3 syntax checks now pass for the plugin entry point and new admin include.
 WordPress runtime/browser verification remains outstanding.
+
+## Activation receipt failure — 2026-10-31
+
+The owner clicked **فعال‌سازی و ثبت قیمت‌ها** for a reviewed 3,925-row candidate.
+The activation transaction updated the active snapshot, and the projection wrote the
+`ReferencePrices` table, but the route returned HTTP 503 during its receipt check.
+`SheetsRest.values_get` used Google Sheets' default `FORMATTED_VALUE`; in this Persian
+locale, numeric cells came back as display strings such as `952,459`, while the snapshot
+stores the number `952459`. This was a readback-format mismatch, not a failed sheet write.
+
+The live raw-value comparison found all 3,925 rows present and no differences across the
+17 row fields exposed to the owner snapshot API. The projection now requests
+`UNFORMATTED_VALUE` for both its pre-write and post-write reads, so numeric values are
+compared in their stored form. A repeated activation request for the already-active
+snapshot is safe: it skips changing the active pointer and retries the idempotent sheet
+projection. Focused tests cover the REST query, store read and projection read path.
+Production receipt retry and deployment details are recorded after they complete.

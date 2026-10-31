@@ -164,6 +164,25 @@ class ReferenceSnapshotRouteTests(unittest.TestCase):
         self.assertEqual(table[2],['']*len(HEADERS))
         self.assertEqual(table[3],['']*len(HEADERS))
 
+    def test_projection_uses_unformatted_sheet_receipts_when_available(self):
+        class RawReceiptStore(MemoryStore):
+            def __init__(self):
+                super().__init__()
+                self.raw_reads=0
+
+            def read_fresh(self,name):
+                raise AssertionError('projection should use unformatted receipt reads')
+
+            def read_fresh_unformatted(self,name):
+                self.raw_reads+=1
+                return self.read(name)
+
+        sheets=RawReceiptStore()
+        sheets.ensure('ReferencePrices',list(HEADERS))
+        receipt=project_reference_prices(sheets,staged_candidate())
+        self.assertTrue(receipt['verified'])
+        self.assertEqual(sheets.raw_reads,2)
+
     def test_projection_migrates_the_old_pdf_row_header_without_adding_a_duplicate_column(self):
         candidate=staged_candidate()
         sheets=MemoryStore()

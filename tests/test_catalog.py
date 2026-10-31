@@ -661,6 +661,10 @@ class RecordingSheets:
         self.calls.append(("get", range_name))
         return {"values": [["Sale Price"], ["52000"]]}
 
+    def values_get_unformatted(self, range_name):
+        self.calls.append(("get_unformatted", range_name))
+        return {"values": [["Sale Price"], [52000]]}
+
     def values_append(self, range_name, value_input, insert_data, body):
         self.calls.append(("append", range_name, value_input, insert_data, body))
         return {}
@@ -688,6 +692,23 @@ class SheetTransportTests(unittest.TestCase):
         self.assertEqual(http.calls[1][0], "append")
         self.assertEqual(http.calls[1][1], "'Offers'!A1:B1")
         self.assertEqual(http.calls[1][4], {"values": [["a", "b"]]})
+
+    def test_fresh_unformatted_read_uses_google_sheets_raw_values(self):
+        http = RecordingSheets()
+        store = GoogleSheetStore("sheet-id", {}, http=http)
+        self.assertEqual(store.read_fresh_unformatted("Products"), [["Sale Price"], [52000]])
+        self.assertEqual(http.calls, [("get_unformatted", "'Products'")])
+
+    def test_rest_client_requests_unformatted_values(self):
+        seen = {}
+
+        def transport(method, path, params, body):
+            seen.update(method=method, path=path, params=params, body=body)
+            return {"values": [[52000]]}
+
+        client = SheetsRest("sheet-id", transport=transport)
+        self.assertEqual(client.values_get_unformatted("'Products'!A2"), {"values": [[52000]]})
+        self.assertEqual(seen["params"], {"valueRenderOption": "UNFORMATTED_VALUE"})
 
     def test_one_batch_reads_a_sheet_once(self):
         http = RecordingSheets()

@@ -10,10 +10,13 @@ def project_reference_prices(sheet_store, snapshot):
     if not isinstance(rows,list) or not rows or any(not isinstance(row,list) or len(row)!=len(HEADERS) for row in rows):
         raise ImportFailure('Active reference rows are incomplete')
     title='ReferencePrices'
+    read_fresh=getattr(sheet_store,'read_fresh_unformatted',None)
+    if not callable(read_fresh):
+        read_fresh=sheet_store.read_fresh
     exists=getattr(sheet_store,'sheet_exists',None)
     if not callable(exists) or not exists(title):
         sheet_store.ensure(title,list(HEADERS))
-    existing=sheet_store.read_fresh(title)
+    existing=read_fresh(title)
     if not existing:
         existing=[list(HEADERS)]
     current_headers=[str(value) for value in existing[0]]
@@ -25,7 +28,7 @@ def project_reference_prices(sheet_store, snapshot):
     # One values.update request replaces the managed 21-column table and clears a
     # longer prior snapshot without touching columns outside the recovered schema.
     sheet_store.write_rows(title,1,table)
-    verified=sheet_store.read_fresh(title)
+    verified=read_fresh(title)
     if not verified or [str(value) for value in verified[0][:len(HEADERS)]]!=list(HEADERS):
         raise RuntimeError('ReferencePrices header receipt did not match')
     if len(verified)<len(rows)+1:
