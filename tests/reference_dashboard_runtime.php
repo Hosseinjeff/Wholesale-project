@@ -474,23 +474,30 @@ $molavi_rate=null;foreach($zone_rates as $rate){if($rate->get_method_id()==='mol
 ref_assert($molavi_rate !== null && (float)$molavi_rate->get_cost()===250000.0, 'Woo shipping-zone calculation uses fixed fee');
 
 wp_set_current_user($owner->ID);$http_mode='queue';
+ref_prepare_owner_workflow_page('molavi-publication-holds');
 ob_start();molavi_publication_holds_screen();$holds_html=ob_get_clean();
-ref_assert(strpos($holds_html,'<script>alert(1)</script>')===false, 'publication hold data escaped');
-ref_assert(strpos($holds_html,'_wpnonce')!==false && strpos($holds_html,'name="note"')!==false && strpos($holds_html,'اجازه پردازش مجدد')!==false, 'publication recovery requires WP nonce, note and explicit replay');
+ref_assert(strpos($holds_html,'id="molavi-owner-workflow"')!==false, 'publication recovery mounts the scoped owner UI');
+ref_assert(strpos($holds_html,MOLAVI_REFERENCE_BRIDGE_TOKEN)===false, 'publication page never exposes the bridge secret');
+ref_assert(strpos($workflow_js,'resume_batch: true')!==false && strpos($workflow_js,'window.confirm')!==false, 'publication replay requires owner note and explicit confirmation');
 wp_set_current_user($other);
 ref_assert(is_wp_error(molavi_pipeline_holds_request('GET')), 'non-owner cannot access publication holds');
 wp_set_current_user($owner->ID);$http_mode='offline';
 ref_assert(is_wp_error(molavi_pipeline_holds_request('POST',['hold_id'=>'batch','expected_reason'=>'uncertain','note'=>'reviewed','resume_batch'=>true])), 'failed publication recovery is not acknowledged');
 ref_assert(json_decode($captured[0]['body'],true)['resume_batch']===true, 'review authorizes explicit batch replay');
 
-$http_mode='queue';ob_start();molavi_supplier_prices_screen();$price_html=ob_get_clean();
-ref_assert(strpos($price_html,'<script>price</script>')===false, 'supplier price data is escaped in Woo dashboard');
-ref_assert(strpos($price_html,'name="source_revision"')!==false && strpos($price_html,'name="note"')!==false, 'price verification is bound to source revision and note');
+$http_mode='queue';ref_prepare_owner_workflow_page('molavi-supplier-prices');
+ob_start();molavi_supplier_prices_screen();$price_html=ob_get_clean();
+ref_assert(strpos($price_html,'id="molavi-owner-workflow"')!==false, 'supplier freshness mounts the scoped owner UI');
+ref_assert(strpos($price_html,MOLAVI_REFERENCE_BRIDGE_TOKEN)===false, 'supplier price page never exposes the bridge secret');
+ref_assert(strpos($workflow_js,'expected_revision: offer.source_revision')!==false, 'supplier verification is bound to the source revision and note');
 $price_request=molavi_supplier_prices_request('POST',['product_id'=>'price-1','expected_revision'=>'revision-1','note'=>'checked']);
 ref_assert(!is_wp_error($price_request) && $price_request['source_revision']==='revision-1', 'manual price verification requires matching server receipt');
-$http_mode='queue';ob_start();molavi_sheet_conflicts_screen();$conflict_html=ob_get_clean();
-ref_assert(strpos($conflict_html,'<script>')===false && strpos($conflict_html,'مقدار سرور')!==false && strpos($conflict_html,'مقدار شیت')!==false, 'sheet conflict dashboard displays escaped values from both sides');
-ref_assert(strpos($conflict_html,'name="choice" value="server"')!==false && strpos($conflict_html,'name="choice" value="sheet"')!==false, 'sheet conflict dashboard offers both reviewed resolutions');
+$http_mode='queue';ref_prepare_owner_workflow_page('molavi-sheet-conflicts');
+ob_start();molavi_sheet_conflicts_screen();$conflict_html=ob_get_clean();
+ref_assert(strpos($conflict_html,'id="molavi-owner-workflow"')!==false, 'sheet conflict page mounts the scoped owner UI');
+ref_assert(strpos($conflict_html,MOLAVI_REFERENCE_BRIDGE_TOKEN)===false, 'sheet conflict page never exposes the bridge secret');
+ref_assert(strpos($workflow_js,'conflictValue')!==false && strpos($workflow_js,"choice, note: form.elements.note.value.trim()")!==false
+    && strpos($workflow_js,'window.confirm')!==false, 'sheet conflict choices are escaped, noted and confirmed');
 $conflict_request=molavi_sheet_conflicts_request('POST',['conflict_id'=>'sheet:synthetic-conflict','choice'=>'sheet','note'=>'keep sheet edit']);
 ref_assert(!is_wp_error($conflict_request) && $conflict_request['conflict_id']==='sheet:synthetic-conflict', 'sheet conflict resolution requires matching server receipt');
 $http_mode='queue';ob_start();molavi_paid_orders_screen();$orders_html=ob_get_clean();
@@ -564,5 +571,7 @@ $http_mode='queue';ref_prepare_owner_workflow_page('molavi-operations');
 ob_start();molavi_operations_dashboard_screen();$operations_html=ob_get_clean();
 ref_assert(strpos($operations_html,'id="molavi-owner-workflow"')!==false, 'pipeline hub mounts its live status panel');
 ref_assert(strpos($operations_html,'page=molavi-ai-confirmations')!==false && strpos($operations_html,'page=molavi-paid-orders')!==false, 'pipeline hub keeps all workflow destinations reachable');
+ref_assert(strpos($workflow_js,'molavi-pipeline-grid')!==false && strpos($workflow_js,'stageGroup')!==false
+    && strpos($workflow_js,"['۴', 'انتشار و بازیابی'")!==false, 'pipeline hub groups the workflow into ordered stages');
 wp_set_current_user($other);
 ref_assert(is_wp_error(molavi_operations_dashboard_request()), 'non-owner cannot read unified operations dashboard');

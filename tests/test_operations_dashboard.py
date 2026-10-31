@@ -50,7 +50,30 @@ class OperationsSnapshotTests(unittest.TestCase):
         data=response.get_json()['operations']
         self.assertEqual(data['publication_holds'],1)
         self.assertEqual(data['sheet_conflicts'],1)
+        self.assertFalse(data['items_truncated'])
         self.assertNotIn('PRIVATE SOURCE BODY',response.get_data(as_text=True))
+
+    def test_owner_dashboard_does_not_hide_actionable_rows_after_first_hundred(self):
+        import app
+        for index in range(125):
+            self.queue.put('publish',f'pending-{index}',{'private':'payload'})
+        env={'PIPELINE_DB_PATH':self.path,'REFERENCE_OWNER_IDS':'wp:7',
+             'REFERENCE_BRIDGE_TOKEN':'synthetic-bridge-token-0123456789'}
+        headers={'X-Molavi-Reference-Token':env['REFERENCE_BRIDGE_TOKEN'],'X-Molavi-Actor':'wp:7'}
+        with patch.dict(os.environ,env):
+            response=app.app.test_client().get('/pipeline/operations-dashboard',headers=headers)
+        self.assertEqual(response.status_code,200)
+        self.assertEqual(len(response.get_json()['operations']['items']),125)
+
+    def test_waiting_publication_jobs_are_actionable_owner_work(self):
+        job_id=self.queue.put('publish','blocked',{'sheet_digest':'digest'})
+        with self.queue.connect() as db:
+            db.execute("UPDATE jobs SET state='waiting_publication',error='publication_held_for_review' WHERE id=?",
+                       (job_id,))
+        snapshot=self.queue.operations_snapshot()
+        self.assertEqual(snapshot['by_state']['waiting_publication'],1)
+        self.assertEqual(snapshot['attention_count'],1)
+        self.assertEqual(snapshot['items'][0]['error'],'publication_held_for_review')
 
 
 if __name__=='__main__':

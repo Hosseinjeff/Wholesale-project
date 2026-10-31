@@ -9,6 +9,9 @@ function molavi_owner_workflow_pages(): array {
         'molavi-ai-confirmations' => ['/pipeline/ai-confirmations', 'owner:/pipeline/ai-confirmations'],
         'molavi-reference-items' => ['/reference/item-reviews', 'owner:/reference/item-reviews'],
         'molavi-reference-decisions' => ['/reference/decisions', 'owner:/reference/decisions'],
+        'molavi-publication-holds' => ['/pipeline/publication-holds', 'owner:/pipeline/publication-holds'],
+        'molavi-supplier-prices' => ['/pipeline/supplier-price-evidence', 'owner:/pipeline/supplier-price-evidence'],
+        'molavi-sheet-conflicts' => ['/pipeline/sheet-conflicts', 'owner:/pipeline/sheet-conflicts'],
     ];
 }
 

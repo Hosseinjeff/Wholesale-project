@@ -644,30 +644,7 @@ function molavi_sheet_conflicts_screen(): void {
     nocache_headers();
     echo '<div class="wrap"><h1>' . esc_html('تعارض تغییرات شیت و سرور') . '</h1>';
     echo '<p>' . esc_html('هر دو مقدار نگهداری می‌شوند. پس از بررسی، نسخه شیت یا نسخه سرور را برای این فیلد انتخاب کنید.') . '</p>';
-    $result=molavi_sheet_conflicts_request('GET');
-    if (is_wp_error($result) || !isset($result['conflicts']) || !is_array($result['conflicts'])) {
-        echo '<div class="notice notice-error"><p>' . esc_html(is_wp_error($result) ? $result->get_error_message() : 'پاسخ سرور معتبر نیست.') . '</p></div></div>';
-        return;
-    }
-    if ($result['conflicts']===[]) { echo '<p>' . esc_html('تعارض باز وجود ندارد.') . '</p>'; }
-    foreach ($result['conflicts'] as $conflict) {
-        if (!is_array($conflict) || !is_string($conflict['conflict_id'] ?? null)) { continue; }
-        echo '<div class="card"><h2>' . esc_html((string)($conflict['product_name'] ?? '')) . '</h2>';
-        echo '<p>' . esc_html((string)($conflict['channel'] ?? '') . ' · ' . (string)($conflict['field'] ?? '')) . '</p>';
-        echo '<p>' . esc_html('مقدار قبلی: ' . wp_json_encode($conflict['base'] ?? null, JSON_UNESCAPED_UNICODE)) . '</p>';
-        echo '<p>' . esc_html('مقدار سرور: ' . wp_json_encode($conflict['server'] ?? null, JSON_UNESCAPED_UNICODE)) . '</p>';
-        echo '<p>' . esc_html('مقدار شیت: ' . wp_json_encode($conflict['sheet'] ?? null, JSON_UNESCAPED_UNICODE)) . '</p>';
-        foreach (['server'=>'انتخاب مقدار سرور','sheet'=>'انتخاب مقدار شیت'] as $choice=>$label) {
-            echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
-            wp_nonce_field('molavi_resolve_sheet_conflict:' . $conflict['conflict_id'] . ':' . $choice);
-            echo '<input type="hidden" name="action" value="molavi_resolve_sheet_conflict">';
-            echo '<input type="hidden" name="conflict_id" value="' . esc_attr($conflict['conflict_id']) . '">';
-            echo '<input type="hidden" name="choice" value="' . esc_attr($choice) . '">';
-            echo '<label>' . esc_html('یادداشت تصمیم') . ' <textarea name="note" required maxlength="1000"></textarea></label> ';
-            echo '<button class="button">' . esc_html($label) . '</button></form>';
-        }
-        echo '</div>';
-    }
+    molavi_owner_workflow_mount('در حال دریافت تعارض‌های باز…');
     echo '</div>';
 }
 
@@ -691,31 +668,10 @@ function molavi_supplier_prices_screen(): void {
     if (!molavi_reference_owner()) { wp_die('دسترسی مجاز نیست.', '', ['response'=>403]); }
     nocache_headers();
     echo '<div class="wrap"><h1>' . esc_html('تازگی قیمت تأمین‌کنندگان') . '</h1>';
-    echo '<p>' . esc_html('از روز هفتم قیمت برای بررسی نمایش داده می‌شود؛ از روز چهاردهم تا تأیید قیمت جدید، کالا برای سفارش تازه در دسترس نیست.') . '</p>';
-    $result=molavi_supplier_prices_request('GET');
-    if (is_wp_error($result) || !isset($result['offers']) || !is_array($result['offers'])) {
-        echo '<div class="notice notice-error"><p>' . esc_html(is_wp_error($result) ? $result->get_error_message() : 'پاسخ سرور معتبر نیست.') . '</p></div></div>';
-        return;
-    }
-    if ($result['offers']===[]) { echo '<p>' . esc_html('قیمت تأمین‌کننده‌ای در انتظار بررسی نیست.') . '</p>'; }
-    foreach ($result['offers'] as $offer) {
-        if (!is_array($offer) || !is_string($offer['product_id'] ?? null) || !is_string($offer['source_revision'] ?? null)) { continue; }
-        $id=$offer['product_id']; $revision=$offer['source_revision']; $state=(string)($offer['state'] ?? 'needs_review');
-        $labels=['warning'=>'بیش از ۷ روز از آخرین بررسی قیمت گذشته است.','blocked'=>'قیمت ۱۴ روز یا بیشتر بررسی نشده و سفارش جدید متوقف است.','needs_review'=>'مدرک تاریخ یا نسخه قیمت نیاز به بررسی دارد.'];
-        echo '<div class="card"><p><strong>' . esc_html((string)($offer['name'] ?? '')) . '</strong></p>';
-        echo '<p>' . esc_html((string)($offer['channel'] ?? '')) . ' · ' . esc_html((string)($offer['sale_price'] ?? '')) . '</p>';
-        echo '<p>' . esc_html($labels[$state] ?? $labels['needs_review']) . '</p>';
-        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
-        wp_nonce_field('molavi_verify_supplier_price:' . $id . ':' . $revision);
-        echo '<input type="hidden" name="action" value="molavi_verify_supplier_price">';
-        echo '<input type="hidden" name="product_id" value="' . esc_attr($id) . '">';
-        echo '<input type="hidden" name="source_revision" value="' . esc_attr($revision) . '">';
-        echo '<label>' . esc_html('یادداشت بررسی واقعی قیمت') . ' <textarea name="note" required maxlength="1000"></textarea></label><p>';
-        echo '<button class="button button-primary">' . esc_html('قیمت تأمین‌کننده را بررسی کردم') . '</button></p></form></div>';
-    }
+    echo '<p>' . esc_html('قیمت‌های بیش از هفت روز نیاز به بررسی دارند؛ از روز چهاردهم، سفارش تازه متوقف می‌ماند تا منبع قیمت بررسی شود.') . '</p>';
+    molavi_owner_workflow_mount('در حال دریافت قیمت‌های نیازمند بررسی…');
     echo '</div>';
 }
-
 add_action('admin_post_molavi_verify_supplier_price', static function (): void {
     if (!molavi_reference_owner()) { wp_die('دسترسی مجاز نیست.', '', ['response'=>403]); }
     if (($_SERVER['REQUEST_METHOD'] ?? '')!=='POST') { wp_die('درخواست نامعتبر است.', '', ['response'=>405]); }
@@ -735,34 +691,11 @@ add_action('admin_post_molavi_verify_supplier_price', static function (): void {
 function molavi_publication_holds_screen(): void {
     if (!molavi_reference_owner()) { wp_die('دسترسی مجاز نیست.', '', ['response'=>403]); }
     nocache_headers();
-    echo '<div class="wrap"><h1>' . esc_html('بررسی انتشار مولوی‌سل') . '</h1>';
-    echo '<p>' . esc_html('پیش از رفع توقف، ورودی‌ها و تغییرات این دسته را بررسی و تطبیق دهید. ثبت بررسی، همین دسته را برای یک بار پردازش مجدد مجاز می‌کند؛ سپس انتشار دوباره بررسی می‌شود.') . '</p>';
-    $result=molavi_pipeline_holds_request('GET');
-    if (is_wp_error($result) || !isset($result['holds']) || !is_array($result['holds'])) {
-        echo '<div class="notice notice-error"><p>' . esc_html(is_wp_error($result) ? $result->get_error_message() : 'پاسخ سرور معتبر نیست.') . '</p></div></div>';
-        return;
-    }
-    if ($result['holds']===[]) { echo '<p>' . esc_html('توقف انتشار در انتظار بررسی وجود ندارد.') . '</p>'; }
-    foreach ($result['holds'] as $hold) {
-        if (!is_array($hold) || !is_string($hold['hold_id'] ?? null) || !is_string($hold['reason'] ?? null)) { continue; }
-        $id=$hold['hold_id']; $reason=$hold['reason'];
-        echo '<div class="card"><p>' . esc_html('شناسه دسته: ' . $id) . '</p>';
-        $labels=['batch_in_progress'=>'پردازش دسته کامل نشده و نیاز به بررسی دارد.',
-            'reference_changed_during_batch'=>'اطلاعات مرجع هنگام پردازش تغییر کرد.',
-            'batch_unverified'=>'نتیجه پردازش نیاز به بررسی دارد.',
-            'batch_write_unverified'=>'ثبت اطلاعات کامل تأیید نشد.'];
-        echo '<p>' . esc_html($labels[$reason] ?? 'این دسته نیاز به بررسی دارد.') . '</p>';
-        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
-        wp_nonce_field('molavi_resolve_publication_hold:' . $id);
-        echo '<input type="hidden" name="action" value="molavi_resolve_publication_hold">';
-        echo '<input type="hidden" name="hold_id" value="' . esc_attr($id) . '">';
-        echo '<input type="hidden" name="expected_reason" value="' . esc_attr($reason) . '">';
-        echo '<label>' . esc_html('شرح بررسی و تطبیق') . ' <textarea name="note" required maxlength="1000"></textarea></label><p>';
-        echo '<button class="button button-primary">' . esc_html('ثبت بررسی و اجازه پردازش مجدد') . '</button></p></form></div>';
-    }
+    echo '<div class="wrap"><h1>' . esc_html('بررسی توقف انتشار') . '</h1>';
+    echo '<p>' . esc_html('پیش از رفع توقف، ورودی‌ها و تغییرات این دسته را بررسی و تطبیق دهید. ثبت بررسی، همین دسته و انتشارهای منتظر را دوباره به صف می‌فرستد.') . '</p>';
+    molavi_owner_workflow_mount('در حال دریافت توقف‌های انتشار…');
     echo '</div>';
 }
-
 add_action('admin_post_molavi_resolve_publication_hold', static function (): void {
     if (!molavi_reference_owner()) { wp_die('دسترسی مجاز نیست.', '', ['response'=>403]); }
     if (($_SERVER['REQUEST_METHOD'] ?? '')!=='POST') { wp_die('درخواست نامعتبر است.', '', ['response'=>405]); }

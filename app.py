@@ -737,12 +737,9 @@ def publication_holds_route():
     queue = handoff_queue()
     if queue is None or len(token) < 32 or not owners:
         return jsonify({"ok": False, "error": "unconfigured"}), 503
-    sent = request.headers.get("X-Molavi-Reference-Token", "")
-    actor = request.headers.get("X-Molavi-Actor", "")
-    if not sent or not hmac.compare_digest(sent, token):
-        return jsonify({"ok": False, "error": "unauthorized"}), 401
-    if actor not in owners:
-        return jsonify({"ok": False, "error": "owner_required"}), 403
+    actor, auth_error = _owner_api_actor('owner:/pipeline/publication-holds', token, owners)
+    if auth_error:
+        return jsonify({"ok": False, "error": "unauthorized" if auth_error == 401 else "owner_required"}), auth_error
     if request.method == "GET":
         result = {"ok": True, "holds": queue.publication_holds()}
     else:
@@ -773,7 +770,8 @@ def operations_dashboard_route():
     actor,auth_error=_owner_api_actor('owner:/pipeline/operations-dashboard',token,owners)
     if auth_error:
         return jsonify({'ok':False,'error':'unauthorized' if auth_error==401 else 'owner_required'}),auth_error
-    summary=queue.operations_snapshot(limit=100)
+    summary=queue.operations_snapshot(limit=200)
+    summary['items_truncated']=len(summary['items'])<summary['actionable_count']
     summary['publication_holds']=len(queue.publication_holds())
     summary['sheet_conflicts']=len(queue.sheet_sync_conflicts(state='open'))
     response=jsonify({'ok':True,'operations':summary})
@@ -1166,13 +1164,12 @@ def clearance_proposals_route():
 def sheet_conflicts_route():
     token=os.getenv('REFERENCE_BRIDGE_TOKEN') or ''
     owners={x.strip() for x in (os.getenv('REFERENCE_OWNER_IDS') or '').split(',') if x.strip()}
-    actor=request.headers.get('X-Molavi-Actor','')
-    sent=request.headers.get('X-Molavi-Reference-Token','')
     queue=handoff_queue()
     if queue is None or not USE_SHEETS or not owners or len(token)<32:
         return jsonify({'ok':False,'error':'unconfigured'}),503
-    if not sent or not hmac.compare_digest(sent,token):return jsonify({'ok':False,'error':'unauthorized'}),401
-    if actor not in owners:return jsonify({'ok':False,'error':'owner_required'}),403
+    actor,auth_error=_owner_api_actor('owner:/pipeline/sheet-conflicts',token,owners)
+    if auth_error:
+        return jsonify({'ok':False,'error':'unauthorized' if auth_error==401 else 'owner_required'}),auth_error
     if request.method=='GET':
         result={'ok':True,'conflicts':queue.sheet_sync_conflicts()}
     else:
@@ -1255,16 +1252,13 @@ def sheet_conflicts_route():
 def supplier_price_evidence_route():
     token=os.getenv('REFERENCE_BRIDGE_TOKEN') or ''
     owners={x.strip() for x in (os.getenv('REFERENCE_OWNER_IDS') or '').split(',') if x.strip()}
-    actor=request.headers.get('X-Molavi-Actor','')
-    sent=request.headers.get('X-Molavi-Reference-Token','')
     ledger=_supplier_price_ledger()
     queue=handoff_queue()
     if not USE_SHEETS or ledger is None or queue is None or not owners or len(token)<32:
         return jsonify({'ok':False,'error':'unconfigured'}),503
-    if not sent or not hmac.compare_digest(sent,token):
-        return jsonify({'ok':False,'error':'unauthorized'}),401
-    if actor not in owners:
-        return jsonify({'ok':False,'error':'owner_required'}),403
+    actor,auth_error=_owner_api_actor('owner:/pipeline/supplier-price-evidence',token,owners)
+    if auth_error:
+        return jsonify({'ok':False,'error':'unauthorized' if auth_error==401 else 'owner_required'}),auth_error
     from datetime import datetime,timezone
     now=datetime.now(timezone.utc)
     try:
@@ -1388,6 +1382,9 @@ def reference_snapshots_browser_cors(response):
         '/reference/item-reviews',
         '/pipeline/operations-dashboard',
         '/pipeline/ai-confirmations',
+        '/pipeline/publication-holds',
+        '/pipeline/supplier-price-evidence',
+        '/pipeline/sheet-conflicts',
     }
     if request.path not in browser_paths:
         return response

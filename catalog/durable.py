@@ -87,7 +87,7 @@ class Handoffs:
         """Return owner-safe queue metadata without exposing payloads or results."""
         limit=max(1,min(int(limit),200))
         now=time.time() if now is None else float(now)
-        actionable=('queued','running','waiting_reference','failed','needs_review')
+        actionable=('queued','running','waiting_reference','waiting_publication','failed','needs_review')
         placeholders=','.join('?' for _ in actionable)
         with self.connect() as db:
             grouped=db.execute('SELECT state,COUNT(*) AS count FROM jobs GROUP BY state').fetchall()
@@ -102,7 +102,8 @@ class Handoffs:
         return {
             'by_state':by_state,
             'actionable_count':sum(by_state.get(state,0) for state in actionable),
-            'attention_count':sum(by_state.get(state,0) for state in ('waiting_reference','failed','needs_review')),
+            'attention_count':sum(by_state.get(state,0) for state in
+                                  ('waiting_reference','waiting_publication','failed','needs_review')),
             'items':items,
         }
 
@@ -123,6 +124,8 @@ class Handoffs:
                     raise JobConflict('batch must reach review state before replay')
                 db.execute("UPDATE jobs SET state='queued',available=?,lease=NULL,expires=NULL,error=NULL WHERE id=?",
                            (time.time(),'batch:'+hold_id))
+                db.execute("""UPDATE jobs SET state='queued',available=?,lease=NULL,expires=NULL,error=NULL
+                    WHERE kind='publish' AND state='waiting_publication'""",(time.time(),))
             db.execute('INSERT INTO publication_hold_resolutions VALUES (NULL,?,?,?,?,?)',
                        (hold_id,expected_reason,actor_id,note,time.time()))
             db.execute('DELETE FROM publication_holds WHERE hold_id=?',(hold_id,))
@@ -294,7 +297,7 @@ class Handoffs:
         now=time.time(); lease=uuid.uuid4().hex
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
-            row=db.execute('''SELECT * FROM jobs WHERE (state IN ('queued','waiting_reference') AND available<=?
+            row=db.execute('''SELECT * FROM jobs WHERE (state IN ('queued','waiting_reference','waiting_publication') AND available<=?
                 OR state='running' AND expires<?) AND (? IS NULL OR id=?) ORDER BY rowid LIMIT 1''',
                 (now,now,job_id,job_id)).fetchone()
             if not row:return None
@@ -332,6 +335,9 @@ class Handoffs:
                 self.put('publish',job['id'],{'batch_id':job['payload']['batch_id']})
             elif job['kind']=='publish':
                 result=publish_with_payload(job['payload']) if publish_with_payload else publish()
+                if result.get('reason')=='publication_held_for_review':
+                    self.finish(job,result,state='waiting_publication',error='publication_held_for_review')
+                    return True
                 if not result.get('ok') or not result.get('pushed') or int(result.get('images_left') or 0)>0:
                     raise RuntimeError('publication_incomplete')
             elif job['kind']=='order':

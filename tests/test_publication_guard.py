@@ -36,6 +36,24 @@ class GuardTests(unittest.TestCase):
    app.run_durable_handoff(self.queue,job)
   self.assertEqual(self.queue.publication_holds()[0]['hold_id'],job.split(':',1)[1])
 
+ def test_blocked_publish_waits_and_owner_reconciliation_releases_it(self):
+  import app
+  self.queue.hold_publication('batch-1','batch_unverified')
+  self.queue.put('batch','batch-1',{'batch_id':'batch-1','messages':[]})
+  with self.queue.connect() as db:db.execute("UPDATE jobs SET state='needs_review' WHERE id='batch:batch-1'")
+  publish_id=self.queue.put('publish','pending-1',{})
+  did_work=self.queue.run_one(finalize=lambda *_:{'status':'success'},publish=lambda:{'ok':True,'pushed':True},
+   publish_with_payload=lambda payload:app.guarded_publish_shop(MemoryStore(),queue=self.queue),
+   order_write=lambda *_:{'written':True})
+  self.assertTrue(did_work)
+  waiting=self.queue.get(publish_id)
+  self.assertEqual(waiting['state'],'waiting_publication')
+  self.assertEqual(waiting['error'],'publication_held_for_review')
+  self.queue.resolve_publication_hold('batch-1',expected_reason='batch_unverified',actor_id='wp:7',
+   note='Reviewed the batch before replay.',resume_batch=True)
+  self.assertEqual(self.queue.get(publish_id)['state'],'queued')
+  self.assertEqual(self.queue.get('batch:batch-1')['state'],'queued')
+
  def test_guard_survives_cross_process_contention(self):
   acquired=multiprocessing.Event()
   def worker(path,event):

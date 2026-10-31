@@ -167,11 +167,20 @@ GET lists durable unresolved events. POST sends event ID, expected snapshot ID a
 choice only. The trusted WordPress backend asserts the logged-in actor using the
 long-lived bridge token; TLS is mandatory. The snapshots API accepts a short-lived HMAC
 capability for direct owner-browser requests because the live PHP host cannot reach
-Railway. The same pattern is used by the operations, AI-confirmation, reference-decision
-and item-review screens. Each token has a distinct audience and exact route scope,
-expires after ten minutes, and is accepted only for a configured owner. CORS is limited
-to the two exact WordPress origins; the long-lived bridge token is never sent to a
-browser. Server errors are generic and responses use no-store.
+Railway. The same pattern is used by the operations, AI-confirmation, reference-decision,
+item-review, publication-hold, supplier-price and sheet-conflict screens. Each token has a distinct
+audience and exact route scope, expires after ten minutes, and is accepted only for a
+configured owner. CORS is limited to the two exact WordPress origins; the long-lived
+bridge token is never sent to a browser. Server errors are generic and responses use
+no-store.
+
+The WooCommerce menu exposes one visible owner entry: **خط لوله مولوی‌سل**. Its dashboard
+groups actions in sequence: supplier-message extraction review, reference catalog and
+freshness, supplier item and price checks, publication recovery, then inventory and
+order work. The underlying WordPress page registrations remain available for capability
+checks; their child links are hidden from the WooCommerce menu, and the dashboard links
+to each screen directly. The live queue panel is read-only; review or replay actions stay
+on their dedicated screens and require a matching server receipt.
 
 Decision form submissions check capability, owner allowlist and an event-bound nonce.
 Snapshot actions use the signed browser capability and send the expected active snapshot
