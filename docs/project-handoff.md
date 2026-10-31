@@ -6,8 +6,8 @@ Snapshot 4.58. Updated 2026-10-31, Asia/Tehran. The canonical roleplay decisions
 
 ## Current live checkpoint — 2026-10-31
 
-Railway deployment `de2b3571-fda5-4809-a2c2-eeda357ecedb` is successful and online at
-commit `1d6c2de1179aeddaf1e3297c854dee7e040c204e`. `/health` and `/health/detailed`
+Railway deployment `d8f294a2-7d38-43b9-b8ae-990a4dde0bc1` is successful and online at
+commit `49b93820b8601f49e793849edfe1bf19b997c95f`. `/health` and `/health/detailed`
 returned HTTP 200, and both Railway production services report online with no active
 warnings or recent deployment failures. The streamlined product pipeline dashboard
 remains live; the owner review UI file was uploaded and read back from commit
@@ -24,13 +24,17 @@ pending product/reference matching cases and 100 supplier-price freshness result
 order or payment action was submitted during this audit. See `pipeline-readiness.md` for
 exact counts and the current verification boundaries.
 
-The post-deployment read-only AI queue check returned 47 cases with publication held.
-The extraction fix corrects unsupported title-measurement conflicts, ordinary zero/small
-discount alerts, supplier/consumer classification of a single unlabeled amount, and
-product-local unit/package labels. The user's rule is that one unlabeled amount from a
-wholesale channel is supplier sale; its per-unit/per-package basis stays unconfirmed
-unless source labels or reliable history/reference evidence establish it. Existing
-queued messages were not reprocessed and no owner decision was submitted, so the fixes
+The post-deployment read-only AI queue check returned HTTP 200 with 47 cases and publication
+held. The extraction fix corrects unsupported title-measurement conflicts, ordinary
+zero/small discount alerts, supplier/consumer classification of a single unlabeled amount,
+and product-local unit/package labels. The deeper audit found that labels after carton-count
+lines were being missed, that some label variants and spelled-out Persian measurements were
+not parsed, and that an identical consumer amount on a neighboring product could be
+misattributed. The user's rule is that one unlabeled amount from a wholesale channel is
+supplier sale; its per-unit/per-package basis stays unconfirmed unless source labels or
+reliable history/reference evidence establish it. A read-only reanalysis found exact
+source-label/amount matches in 11 existing cases, though other review reasons may remain.
+Existing queued messages were not reprocessed and no owner decision was submitted, so fixes
 apply to future or deliberately reprocessed messages; the queue remains under review.
 
 The active reference snapshot now contains 3,925 rows from the WooCommerce Store API and

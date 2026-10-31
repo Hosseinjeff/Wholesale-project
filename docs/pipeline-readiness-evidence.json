@@ -147,8 +147,8 @@
     "project": "stellar-solace",
     "environment": "production",
     "service": "Wholesale-project",
-    "commit": "1d6c2de1179aeddaf1e3297c854dee7e040c204e",
-    "deployment_id": "de2b3571-fda5-4809-a2c2-eeda357ecedb",
+    "commit": "49b93820b8601f49e793849edfe1bf19b997c95f",
+    "deployment_id": "d8f294a2-7d38-43b9-b8ae-990a4dde0bc1",
     "deployment_status": "SUCCESS",
     "health_http": 200,
     "service_domain": "https://wholesale-project-production.up.railway.app",
@@ -195,14 +195,37 @@
     "messages_reprocessed": false,
     "owner_decisions_submitted": false,
     "published_products_changed": false,
-    "fix_commit": "1d6c2de1179aeddaf1e3297c854dee7e040c204e",
-    "deployment_id": "de2b3571-fda5-4809-a2c2-eeda357ecedb",
+    "fix_commit": "49b93820b8601f49e793849edfe1bf19b997c95f",
+    "deployment_id": "d8f294a2-7d38-43b9-b8ae-990a4dde0bc1",
     "deployment_status": "SUCCESS",
     "health_http": 200,
     "post_deployment_pending_cases": 47,
     "post_deployment_publication_held": true,
     "post_deployment_queue_http": 200,
-    "focused_tests": 32,
+    "focused_tests": 43,
+    "follow_up_queue_check": {
+      "http_status": 200,
+      "pending_cases": 47,
+      "publication_held": true,
+      "unique_source_title_matches": 34,
+      "explicit_unit_amount_matches": 10,
+      "explicit_package_amount_matches": 4,
+      "cases_with_explicit_price_role_match": 11,
+      "queue_changed": false,
+      "messages_reprocessed": false,
+      "owner_decisions_submitted": false
+    },
+    "additional_root_causes": [
+      "The old source context ended after carton-count lines, missing later unit/package labels in the same product listing.",
+      "Some unit/package and consumer label variants were not recognized.",
+      "A supplier amount copied into the AI consumer field could receive a consumer label from another product when the same amount appeared there.",
+      "Persian number words in explicit title measurements were not parsed."
+    ],
+    "parser_corrections": [
+      "Tie each labeled amount to its label and product context.",
+      "Treat a single unlabeled wholesale amount as supplier sale while preserving unknown unit/package basis.",
+      "Parse Persian number words in source title measurements and slash-grouped toman amounts."
+    ],
     "wordpress_review_ui_readback_verified": true
   },
   "live_reference_sample": {

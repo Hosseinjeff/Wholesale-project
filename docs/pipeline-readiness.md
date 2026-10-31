@@ -2,9 +2,10 @@
 
 **Current state — 2026-10-31:** The public storefront remains live, and the owner product
 pipeline menu was streamlined in commit `62173404ece9e09a2348c19429e451559d73c688`.
-Supplier extraction and price-role fixes are in commits `4c5d83852e4eb6ec2a627f433ed9286d1a8aa637`
-and `1d6c2de1179aeddaf1e3297c854dee7e040c204e`, deployed successfully as
-`de2b3571-fda5-4809-a2c2-eeda357ecedb`; `/health` and `/health/detailed` returned HTTP 200.
+Supplier extraction and price-role fixes are in commits `4c5d83852e4eb6ec2a627f433ed9286d1a8aa637`,
+`1d6c2de1179aeddaf1e3297c854dee7e040c204e` and `49b93820b8601f49e793849edfe1bf19b997c95f`.
+The latest commit deployed successfully as `d8f294a2-7d38-43b9-b8ae-990a4dde0bc1`;
+`/health` and `/health/detailed` returned HTTP 200.
 The WordPress owner review UI was deployed and read back from commit
 `4c5d83852e4eb6ec2a627f433ed9286d1a8aa637`.
 The latest read-only product setup audit is below. Payment setup remains out of scope.
@@ -48,22 +49,33 @@ The latest read-only product setup audit is below. Payment setup remains out of 
   the old check treated every discount below 5% as suspicious. The check now keeps the
   above-consumer-price and over-80%-discount safeguards while allowing zero and small
   positive discounts.
-- Price-basis uncertainty remains the main unresolved group: 37 cases did not establish
-  whether the supplier sale amount was per unit or per package. None had a unit/package
-  label on or next to its uniquely matched product-title line. The user confirmed that a
-  single unlabeled amount is a supplier sale amount, never a consumer price; the pipeline
-  preserves it as the supplier amount but keeps the unit/package basis in review. Explicit
-  labels must be tied to that product's source line; same-line labels are accepted only
-  when the preceding text uniquely matches the title.
+- The deeper source audit found that some apparent role ambiguities were parser misses:
+  price labels followed the product title and carton-count lines, sometimes after blank
+  lines, so the old context collector stopped too early. It also missed labels such as
+  `قیمت هر یک بسته` and `قیمت مصرف`, and sometimes retained an AI-copied supplier amount
+  as a consumer price without a consumer label. The parser now matches each amount to its
+  own explicit unit, package or consumer label in that product's listing context; a
+  same-valued consumer label on another product cannot validate it. Persian number words
+  such as `یک گرم` and `یک لیتر` are now recovered from the exact source title. Slash-grouped
+  prices such as `۱۲۰/۰۰۰` are read as 120,000.
+- The user's rule is that one unlabeled amount in these wholesale channels is the supplier
+  sale amount. Whether it is per unit or per package remains debatable without a source
+  label or reliable history/reference evidence, so that basis stays in review. Some of
+  the existing 37 supplier-role and 10 pack-count/history cases had explicit labels that
+  the old parser failed to capture. A read-only reanalysis found unique source-title
+  matches in 34 saved cases and exact explicit unit/package amount matches in 11 cases
+  (10 unit-label and 4 package-label matches; these overlap). Those matches may remove
+  the price-role reason on reprocessing, but other review reasons can still apply. Cases
+  with no evidence for the price basis remain held.
 - The extraction prompt now bases confidence on identity, amount, currency, price role
   and any count needed for unit-price calculation; missing optional details do not lower
-  confidence. No live case was confirmed, reprocessed, published, or otherwise changed.
-  Existing queued cases remain untouched; the read-only post-deployment queue check still
-  returned 47 cases with its publication hold active. The price-basis review is retained
-  until source evidence, confirmed history/reference evidence, or an owner decision resolves it.
-- The focused extraction and price-scale tests pass: 32 tests, including inline labels,
-  labels on a neighboring product, source-title size/count correction and normal small
-  discounts.
+  confidence. Existing queue rows were not reprocessed or otherwise changed. The
+  post-deployment read-only queue GET returned HTTP 200 with the same 47 pending cases and
+  publication hold active; the stored old reason counts therefore remain until a safe
+  reprocessing or owner review. No owner decision or product publication was submitted.
+- The focused extraction, price-scale and measurement tests pass: 43 tests, including
+  product-local labels, a repeated amount labeled as consumer price on another product,
+  source-title size/count correction, spelled-out measurements, and normal small discounts.
 
 The previous 2026-10-31 refresh-timeout note below is a historical checkpoint. The
 current active snapshot supersedes its statement that no snapshot was active. The older
