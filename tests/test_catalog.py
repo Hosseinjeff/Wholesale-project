@@ -41,7 +41,7 @@ BONAKDAR_REPRICE = BONAKDAR.replace("۵۲,۰۰۰", "۶۰,۰۰۰").replace("۶۵,
 class ExtractTests(unittest.TestCase):
     def test_volume_and_weight_parsing_are_distinct_and_support_shorthand(self):
         self.assertEqual(extract_weight('آبلیمو مجید کوچک180گ(138ف)20ع***'), '180 گرم')
-        self.assertEqual(extract_volume('آبلیمو دست چین1/2ل (304ف)6ع***'), '0.5 لیتر')
+        self.assertEqual(extract_volume('آبلیمو دست چین1/2ل (304ف)6ع***'), '1.2 لیتر')
         self.assertEqual(extract_volume('محصول 180 گرم'), '')
 
     def test_regex_supplier_path_keeps_name_and_saves_title_weight(self):

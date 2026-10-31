@@ -58,7 +58,9 @@ separate products.
 
 Read measurements from each product title literally. The Persian suffix `گ` means
 grams and `ل` means liters, even when attached to the number with no spaces: `180گ`
-is `180 گرم`; `1/2ل` is `0.5 لیتر` (equivalent to 500 ml). Also recognize explicit
+is `180 گرم`. In these Persian supplier titles, ASCII `/` is a decimal separator, not
+a fraction bar: `1/2ل` is `1.2 لیتر` (equivalent to 1200 ml), and `1/5ل` is `1.5 لیتر`.
+Also recognize explicit
 forms such as گرم/g, کیلوگرم/kg, میلی‌گرم/mg, میل/ml, and لیتر/l. Convert Persian
 and Arabic numerals. Return `volume` and `weight` as strings with a unit. Keep the
 original measurement text in `name` while filling the normalized field. `ع` labels a

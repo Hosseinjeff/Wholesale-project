@@ -96,7 +96,7 @@ class GeminiExtractionTests(unittest.TestCase):
             'currency': 'IRT', 'confidence': 0.99,
         }], ensure_ascii=False), title, '@supplier')[0]
         self.assertEqual(product['name'], title)
-        self.assertEqual(product['volume'], '0.5 لیتر')
+        self.assertEqual(product['volume'], '1.2 لیتر')
         self.assertEqual(product['weight'], '')
         self.assertFalse(product['needs_review'])
 
@@ -120,7 +120,7 @@ class GeminiExtractionTests(unittest.TestCase):
             'package_count': 6, 'currency': 'IRT', 'confidence': 0.99,
         }], ensure_ascii=False), title + '\nقیمت باکس: ۶۰۰٬۰۰۰ تومان', '@supplier')[0]
         self.assertEqual(product['name'], title)
-        self.assertEqual(product['volume'], '0.5 لیتر')
+        self.assertEqual(product['volume'], '1.2 لیتر')
         self.assertFalse(product['needs_review'])
 
     def test_ambiguous_source_titles_are_not_used_to_guess_a_measurement(self):
@@ -144,7 +144,7 @@ class GeminiExtractionTests(unittest.TestCase):
         prompt = session.call[1]['json']['contents'][0]['parts'][0]['text']
         self.assertIn('exactly as written', prompt.replace('\n', ' '))
         self.assertIn('`گ` means', prompt)
-        self.assertIn('`1/2ل` is `0.5 لیتر`', prompt)
+        self.assertIn('`1/2ل` is `1.2 لیتر`', prompt)
         self.assertIn('`ع` labels', prompt)
 
     def test_bad_output_is_rejected_without_partial_products(self):

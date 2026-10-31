@@ -56,14 +56,17 @@ def _format_fraction(value: Fraction) -> str:
 def _parse_value(raw: str) -> Fraction | None:
     raw = raw.translate(_DIGITS).replace(" ", "").replace(",", "")
     try:
-        if "/" in raw or "⁄" in raw:
-            numerator, denominator = re.split(r"[/⁄]", raw, maxsplit=1)
+        if "⁄" in raw:
+            numerator, denominator = raw.split("⁄", maxsplit=1)
             denominator_value = int(denominator)
             if denominator_value == 0:
                 return None
             value = Fraction(int(numerator), denominator_value)
         else:
-            value = Fraction(Decimal(raw.replace("٫", ".")))
+            # In Persian supplier titles, ASCII slash is commonly a decimal
+            # separator: 1/5 means 1.5. Keep the dedicated fraction slash for
+            # explicit mathematical fractions.
+            value = Fraction(Decimal(raw.replace("/", ".").replace("٫", ".")))
     except (InvalidOperation, ValueError, ZeroDivisionError):
         return None
     if value <= 0 or value > 1_000_000:
@@ -92,8 +95,9 @@ def _canonical_unit(raw: str, kind: str) -> tuple[str, Fraction] | None:
 def parse_measurements(text: str, kind: str) -> list[Measurement]:
     """Parse only number+unit pairs explicitly present in a title or field.
 
-    Fractions such as ``1/2ل`` are exact; price and package suffixes such as
-    ``(138ف)`` and ``20ع`` are not measurement units and are ignored.
+    ASCII slash in Persian titles is a decimal separator (``1/2ل`` means 1.2
+    liters). The dedicated fraction slash ``⁄`` represents an exact fraction.
+    Price and package suffixes such as ``(138ف)`` and ``20ع`` are ignored.
     """
     if kind not in _UNIT_PATTERNS:
         raise ValueError("kind must be 'volume' or 'weight'")
