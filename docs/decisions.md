@@ -567,6 +567,14 @@ Do not record suggested options, silence, or previously inferred preferences as 
   compatibility) and defaults `AI_MODEL` to `gemini-3.5-flash-lite`. Gemini request
   or response failures fall back to regex as in the recovered GAS behavior. Ambiguous
   price roles, missing package counts, low confidence and invalid values stay in review.
+- A unique source title is authoritative for size and `ع` package counts: conflicting
+  model measurements are replaced, unsupported measurements are cleared, and explicit
+  title counts override model counts before unit-price calculation. These corrections do
+  not resolve unit-versus-package price ambiguity; that still needs an explicit label or
+  confirmed evidence.
+- Missing optional attributes do not lower critical-field confidence. A zero or small
+  positive discount is valid; the unusual-discount check holds only discounts above 80%
+  or a sale price above the consumer price.
 - Google confirmed `gemini-3.5-flash-lite` and its `generateContent` method for the
   configured key on 2026-10-30. The Google API key is sent in the request header and
   must not be logged. Live supplier-message extraction quality still needs review.

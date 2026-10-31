@@ -34,6 +34,25 @@ The latest read-only product setup audit is below. Payment setup remains out of 
   The route-suite rerun was blocked because this executor's Python environment lacks
   Flask; the 293-test post-commit run recorded earlier remains the full-suite evidence.
 
+## AI extraction review triage — 2026-10-31
+
+- A read-only check of the live owner queue found 47 pending AI confirmation cases. Five
+  measurement-mismatch cases had a unique source title but the flagged measurement type
+  was absent from that title. The extractor now clears that unsupported model field
+  without creating a review reason; genuinely different or ambiguous titles still hold.
+- Six QA flags labeled a normal zero or very small positive discount as unusual because
+  the old check treated every discount below 5% as suspicious. The check now keeps the
+  above-consumer-price and over-80%-discount safeguards while allowing zero and small
+  positive discounts.
+- Price-role uncertainty remains the main unresolved group: 37 cases said the source did
+  not establish unit versus package price. None had a unit/package label on or next to
+  its uniquely matched product-title line. A few labels elsewhere in a message are not
+  safely attributable to a specific product, so these cases remain held for review.
+- The extraction prompt now bases confidence on identity, amount, currency, price role
+  and any count needed for unit-price calculation; missing optional details do not lower
+  confidence. No live case was confirmed, reprocessed, published, or otherwise changed.
+  The code changes affect later extraction runs; existing queued cases remain untouched.
+
 The previous 2026-10-31 refresh-timeout note below is a historical checkpoint. The
 current active snapshot supersedes its statement that no snapshot was active. The older
 3,919-row snapshot still contains the incorrect 0.5 L parse and must remain inactive.

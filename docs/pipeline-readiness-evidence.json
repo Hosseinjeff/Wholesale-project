@@ -156,6 +156,35 @@
     "isolated_staging_environment": false,
     "pending_railway_changes": 0
   },
+  "latest_ai_review_triage": {
+    "date": "2026-10-31",
+    "source": "authenticated WordPress owner page with a scoped read-only Railway request",
+    "pending_cases": 47,
+    "overlapping_review_reason_counts": {
+      "reference_no_compatible_reference": 44,
+      "supplier_price_role_unclear": 37,
+      "pack_count_price_role_needs_history": 10,
+      "gemini_volume_mismatch": 3,
+      "gemini_weight_mismatch": 2,
+      "low_confidence": 4,
+      "unusual_discount_rounded_to_zero": 6,
+      "unusual_negative_discount": 1,
+      "consumer_price_below_wholesale": 1,
+      "unresolved_multi_flavor_box_listing": 1
+    },
+    "fixable_false_positives": {
+      "unique_source_title_measurement_mismatches": 5,
+      "zero_or_small_positive_discount_flags": 6
+    },
+    "price_role_policy": "No unit/package label was tied to the uniquely matched title line for the 37 ambiguous-role cases; keep them in owner review until an explicit supplier policy exists.",
+    "live_queue_changed": false,
+    "messages_reprocessed": false,
+    "owner_decisions_submitted": false,
+    "published_products_changed": false,
+    "fix_commit": null,
+    "deployment_id": null,
+    "deployment_status": "not_deployed"
+  },
   "live_reference_sample": {
     "status": "historical_legacy_pdf_candidate_superseded_by_woocommerce_api",
     "source": "https://rezvanpakhsh.com/pdf/price-list.pdf",

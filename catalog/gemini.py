@@ -67,10 +67,24 @@ original measurement text in `name` while filling the normalized field. `ع` lab
 piece/package count and `ف` labels a retail-price hint; neither is a measurement unit.
 Do not infer a size from prices, package counts, other products, category, or general
 knowledge. If the title contains no explicit measurement unit, leave that field empty.
-If a title's size or its interpretation is ambiguous, set needs_review=true and explain
-review_reason. If a price role, identity or other important field is uncertain, also set
-needs_review=true and explain review_reason. Use numeric values for prices/counts,
-or null when unclear.
+Use needs_review=true only when a critical field cannot be safely resolved from the
+source: product identity, supplier amount, currency, unit-versus-package price role, a
+package count needed to calculate a unit price, or a genuinely conflicting/unreadable
+source. Missing optional brand, category, description or stock details are not reasons
+to request review. Confidence measures these critical fields only; do not lower it for
+missing optional details. When the title and labeled price lines directly support the
+critical fields, use confidence 0.90–0.99. Use confidence below 0.85 only when a real
+ambiguity remains. If the adapter can recover a unique exact title, including a size or
+count marker, keep that exact title and do not request review only because a generated
+structured measurement or count conflicts with it; the title is the source of truth.
+
+Recognize these explicit price labels: `قیمت مصرف کننده` is a consumer price;
+`دونه ای`, `هر عدد` and `قیمت تکی` are unit prices; `قیمت باکس`, `قیمت کارتن`,
+`هر باکس` and `هر کارتن` are package prices. Keep the amount exactly as written.
+If no label or structure establishes the supplier price role, leave it uncertain and
+request review instead of guessing.
+
+Use numeric values for prices/counts, or null when unclear.
 
 Fields: name, brand, category, variant, sale_price, consumer_price, unit_price,
 package_price, consumer_package_price, regular_package_price, price_type, currency,
@@ -124,6 +138,13 @@ def _title_identity(value):
     return re.sub(r'\s+', ' ', text).strip().casefold()
 
 
+def _explicit_piece_counts(value):
+    """Counts marked with Persian ``ع`` are source evidence, not model guesses."""
+    text = _english_numbers(value)
+    return [int(count) for count in re.findall(
+        r'(?<!\d)(\d{1,4})\s*ع(?=$|[^\w])', text)]
+
+
 def _source_title_evidence(name, content):
     """Recover a title only when one source line has the exact same base identity."""
     identity = _title_identity(name)
@@ -136,8 +157,9 @@ def _source_title_evidence(name, content):
             continue
         volume = extract_measurement(title, 'volume')
         weight = extract_measurement(title, 'weight')
-        if volume or weight:
-            matches.append((title, volume, weight))
+        match = (title, volume, weight)
+        if match not in matches:
+            matches.append(match)
     if len(matches) == 1:
         return matches[0], False
     return None, len(matches) > 1
@@ -173,21 +195,37 @@ def _product(item, content, channel):
     explicit_weight = extract_measurement(name, 'weight')
     measurement_review_reasons = []
     source_title, ambiguous_source_title = _source_title_evidence(name, content)
+    source_title_verified = bool(source_title)
     if source_title:
         name, source_volume, source_weight = source_title
-        explicit_volume = explicit_volume or source_volume
-        explicit_weight = explicit_weight or source_weight
+        explicit_volume = source_volume
+        explicit_weight = source_weight
     elif ambiguous_source_title:
         measurement_review_reasons.append(
-            'product title matches multiple source lines with measurement details')
+            'product title matches multiple source lines with the same base identity')
     for kind, explicit in (('volume', explicit_volume), ('weight', explicit_weight)):
         submitted = str(item.get(kind) or '').strip()
         if submitted and measurement_signature(submitted, kind) != measurement_signature(name, kind):
-            measurement_review_reasons.append(
-                f'Gemini {kind} does not match an explicit measurement in the product title')
+            # A unique matching source title is authoritative. The adapter returns its
+            # deterministic measurement, so a conflicting model field is corrected
+            # without sending a clear title back to owner review.
+            if not source_title_verified:
+                measurement_review_reasons.append(
+                    f'Gemini {kind} does not match an explicit measurement in the product title')
     packaging = str(item.get('packaging') or '').strip()
-    count = _count(item.get('package_count')) or pack_count(
-        _english_numbers(packaging), _english_numbers(name)) or 0
+    model_count = _count(item.get('package_count'))
+    title_piece_counts = set(_explicit_piece_counts(name))
+    named_pack_count = pack_count('', name)
+    count_conflict = bool(title_piece_counts and (
+        len(title_piece_counts) > 1 or
+        (named_pack_count and named_pack_count not in title_piece_counts)))
+    if count_conflict:
+        count = 0
+    elif title_piece_counts:
+        count = next(iter(title_piece_counts))
+    else:
+        count = named_pack_count or model_count or pack_count(
+            _english_numbers(packaging), _english_numbers(name)) or 0
     unit = _number(item.get('unit_price'))
     package = _number(item.get('package_price') or item.get('carton_price'))
     consumer = _number(item.get('consumer_price') or item.get('actual_price'))
@@ -199,6 +237,9 @@ def _product(item, content, channel):
     if item.get('review_reason'):
         reasons.append(str(item['review_reason']).strip())
     reasons.extend(measurement_review_reasons)
+    if count_conflict:
+        review = True
+        reasons.append('product title contains conflicting package-count markers')
     if measurement_review_reasons:
         review = True
 
@@ -269,6 +310,7 @@ def _product(item, content, channel):
         'price_type': price_type,
         'currency': currency,
         'packaging': packaging,
+        'package_count': count or None,
         'volume': explicit_volume,
         'weight': explicit_weight,
         'category': str(item.get('category') or extract_category(name, content or '', channel)),

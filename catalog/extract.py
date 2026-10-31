@@ -794,7 +794,9 @@ def quality_check(product: dict[str, Any], existing_rows: list[list[Any]], heade
     confidence = product.get("extraction_confidence") or product.get("confidence") or 0
     if actual and sale:
         discount = 1 - (sale / actual)
-        if discount > 0.8 or discount < 0.05:
+        # Zero and small positive discounts are normal offers. Only an implausibly
+        # deep discount or a sale price above the consumer price needs review.
+        if discount > 0.8 or discount < 0:
             qa["requires_review"] = True
             qa["reason"] = f"Unusual discount {round(discount * 100)}%"
     if confidence < 0.85:

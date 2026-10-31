@@ -9,7 +9,8 @@ from catalog.gemini import (
     extract_message_products,
     parse_message_products,
 )
-from catalog.sync import MemoryStore, _process_batch_products, import_product_data
+from catalog.extract import quality_check
+from catalog.sync import MemoryStore, _process_batch_products, _records, import_product_data
 
 
 class FakeResponse:
@@ -100,16 +101,75 @@ class GeminiExtractionTests(unittest.TestCase):
         self.assertEqual(product['weight'], '')
         self.assertFalse(product['needs_review'])
 
-    def test_unverified_or_conflicting_ai_measurement_is_replaced_and_flagged(self):
+    def test_explicit_source_measurement_corrects_model_value_without_review(self):
         title = 'آبلیمو مجید کوچک180گ(138ف)20ع***'
         product = parse_message_products(json.dumps([{
-            'name': title, 'weight': '500 گرم', 'volume': '1 لیتر',
+            'name': title, 'weight': '500 گرم',
             'package_price': 600000, 'package_count': 20,
             'currency': 'IRT', 'confidence': 0.99,
         }], ensure_ascii=False), title, '@supplier')[0]
         self.assertEqual(product['name'], title)
         self.assertEqual(product['weight'], '180 گرم')
         self.assertEqual(product['volume'], '')
+        self.assertFalse(product['needs_review'])
+
+    def test_unique_source_title_discards_model_measurement_absent_from_source(self):
+        title = 'آبمیوه نمونه ۲۴۰میل'
+        product = parse_message_products(json.dumps([{
+            'name': title, 'volume': '500 میلی‌لیتر', 'weight': '200 گرم',
+            'unit_price': 50000, 'currency': 'IRT', 'confidence': 0.99,
+        }], ensure_ascii=False), title, '@supplier')[0]
+        self.assertEqual(product['volume'], '240 میل')
+        self.assertEqual(product['weight'], '')
+        self.assertFalse(product['needs_review'])
+
+    def test_explicit_piece_count_corrects_model_count_before_unit_price_calculation(self):
+        title = 'آبلیمو دست چین1/2ل (304ف)6ع***'
+        product = parse_message_products(json.dumps([{
+            'name': title, 'volume': '0.5 لیتر', 'package_price': 600000,
+            'package_count': 24, 'currency': 'IRT', 'confidence': 0.99,
+        }], ensure_ascii=False), title, '@supplier')[0]
+        self.assertEqual(product['volume'], '1.2 لیتر')
+        self.assertEqual(product['package_count'], 6)
+        self.assertEqual(product['sale_price'], 100000)
+        self.assertFalse(product['needs_review'])
+
+    def test_explicit_piece_count_fills_a_missing_model_count(self):
+        title = 'آبلیمو مجید کوچک180گ(138ف)20ع***'
+        product = parse_message_products(json.dumps([{
+            'name': title, 'package_price': 600000,
+            'currency': 'IRT', 'confidence': 0.99,
+        }], ensure_ascii=False), title, '@supplier')[0]
+        self.assertEqual(product['package_count'], 20)
+        self.assertEqual(product['sale_price'], 30000)
+        self.assertFalse(product['needs_review'])
+
+    def test_source_count_survives_offer_and_product_projection(self):
+        title = 'آبلیمو دست چین1/2ل (304ف)6ع***'
+        generated = parse_message_products(json.dumps([{
+            'name': title, 'package_price': 600000, 'package_count': 24,
+            'currency': 'IRT', 'confidence': 0.99,
+        }], ensure_ascii=False), title, '@supplier')
+        store = MemoryStore()
+        with patch.dict(os.environ, {'EXTRACTION_MODE': 'ai'}, clear=True):
+            with patch('catalog.sync.extract_message_products', return_value=generated):
+                result = import_product_data(store, {
+                    'id': 'msg-count', 'batch_id': 'batch-count', 'content': title,
+                    'channel_username': '@supplier', 'channel': 'telegram',
+                })
+        self.assertTrue(result['success'])
+        _, offers = _records(store.read('Offers'))
+        _, products = _records(store.read('Products'))
+        self.assertEqual(offers[0]['Package Count'], 6)
+        self.assertEqual(offers[0]['Sale Price'], 100000)
+        self.assertEqual(products[0]['Package Count'], 6)
+        self.assertEqual(products[0]['Sale Price'], 100000)
+
+    def test_ai_measurement_without_source_title_evidence_stays_in_review(self):
+        product = parse_message_products(json.dumps([{
+            'name': 'محصول', 'volume': '500 میلی‌لیتر', 'unit_price': 50000,
+            'currency': 'IRT', 'confidence': 0.99,
+        }], ensure_ascii=False), 'نام دیگر\nقیمت تکی: ۵۰٬۰۰۰ تومان', '@supplier')[0]
         self.assertTrue(product['needs_review'])
         self.assertIn('does not match an explicit measurement', product['review_reason'])
 
@@ -146,6 +206,26 @@ class GeminiExtractionTests(unittest.TestCase):
         self.assertIn('`گ` means', prompt)
         self.assertIn('`1/2ل` is `1.2 لیتر`', prompt)
         self.assertIn('`ع` labels', prompt)
+        self.assertIn('Missing optional brand, category, description or stock details', prompt)
+        self.assertIn('Confidence measures these critical fields only', prompt)
+
+    def test_normal_zero_or_small_discount_does_not_require_review(self):
+        headers = ['Product Name', 'Sale Price']
+        for sale, consumer in ((100, 100), (99, 100), (95, 100)):
+            with self.subTest(sale=sale, consumer=consumer):
+                qa = quality_check({
+                    'name': 'محصول نمونه', 'sale_price': sale,
+                    'actual_price': consumer, 'confidence': 0.99,
+                }, [], headers)
+                self.assertFalse(qa['requires_review'])
+
+    def test_sale_price_above_consumer_price_still_requires_review(self):
+        qa = quality_check({
+            'name': 'محصول نمونه', 'sale_price': 120,
+            'actual_price': 100, 'confidence': 0.99,
+        }, [], ['Product Name', 'Sale Price'])
+        self.assertTrue(qa['requires_review'])
+        self.assertIn('Unusual discount', qa['reason'])
 
     def test_bad_output_is_rejected_without_partial_products(self):
         with self.assertRaises(GeminiError):
