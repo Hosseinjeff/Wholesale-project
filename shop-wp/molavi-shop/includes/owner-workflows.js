@@ -215,7 +215,11 @@
     function aiCaseCard(item) {
         const card = node('section', null, 'card');
         card.appendChild(node('h2', item.product_name || 'کالای بدون نام'));
-        card.appendChild(node('p', `تأمین‌کننده: ${item.channel || 'نامشخص'} · قیمت استخراج‌شده: ${amount(item.detected_price || item.sale_price)} · نقش: ${item.price_type || 'نامشخص'}`));
+        const roleLabels = {unit: 'هر واحد', single: 'هر واحد', per_unit: 'هر واحد',
+            pack: 'هر بسته', package: 'هر بسته', carton: 'هر کارتن'};
+        const roleLabel = roleLabels[String(item.price_type || '').toLowerCase()]
+            || 'مبنای هر واحد یا بسته هنوز مشخص نیست';
+        card.appendChild(node('p', `تأمین‌کننده: ${item.channel || 'نامشخص'} · مبلغ فروش تأمین‌کننده: ${amount(item.detected_price || item.sale_price)} · مبنا: ${roleLabel}`));
         card.appendChild(node('p', `دلیل بررسی: ${item.reason || 'نیازمند بررسی'} · حداقل خرید: ${item.min_qty || 'ثبت نشده'}`));
         if (item.original_message) {
             const details = document.createElement('details'); details.appendChild(node('summary', 'متن اصلی پیام تأمین‌کننده'));

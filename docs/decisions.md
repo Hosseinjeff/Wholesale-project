@@ -597,3 +597,14 @@ Do not record suggested options, silence, or previously inferred preferences as 
 - Most WooCommerce products have no separate attributes, so the title remains the
   complete source for product details. Completeness of pages does not establish the
   correctness of supplier-provided titles or prices.
+
+### D-037 — An unlabeled amount from a wholesale channel is a supplier sale amount
+
+- User clarification on 2026-10-31: a single amount from these wholesaler channels is
+  the supplier's sale amount, not a consumer price.
+- The unit/package basis is still unknown unless the matching product line labels it or
+  confirmed history/reference evidence resolves it. Preserve the raw amount for owner
+  review; do not treat it as a normalized unit sale price or publish it while the basis
+  is unresolved.
+- An AI field such as `unit_price`, `package_price` or `price_type=package` alone does
+  not establish that basis. Consumer prices require an explicit consumer/retail label.

@@ -234,6 +234,7 @@ def apply_price_scale(product, assessment):
             reasons = [part.strip() for part in str(product.get('review_reason') or '').split(';') if part.strip()]
             unresolved = [part for part in reasons if part.lower() not in {
                 'supplier price role is unclear',
+                'supplier sale amount has no confirmed unit/package basis',
                 'sale price role is ambiguous: unit or package',
                 'pack count is detected but sale price role is not explicit',
             }]

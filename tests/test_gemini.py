@@ -54,13 +54,16 @@ class GeminiExtractionTests(unittest.TestCase):
             self.assertFalse(ai_extraction_enabled())
 
     def test_environment_key_and_conservative_price_roles(self):
+        title = 'تن ماهی 24 عددی'
         response = json.dumps([{
-            'name': 'تن ماهی', 'package_price': 24000, 'package_count': 24,
+            'name': title, 'package_price': 24000, 'package_count': 24,
             'consumer_price': 2000, 'currency': 'TOMAN', 'confidence': 0.97,
         }], ensure_ascii=False)
         session = FakeSession(response)
         with patch.dict(os.environ, {'GOOGLE_API_KEY': 'test-key'}, clear=True):
-            products = extract_message_products('supplier post', '@supplier', session=session)
+            products = extract_message_products(
+                title + '\nقیمت باکس: ۲۴٬۰۰۰ تومان\nقیمت مصرف کننده: ۲٬۰۰۰ تومان',
+                '@supplier', session=session)
         product = products[0]
         self.assertEqual(product['sale_price'], 1000)
         self.assertEqual(product['package_price'], 24000)
@@ -75,17 +78,73 @@ class GeminiExtractionTests(unittest.TestCase):
 
     def test_ambiguous_supplier_price_is_held_for_review(self):
         product = parse_message_products(json.dumps([{
-            'name': 'محصول', 'sale_price': 50000, 'confidence': 0.95,
+            'name': 'محصول', 'package_price': 50000, 'price_type': 'package',
+            'package_count': 6, 'confidence': 0.95,
         }]), 'price 50000', '@supplier')[0]
         self.assertEqual(product['sale_price'], 0)
         self.assertEqual(product['price_type'], 'needs_review')
+        self.assertEqual(product['detected_price'], 50000)
+        self.assertEqual(product['source_price_amount'], 50000)
+        self.assertIsNone(product['package_price'])
+        self.assertIsNone(product['consumer_price'])
         self.assertTrue(product['needs_review'])
-        self.assertIn('price role is unclear', product['review_reason'])
+        self.assertIn('no confirmed unit/package basis', product['review_reason'])
+
+    def test_model_unit_field_without_source_label_stays_in_review(self):
+        title = 'محصول 6ع'
+        product = parse_message_products(json.dumps([{
+            'name': title, 'unit_price': 50000, 'package_count': 6,
+            'currency': 'IRT', 'confidence': 0.99,
+        }], ensure_ascii=False), title, '@supplier')[0]
+        self.assertEqual(product['sale_price'], 0)
+        self.assertEqual(product['detected_price'], 50000)
+        self.assertEqual(product['price_type'], 'needs_review')
+        self.assertTrue(product['needs_review'])
+        self.assertIn('no confirmed unit/package basis', product['review_reason'])
+
+    def test_source_unit_label_resolves_model_unit_role(self):
+        title = 'محصول نمونه'
+        product = parse_message_products(json.dumps([{
+            'name': title, 'sale_price': 50000, 'price_type': 'unit',
+            'currency': 'IRT', 'confidence': 0.99, 'needs_review': True,
+            'review_reason': 'supplier price role is unclear',
+        }], ensure_ascii=False), title + '\nقیمت تکی: ۵۰٬۰۰۰ تومان', '@supplier')[0]
+        self.assertEqual(product['sale_price'], 50000)
+        self.assertEqual(product['price_type'], 'unit')
+        self.assertFalse(product['needs_review'])
+
+    def test_single_unlabelled_consumer_field_is_supplier_sale_amount(self):
+        title = 'محصول نمونه'
+        product = parse_message_products(json.dumps([{
+            'name': title, 'consumer_price': 50000,
+            'currency': 'IRT', 'confidence': 0.99,
+        }], ensure_ascii=False), title + '\n۵۰٬۰۰۰ تومان', '@supplier')[0]
+        self.assertEqual(product['detected_price'], 50000)
+        self.assertIsNone(product['consumer_price'])
+        self.assertEqual(product['sale_price'], 0)
+        self.assertEqual(product['price_type'], 'needs_review')
+        self.assertTrue(product['needs_review'])
+
+    def test_consumer_label_on_another_product_does_not_change_supplier_amount_role(self):
+        title = 'محصول الف'
+        content = (
+            title + '\n۴۰٬۰۰۰ تومان\n'
+            'محصول ب\nقیمت مصرف کننده: ۵۰٬۰۰۰ تومان'
+        )
+        product = parse_message_products(json.dumps([{
+            'name': title, 'consumer_price': 40000,
+            'currency': 'IRT', 'confidence': 0.99,
+        }], ensure_ascii=False), content, '@supplier')[0]
+        self.assertEqual(product['detected_price'], 40000)
+        self.assertIsNone(product['consumer_price'])
+        self.assertEqual(product['price_type'], 'needs_review')
+        self.assertTrue(product['needs_review'])
 
     def test_arabic_digits_are_parsed_and_missing_confidence_requires_review(self):
+        title = 'تن ٢٤ عددی'
         product = parse_message_products(json.dumps([{
-            'name': 'تن', 'package_price': '٢٤٠٠٠', 'package_count': '٢٤',
-        }], ensure_ascii=False), 'post', '@supplier')[0]
+            'name': title, 'package_price': '٢٤٠٠٠', 'package_count': '٢٤',
+        }], ensure_ascii=False), title + '\nقیمت باکس: ٢٤٠٠٠ تومان', '@supplier')[0]
         self.assertEqual(product['sale_price'], 1000)
         self.assertTrue(product['needs_review'])
         self.assertIn('low confidence', product['review_reason'])
@@ -95,7 +154,7 @@ class GeminiExtractionTests(unittest.TestCase):
         product = parse_message_products(json.dumps([{
             'name': title, 'package_price': 600000, 'package_count': 6,
             'currency': 'IRT', 'confidence': 0.99,
-        }], ensure_ascii=False), title, '@supplier')[0]
+        }], ensure_ascii=False), title + '\nقیمت باکس: ۶۰۰٬۰۰۰ تومان', '@supplier')[0]
         self.assertEqual(product['name'], title)
         self.assertEqual(product['volume'], '1.2 لیتر')
         self.assertEqual(product['weight'], '')
@@ -107,7 +166,7 @@ class GeminiExtractionTests(unittest.TestCase):
             'name': title, 'weight': '500 گرم',
             'package_price': 600000, 'package_count': 20,
             'currency': 'IRT', 'confidence': 0.99,
-        }], ensure_ascii=False), title, '@supplier')[0]
+        }], ensure_ascii=False), title + '\nقیمت باکس: ۶۰۰٬۰۰۰ تومان', '@supplier')[0]
         self.assertEqual(product['name'], title)
         self.assertEqual(product['weight'], '180 گرم')
         self.assertEqual(product['volume'], '')
@@ -118,7 +177,7 @@ class GeminiExtractionTests(unittest.TestCase):
         product = parse_message_products(json.dumps([{
             'name': title, 'volume': '500 میلی‌لیتر', 'weight': '200 گرم',
             'unit_price': 50000, 'currency': 'IRT', 'confidence': 0.99,
-        }], ensure_ascii=False), title, '@supplier')[0]
+        }], ensure_ascii=False), title + '\nقیمت تکی: ۵۰٬۰۰۰ تومان', '@supplier')[0]
         self.assertEqual(product['volume'], '240 میل')
         self.assertEqual(product['weight'], '')
         self.assertFalse(product['needs_review'])
@@ -128,7 +187,7 @@ class GeminiExtractionTests(unittest.TestCase):
         product = parse_message_products(json.dumps([{
             'name': title, 'volume': '0.5 لیتر', 'package_price': 600000,
             'package_count': 24, 'currency': 'IRT', 'confidence': 0.99,
-        }], ensure_ascii=False), title, '@supplier')[0]
+        }], ensure_ascii=False), title + '\nقیمت باکس: ۶۰۰٬۰۰۰ تومان', '@supplier')[0]
         self.assertEqual(product['volume'], '1.2 لیتر')
         self.assertEqual(product['package_count'], 6)
         self.assertEqual(product['sale_price'], 100000)
@@ -139,7 +198,7 @@ class GeminiExtractionTests(unittest.TestCase):
         product = parse_message_products(json.dumps([{
             'name': title, 'package_price': 600000,
             'currency': 'IRT', 'confidence': 0.99,
-        }], ensure_ascii=False), title, '@supplier')[0]
+        }], ensure_ascii=False), title + '\nقیمت باکس: ۶۰۰٬۰۰۰ تومان', '@supplier')[0]
         self.assertEqual(product['package_count'], 20)
         self.assertEqual(product['sale_price'], 30000)
         self.assertFalse(product['needs_review'])
@@ -149,12 +208,13 @@ class GeminiExtractionTests(unittest.TestCase):
         generated = parse_message_products(json.dumps([{
             'name': title, 'package_price': 600000, 'package_count': 24,
             'currency': 'IRT', 'confidence': 0.99,
-        }], ensure_ascii=False), title, '@supplier')
+        }], ensure_ascii=False), title + '\nقیمت باکس: ۶۰۰٬۰۰۰ تومان', '@supplier')
         store = MemoryStore()
         with patch.dict(os.environ, {'EXTRACTION_MODE': 'ai'}, clear=True):
             with patch('catalog.sync.extract_message_products', return_value=generated):
                 result = import_product_data(store, {
-                    'id': 'msg-count', 'batch_id': 'batch-count', 'content': title,
+                    'id': 'msg-count', 'batch_id': 'batch-count',
+                    'content': title + '\nقیمت باکس: ۶۰۰٬۰۰۰ تومان',
                     'channel_username': '@supplier', 'channel': 'telegram',
                 })
         self.assertTrue(result['success'])
@@ -208,6 +268,9 @@ class GeminiExtractionTests(unittest.TestCase):
         self.assertIn('`ع` labels', prompt)
         self.assertIn('Missing optional brand, category, description or stock details', prompt)
         self.assertIn('Confidence measures these critical fields only', prompt)
+        prompt = ' '.join(prompt.split())
+        self.assertIn('All source channels are wholesalers', prompt)
+        self.assertIn('single unlabeled amount is the supplier sale amount', prompt)
 
     def test_normal_zero_or_small_discount_does_not_require_review(self):
         headers = ['Product Name', 'Sale Price']

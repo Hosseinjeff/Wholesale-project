@@ -81,8 +81,8 @@
     "date": "2026-10-31",
     "ascii_slash_semantics": "Persian decimal separator: 1/2 = 1.2 and 1/5 = 1.5",
     "dedicated_fraction_slash_semantics": "U+2044 remains a mathematical fraction",
-    "commit": "47c4ee799228f2ec3f1c3b229e5972d0d6c020c8",
-    "deployment_id": "a2c53fc2-25f8-41f2-9204-b90ec196c196",
+    "commit": "7abe6d6a7f2afb47d6e1cd7f3cd548f8783a018e",
+    "deployment_id": "c98011ca-4a05-4a92-8cf5-2738faf3312f",
     "deployment_status": "SUCCESS",
     "health_http": 200,
     "focused_tests": 54,
@@ -176,14 +176,18 @@
       "unique_source_title_measurement_mismatches": 5,
       "zero_or_small_positive_discount_flags": 6
     },
-    "price_role_policy": "No unit/package label was tied to the uniquely matched title line for the 37 ambiguous-role cases; keep them in owner review until an explicit supplier policy exists.",
+    "supplier_sale_rule": "A single unlabeled amount from these wholesaler channels is the supplier sale amount, not a consumer price.",
+    "price_basis_policy": "No unit/package label was tied to the uniquely matched title line for the 37 ambiguous-role cases; preserve the amount and keep its per-unit/per-package basis in owner review.",
     "live_queue_changed": false,
     "messages_reprocessed": false,
     "owner_decisions_submitted": false,
     "published_products_changed": false,
-    "fix_commit": null,
-    "deployment_id": null,
-    "deployment_status": "not_deployed"
+    "fix_commit": "7abe6d6a7f2afb47d6e1cd7f3cd548f8783a018e",
+    "deployment_id": "c98011ca-4a05-4a92-8cf5-2738faf3312f",
+    "deployment_status": "SUCCESS",
+    "health_http": 200,
+    "post_deployment_pending_cases": 47,
+    "post_deployment_publication_held": true
   },
   "live_reference_sample": {
     "status": "historical_legacy_pdf_candidate_superseded_by_woocommerce_api",

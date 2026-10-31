@@ -14,6 +14,17 @@ from catalog.measurements import (
 
 DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash-lite'
 _ARABIC_DIGITS = str.maketrans('٠١٢٣٤٥٦٧٨٩', '0123456789')
+_UNIT_PRICE_LABEL = re.compile(
+    r'(?:قیمت\s*(?:تکی|واحدی)|(?:دونه|دانه)\s*ای|'
+    r'(?:هر\s*|قیمت\s*هر\s*)(?:عدد|دونه|دانه|واحد)|فی\s*(?:عدد|دونه|دانه)|'
+    r'\b(?:unit\s+price|price\s+per\s+(?:unit|item)|per[- ]?(?:unit|item))\b)', re.I)
+_PACKAGE_PRICE_LABEL = re.compile(
+    r'(?:قیمت\s*(?:باکس|کارتن|کارتون|بسته)|هر\s*(?:باکس|کارتن|کارتون|بسته)|'
+    r'\b(?:package|carton|box|case)\s+price\b|'
+    r'\bprice\s+(?:per|of)\s+(?:package|carton|box|case)\b)', re.I)
+_CONSUMER_PRICE_LABEL = re.compile(
+    r'(?:قیمت\s*(?:مصرف\s*کننده|خرده\s*فروشی)|'
+    r'\b(?:consumer|retail)\s+price\b)', re.I)
 
 
 def _english_numbers(value):
@@ -49,11 +60,13 @@ product-price listings. Preserve each complete product title in `name` exactly a
 written, including every size, weight, volume, variant, parenthetical note and suffix;
 never shorten or clean the title when also returning structured fields. Do not translate
 Persian/Arabic names. Do not invent missing fields, package counts, price roles, stock,
-or currency. Keep a listed supplier sale price exactly as shown. Set unit_price only
-when explicitly a per-item/unit/kilo price. Set package_price only when explicitly a
-box/carton/package price. Set consumer_price to the unit retail price unless the
-message explicitly labels it as a package price, in which case use
-consumer_package_price. Split different sizes, flavors, variants and pack counts into
+or currency. All source channels are wholesalers: a single unlabeled amount is the
+supplier sale amount, never a consumer price. Keep that amount exactly as written. Set
+unit_price only when explicitly a per-item/unit/kilo price. Set package_price only when
+explicitly a box/carton/package price. Set consumer_price only for an explicit retail or
+consumer amount; if it is labeled as a package amount, use consumer_package_price. When
+unit-versus-package basis is unclear, keep the supplier amount but set needs_review=true;
+do not guess a unit price. Split different sizes, flavors, variants and pack counts into
 separate products.
 
 Read measurements from each product title literally. The Persian suffix `گ` means
@@ -81,8 +94,9 @@ structured measurement or count conflicts with it; the title is the source of tr
 Recognize these explicit price labels: `قیمت مصرف کننده` is a consumer price;
 `دونه ای`, `هر عدد` and `قیمت تکی` are unit prices; `قیمت باکس`, `قیمت کارتن`,
 `هر باکس` and `هر کارتن` are package prices. Keep the amount exactly as written.
-If no label or structure establishes the supplier price role, leave it uncertain and
-request review instead of guessing.
+If no label or structure establishes unit-versus-package basis, leave that basis
+uncertain and request review instead of guessing. The supplier-versus-consumer role of
+a single unlabeled amount is not uncertain: it is a supplier sale amount.
 
 Use numeric values for prices/counts, or null when unclear.
 
@@ -165,6 +179,55 @@ def _source_title_evidence(name, content):
     return None, len(matches) > 1
 
 
+def _price_roles_in_text(value):
+    text = str(value or '').replace('\u200c', ' ').replace('ي', 'ی').replace('ك', 'ک')
+    roles = set()
+    if _UNIT_PRICE_LABEL.search(text):
+        roles.add('unit')
+    if _PACKAGE_PRICE_LABEL.search(text):
+        roles.add('package')
+    return roles
+
+
+def _source_title_context(source_title, content, ambiguous=False):
+    """Return price lines attached to one uniquely recovered source title."""
+    if not source_title or ambiguous:
+        return []
+    lines = [line.strip() for line in str(content or '').splitlines()]
+    indexes = [index for index, line in enumerate(lines) if line == source_title[0]]
+    if len(indexes) != 1:
+        return []
+    context = [lines[indexes[0]]]
+    index = indexes[0] + 1
+    while index < len(lines):
+        line = lines[index]
+        if not line:
+            index += 1
+            continue
+        # Keep explicit role labels and price/currency lines, but stop at the next
+        # product title or unrelated detail so its labels cannot leak across products.
+        if _price_roles_in_text(line) or re.search(
+                r'(?:قیمت|price|تومان|تومن|ریال|\bIRT\b|\bIRR\b)', line, re.I):
+            context.append(line)
+            index += 1
+            continue
+        break
+    return context
+
+
+def _source_price_role(source_title, content, ambiguous=False):
+    """Accept a unit/package role only when the matched title has a nearby label."""
+    context = _source_title_context(source_title, content, ambiguous)
+    roles = set().union(*(_price_roles_in_text(line) for line in context)) if context else set()
+    return next(iter(roles)) if len(roles) == 1 else ''
+
+
+def _has_explicit_consumer_price_label(source_title, content, ambiguous=False):
+    context = _source_title_context(source_title, content, ambiguous)
+    text = '\n'.join(context).replace('\u200c', ' ').replace('ي', 'ی').replace('ك', 'ک')
+    return bool(_CONSUMER_PRICE_LABEL.search(text))
+
+
 def _array(response_text):
     text = str(response_text or '').strip()
     if text.startswith('```'):
@@ -196,6 +259,7 @@ def _product(item, content, channel):
     measurement_review_reasons = []
     source_title, ambiguous_source_title = _source_title_evidence(name, content)
     source_title_verified = bool(source_title)
+    source_price_role = _source_price_role(source_title, content, ambiguous_source_title)
     if source_title:
         name, source_volume, source_weight = source_title
         explicit_volume = source_volume
@@ -232,10 +296,27 @@ def _product(item, content, channel):
     consumer_package = _number(
         item.get('consumer_package_price') or item.get('regular_package_price'))
     sale_raw = _number(item.get('sale_price') or item.get('price') or item.get('wholesale_price'))
-    review = bool(item.get('needs_review'))
-    reasons = []
-    if item.get('review_reason'):
-        reasons.append(str(item['review_reason']).strip())
+    if not _has_explicit_consumer_price_label(
+            source_title, content, ambiguous_source_title) and not (sale_raw or unit or package):
+        unlabelled_consumer_amounts = {amount for amount in (consumer, consumer_package) if amount > 0}
+        if len(unlabelled_consumer_amounts) == 1:
+            # A sole amount from a wholesale channel is a supplier sale amount even if
+            # Gemini placed it in a consumer field. Its unit/package basis is separate.
+            sale_raw = next(iter(unlabelled_consumer_amounts))
+            consumer = 0
+            consumer_package = 0
+    original_review_reasons = [part.strip() for part in str(item.get('review_reason') or '').split(';') if part.strip()]
+    role_review_reasons = {
+        'supplier price role is unclear',
+        'supplier sale amount has no confirmed unit/package basis',
+        'sale price role is ambiguous: unit or package',
+        'pack count is detected but sale price role is not explicit',
+    }
+    reasons = [reason for reason in original_review_reasons if not (
+        source_price_role and reason.lower() in role_review_reasons)]
+    role_only_model_review = bool(original_review_reasons) and all(
+        reason.lower() in role_review_reasons for reason in original_review_reasons)
+    review = bool(item.get('needs_review')) and not (source_price_role and role_only_model_review)
     reasons.extend(measurement_review_reasons)
     if count_conflict:
         review = True
@@ -243,32 +324,33 @@ def _product(item, content, channel):
     if measurement_review_reasons:
         review = True
 
-    # Resolve only explicit unit prices or a package price with an explicit count.
-    if unit > 0:
-        sale = unit
+    # A model's unit/package field is not enough by itself: the matched source title
+    # must carry the corresponding label, or history/reference evidence may resolve the
+    # raw supplier amount later.
+    if source_price_role == 'unit' and (unit or sale_raw or package) > 0:
+        sale = unit or sale_raw or package
         price_type = 'unit'
         confirmed_role = 'unit'
-    elif package > 0 and count > 0:
-        sale = (package + count // 2) // count
-        price_type = 'unit'
-        confirmed_role = 'package'
-    elif package > 0:
+    elif source_price_role == 'package' and (package or sale_raw or unit) > 0:
+        package = package or sale_raw or unit
+        if count > 0:
+            sale = (package + count // 2) // count
+            price_type = 'unit'
+            confirmed_role = 'package'
+        else:
+            sale = 0
+            price_type = 'pack'
+            confirmed_role = ''
+            review = True
+            reasons.append('package price has no explicit package count')
+    elif sale_raw > 0 or unit > 0 or package > 0:
         sale = 0
-        price_type = 'pack'
+        # Keep the raw supplier amount for review, but do not trust a model-generated
+        # role when the matched source text does not establish its unit/package basis.
+        price_type = 'needs_review'
         confirmed_role = ''
         review = True
-        reasons.append('package price has no explicit package count')
-    elif sale_raw > 0 and str(item.get('price_type') or '').strip().lower() in {
-            'unit', 'single', 'per_unit'}:
-        sale = sale_raw
-        price_type = 'unit'
-        confirmed_role = 'unit'
-    elif sale_raw > 0:
-        sale = 0
-        price_type = str(item.get('price_type') or 'needs_review')
-        confirmed_role = ''
-        review = True
-        reasons.append('supplier price role is unclear')
+        reasons.append('supplier sale amount has no confirmed unit/package basis')
     else:
         sale = 0
         price_type = 'needs_review'
@@ -304,8 +386,8 @@ def _product(item, content, channel):
         'confirmed_price_role': confirmed_role,
         'actual_price': consumer or None,
         'consumer_price': consumer or None,
-        'package_price': package or None,
-        'double_pack_price': package or None,
+        'package_price': package if source_price_role == 'package' and package else None,
+        'double_pack_price': package if source_price_role == 'package' and package else None,
         'double_pack_consumer_price': consumer_package or None,
         'price_type': price_type,
         'currency': currency,

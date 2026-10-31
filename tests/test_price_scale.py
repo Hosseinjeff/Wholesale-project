@@ -30,7 +30,7 @@ class PriceScaleTests(unittest.TestCase):
             'consumer_price':120000,'package_price':None,'price_type':'needs_review','currency':'IRT',
             'packaging':'12 pack','package_count':12,'min_qty':12,'category':'Canned Food',
             'stock_status':'Available','confidence':.95,'extraction_confidence':.95,
-            'needs_review':True,'review_reason':'supplier price role is unclear',
+            'needs_review':True,'review_reason':'supplier sale amount has no confirmed unit/package basis',
             'detected_price':1200000,'source_price_amount':1200000,'confirmed_price_role':''}
         result=import_product_data(store,{'id':'message-1','batch_id':'batch-1',
             'channel':'telegram','channel_username':'@supplier','content':'Tuna 12 pack, 1200000 toman'},
@@ -50,7 +50,7 @@ class PriceScaleTests(unittest.TestCase):
             'consumer_price':150000,'price_type':'needs_review','currency':'IRT','packaging':'12 pack',
             'package_count':12,'min_qty':12,'category':'Canned Food','stock_status':'Available',
             'confidence':.95,'extraction_confidence':.95,'needs_review':True,
-            'review_reason':'supplier price role is unclear','detected_price':100000,
+            'review_reason':'supplier sale amount has no confirmed unit/package basis','detected_price':100000,
             'source_price_amount':100000,'confirmed_price_role':''}
         refs=[reference('Unrelated A',code='A'),reference('Unrelated B',code='B'),reference('Unrelated C',code='C')]
         result=import_product_data(store,{'id':'message-2','batch_id':'batch-2',
@@ -80,7 +80,8 @@ class PriceScaleTests(unittest.TestCase):
 
     def test_category_package_median_converts_to_unit_price(self):
         product={'name':'Other Canned Food 12 pack','category':'Canned Food','package_count':12,
-            'detected_price':1200000,'price_type':'needs_review','review_reason':'supplier price role is unclear',
+            'detected_price':1200000,'price_type':'needs_review',
+            'review_reason':'supplier sale amount has no confirmed unit/package basis',
             'needs_review':True,'confidence':.95}
         refs=[reference('A',code='1'),reference('B',code='2'),reference('C',code='3')]
         assessment=assess_price_scale(product,{},[],refs)

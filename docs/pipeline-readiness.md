@@ -2,7 +2,9 @@
 
 **Current state — 2026-10-31:** The public storefront remains live, and the owner product
 pipeline menu was streamlined in commit `62173404ece9e09a2348c19429e451559d73c688`.
-Railway deployment `c1d067de-5c64-4583-af4b-32230b7dae0e` is successful and online.
+Supplier extraction review fixes are in commit `7abe6d6a7f2afb47d6e1cd7f3cd548f8783a018e`,
+deployed successfully as `c98011ca-4a05-4a92-8cf5-2738faf3312f`; `/health` and
+`/health/detailed` returned HTTP 200.
 The latest read-only product setup audit is below. Payment setup remains out of scope.
 
 ## Latest live product setup audit — 2026-10-31
@@ -44,14 +46,17 @@ The latest read-only product setup audit is below. Payment setup remains out of 
   the old check treated every discount below 5% as suspicious. The check now keeps the
   above-consumer-price and over-80%-discount safeguards while allowing zero and small
   positive discounts.
-- Price-role uncertainty remains the main unresolved group: 37 cases said the source did
-  not establish unit versus package price. None had a unit/package label on or next to
-  its uniquely matched product-title line. A few labels elsewhere in a message are not
-  safely attributable to a specific product, so these cases remain held for review.
+- Price-basis uncertainty remains the main unresolved group: 37 cases did not establish
+  whether the supplier sale amount was per unit or per package. None had a unit/package
+  label on or next to its uniquely matched product-title line. The user confirmed that a
+  single unlabeled amount is a supplier sale amount, never a consumer price; the pipeline
+  preserves it but keeps the unit/package basis in review.
 - The extraction prompt now bases confidence on identity, amount, currency, price role
   and any count needed for unit-price calculation; missing optional details do not lower
   confidence. No live case was confirmed, reprocessed, published, or otherwise changed.
   The code changes affect later extraction runs; existing queued cases remain untouched.
+  After deployment, the owner queue still returned 47 cases with its publication hold
+  active.
 
 The previous 2026-10-31 refresh-timeout note below is a historical checkpoint. The
 current active snapshot supersedes its statement that no snapshot was active. The older
