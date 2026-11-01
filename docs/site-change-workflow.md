@@ -1,11 +1,12 @@
 # Site changes and preservation workflow
 
-Updated: 2026-10-30, Asia/Tehran
+Updated: 2026-11-01, Asia/Tehran
 
 ## Source of truth
 
 - WordPress plugin source lives in `shop-wp/molavi-shop/` in this repository.
-- The live release branch is `molavisale-release-2026-10-28`.
+- The user directed new changes to use `main` from 2026-11-01. The older
+  `molavisale-release-2026-10-28` branch is historical; deploy new work from `main`.
 - Do not edit live plugin files in WordPress or cPanel. Change the repository copy,
   commit it, push the commit, and deploy from that pushed revision.
 - The `.githooks/post-commit` hook pushes every commit to the branch's configured
@@ -39,11 +40,14 @@ the plugin directory.
 After a successful deploy, record the deployed commit here or in the relevant
 release note and use it as `--since` for the next deployment.
 
-Most recent plugin deployment: commit `4c5d83852e4eb6ec2a627f433ed9286d1a8aa637`
-(2026-10-31). `includes/owner-workflows.js` was uploaded and read back successfully
-with `python tools/deploy_wordpress_plugin.py --since 7abe6d6a7f2afb47d6e1cd7f3cd548f8783a018e`.
-The later pipeline commit `1d6c2de1179aeddaf1e3297c854dee7e040c204e` contains no plugin
-file changes. Use the deployed plugin commit as the next deployment's `--since` value.
+Most recent plugin deployment: commit `66b90019860fe3a7309802c56235c177359dd720`
+(2026-11-01). The owner extraction re-run controls in `includes/owner-workflows.js`
+and `includes/owner-workflows.css` were uploaded and read back successfully with
+`python tools/deploy_wordpress_plugin.py --since 4c5d83852e4eb6ec2a627f433ed9286d1a8aa637`.
+The previous plugin deployment was commit `4c5d83852e4eb6ec2a627f433ed9286d1a8aa637`
+(2026-10-31), which uploaded `includes/owner-workflows.js` from base
+`7abe6d6a7f2afb47d6e1cd7f3cd548f8783a018e`. Use the deployed plugin commit as the next
+deployment's `--since` value.
 
 ## WordPress data
 
