@@ -638,3 +638,19 @@ Do not record suggested options, silence, or previously inferred preferences as 
   suggestions. Their similarity scores are guidance only; the owner must select and
   submit a match. Manual entry accepts an exact normalized product name or reference
   ID, and ambiguous names remain unselected for the owner to resolve.
+
+### D-040 — Put product and order context inside WooCommerce screens
+
+- User requests that existing MolaviSale options fit the site's WooCommerce product
+  and order interfaces wherever practical.
+- Product list columns show supplier and supplier-price freshness; the product editor
+  has a MolaviSale tab with source metadata and links to product-scoped match and price
+  review. Source-owned metadata remains read-only there; changes use the existing review
+  paths.
+- WooCommerce order lists show MolaviSale handoff state and links to both the Woo order
+  and its focused preparation workflow. The order edit screen links to the same focused
+  workflow. Existing server-backed order actions return to that order after submission.
+- WooCommerce remains authoritative for catalog/order records. Context links and display
+  do not create or change products, orders, inventory, payments or customer messages.
+- Status: requested behavior implemented in the plugin source; production deployment and
+  file read-back remain pending and will be recorded in the release handoff.

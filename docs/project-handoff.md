@@ -1,8 +1,19 @@
 # MolaviSale — whole-workflow handoff
 
-Snapshot 4.59. Updated 2026-11-01, Asia/Tehran. The canonical roleplay decisions are in
+Snapshot 4.60. Updated 2026-11-01, Asia/Tehran. The canonical roleplay decisions are in
 `roleplay-state.json`; current live evidence and release gates are in
 `pipeline-readiness.md` and `pipeline-readiness-evidence.json`.
+
+## WooCommerce product and order integration — implementation checkpoint
+
+The plugin source now adds MolaviSale context to WooCommerce Products and Orders. Product
+list columns show supplier and freshness; the product editor has an owner-only tab with
+source details and links to the matching and supplier-price review paths. Order lists and
+the order editor show handoff state and link to the focused order-preparation workflow.
+Actions return to that order. Source-owned product fields remain read-only in the tab.
+
+The code and plugin README are on `main`; production plugin deployment and read-back are
+pending. Existing product/order data was not changed by this source update.
 
 ## Current owner extraction release — 2026-11-01
 

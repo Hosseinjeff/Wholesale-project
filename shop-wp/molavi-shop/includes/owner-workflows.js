@@ -609,8 +609,12 @@
             const data = await request();
             const state = data.reference_state || {};
             if (!state.allow_automatic) root.appendChild(notice('نسخه قیمت مرجع فعال و معتبر نیست. ابتدا فهرست مرجع را از API ووکامرس دریافت، بررسی و فعال کنید.', 'warning'));
-            const cases = [...(data.cases || []), ...(data.recent_decisions || [])];
-            if (!cases.length) root.appendChild(node('p', 'مورد تطبیقی برای بررسی وجود ندارد.'));
+            const requestedOfferId = new URLSearchParams(window.location.search).get('offer_id') || '';
+            let cases = [...(data.cases || []), ...(data.recent_decisions || [])];
+            if (requestedOfferId) cases = cases.filter(item => String(item.offer_id || '') === requestedOfferId);
+            if (!cases.length) root.appendChild(node('p', requestedOfferId
+                ? 'برای این پیشنهاد، مورد تطبیق بازی پیدا نشد؛ وضعیت کالا را در فهرست بررسی کنید.'
+                : 'مورد تطبیقی برای بررسی وجود ندارد.'));
             cases.forEach(item => root.appendChild(referenceItemCard(item)));
         } catch (error) { root.appendChild(notice(errorText(error.message), 'error')); }
     }
@@ -698,8 +702,14 @@
         if (message) root.appendChild(notice(message, messageKind));
         try {
             const data = await request();
-            const offers = Array.isArray(data.offers) ? data.offers : [];
-            if (!offers.length) root.appendChild(node('p', 'قیمت تأمین‌کننده‌ای در انتظار بررسی نیست.'));
+            const requestedProductId = new URLSearchParams(window.location.search).get('product_id') || '';
+            let offers = Array.isArray(data.offers) ? data.offers : [];
+            if (requestedProductId) {
+                offers = offers.filter(offer => String(offer.product_id || '') === requestedProductId);
+            }
+            if (!offers.length) root.appendChild(node('p', requestedProductId
+                ? 'برای این کالا قیمت تأمین‌کننده‌ای در انتظار بررسی نیست.'
+                : 'قیمت تأمین‌کننده‌ای در انتظار بررسی نیست.'));
             const labels = {
                 warning: 'بیش از هفت روز از آخرین بررسی گذشته است.',
                 blocked: 'قیمت ۱۴ روز یا بیشتر بررسی نشده؛ سفارش تازه متوقف است.',

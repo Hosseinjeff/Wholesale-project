@@ -157,15 +157,41 @@ add_action('admin_menu', static function (): void {
 function molavi_paid_orders_screen(): void {
     if (!molavi_reference_owner()) { wp_die('دسترسی مجاز نیست.', '', ['response'=>403]); }
     nocache_headers();
+    $focusedOrderId = isset($_GET['order_id']) && is_scalar($_GET['order_id'])
+        ? absint(wp_unslash($_GET['order_id'])) : 0;
     echo '<div class="wrap"><h1>' . esc_html('آماده‌سازی سفارش‌های پرداخت‌شده') . '</h1>';
-    echo '<p>' . esc_html('موجودی ثبت‌شده برای سفارش نگه داشته می‌شود. کسری کالا فقط به شکل پیشنهاد خرید بسته کامل نمایش داده می‌شود؛ این صفحه هیچ خریدی برای تأمین‌کننده ثبت نمی‌کند.') . '</p>';
-    echo '<h2>' . esc_html('ثبت رسید موجودی') . '</h2>';
+    if (isset($_GET['operation_saved'])) {
+        echo '<div class="notice notice-success is-dismissible"><p>'
+            . esc_html('اقدام پیگیری سفارش ثبت شد.') . '</p></div>';
+    } elseif (isset($_GET['saved'])) {
+        echo '<div class="notice notice-success is-dismissible"><p>'
+            . esc_html('شرایط تأمین این سفارش ذخیره شد.') . '</p></div>';
+    } elseif (isset($_GET['stock_saved'])) {
+        echo '<div class="notice notice-success is-dismissible"><p>'
+            . esc_html('رسید موجودی ثبت شد.') . '</p></div>';
+    }
+    if ($focusedOrderId > 0) {
+        $focusedWooOrder = wc_get_order($focusedOrderId);
+        if ($focusedWooOrder) {
+            $wooEditUrl = method_exists($focusedWooOrder, 'get_edit_order_url')
+                ? $focusedWooOrder->get_edit_order_url()
+                : admin_url('post.php?post=' . $focusedOrderId . '&action=edit');
+            echo '<p>' . esc_html('پیگیری سفارش ووکامرس #' . $focusedWooOrder->get_order_number()
+                . ' · ' . wc_get_order_status_name($focusedWooOrder->get_status()))
+                . ' · <a href="' . esc_url($wooEditUrl) . '">' . esc_html('بازگشت به جزئیات سفارش') . '</a></p>';
+        }
+    }
+    if ($focusedOrderId === 0) {
+        echo '<p>' . esc_html('موجودی ثبت‌شده برای سفارش نگه داشته می‌شود. کسری کالا فقط به شکل پیشنهاد خرید بسته کامل نمایش داده می‌شود؛ این صفحه هیچ خریدی برای تأمین‌کننده ثبت نمی‌کند.') . '</p>';
+        echo '<h2>' . esc_html('ثبت رسید موجودی') . '</h2>';
+    }
     $stock=molavi_stock_lots_request('GET');
     $stockLots=[];
     if (is_wp_error($stock) || !isset($stock['lots']) || !is_array($stock['lots'])) {
         echo '<div class="notice notice-error"><p>' . esc_html(is_wp_error($stock) ? $stock->get_error_message() : 'پاسخ موجودی معتبر نیست.') . '</p></div>';
     } else {
         $stockLots=$stock['lots'];
+        if ($focusedOrderId === 0) {
         echo '<table class="widefat striped"><thead><tr><th>شناسه بچ</th><th>SKU</th><th>تأمین‌کننده</th><th>خرید</th><th>دریافت</th><th>تعداد</th><th>در دسترس</th><th>بهای واحد (تومان)</th><th>تولید</th><th>انقضا</th><th>وضعیت</th></tr></thead><tbody>';
         foreach ($stock['lots'] as $lot) {
             if (!is_array($lot)) { continue; }
@@ -191,21 +217,44 @@ function molavi_paid_orders_screen(): void {
         echo '<label>' . esc_html('بهای خرید هر واحد (تومان)') . ' <input name="unit_cost" type="number" min="1" max="1000000000000" required></label></p>';
         echo '<p><label>' . esc_html('یادداشت رسید') . ' <textarea name="note" required maxlength="1000"></textarea></label></p>';
         echo '<button class="button">' . esc_html('ثبت رسید موجودی') . '</button></form>';
+        }
     }
     $result=molavi_paid_orders_request('GET');
     if (is_wp_error($result) || !isset($result['orders']) || !is_array($result['orders'])) {
         echo '<div class="notice notice-error"><p>' . esc_html(is_wp_error($result) ? $result->get_error_message() : 'پاسخ سرور معتبر نیست.') . '</p></div></div>';
         return;
     }
-    if ($result['orders']===[]) { echo '<p>' . esc_html('سفارش پرداخت‌شده‌ای برای آماده‌سازی ثبت نشده است.') . '</p>'; }
+    $orders = $result['orders'];
+    if ($focusedOrderId > 0) {
+        $orders = array_values(array_filter($orders, static function ($plan) use ($focusedOrderId) {
+            return is_array($plan) && (string)($plan['order_id'] ?? '') === (string)$focusedOrderId;
+        }));
+        if ($orders === []) {
+            echo '<div class="notice notice-info"><p>'
+                . esc_html('برای این سفارش هنوز پرونده آماده‌سازی پرداخت‌شده‌ای در مولوی‌سل ثبت نشده است.')
+                . '</p></div></div>';
+            return;
+        }
+    } elseif ($orders === []) {
+        echo '<p>' . esc_html('سفارش پرداخت‌شده‌ای برای آماده‌سازی ثبت نشده است.') . '</p>';
+    }
     $labels=['reserved'=>'موجودی ثبت‌شده برای سفارش نگه داشته شد',
         'procurement_proposed'=>'پیشنهاد تأمین بسته‌ای آماده بررسی است',
         'needs_owner_review'=>'برای کسری این سفارش، بررسی مالک لازم است',
         'released'=>'رزرو موجودی آزاد شد'];
-    foreach ($result['orders'] as $plan) {
+    foreach ($orders as $plan) {
         if (!is_array($plan) || !is_string($plan['order_id'] ?? null)) { continue; }
         $orderId=(string)$plan['order_id'];
-        echo '<div class="card"><h2>' . esc_html('سفارش ' . $orderId) . '</h2>';
+        $wooOrder=ctype_digit($orderId) ? wc_get_order((int)$orderId) : false;
+        $orderLabel=$wooOrder ? '#' . $wooOrder->get_order_number() : $orderId;
+        echo '<div class="card"><h2>' . esc_html('سفارش ' . $orderLabel) . '</h2>';
+        if ($wooOrder) {
+            $wooEditUrl=method_exists($wooOrder,'get_edit_order_url')
+                ? $wooOrder->get_edit_order_url()
+                : admin_url('post.php?post=' . (int)$wooOrder->get_id() . '&action=edit');
+            echo '<p>' . esc_html('وضعیت ووکامرس: ' . wc_get_order_status_name($wooOrder->get_status()))
+                . ' · <a href="' . esc_url($wooEditUrl) . '">' . esc_html('بازگشت به سفارش ووکامرس') . '</a></p>';
+        }
         echo '<p>' . esc_html($labels[$plan['state'] ?? ''] ?? 'نیازمند بررسی') . '</p>';
         echo '<table class="widefat striped"><thead><tr><th>SKU</th><th>تعداد مشتری</th><th>موجودی رزروشده</th><th>کسری</th></tr></thead><tbody>';
         foreach (($plan['lines'] ?? []) as $line) {
@@ -557,7 +606,9 @@ add_action('admin_post_molavi_paid_order_terms', static function (): void {
     $terms=[$sku=>array_merge(['supplier'=>$supplier,'source_offer_id'=>$offerId],$numbers)];
     $saved=molavi_paid_orders_request('POST',['order_id'=>$orderId,'supplier_terms'=>$terms,'note'=>$note]);
     if (is_wp_error($saved)) { wp_die(esc_html($saved->get_error_message()), '', ['response'=>503]); }
-    wp_safe_redirect(admin_url('admin.php?page=molavi-paid-orders&saved=1'));
+    wp_safe_redirect(add_query_arg([
+        'page' => 'molavi-paid-orders', 'order_id' => $orderId, 'saved' => 1,
+    ], admin_url('admin.php')));
     exit;
 });
 
@@ -635,7 +686,9 @@ add_action('admin_post_molavi_paid_order_operation', static function (): void {
     $saved=molavi_paid_orders_request('POST',['order_id'=>$orderId,'action'=>$operation,
         'details'=>$details,'note'=>$note]);
     if (is_wp_error($saved)) { wp_die(esc_html($saved->get_error_message()), '', ['response'=>503]); }
-    wp_safe_redirect(admin_url('admin.php?page=molavi-paid-orders&operation_saved=1'));
+    wp_safe_redirect(add_query_arg([
+        'page' => 'molavi-paid-orders', 'order_id' => $orderId, 'operation_saved' => 1,
+    ], admin_url('admin.php')));
     exit;
 });
 

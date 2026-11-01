@@ -1,5 +1,21 @@
 # Whole-flow handoff implementation record — 2026-10-26 onward (Asia/Tehran)
 
+## WooCommerce-native product and order context — implementation checkpoint
+
+Owner workflow context is now surfaced directly in WooCommerce. The Products list shows
+supplier and supplier-price freshness and can be filtered by price state. The product
+editor's MolaviSale tab shows source metadata, including private supplier cost, and links
+to matching and price review scoped to that product. The Orders list shows the
+MolaviSale handoff state and links to the Woo order and its focused preparation screen;
+the Woo order editor has the same shortcut. Actions on a focused order return to that
+order and display a success notice.
+
+Source-owned product data stays read-only in the product tab and is changed through the
+existing review path. WooCommerce order records stay the order authority; the focused
+screen reuses existing server-side order operations. Deployment and file read-back are
+recorded after the release below. No production product/order records were edited for
+this integration.
+
 ## Bulk dismissal and uncertain-item suggestions — deployed 2026-11-01
 
 Commit `3ed092cbf6c2f2ac669b8532837c317d3429d72c` is on `main`. Railway deployment

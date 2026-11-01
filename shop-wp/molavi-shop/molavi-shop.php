@@ -28,6 +28,7 @@ require_once __DIR__ . '/includes/operations-dashboard.php';
 require_once __DIR__ . '/includes/clearance-pricing.php';
 require_once __DIR__ . '/includes/inventory-management.php';
 require_once __DIR__ . '/includes/order-handoff.php';
+require_once __DIR__ . '/includes/woocommerce-admin.php';
 require_once __DIR__ . '/includes/delivery.php';
 require_once __DIR__ . '/includes/storefront-renderer.php';
 require_once __DIR__ . '/includes/site-chrome.php';
