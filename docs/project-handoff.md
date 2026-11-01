@@ -17,13 +17,18 @@ deployment script uploaded and read back the changed plugin files successfully.
 Existing product/order data was not changed by the release. The live admin screens were
 not opened in a browser after deployment; the file uploader's source comparison passed.
 
-## Tabbed MolaviSale workspace — implementation checkpoint
+## Tabbed MolaviSale workspace — deployed 2026-11-01
 
-The WooCommerce **خط لوله مولوی‌سل** page is being changed to a tabbed workspace. Its
-existing extraction, reference, match, freshness, publication, inventory, clearance and
-order screens are loaded as tab content instead of requiring navigation among separate
-menu pages. Existing scoped owner APIs and server-side forms remain the source for those
-interactions. Plugin deployment and read-back are pending.
+The WooCommerce **خط لوله مولوی‌سل** page now presents the existing extraction, reference,
+match, freshness, publication, inventory, clearance and order screens as tab content
+instead of requiring navigation among separate menu pages. Existing scoped owner APIs
+and server-side forms remain the source for those interactions.
+
+Commit `b4626edf118cc2fbbc4f8753d1bbce66ecf0724a` is on `main`. The plugin uploader
+read back and verified `includes/operations-dashboard.php`,
+`includes/owner-workflows.css`, and `includes/owner-workflows.js`. No product, order,
+review, payment, or server records were changed. The admin UI was not opened in a live
+browser after deployment.
 
 ## Current owner extraction release — 2026-11-01
 

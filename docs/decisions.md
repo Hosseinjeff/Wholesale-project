@@ -666,4 +666,5 @@ Do not record suggested options, silence, or previously inferred preferences as 
   switched away and back; a page hash preserves the selected section.
 - The underlying screen URLs remain available for contextual product/order links and as
   a fallback when embedded admin content cannot load.
-- Status: implemented in the plugin source; deployment/read-back to follow.
+- Status: deployed from `main` at `b4626edf118cc2fbbc4f8753d1bbce66ecf0724a`;
+  the uploader verified the changed plugin files by read-back.

@@ -40,14 +40,18 @@ the plugin directory.
 After a successful deploy, record the deployed commit here or in the relevant
 release note and use it as `--since` for the next deployment.
 
-Most recent plugin deployment: commit `0a3e7f27c12f419d175645592166913e2c9f8db1`
-(2026-11-01). WooCommerce product and order context was deployed from `main` with
+Most recent plugin deployment: commit `b4626edf118cc2fbbc4f8753d1bbce66ecf0724a`
+(2026-11-01). The tabbed MolaviSale workspace was deployed from `main` with
 `python tools/deploy_wordpress_plugin.py --since
-3ed092cbf6c2f2ac669b8532837c317d3429d72c`. The uploader changed and verified by read-back
-`includes/owner-workflows.js`, `includes/pipeline-holds.php`,
-`includes/woocommerce-admin.php`, and `molavi-shop.php`; it reported no host normalization.
-No WooCommerce records or Railway service were changed. The previous plugin deployment was
-commit `3ed092cbf6c2f2ac669b8532837c317d3429d72c` (2026-11-01), where bulk
+0a3e7f27c12f419d175645592166913e2c9f8db1`. The uploader changed and verified by read-back
+`includes/operations-dashboard.php`, `includes/owner-workflows.css`, and
+`includes/owner-workflows.js`; it reported no host normalization. No product/order records
+or Railway service were changed. The previous plugin deployment was commit
+`0a3e7f27c12f419d175645592166913e2c9f8db1` (2026-11-01), which integrated product and
+order context into WooCommerce and verified `includes/owner-workflows.js`,
+`includes/pipeline-holds.php`, `includes/woocommerce-admin.php`, and `molavi-shop.php`.
+The previous plugin deployment was commit `3ed092cbf6c2f2ac669b8532837c317d3429d72c`
+(2026-11-01), where bulk
 message/case dismissal, optional dismissal notes, and visible reference suggestions in
 `includes/owner-workflows.js` and `includes/owner-workflows.css` were uploaded and read back
 successfully with `python tools/deploy_wordpress_plugin.py --since

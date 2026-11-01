@@ -16,10 +16,12 @@ screen reuses existing server-side order operations. Deployment and file read-ba
 recorded after the release below. No production product/order records were edited for
 this integration.
 
-The same WooCommerce owner entry point is being converted from stacked stage cards to
-horizontal tabs. Each tab contains the existing section screen so the extraction, review,
-publishing, inventory and order actions remain usable in one place. Its change is tracked
-in D-041 and will be recorded after plugin deployment.
+The same WooCommerce owner entry point now presents the existing screens as horizontal
+tabs. Each tab loads its section content inline for extraction, reference review, product
+matching, freshness, publication, Sheet conflicts, inventory, clearance pricing, or orders.
+The tabs are keyboard accessible, scroll on narrow screens, preserve their content when
+switched, and keep the selected tab in the URL. Direct screen links remain available for
+WooCommerce product/order context and as a fallback.
 
 Deployment record: commit `0a3e7f27c12f419d175645592166913e2c9f8db1` is on `main` and
 was uploaded through the WordPress plugin release script. The uploader read back and
@@ -27,6 +29,12 @@ verified `includes/owner-workflows.js`, `includes/pipeline-holds.php`,
 `includes/woocommerce-admin.php`, and `molavi-shop.php`. No Railway service, product,
 order, payment, or owner review decision was changed. The admin screens were not opened
 in a live browser after deployment.
+
+Tabbed workspace deployment: commit `b4626edf118cc2fbbc4f8753d1bbce66ecf0724a` is on
+`main`; the WordPress uploader verified by read-back `includes/operations-dashboard.php`,
+`includes/owner-workflows.css`, and `includes/owner-workflows.js`. No owner action or
+production product/order record was changed during this deploy. The live tab experience
+was not opened in a browser after deployment.
 
 ## Bulk dismissal and uncertain-item suggestions — deployed 2026-11-01
 
