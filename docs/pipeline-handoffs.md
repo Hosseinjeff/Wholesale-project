@@ -1,6 +1,6 @@
 # Whole-flow handoff implementation record — 2026-10-26 onward (Asia/Tehran)
 
-## WooCommerce-native product and order context — implementation checkpoint
+## WooCommerce-native product and order context — deployed 2026-11-01
 
 Owner workflow context is now surfaced directly in WooCommerce. The Products list shows
 supplier and supplier-price freshness and can be filtered by price state. The product
@@ -15,6 +15,11 @@ existing review path. WooCommerce order records stay the order authority; the fo
 screen reuses existing server-side order operations. Deployment and file read-back are
 recorded after the release below. No production product/order records were edited for
 this integration.
+
+The same WooCommerce owner entry point is being converted from stacked stage cards to
+horizontal tabs. Each tab contains the existing section screen so the extraction, review,
+publishing, inventory and order actions remain usable in one place. Its change is tracked
+in D-041 and will be recorded after plugin deployment.
 
 Deployment record: commit `0a3e7f27c12f419d175645592166913e2c9f8db1` is on `main` and
 was uploaded through the WordPress plugin release script. The uploader read back and

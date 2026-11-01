@@ -654,3 +654,16 @@ Do not record suggested options, silence, or previously inferred preferences as 
   do not create or change products, orders, inventory, payments or customer messages.
 - Status: deployed from `main` at `0a3e7f27c12f419d175645592166913e2c9f8db1`; the
   WordPress uploader verified the changed plugin files by read-back.
+
+### D-041 — Show MolaviSale sections as tabs in one workspace
+
+- User asks for MolaviSale sections to be arranged as tabs with their corresponding
+  content, instead of opening separate menu pages.
+- The WooCommerce MolaviSale workspace has horizontal, keyboard-accessible tabs for the
+  existing extraction, reference, matching, publication, inventory, clearance and order
+  screens. Each tab loads its existing screen content inline and preserves its current
+  owner checks and action handlers. Tabs load on first selection and keep their state when
+  switched away and back; a page hash preserves the selected section.
+- The underlying screen URLs remain available for contextual product/order links and as
+  a fallback when embedded admin content cannot load.
+- Status: implemented in the plugin source; deployment/read-back to follow.

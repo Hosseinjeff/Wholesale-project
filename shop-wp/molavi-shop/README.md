@@ -50,6 +50,15 @@ preparation view. Actions in that view return to the same order. WooCommerce rem
 order record; the focused view handles existing supplier, substitution, refund, packing,
 dispatch and aftercare follow-up actions.
 
+## Tabbed MolaviSale workspace
+
+Open **WooCommerce → خط لوله مولوی‌سل** for one workspace with tabs for extraction,
+reference catalog, reference freshness, product matching, supplier prices, publication,
+Sheet conflicts, inventory, clearance pricing, and orders. Each tab displays the existing
+section content in place, so review forms and actions stay available without switching
+between separate menu pages. Tabs work with mouse, keyboard, and narrow screens; the
+selected tab is kept in the page URL.
+
 ## Order boundary
 
 The continue button opens the current WooCommerce checkout, which remains responsible for

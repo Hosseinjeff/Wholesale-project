@@ -85,6 +85,7 @@
         header.appendChild(node('h1', title));
         const back = node('a', 'بازگشت به خط لوله');
         back.href = config.pipelineUrl;
+        back.target = '_top';
         header.appendChild(back);
         root.appendChild(header);
         if (description) root.appendChild(node('p', description));
@@ -123,62 +124,120 @@
         container.prepend(notice(message, 'error'));
     }
 
-    function stageAction(title, description, slug) {
-        const link = node('a', null, 'molavi-pipeline-action');
-        link.href = config.pageUrls[slug] || '#';
-        link.appendChild(node('strong', title));
-        link.appendChild(node('span', description));
-        return link;
-    }
-
-    function stageGroup(number, title, description, actions) {
-        const section = node('section', null, 'card molavi-pipeline-stage');
-        const heading = node('div', null, 'molavi-pipeline-stage-heading');
-        heading.appendChild(node('span', number, 'molavi-pipeline-step'));
-        const copy = node('div');
-        copy.appendChild(node('h2', title));
-        copy.appendChild(node('p', description));
-        heading.appendChild(copy);
-        section.appendChild(heading);
-        const links = node('div', null, 'molavi-pipeline-actions');
-        actions.forEach(([actionTitle, actionDescription, slug]) => {
-            links.appendChild(stageAction(actionTitle, actionDescription, slug));
-        });
-        section.appendChild(links);
-        return section;
-    }
-
     async function dashboard() {
-        shell('خط لوله مولوی‌سل', 'کالای جدید را از پیام تأمین‌کننده تا انتشار، به‌ترتیب آماده کنید. کارهای موجودی و سفارش پس از انتشار در پایان فهرست آمده‌اند.');
+        shell('خط لوله مولوی‌سل', 'هر بخش را از نوار تب انتخاب کنید؛ محتوای همان بخش همین‌جا نمایش داده می‌شود.');
         const board = node('div', null, 'card');
         root.appendChild(board);
         board.appendChild(node('h2', 'وضعیت پردازش'));
         board.appendChild(node('p', 'در حال دریافت وضعیت کارهای صف…'));
-        const groups = [
-            ['۱', 'دریافت و بررسی پیام', 'پیام‌های قبلی را در صورت نیاز با قواعد فعلی دوباره استخراج کنید؛ سپس پیشنهادها را با متن اصلی تطبیق دهید.', [
-                ['بررسی استخراج کالا', 'بازاستخراج پیام‌های ذخیره‌شده و اصلاح نام، قیمت، تعداد بسته و موجودی.', 'molavi-ai-confirmations']
-            ]],
-            ['۲', 'بررسی قیمت مرجع', 'پیش از تطبیق، از فعال و معتبر بودن فهرست مرجع مطمئن شوید.', [
-                ['دریافت و فعال‌سازی فهرست', 'نسخه دریافت‌شده از API ووکامرس را بررسی کنید.', 'molavi-reference-snapshots'],
-                ['رخدادهای تازگی مرجع', 'برای دریافت ناموفق یا مرجع قدیمی، تصمیم موردی ثبت کنید.', 'molavi-reference-decisions']
-            ]],
-            ['۳', 'تطبیق کالا و قیمت', 'پیشنهاد تأمین‌کننده را به کالای درست وصل و تازگی قیمت را بررسی کنید.', [
-                ['تطبیق کالای تأمین‌کننده', 'انتخاب کالای مرجع و نقش قیمت واحد یا بسته.', 'molavi-reference-items'],
-                ['اعتبار قیمت تأمین‌کننده', 'قیمت‌های قدیمی یا فاقد مدرک را بررسی کنید.', 'molavi-supplier-prices']
-            ]],
-            ['۴', 'انتشار و بازیابی', 'پس از تطبیق، پیگیری کنید که اطلاعات به فروشگاه رسیده و مانع حل‌نشده نمانده باشد.', [
-                ['توقف‌های انتشار', 'دسته را بررسی کنید؛ ثبت بررسی، آن و انتشارهای منتظر را به صف برمی‌گرداند.', 'molavi-publication-holds'],
-                ['تعارض‌های اطلاعات', 'تغییر هم‌زمان سرور و شیت را تعیین تکلیف کنید.', 'molavi-sheet-conflicts']
-            ]],
-            ['۵', 'موجودی و سفارش', 'این کارها پس از آماده شدن محصول انجام می‌شوند.', [
-                ['ثبت و اصلاح موجودی', 'رسیدها و شمارش موجودی را ثبت یا اصلاح کنید.', 'molavi-inventory-management'],
-                ['پیشنهاد قیمت حراج', 'برای موجودی واجد شرایط قیمت حراج را بررسی کنید.', 'molavi-clearance-pricing'],
-                ['آماده‌سازی سفارش', 'موجودی و کسری‌های سفارش را پیگیری کنید.', 'molavi-paid-orders']
-            ]]
+        const sections = [
+            ['molavi-ai-confirmations', 'استخراج کالا'],
+            ['molavi-reference-snapshots', 'فهرست مرجع'],
+            ['molavi-reference-decisions', 'تازگی مرجع'],
+            ['molavi-reference-items', 'تطبیق کالا'],
+            ['molavi-supplier-prices', 'قیمت تأمین‌کننده'],
+            ['molavi-publication-holds', 'انتشار'],
+            ['molavi-sheet-conflicts', 'تعارض شیت'],
+            ['molavi-inventory-management', 'موجودی'],
+            ['molavi-clearance-pricing', 'قیمت حراج'],
+            ['molavi-paid-orders', 'سفارش‌ها']
         ];
-        const cards = node('div', null, 'molavi-pipeline-grid');
-        groups.forEach(([number, title, desc, actions]) => cards.appendChild(stageGroup(number, title, desc, actions)));
-        root.appendChild(cards);
+        const tabs = node('div', null, 'molavi-admin-tabs');
+        tabs.setAttribute('role', 'tablist');
+        tabs.setAttribute('aria-label', 'بخش‌های خط لوله مولوی‌سل');
+        const panels = node('div', null, 'molavi-admin-tab-panels');
+        const entries = sections.map(([slug, title], index) => {
+            const id = 'molavi-tab-' + slug;
+            const tab = document.createElement('button');
+            tab.type = 'button';
+            tab.className = 'molavi-admin-tab';
+            tab.id = id;
+            tab.setAttribute('role', 'tab');
+            tab.setAttribute('aria-controls', id + '-panel');
+            tab.setAttribute('aria-selected', 'false');
+            tab.tabIndex = -1;
+            tab.textContent = title;
+
+            const panel = node('section', null, 'molavi-admin-tabpanel');
+            panel.id = id + '-panel';
+            panel.setAttribute('role', 'tabpanel');
+            panel.setAttribute('aria-labelledby', id);
+            panel.tabIndex = 0;
+            panel.hidden = true;
+            const pageUrl = config.pageUrls[slug] || '';
+            const fallback = node('a', 'باز کردن این بخش در صفحه جدا', 'button button-secondary');
+            fallback.href = pageUrl || '#';
+            fallback.target = '_top';
+            fallback.hidden = !pageUrl;
+            const frame = document.createElement('iframe');
+            frame.title = title + ' — محتوای مولوی‌سل';
+            frame.loading = 'lazy';
+            frame.dataset.src = pageUrl;
+            frame.className = 'molavi-admin-tab-frame';
+            frame.addEventListener('load', () => {
+                try {
+                    const doc = frame.contentDocument;
+                    if (!doc || !doc.head || !doc.body) throw new Error('frame_unavailable');
+                    const expectedPath = new URL(frame.dataset.src, window.location.href).pathname;
+                    if (doc.location.pathname !== expectedPath) throw new Error('frame_not_ready');
+                    let chrome = doc.getElementById('molavi-embedded-admin-chrome');
+                    if (!chrome) {
+                        chrome = doc.createElement('style');
+                        chrome.id = 'molavi-embedded-admin-chrome';
+                        chrome.textContent = '#wpadminbar,#adminmenumain,#wpfooter,#screen-meta,#screen-meta-links{display:none!important}'
+                            + '#wpcontent{margin:0!important;padding:0 12px!important}#wpbody{padding-top:0!important}'
+                            + '.wrap{margin:0!important}';
+                        doc.head.appendChild(chrome);
+                    }
+                    doc.querySelectorAll('a[href*="page=molavi-operations"]').forEach(link => { link.target = '_top'; });
+                    const fit = () => {
+                        const height = Math.max(doc.documentElement.scrollHeight, doc.body.scrollHeight, 600);
+                        frame.style.height = height + 'px';
+                    };
+                    fit();
+                    if (!frame.dataset.observing) {
+                        frame.dataset.observing = '1';
+                        new MutationObserver(fit).observe(doc.body, { childList: true, subtree: true, attributes: true });
+                        [250, 900, 2000].forEach(delay => window.setTimeout(fit, delay));
+                    }
+                    fallback.hidden = true;
+                } catch (_error) {
+                    fallback.hidden = !pageUrl;
+                }
+            });
+            panel.append(fallback, frame);
+            tab.addEventListener('click', () => activate(index));
+            tab.addEventListener('keydown', event => {
+                const rtl = document.documentElement.dir === 'rtl';
+                let next = null;
+                if (event.key === 'Home') next = 0;
+                else if (event.key === 'End') next = entries.length - 1;
+                else if (event.key === 'ArrowRight') next = (index + (rtl ? -1 : 1) + entries.length) % entries.length;
+                else if (event.key === 'ArrowLeft') next = (index + (rtl ? 1 : -1) + entries.length) % entries.length;
+                if (next !== null) { event.preventDefault(); activate(next); entries[next].tab.focus(); }
+            });
+            tabs.appendChild(tab);
+            panels.appendChild(panel);
+            return { slug, id, tab, panel, frame, index };
+        });
+        function activate(index) {
+            entries.forEach((entry, current) => {
+                const selected = current === index;
+                entry.tab.setAttribute('aria-selected', String(selected));
+                entry.tab.tabIndex = selected ? 0 : -1;
+                entry.panel.hidden = !selected;
+            });
+            const active = entries[index];
+            if (active.frame.dataset.src && !active.frame.dataset.loaded) {
+                active.frame.dataset.loaded = '1';
+                active.frame.src = active.frame.dataset.src;
+            }
+            window.history.replaceState(null, '', window.location.pathname + window.location.search + '#' + active.id);
+        }
+        root.append(tabs, panels);
+        const initialTab = window.location.hash.replace(/^#molavi-tab-/, '');
+        const initialIndex = Math.max(0, entries.findIndex(entry => entry.slug === initialTab));
+        activate(initialIndex);
         try {
             const result = await request();
             const ops = result.operations || {};

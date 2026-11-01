@@ -1,6 +1,6 @@
 # MolaviSale — whole-workflow handoff
 
-Snapshot 4.60. Updated 2026-11-01, Asia/Tehran. The canonical roleplay decisions are in
+Snapshot 4.61. Updated 2026-11-01, Asia/Tehran. The canonical roleplay decisions are in
 `roleplay-state.json`; current live evidence and release gates are in
 `pipeline-readiness.md` and `pipeline-readiness-evidence.json`.
 
@@ -16,6 +16,14 @@ Commit `0a3e7f27c12f419d175645592166913e2c9f8db1` is on `main`. The WordPress pl
 deployment script uploaded and read back the changed plugin files successfully.
 Existing product/order data was not changed by the release. The live admin screens were
 not opened in a browser after deployment; the file uploader's source comparison passed.
+
+## Tabbed MolaviSale workspace — implementation checkpoint
+
+The WooCommerce **خط لوله مولوی‌سل** page is being changed to a tabbed workspace. Its
+existing extraction, reference, match, freshness, publication, inventory, clearance and
+order screens are loaded as tab content instead of requiring navigation among separate
+menu pages. Existing scoped owner APIs and server-side forms remain the source for those
+interactions. Plugin deployment and read-back are pending.
 
 ## Current owner extraction release — 2026-11-01
 

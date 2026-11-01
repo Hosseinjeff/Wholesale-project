@@ -2,17 +2,15 @@
 #molavi-owner-workflow .molavi-workflow-heading { display:flex; align-items:center; justify-content:space-between; gap:1rem; }
 #molavi-owner-workflow .molavi-workflow-heading h1 { margin-block:.5rem; }
 #molavi-owner-workflow .card { box-sizing:border-box; padding:1rem; margin:1rem 0; border:1px solid #dcdcde; border-radius:8px; background:#fff; }
-#molavi-owner-workflow .molavi-pipeline-grid { display:grid; grid-template-columns:minmax(0,1fr); gap:1rem; max-width:64rem; margin-top:1.25rem; }
-#molavi-owner-workflow .molavi-pipeline-stage { margin:0; border-inline-start:4px solid #f97316; }
-#molavi-owner-workflow .molavi-pipeline-stage-heading { display:flex; align-items:flex-start; gap:.75rem; }
-#molavi-owner-workflow .molavi-pipeline-stage-heading h2 { margin:.1rem 0 .35rem; font-size:1.1rem; }
-#molavi-owner-workflow .molavi-pipeline-stage-heading p { margin:.25rem 0 .75rem; color:#646970; }
-#molavi-owner-workflow .molavi-pipeline-step { display:inline-grid; place-items:center; flex:0 0 2rem; width:2rem; height:2rem; border-radius:50%; background:#fff1e8; color:#b54708; font-weight:700; }
-#molavi-owner-workflow .molavi-pipeline-actions { display:grid; gap:.5rem; margin-top:.5rem; }
-#molavi-owner-workflow .molavi-pipeline-action { display:grid; gap:.2rem; padding:.65rem .75rem; border:1px solid #e2e4e7; border-radius:6px; color:#1d2327; text-decoration:none; }
-#molavi-owner-workflow .molavi-pipeline-action:hover,
-#molavi-owner-workflow .molavi-pipeline-action:focus { border-color:#f97316; color:#8a2f00; box-shadow:0 0 0 1px #f97316; }
-#molavi-owner-workflow .molavi-pipeline-action span { color:#646970; font-size:.92em; }
+#molavi-owner-workflow .molavi-admin-tabs { position:sticky; top:32px; z-index:10; display:flex; gap:.25rem; overflow-x:auto; white-space:nowrap; margin:1rem 0 0; padding:.35rem .35rem 0; border-bottom:1px solid #c3c4c7; background:#f0f0f1; scrollbar-width:thin; }
+#molavi-owner-workflow .molavi-admin-tab { flex:0 0 auto; margin:0; padding:.65rem .85rem; border:1px solid transparent; border-bottom:0; border-radius:6px 6px 0 0; background:transparent; color:#1d2327; cursor:pointer; font:inherit; }
+#molavi-owner-workflow .molavi-admin-tab:hover { background:#f6f7f7; color:#135e96; }
+#molavi-owner-workflow .molavi-admin-tab:focus-visible { outline:2px solid #2271b1; outline-offset:-2px; }
+#molavi-owner-workflow .molavi-admin-tab[aria-selected="true"] { border-color:#c3c4c7; background:#fff; color:#135e96; font-weight:600; }
+#molavi-owner-workflow .molavi-admin-tabpanel { min-height:65vh; padding:.75rem; border:1px solid #c3c4c7; border-top:0; border-radius:0 0 6px 6px; background:#fff; }
+#molavi-owner-workflow .molavi-admin-tabpanel[hidden] { display:none; }
+#molavi-owner-workflow .molavi-admin-tabpanel > .button { margin:.25rem 0 .75rem; }
+#molavi-owner-workflow .molavi-admin-tab-frame { display:block; width:100%; min-height:65vh; border:0; background:#fff; }
 #molavi-owner-workflow .molavi-reextract-actions { display:flex; flex-wrap:wrap; gap:.6rem; margin:.75rem 0; }
 #molavi-owner-workflow .molavi-reextract-panel { border-inline-start:4px solid #f97316; }
 #molavi-owner-workflow .molavi-reextract-current-check { display:flex; flex-direction:row; align-items:center; gap:.5rem; width:100%; min-width:0; }
@@ -39,8 +37,11 @@
 #molavi-owner-workflow table { direction:rtl; margin-top:.75rem; }
 #molavi-owner-workflow .notice { margin:.75rem 0; }
 @media (max-width:782px) {
+    #molavi-owner-workflow .molavi-admin-tabs { top:46px; }
     #molavi-owner-workflow .molavi-workflow-heading { align-items:flex-start; flex-direction:column; }
     #molavi-owner-workflow .card { padding:.75rem; }
+    #molavi-owner-workflow .molavi-admin-tabpanel { min-height:70vh; padding:.5rem; }
+    #molavi-owner-workflow .molavi-admin-tab-frame { min-height:70vh; }
     #molavi-owner-workflow label { width:100%; min-width:0; }
     #molavi-owner-workflow input,
     #molavi-owner-workflow select,
