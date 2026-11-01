@@ -52,7 +52,7 @@
             reextraction_active: 'یک بازاستخراج دیگر هنوز در صف یا در حال اجراست؛ ابتدا وضعیت همان اجرا را پیگیری کنید.',
             reextraction_preview_changed: 'فهرست پیام‌ها تغییر کرده است؛ تعداد تازه را بررسی و دوباره شروع کنید.',
             no_reextraction_messages: 'پیامی برای بازاستخراج در این گروه پیدا نشد.',
-            ai_extraction_disabled: 'استخراج هوشمند فعال نیست؛ تنظیم کلید و مدل هوش مصنوعی را بررسی کنید.',
+            ai_extraction_unconfigured: 'برای استخراج کالا، کلید GOOGLE_API_KEY را در تنظیمات سرویس اجرا تنظیم کنید.',
             unknown_reextraction_run: 'اجرای بازاستخراج پیدا نشد؛ فهرست را تازه کنید.',
             reextraction_conflict: 'صف بازاستخراج تغییر کرده است؛ صفحه را تازه کنید و دوباره تلاش کنید.',
             reextraction_price_not_verified: 'برای تأیید قیمت بازاستخراج‌شده، تازگی آن را در منبع فعلی تأیید کنید.'
@@ -362,8 +362,8 @@
             const counts = preview.counts || {};
             panel.appendChild(node('p', `در صف بررسی: ${counts.pending || 0} پیام · همه پیام‌های متنی آماده: ${counts.all_available || 0}`));
             panel.appendChild(node('p', `پیام‌های بدون متن: ${counts.without_text || 0} · تصمیم‌های مالک حفظ‌شده: ${counts.owner_decisions_preserved || 0} · موارد «کالا نیست» حفظ‌شده: ${counts.not_product_preserved || 0} · قبلاً بازاستخراج‌شده و هنوز در بررسی: ${counts.already_staged || 0}`));
-            if (!preview.ai_enabled) {
-                panel.appendChild(notice('استخراج هوشمند فعال نیست. برای استفاده از همین معیارهای AI، تنظیم کلید Gemini را بررسی کنید.', 'error'));
+            if (!preview.ai_configured) {
+                panel.appendChild(notice('استخراج کالا فقط با هوش مصنوعی انجام می‌شود. کلید GOOGLE_API_KEY در تنظیمات سرویس اجرا تنظیم نشده است.', 'error'));
             }
             if (preview.active_run) {
                 const progress = notice('در حال آماده‌سازی وضعیت بازاستخراج…', 'info');
@@ -376,8 +376,8 @@
             const pendingButton = node('button', `بازاستخراج پیام‌های در صف بررسی (${counts.pending || 0})`, 'button button-primary');
             const allButton = node('button', `بازاستخراج همه پیام‌های ذخیره‌شده (${counts.all_available || 0})`, 'button');
             pendingButton.type = 'button'; allButton.type = 'button';
-            pendingButton.disabled = !preview.ai_enabled || !(counts.pending > 0);
-            allButton.disabled = !preview.ai_enabled || !(counts.all_available > 0);
+            pendingButton.disabled = !preview.ai_configured || !(counts.pending > 0);
+            allButton.disabled = !preview.ai_configured || !(counts.all_available > 0);
             async function start(button, scope, count) {
                 const label = scope === 'all' ? 'همه پیام‌های متنی ذخیره‌شده و فاقد تصمیم نهایی مالک' : 'پیام‌هایی که هنوز در صف بررسی یا پردازش هستند';
                 const warning = `قرار است ${count} پیام از ${label} با قواعد فعلی دوباره پردازش شوند. هر خروجی به‌صورت پیشنهاد نیازمند بررسی ثبت می‌شود و هیچ کالایی خودکار منتشر نمی‌شود. ادامه می‌دهید؟`;

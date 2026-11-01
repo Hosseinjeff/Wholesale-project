@@ -1548,7 +1548,7 @@ def ai_confirmations_route():
         AIConfirmationLedger, ConfirmationConflict, apply_decision, find_case,
         reextraction_inventory, review_cases, validate_choice,
     )
-    from catalog.gemini import ai_extraction_enabled
+    from catalog.gemini import ai_extraction_configured
     token = os.getenv('REFERENCE_BRIDGE_TOKEN') or ''
     owners = {value.strip() for value in (os.getenv('REFERENCE_OWNER_IDS') or '').split(',') if value.strip()}
     queue = handoff_queue()
@@ -1565,7 +1565,7 @@ def ai_confirmations_route():
             if reextract_action=='preview':
                 inventory=reextraction_inventory(store)
                 response=jsonify({'ok':True,'counts':inventory['counts'],
-                    'ai_enabled':ai_extraction_enabled(),
+                    'ai_configured':ai_extraction_configured(),
                     'active_run':queue.active_reextraction_run()})
                 response.headers['Cache-Control']='no-store'
                 return response
@@ -1607,8 +1607,8 @@ def ai_confirmations_route():
         if isinstance(body,dict) and body.get('action')=='start_reextraction':
             if set(body)!={'action','scope','expected_count'} or body.get('scope') not in {'pending','all'}:
                 return jsonify({'ok':False,'error':'invalid_reextraction_request'}),400
-            if not ai_extraction_enabled():
-                return jsonify({'ok':False,'error':'ai_extraction_disabled'}),409
+            if not ai_extraction_configured():
+                return jsonify({'ok':False,'error':'ai_extraction_unconfigured'}),409
             expected_count=body.get('expected_count')
             if isinstance(expected_count,bool) or not isinstance(expected_count,int) or expected_count<1:
                 return jsonify({'ok':False,'error':'invalid_reextraction_count'}),400

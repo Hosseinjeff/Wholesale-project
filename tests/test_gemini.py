@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from catalog.gemini import (
     GeminiError,
-    ai_extraction_enabled,
+    ai_extraction_configured,
     extract_message_products,
     parse_message_products,
 )
@@ -47,11 +47,13 @@ class FlakyOffersStore(MemoryStore):
 
 
 class GeminiExtractionTests(unittest.TestCase):
-    def test_ai_is_default_and_regex_can_be_selected_explicitly(self):
+    def test_ai_extraction_requires_key_and_ignores_mode(self):
         with patch.dict(os.environ, {}, clear=True):
-            self.assertTrue(ai_extraction_enabled())
-        with patch.dict(os.environ, {'EXTRACTION_MODE': 'regex'}, clear=True):
-            self.assertFalse(ai_extraction_enabled())
+            self.assertFalse(ai_extraction_configured())
+        with patch.dict(os.environ, {
+            'EXTRACTION_MODE': 'regex', 'GOOGLE_API_KEY': 'test-key',
+        }, clear=True):
+            self.assertTrue(ai_extraction_configured())
 
     def test_environment_key_and_conservative_price_roles(self):
         title = 'تن ماهی 24 عددی'
@@ -377,7 +379,7 @@ class GeminiExtractionTests(unittest.TestCase):
         with self.assertRaises(GeminiError):
             parse_message_products('[{"name":"ok"}, null]', 'post', '@supplier')
 
-    def test_enabled_import_preserves_ai_review_reason(self):
+    def test_import_preserves_ai_review_reason(self):
         generated = [{
             'name': 'چای', 'sale_price': 10000, 'price': 10000,
             'actual_price': None, 'consumer_price': None, 'price_type': 'unit',
@@ -390,33 +392,25 @@ class GeminiExtractionTests(unittest.TestCase):
         store = MemoryStore()
         with patch.dict(os.environ, {'EXTRACTION_MODE': 'ai'}, clear=True):
             with patch('catalog.sync.extract_message_products', return_value=generated):
-                with patch('catalog.sync.extract_products') as regex:
-                    result = import_product_data(store, {
-                        'id': 'm1', 'batch_id': 'b1', 'content': 'supplier post',
-                        'channel_username': '@supplier', 'channel': 'telegram',
-                    })
+                result = import_product_data(store, {
+                    'id': 'm1', 'batch_id': 'b1', 'content': 'supplier post',
+                    'channel_username': '@supplier', 'channel': 'telegram',
+                })
         self.assertTrue(result['success'])
-        regex.assert_not_called()
         offers = store.read('Offers')
         self.assertEqual(offers[1][offers[0].index('Status')], 'needs_review')
         self.assertIn('model marked product unclear', offers[1][offers[0].index('Review Reason')])
 
-    def test_gemini_error_falls_back_to_existing_regex_path(self):
-        regex_product = {
-            'name': 'چای', 'sale_price': 10000, 'price': 10000,
-            'actual_price': None, 'consumer_price': None, 'confidence': 0.95,
-            'extraction_confidence': 0.95, 'stock_status': 'Available',
-        }
+    def test_gemini_error_does_not_fall_back_to_regex(self):
         store = MemoryStore()
         with patch.dict(os.environ, {'EXTRACTION_MODE': 'ai'}, clear=True):
             with patch('catalog.sync.extract_message_products', side_effect=GeminiError('offline')):
-                with patch('catalog.sync.extract_products', return_value=[regex_product]) as regex:
-                    result = import_product_data(store, {
-                        'id': 'm2', 'batch_id': 'b2', 'content': 'supplier post',
-                        'channel_username': '@supplier', 'channel': 'telegram',
-                    })
-        self.assertTrue(result['success'])
-        regex.assert_called_once_with('supplier post', '@supplier')
+                result = import_product_data(store, {
+                    'id': 'm2', 'batch_id': 'b2', 'content': 'supplier post',
+                    'channel_username': '@supplier', 'channel': 'telegram',
+                })
+        self.assertFalse(result['success'])
+        self.assertEqual(result['error'], 'GeminiError')
 
     def test_message_retry_reuses_extraction_without_second_api_call(self):
         generated = [{

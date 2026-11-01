@@ -635,10 +635,10 @@ The configured `GOOGLE_SERVICE_ACCOUNT_JSON` variable is present in this executo
 fails JSON parsing at line 2, column 3, so the read-only Sheet check stopped before any
 Google API request. No credential value was printed or changed.
 
-### 2026-10-28 continued execution — Gemini supplier extraction
+### 2026-10-28 continued execution — Gemini supplier extraction (historical snapshot)
 
-D-035 sets Gemini as the default supplier extraction mode; `EXTRACTION_MODE=regex`
-selects the existing deterministic parser. `catalog/gemini.py` uses `GOOGLE_API_KEY`
+At that time, D-035 set Gemini as the default supplier extraction mode;
+`EXTRACTION_MODE=regex` selected the existing deterministic parser. `catalog/gemini.py` uses `GOOGLE_API_KEY`
 (and accepts recovered `AI_API_KEY`), defaults to `gemini-3.1-flash-lite`, rejects
 incomplete/ambiguous output, routes uncertain price roles/counts and low confidence to
 review, and falls back to regex after request/response errors. Message retry reuses the
@@ -652,6 +652,15 @@ Read-only Railway inspection found the `GOOGLE_API_KEY` addition staged on the
 there but the connected Railway view redacts its value. The executor's available copy
 still fails JSON parsing at line 2, column 3, so no live Sheet request was possible.
 No Railway deployment or variable change was made by the agent.
+
+### 2026-11-01 update — supplier extraction is AI-only
+
+D-038 supersedes the method switch and regex fallback described in the historical
+snapshot above. Current supplier messages always use Gemini. Missing credentials or
+Gemini failures fail the batch into its existing publication hold; an AI response of
+`[]` is accepted as a message with no product listings. The owner re-extraction panel
+checks for the API key and explains the missing setting. This source change has not yet
+been deployed; Railway access still prevents confirming production key presence.
 
 ### 2026-10-28 continued execution — verified Woo payment mirror
 

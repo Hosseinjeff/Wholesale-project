@@ -30,7 +30,6 @@ from catalog.extract import (
     OFFER_HEADERS,
     PRODUCT_HEADERS,
     classify_message,
-    extract_products,
     minimum_purchase,
     normalize,
     parse_price,
@@ -38,7 +37,7 @@ from catalog.extract import (
     quality_check,
 )
 from catalog.media import share_album_images
-from catalog.gemini import GeminiError, ai_extraction_enabled, extract_message_products
+from catalog.gemini import extract_message_products
 from catalog.sheet_reconcile import field_values_equal, reconcile_field, stable_conflict_id
 from catalog.pricing import (
     SHOP_FORMULA_ROW,
@@ -656,14 +655,19 @@ def _process_batch_products(store, batch_id: str, messages: list[dict[str, Any]]
         message = dict(message or {})
         message["batch_id"] = batch_id
         ok = False
-        prepared_products = None
-        if ai_extraction_enabled():
-            try:
-                _fill_message_from_sheet(store, message)
-                prepared_products = _extract_supplier_products(
-                    message.get("content") or "", message.get("channel_username") or "")
-            except Exception as exc:
-                logger.warning("Could not precompute supplier extraction: %s", exc.__class__.__name__)
+        _fill_message_from_sheet(store, message)
+        try:
+            content = message.get("content") or ""
+            prepared_products = (
+                _extract_supplier_products(content, message.get("channel_username") or "")
+                if content.strip() else []
+            )
+        except Exception as exc:
+            logger.warning("AI supplier extraction failed for message %s: %s",
+                           message.get("id") or "", exc.__class__.__name__)
+            _rollback_catalog(store, batch_id)
+            return {"status": "error", "processed": processed, "rollback": True,
+                    "error": "ai_extraction_failed"}
         for _attempt in range(3):
             result = import_product_data(
                 store, message, reference_snapshot=reference_snapshot,
@@ -761,14 +765,8 @@ def refresh_ai_message_status(store, message):
 
 
 def _extract_supplier_products(content, channel):
-    if ai_extraction_enabled():
-        try:
-            products = extract_message_products(content, channel)
-            if products:
-                return products
-        except GeminiError as exc:
-            logger.warning("Gemini extraction failed; using regex fallback: %s", exc)
-    return extract_products(content, channel)
+    """Extract supplier listings with Gemini; never switch to a heuristic parser."""
+    return extract_message_products(content, channel)
 
 
 def import_product_data(
@@ -878,8 +876,6 @@ def import_product_data(
 
 def reextract_saved_message(store, payload: dict[str, Any], *, write_lock=None) -> dict[str, Any]:
     """Re-run current extraction rules for one saved message and stage offers for review."""
-    if not ai_extraction_enabled():
-        raise RuntimeError('AI extraction is disabled')
     message_id=str(payload.get('message_id') or '')
     batch_id=str(payload.get('batch_id') or '')
     channel_username=str(payload.get('channel_username') or '')

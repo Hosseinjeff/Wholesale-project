@@ -31,15 +31,12 @@ The prompt preserves the recovered two-product-block/carton/retail-hint contract
 Candidates include source URL, PDF hash, model, extraction timestamp and row count.
 Local candidate creation is atomic and refuses to overwrite an existing file.
 
-Supplier messages now default to Gemini extraction using `GOOGLE_API_KEY`, with the
-recovered `AI_API_KEY` accepted for compatibility and `AI_MODEL` defaulting to
-`gemini-3.5-flash-lite`. `EXTRACTION_MODE=regex` selects the existing parser. Failed
-or unusable Gemini responses fall back to regex; uncertain price roles, package counts,
-and low-confidence results remain marked for review. The PDF importer reads the same
-key/model defaults. A local crash-aware worker now schedules it every 24 hours by
-default, records refresh failures for owner review, and only stages candidate data.
-Activation remains a dashboard action. These paths have only been tested with mocked
-Gemini responses; no live request or PDF refresh occurred.
+Historical snapshot from 2026-10-28: supplier messages defaulted to Gemini but allowed
+`EXTRACTION_MODE=regex` and fell back to regex after failures. D-038 supersedes that
+behavior: supplier messages always use Gemini, and failed or incomplete responses do
+not trigger another parser. The PDF importer reads the same key/model defaults. A local
+crash-aware worker schedules it every 24 hours by default, records refresh failures for
+owner review, and only stages candidate data. Activation remains a dashboard action.
 
 reference_import/decisions.py stores per-occurrence choices in SQLite, with owner
 allowlists, snapshot scope, exact-retry handling and conflicting-choice rejection.

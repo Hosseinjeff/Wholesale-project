@@ -559,14 +559,14 @@ Do not record suggested options, silence, or previously inferred preferences as 
   and queues a durable Woo publication when their values change. This does not claim
   an atomic Google Sheets transaction, live Sheet verification or production deployment.
 
-### D-035 — Gemini is the default supplier extraction mode
+### D-035 — Gemini was the default supplier extraction mode (superseded by D-038)
 
-- User directs supplier product extraction to default to AI. `EXTRACTION_MODE=regex`
-  remains an explicit way to select the existing deterministic parser.
+- This records the earlier implementation: `EXTRACTION_MODE=regex` could select the
+  deterministic parser and Gemini failures could fall back to it. D-038 replaces both
+  behaviors; no supplier extraction method is selectable now.
 - The server reads `GOOGLE_API_KEY` (while accepting recovered `AI_API_KEY` for
-  compatibility) and defaults `AI_MODEL` to `gemini-3.5-flash-lite`. Gemini request
-  or response failures fall back to regex as in the recovered GAS behavior. Ambiguous
-  price roles, missing package counts, low confidence and invalid values stay in review.
+  compatibility) and defaults `AI_MODEL` to `gemini-3.5-flash-lite`. The measurement,
+  price-role, confidence and review rules below remain in force.
 - A unique source title is authoritative for size and `ع` package counts: conflicting
   model measurements are replaced, unsupported measurements are cleared, and explicit
   title counts override model counts before unit-price calculation. These corrections do
@@ -608,3 +608,19 @@ Do not record suggested options, silence, or previously inferred preferences as 
   is unresolved.
 - An AI field such as `unit_price`, `package_price` or `price_type=package` alone does
   not establish that basis. Consumer prices require an explicit consumer/retail label.
+
+### D-038 — Supplier product extraction always uses AI
+
+- User directs supplier-message product extraction to use AI only, with no method
+  choice along the workflow. Supplier messages are always processed by Gemini;
+  `EXTRACTION_MODE` is ignored and Gemini errors never fall back to a deterministic or
+  regex parser.
+- A missing API key or failed/incomplete Gemini response leaves the batch failed and
+  held for review. It must not create products from a secondary extraction method. A
+  valid empty AI result means the message contains no product listing and is not an error.
+- The owner re-extraction screen reports when `GOOGLE_API_KEY` is not configured and
+  prevents starting a run until the required credential is present. The model remains
+  selected by the server's `AI_MODEL`/`GEMINI_MODEL` configuration, not by an operator
+  method choice.
+- This source change is on `main`; production deployment and verification are recorded
+  separately in the handoff and deployment notes.

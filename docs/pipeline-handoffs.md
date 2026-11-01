@@ -19,19 +19,19 @@ This is a source change on `main`, not a production deployment or a completed li
 re-extraction. Do not claim production behavior until the release is deployed and the
 owner starts a run from the Persian **بررسی استخراج کالا** screen.
 
-## Production AI-mode blocker — 2026-11-01
+## Production AI configuration checkpoint — 2026-11-01
 
 After the owner workflow deployment, the user reported that the re-extraction panel says
-AI extraction is not active. The panel's `ai_enabled` value comes from
-`ai_extraction_enabled()`: it accepts `EXTRACTION_MODE=ai` or `gemini`, and defaults to
-`ai` when the variable is unset. The reported value therefore means the running service
-has an explicit unsupported/non-AI mode; this particular message is not a Gemini-key
-check. Setting production `EXTRACTION_MODE=ai` should clear the gate.
+AI extraction is not active. The source change recorded in D-038 removes the
+`EXTRACTION_MODE` gate and regex fallback: supplier message extraction always uses
+Gemini. The owner panel now checks whether `GOOGLE_API_KEY` (or compatibility key
+`AI_API_KEY`) is present and names the required setting when it is missing.
 
 Railway read and variable-write calls were denied because the connected identity lacks
-the required `member` role. The production variable could not be inspected or changed,
-and no re-extraction run was started. Resolve Railway access, set the variable, let the
-service redeploy, then reload **بررسی استخراج کالا** and check that AI mode is active.
+the required `member` role. Production key presence could not be verified and this
+source change has not yet been deployed. After deployment, reload **بررسی استخراج کالا**;
+if the panel reports the missing key, add `GOOGLE_API_KEY` to the running service and
+redeploy. No re-extraction run has been started.
 
 ## Current live product setup — 2026-10-31
 
