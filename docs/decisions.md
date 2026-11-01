@@ -698,5 +698,7 @@ Do not record suggested options, silence, or previously inferred preferences as 
   offers the other profile when its threshold is the better fit.
 - Buyer type and the order unit used for each line are carried into the Woo order and
   its server-side OrderLines record. WooCommerce remains authoritative for the order.
-- Status: implementation prepared on `main`; deployment and live interaction checks
-  are recorded in `docs/project-handoff.md` and `docs/site-change-workflow.md`.
+- Status: deployed from `main` at `4f605fa0617ba7e6464cb4f32e5a051b6ce88c61`.
+  Railway deployment `226ab34b-7b10-4512-b275-8c6105b59a5b` reached `SUCCESS` and
+  `/health` returned HTTP 200. The WordPress uploader read back all changed plugin
+  files successfully. Live customer/admin click-through remains unverified.

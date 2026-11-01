@@ -4,7 +4,15 @@ Snapshot 4.62. Updated 2026-11-01, Asia/Tehran. The canonical roleplay decisions
 `roleplay-state.json`; current live evidence and release gates are in
 `pipeline-readiness.md` and `pipeline-readiness-evidence.json`.
 
-## Reference-linked approvals and buyer-profile order flow — prepared on main
+## Reference-linked approvals and buyer-profile order flow — deployed on main
+
+Commit `4f605fa0617ba7e6464cb4f32e5a051b6ce88c61` is on `main`. The WooCommerce
+plugin uploader verified all 14 changed PHP, JavaScript and CSS files by read-back;
+the one `<meta charset>` insertion in `storefront-renderer.php` is the documented
+cPanel normalization. Railway deployment `226ab34b-7b10-4512-b275-8c6105b59a5b`
+reached `SUCCESS` in production from `main`; `/health` returned HTTP 200 and `healthy`.
+No product, order, review, payment or customer records were changed. The live buyer
+flow and owner screens have not had a browser click-through.
 
 Product association happens after supplier-message AI extraction and quality checks,
 inside `catalog.sync.import_product_data`. The owner matching screen selects the
@@ -31,8 +39,8 @@ confirmed: shop unit = extracted pack count; household unit = rounded-up half pa
 household discount cap = half the existing maximum discount; shop cap = the full
 existing maximum; ceiling thresholds = one household unit and four shop units. Review
 these defaults through actual product examples before treating them as final business
-policy. Runtime code checks so far: Python and JavaScript syntax pass; this workspace
-does not have PHP CLI, so PHP lint could not run. No production data has been changed.
+policy. Python and JavaScript syntax checks pass; this workspace has no PHP CLI, so PHP
+lint could not run. No automated tests were run in this release.
 
 ## WooCommerce product and order integration — deployed 2026-11-01
 

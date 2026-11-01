@@ -40,7 +40,23 @@ the plugin directory.
 After a successful deploy, record the deployed commit here or in the relevant
 release note and use it as `--since` for the next deployment.
 
-Most recent plugin deployment: commit `b4626edf118cc2fbbc4f8753d1bbce66ecf0724a`
+Most recent plugin deployment: commit `4f605fa0617ba7e6464cb4f32e5a051b6ce88c61`
+(2026-11-01). The reference-linked approval, status history and buyer-profile flow were
+deployed from `main` with `python tools/deploy_wordpress_plugin.py --since
+b4626edf118cc2fbbc4f8753d1bbce66ecf0724a`. The uploader verified all 14 changed plugin
+files by read-back. It reported the documented cPanel `<meta charset>` insertion in
+`includes/storefront-renderer.php`; removing that insertion yielded a byte-for-byte
+source match. The owner snapshot page, Woo product controls, shop/cart profile selector
+and order-line buyer units are included. No product/order records were changed.
+
+Railway production service `Wholesale-project` follows `main`. Deployment
+`226ab34b-7b10-4512-b275-8c6105b59a5b` reached `SUCCESS` from commit
+`4f605fa0617ba7e6464cb4f32e5a051b6ce88c61`; `/health` returned HTTP 200 and `healthy`.
+The 500 MB `/data` volume remained attached. Python and JavaScript syntax checks passed;
+PHP CLI was unavailable in the workspace, and no automated tests or live browser
+click-through were run.
+
+The previous plugin deployment was commit `b4626edf118cc2fbbc4f8753d1bbce66ecf0724a`
 (2026-11-01). The tabbed MolaviSale workspace was deployed from `main` with
 `python tools/deploy_wordpress_plugin.py --since
 0a3e7f27c12f419d175645592166913e2c9f8db1`. The uploader changed and verified by read-back
