@@ -30,6 +30,7 @@ ORDER_HEADERS = [
     "Transaction ID",
     "Paid At",
     "Line Count",
+    "Buyer Type",
 ]
 
 ORDER_LINE_HEADERS = [
@@ -45,6 +46,7 @@ ORDER_LINE_HEADERS = [
     "Supplier Offer ID",
     "Quantity",
     "Min Qty",
+    "Buyer Order Unit",
     "Sale Price",
     "Consumer Price",
     "Unit Price",
@@ -138,6 +140,7 @@ def normalize_order(order: dict[str, Any]) -> dict[str, Any]:
             "supplier_offer_id": _text(raw.get("supplier_offer_id"), 120),
             "qty": max(0, _whole(raw.get("qty") or raw.get("quantity"))),
             "min": max(0, _whole(raw.get("min") or raw.get("min_qty"))),
+            "order_unit": max(0, min(999, _whole(raw.get("order_unit")))),
             "sale": _whole(raw.get("sale")),
             "shelf": _whole(raw.get("shelf") or raw.get("consumer")),
             "unit": _whole(raw.get("unit")),
@@ -153,6 +156,9 @@ def normalize_order(order: dict[str, Any]) -> dict[str, Any]:
     if woo_status and not all(char.isalnum() or char in "-_" for char in woo_status):
         woo_status = "unknown"
     created = _text(order.get("at") or order.get("created_at"), 40)
+    buyer_type = _text(order.get("buyer_type"), 20).lower()
+    if buyer_type not in {"household", "shop"}:
+        buyer_type = "unknown"
     return {
         "id": _text(order.get("id"), 40),
         "at": created,
@@ -170,6 +176,7 @@ def normalize_order(order: dict[str, Any]) -> dict[str, Any]:
         "payment_method": _text(order.get("payment_method"), 80),
         "transaction_id": _text(order.get("transaction_id"), 120),
         "paid_at": _text(order.get("paid_at"), 40),
+        "buyer_type": buyer_type,
         "lines": [line for line in lines if line["name"] and line["qty"] > 0],
     }
 
@@ -195,6 +202,7 @@ def _order_record(order: dict[str, Any], updated_at: str) -> dict[str, Any]:
         "Transaction ID": order["transaction_id"],
         "Paid At": order["paid_at"],
         "Line Count": len(order["lines"]),
+        "Buyer Type": order["buyer_type"],
     }
 
 
@@ -212,6 +220,7 @@ def _line_record(order: dict[str, Any], line: dict[str, Any], number: int) -> di
         "Supplier Offer ID": line["supplier_offer_id"],
         "Quantity": line["qty"],
         "Min Qty": line["min"],
+        "Buyer Order Unit": line["order_unit"],
         "Sale Price": line["sale"],
         "Consumer Price": line["shelf"],
         "Unit Price": line["unit"],

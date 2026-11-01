@@ -634,6 +634,14 @@ def _finalize_batch(store: MemoryStore | GoogleSheetStore, payload: dict[str, An
         ensure_shop_sheet(store)
     except Exception:
         logger.exception("Shop sheet refresh failed")
+    if extraction.get('status') == 'success' and not extraction.get('rollback'):
+        database = os.getenv('PIPELINE_DB_PATH') or ''
+        if database:
+            try:
+                from catalog.product_status import capture_from_store
+                capture_from_store(store, database, reason=f'batch:{batch_id}')
+            except Exception:
+                logger.exception('Product status snapshot failed after batch')
     return {
         "status": "success",
         "ack": "ingestion_complete",
@@ -847,10 +855,20 @@ def import_product_data(
                     role_hint = candidate.get('owner_price_role') or price_role_hint(product.get("price"), candidate)["role"]
                     fields["Reference Price Role Hint"] = role_hint
                     fields["Reference Decision ID"] = candidate.get('owner_decision_id') or ''
+                    inherited_change = candidate.get('price_change_ratio')
+                    fields["Reference Approval State"] = (
+                        "approved_within_margin" if inherited_change is not None else
+                        "owner_approved" if candidate.get('owner_decision_id') else "approved_compatible"
+                    )
+                    fields["Reference Price Change Percent"] = (
+                        round(float(inherited_change) * 100, 4) if inherited_change is not None else ""
+                    )
+                    fields["Reference Price Checked At"] = _now()
                     if role_hint not in {'unit', 'package'}:
                         reference_review_reason = 'reference: price_role_needs_review'
                 else:
                     fields["Reference Price Role Hint"] = "needs_review"
+                    fields["Reference Approval State"] = "needs_review"
                     reference_review_reason = "reference: " + match["reason"]
                 if reference_review_reason:
                     fields["Status"] = "needs_review"
@@ -920,6 +938,7 @@ def reextract_saved_message(store, payload: dict[str, Any], *, write_lock=None) 
     data={
         'id':message_id,'batch_id':stage_batch_id,'channel':source.get('Channel') or '',
         'channel_username':channel_username,'content':content,'timestamp':source.get('Timestamp') or '',
+        'url':source.get('URL') or '',
         'forwarded_by':source.get('Forwarded By') or '',
         'image_file_id':source.get('Image File ID') or '',
         'image_file_unique_id':source.get('Image File Unique ID') or '',
@@ -1518,6 +1537,11 @@ def _product_row(headers: list[str], product: dict[str, Any], message: dict[str,
         "Reference Match ID": product.get("reference_match_id") or "",
         "Reference Price Role": product.get("reference_price_role") or "",
         "Reference Decision ID": product.get("reference_decision_id") or "",
+        "Source Post URL": message.get("url") or "",
+        "Reference Approval State": product.get("reference_approval_state") or "",
+        "Reference Price Change Percent": product.get("reference_price_change_percent") or "",
+        "Reference Price Checked At": product.get("reference_price_checked_at") or "",
+        "Reference Review Reason": product.get("reference_review_reason") or "",
     })
 
 
@@ -1648,6 +1672,19 @@ def _restore_current_book(store, keys: list[tuple[str, str]]) -> int | None:
             headers,
             str(latest.get("Import Timestamp") or ""),
         )
+        if existing and str(latest.get('Reference Snapshot ID') or '') != active_reference_id:
+            old_approval = str(_cell(existing, headers, 'Reference Approval State') or '')
+            if old_approval in {'approved_within_margin', 'outside_margin', 'reference_missing', 'price_unavailable'}:
+                for field, key in (
+                    ('Status', 'status'), ('Reference Snapshot ID', 'reference_snapshot_id'),
+                    ('Reference Match ID', 'reference_match_id'), ('Reference Price Role', 'reference_price_role'),
+                    ('Reference Decision ID', 'reference_decision_id'),
+                    ('Reference Approval State', 'reference_approval_state'),
+                    ('Reference Price Change Percent', 'reference_price_change_percent'),
+                    ('Reference Price Checked At', 'reference_price_checked_at'),
+                    ('Reference Review Reason', 'reference_review_reason'),
+                ):
+                    product[key] = _cell(existing, headers, field)
         _apply_reference_item_review(product, latest, review_ledger, active_reference_id)
         new_row = _product_row(headers, product, _message_from_offer(latest))
         _set_cell(new_row, headers, "Last Updated", latest.get("Import Timestamp") or "")
@@ -1706,30 +1743,137 @@ def _active_reference_snapshot_id(ledger):
     return str(row['snapshot_id']) if row else ''
 
 
+def reconcile_reference_price_approvals(store, previous_snapshot, next_snapshot, reference_store,
+                                        *, max_price_change=0.05):
+    """Recheck linked reference prices when a new owner-reviewed snapshot is activated."""
+    if not isinstance(next_snapshot, dict) or not next_snapshot.get('snapshot_id'):
+        return {'checked': 0, 'retained': 0, 'needs_review': 0}
+    from reference_import.importer import HEADERS as REFERENCE_HEADERS
+    store.ensure('Products', PRODUCT_HEADERS)
+    rows = _fresh_read(store, 'Products')
+    if not rows:
+        return {'checked': 0, 'retained': 0, 'needs_review': 0}
+    headers, products = _records(rows)
+    product_headers = _pad_headers(rows[0])
+    next_id = str(next_snapshot['snapshot_id'])
+    now = _now()
+    counts = {'checked': 0, 'retained': 0, 'needs_review': 0}
+
+    def ref_price(snapshot, reference_id, role):
+        if not isinstance(snapshot, dict):
+            return None
+        price_index = REFERENCE_HEADERS.index('Reference Unit Price' if role == 'unit' else 'Reference Package Price')
+        id_index = REFERENCE_HEADERS.index('Product Code')
+        key_index = REFERENCE_HEADERS.index('Normalized Key')
+        for values in snapshot.get('rows') or []:
+            if (isinstance(values, (list, tuple)) and len(values) == len(REFERENCE_HEADERS)
+                    and str(values[id_index] or values[key_index] or '') == str(reference_id)):
+                return _positive_price(values[price_index])
+        return None
+
+    for row_number, record in enumerate(products, start=2):
+        status = str(record.get('Status') or '').strip().lower()
+        approval = str(record.get('Reference Approval State') or '')
+        reference_id = str(record.get('Reference Match ID') or '')
+        role = str(record.get('Reference Price Role') or '')
+        source_snapshot_id = str(record.get('Reference Snapshot ID') or '')
+        is_linked_approved = (approval in {'owner_approved', 'approved_compatible', 'approved_within_margin'}
+                              or (not approval and bool(reference_id and role in {'unit', 'package'})))
+        if (status not in {'imported', 'approved'}
+                or not is_linked_approved
+                or not reference_id or role not in {'unit', 'package'}
+                or not source_snapshot_id or source_snapshot_id == next_id):
+            continue
+        previous = (previous_snapshot if isinstance(previous_snapshot, dict)
+                    and previous_snapshot.get('snapshot_id') == source_snapshot_id
+                    else reference_store.snapshot(source_snapshot_id))
+        old_price = ref_price(previous, reference_id, role)
+        new_price = ref_price(next_snapshot, reference_id, role)
+        ratio = abs(new_price - old_price) / old_price if old_price and new_price else None
+        counts['checked'] += 1
+        updated = list(rows[row_number - 1]) + [''] * max(0, len(product_headers) - len(rows[row_number - 1]))
+        updated = updated[:len(product_headers)]
+        if ratio is not None and ratio <= max_price_change:
+            changes = {
+                'Reference Snapshot ID': next_id,
+                'Reference Approval State': 'approved_within_margin',
+                'Reference Price Change Percent': round(ratio * 100, 4),
+                'Reference Price Checked At': now,
+                'Reference Review Reason': '',
+            }
+            counts['retained'] += 1
+        else:
+            if new_price is None:
+                state = 'reference_missing'
+                reason = 'مرجع کالا در نسخه جدید پیدا نشد؛ اطلاعات پیام اصلی را بررسی کنید.'
+            elif old_price is None:
+                state = 'price_unavailable'
+                reason = 'قیمت مرجع قبلی برای سنجش تغییر در دسترس نیست؛ اطلاعات پیام اصلی را بررسی کنید.'
+            else:
+                state = 'outside_margin'
+                reason = 'قیمت مرجع بیش از ۵٪ تغییر کرده؛ اطلاعات پیام اصلی را بررسی و به‌روزرسانی کنید.'
+            changes = {
+                'Status': 'needs_review',
+                'Reference Approval State': state,
+                'Reference Price Change Percent': round(ratio * 100, 4) if ratio is not None else '',
+                'Reference Price Checked At': now,
+                'Reference Review Reason': reason,
+            }
+            counts['needs_review'] += 1
+        for field, value in changes.items():
+            if field in product_headers:
+                updated[product_headers.index(field)] = value
+        store.write_rows('Products', row_number, [updated])
+    return counts
+
+
 def _apply_reference_item_review(product, offer, ledger, active_snapshot_id):
     if ledger is None:
         return product
-    snapshot_id = str(offer.get('Reference Snapshot ID') or '')
     offer_id = str(offer.get('Offer ID') or '')
-    if not snapshot_id or snapshot_id != active_snapshot_id or not offer_id:
+    if not active_snapshot_id or not offer_id:
         return product
     from reference_import.item_reviews import review_case_id
-    decision = ledger.get(review_case_id(offer_id, snapshot_id))
+    decision = ledger.get(review_case_id(offer_id, active_snapshot_id))
     if not decision:
-        decision = ledger.get_by_decision_id(str(offer.get('Reference Decision ID') or ''))
+        source_snapshot_id = str(offer.get('Reference Snapshot ID') or '')
+        if source_snapshot_id == active_snapshot_id:
+            decision = ledger.get(review_case_id(offer_id, source_snapshot_id))
+    decision_id = str(offer.get('Reference Decision ID') or '')
+    if not decision and decision_id:
+        decision = ledger.get_by_decision_id(decision_id)
+        if not decision:
+            inherited = ledger.get_inheritance_by_id(decision_id)
+            if inherited and inherited.get('state') == 'within_margin':
+                decision = {
+                    'decision_id': inherited['inheritance_id'],
+                    'snapshot_id': inherited['snapshot_id'], 'choice': 'match',
+                    'reference_id': inherited['reference_id'], 'price_role': inherited['price_role'],
+                    'inherited': True, 'change_ratio': inherited.get('change_ratio'),
+                }
     if not decision or decision.get('snapshot_id') != active_snapshot_id:
         return product
-    product['reference_snapshot_id'] = snapshot_id
+    product['reference_snapshot_id'] = active_snapshot_id
     product['reference_decision_id'] = decision.get('decision_id') or ''
     if decision.get('choice') == 'no_match':
         product['reference_match_id'] = ''
         product['reference_price_role'] = 'unresolved'
+        product['reference_approval_state'] = 'needs_review'
         product['status'] = 'needs_review'
         return product
     if decision.get('choice') != 'match':
         return product
     product['reference_match_id'] = decision.get('reference_id') or ''
     product['reference_price_role'] = decision.get('price_role') or ''
+    was_reference_due = product.get('reference_approval_state') in {
+        'outside_margin', 'reference_missing', 'price_unavailable'
+    }
+    product['reference_approval_state'] = (
+        'approved_within_margin' if decision.get('inherited') else 'owner_approved'
+    )
+    if decision.get('change_ratio') is not None:
+        product['reference_price_change_percent'] = round(float(decision['change_ratio']) * 100, 4)
+    product['reference_price_checked_at'] = _now()
     if decision.get('price_role') == 'package':
         from reference_import.importer import HEADERS
         from reference_import.matching import package_count
@@ -1765,6 +1909,8 @@ def _apply_reference_item_review(product, offer, ledger, active_snapshot_id):
     reasons = [part.strip() for part in str(offer.get('Review Reason') or '').split(';') if part.strip()]
     if str(product.get('status') or '').lower() == 'needs_review' and reasons and all(
             reason.lower().startswith('reference:') for reason in reasons):
+        product['status'] = 'imported'
+    elif str(product.get('status') or '').lower() == 'needs_review' and was_reference_due:
         product['status'] = 'imported'
     return product
 
@@ -1918,6 +2064,10 @@ def _offer_fields(product: dict[str, Any], message: dict[str, Any], offer_id: st
         "Forwarded By": message.get("forwarded_by") or "",
         "Import Timestamp": imported_at,
         "Original Message": message.get("content") or "",
+        "Source Post URL": message.get("url") or "",
+        "Reference Approval State": "needs_review" if product.get("needs_review") else "",
+        "Reference Price Change Percent": "",
+        "Reference Price Checked At": "",
         "Min Qty": product.get("min_qty") or minimum_purchase(product.get("packaging") or "", product.get("name") or ""),
         "Image File ID": message.get("image_file_id") or "",
         "Image File Unique ID": message.get("image_file_unique_id") or "",
@@ -1981,6 +2131,15 @@ def _product_from_offers(offers: list[dict[str, Any]]) -> dict[str, Any]:
         "reference_match_id": latest.get("Reference Match ID") or "",
         "reference_price_role": latest.get("Reference Price Role Hint") or "",
         "reference_decision_id": latest.get("Reference Decision ID") or "",
+        "source_post_url": latest.get("Source Post URL") or "",
+        "reference_approval_state": (
+            str(latest.get("Reference Approval State") or "")
+            or ("owner_approved" if str(latest.get("Reference Decision ID") or "").strip()
+                else "approved_compatible" if str(latest.get("Reference Match State") or "") == "exact_compatible_identity"
+                else "needs_review")
+        ),
+        "reference_price_change_percent": latest.get("Reference Price Change Percent") or "",
+        "reference_price_checked_at": latest.get("Reference Price Checked At") or "",
         "offer_count": len(offers),
         "min_qty": max(
             int(_positive_price(latest.get("Min Qty")) or 0),
@@ -1999,6 +2158,7 @@ def _message_from_offer(offer: dict[str, Any]) -> dict[str, Any]:
         "timestamp": offer.get("Message Timestamp") or "",
         "forwarded_by": offer.get("Forwarded By") or "",
         "batch_id": offer.get("Batch ID") or "",
+        "url": offer.get("Source Post URL") or "",
     }
 
 

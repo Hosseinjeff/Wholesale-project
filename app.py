@@ -786,6 +786,56 @@ def operations_dashboard_route():
     return response
 
 
+@app.route('/pipeline/product-status-snapshots', methods=['GET', 'POST'])
+def product_status_snapshots_route():
+    """Owner view and explicit capture for immutable product status history."""
+    token = os.getenv('REFERENCE_BRIDGE_TOKEN') or ''
+    owners = {value.strip() for value in (os.getenv('REFERENCE_OWNER_IDS') or '').split(',') if value.strip()}
+    queue = handoff_queue()
+    if queue is None or len(token) < 32 or not owners or not USE_SHEETS:
+        return jsonify({'ok': False, 'error': 'unconfigured'}), 503
+    actor, auth_error = _owner_api_actor('owner:/pipeline/product-status-snapshots', token, owners)
+    if auth_error:
+        return jsonify({'ok': False, 'error': 'unauthorized' if auth_error == 401 else 'owner_required'}), auth_error
+    try:
+        from datetime import datetime, timedelta, timezone
+        from catalog.product_status import ProductStatusLedger, capture_from_store
+        ledger = ProductStatusLedger(queue.path)
+        if request.method == 'POST':
+            body = request.get_json(silent=True)
+            if not isinstance(body, dict) or body != {'action': 'capture'}:
+                return jsonify({'ok': False, 'error': 'invalid_body'}), 400
+            capture = capture_from_store(build_store(), queue.path, reason=f'owner_capture:{actor}')
+            payload = ledger.list_snapshots(limit=30)
+            for product in payload.get('products', []):
+                product.pop('product_record', None)
+            response = jsonify({'ok': True, 'capture': capture, **payload})
+        else:
+            requested_snapshot_id = request.args.get('snapshot_id', '').strip()
+            if requested_snapshot_id and not re.fullmatch(r'[a-f0-9]{64}', requested_snapshot_id):
+                return jsonify({'ok': False, 'error': 'invalid_snapshot_id'}), 400
+            latest = ledger.latest_captured_at()
+            due = True
+            if latest:
+                try:
+                    due = datetime.fromisoformat(latest) <= datetime.now(timezone.utc) - timedelta(hours=24)
+                except ValueError:
+                    due = True
+            if due:
+                capture_from_store(build_store(), queue.path, reason='daily_status_checkpoint')
+            payload = ledger.list_snapshots(limit=30, snapshot_id=requested_snapshot_id or None)
+            if requested_snapshot_id and payload.get('selected_snapshot_id') != requested_snapshot_id:
+                return jsonify({'ok': False, 'error': 'snapshot_not_found'}), 404
+            for product in payload.get('products', []):
+                product.pop('product_record', None)
+            response = jsonify({'ok': True, **payload})
+        response.headers['Cache-Control'] = 'no-store'
+        return response
+    except Exception:
+        logger.exception('Product status snapshot unavailable')
+        return jsonify({'ok': False, 'error': 'snapshot_unavailable'}), 503
+
+
 @app.route('/pipeline/paid-orders', methods=['GET', 'POST'])
 def paid_orders_route():
     token = os.getenv('REFERENCE_BRIDGE_TOKEN') or ''
@@ -1388,6 +1438,7 @@ def reference_snapshots_browser_cors(response):
         '/reference/decisions',
         '/reference/item-reviews',
         '/pipeline/operations-dashboard',
+        '/pipeline/product-status-snapshots',
         '/pipeline/ai-confirmations',
         '/pipeline/publication-holds',
         '/pipeline/supplier-price-evidence',
@@ -1528,9 +1579,31 @@ def reference_snapshots_route():
                 active=store.active_snapshot()
                 from reference_import.projection import project_reference_prices
                 projection=project_reference_prices(build_store(),active)
+                reference_update_summary = {'checked': 0, 'retained': 0, 'needs_review': 0}
+                status_snapshot = None
+                reconciliation_state = 'complete'
+                try:
+                    from reference_import.item_reviews import ItemReviewLedger
+                    ItemReviewLedger(path, owner_ids=owners).inherit_mappings(
+                        snapshot_id, max_price_change=0.05)
+                    from catalog.sync import reconcile_reference_price_approvals
+                    from catalog.product_status import capture_from_store
+                    catalog_store = build_store()
+                    reference_update_summary = reconcile_reference_price_approvals(
+                        catalog_store, current, active, store, max_price_change=0.05)
+                    queue = handoff_queue()
+                    if queue is not None:
+                        status_snapshot = capture_from_store(catalog_store, queue.path,
+                            reason=f'reference_snapshot:{snapshot_id}')
+                except Exception:
+                    reconciliation_state = 'failed'
+                    logger.exception('Could not reconcile product approvals for activated reference snapshot')
                 result={'ok':True,'action':'activate','snapshot_id':snapshot_id,
                     'active_snapshot_id':active['snapshot_id'],'projection_state':'written',
-                    'row_count':projection['row_count']}
+                    'row_count':projection['row_count'],
+                    'product_reconciliation_state':reconciliation_state,
+                    'product_reference_updates':reference_update_summary,
+                    'product_status_snapshot':status_snapshot}
         response=jsonify(result)
         response.headers['Cache-Control']='no-store'
         return response
@@ -1683,6 +1756,12 @@ def ai_confirmations_route():
                     except Exception:
                         logger.exception('Bulk AI case dismissal failed for %s',case['case_id'])
                         failed.append({'case_id':case['case_id'],'error':'dismiss_failed'})
+                if dismissed:
+                    try:
+                        from catalog.product_status import capture_from_store
+                        capture_from_store(store, queue.path, reason='owner_ai_bulk_decision')
+                    except Exception:
+                        logger.exception('Could not snapshot product status after bulk AI decision')
             response=jsonify({'ok':True,'requested':len(selected),
                 'dismissed_count':len(dismissed),'failed':failed,'dismissed':dismissed})
             response.headers['Cache-Control']='no-store'
@@ -1752,6 +1831,11 @@ def ai_confirmations_route():
                 actor_id=actor, note=decision_note,
                 expected_decision_id=body['expected_decision_id'])
             apply_decision(store, ledger, case, decision)
+            try:
+                from catalog.product_status import capture_from_store
+                capture_from_store(store, queue.path, reason=f'owner_ai_decision:{decision["decision_id"]}')
+            except Exception:
+                logger.exception('Could not snapshot product status after AI decision')
             from catalog.sync import refresh_ai_message_status
             refresh_ai_message_status(store, {'id':case['message_id'],
                 'batch_id':'' if case.get('historical_reextract') else case['batch_id'],
@@ -1888,6 +1972,11 @@ def reference_item_reviews_route():
                 if str(projected.get('Status') or '').lower() != 'needs_review':
                     return jsonify({'ok': False, 'error': 'hold_unverified'}), 503
             publish_job = queue.enqueue_sheet_projection(sheet_projection_digest(sheet_store))
+            try:
+                from catalog.product_status import capture_from_store
+                capture_from_store(sheet_store, queue.path, reason=f'owner_reference_decision:{decision["decision_id"]}')
+            except Exception:
+                logger.exception('Could not snapshot product status after reference decision')
         result = {'ok': True, 'case_id': current['case_id'], 'offer_id': current['offer_id'],
                   'snapshot_id': current['snapshot_id'], 'choice': decision['choice'],
                   'decision_id': decision['decision_id'], 'price_role': decision['price_role'],

@@ -82,7 +82,6 @@ class Basket extends Widget_Base
         $saveLabel = trim((string) ($settings['save_label'] ?? '')) ?: 'تخفیف‌های شما';
         $totalLabel = trim((string) ($settings['total_label'] ?? '')) ?: 'جمع محصولات پس از تخفیف';
         $button = trim((string) ($settings['button'] ?? '')) ?: 'ادامه سفارش';
-        $progress = function_exists('molavi_cart_progress') ? molavi_cart_progress() : 0.0;
         $map = function_exists('molavi_catalog_map') ? molavi_catalog_map() : [];
         $lines = [];
         $saved = 0;
@@ -95,7 +94,7 @@ class Basket extends Widget_Base
                     continue;
                 }
                 $qty = (int) $item['quantity'];
-                $unit = molavi_unit_price($row, $progress);
+                $unit = (int) (molavi_catalog_product_price($row, $qty, molavi_buyer_type())['price'] ?? $row['sale']);
                 $shelf = (int) $row['shelf'];
                 $saved += $shelf > $unit ? ($shelf - $unit) * $qty : 0;
                 $total += $unit * $qty;
@@ -118,7 +117,8 @@ class Basket extends Widget_Base
                 echo ' <s>' . esc_html(molavi_toman((int) $line['shelf'])) . '</s>';
             }
             echo '</p></div>';
-            echo '<div class="molavi-actions"><div class="molavi-step"><button type="button" data-molavi-step="-1" aria-label="کم کردن">−</button><b>' . esc_html(molavi_digits((string) $line['qty'])) . '</b><button type="button" data-molavi-step="1" aria-label="افزودن">+</button></div>';
+            $step = max(1, (int) ($row[molavi_buyer_type() . '_unit'] ?? $row['min']));
+            echo '<div class="molavi-actions"><div class="molavi-step"><button type="button" data-molavi-step="-' . esc_attr((string) $step) . '" aria-label="کم کردن به اندازه واحد سفارش">−</button><b>' . esc_html(molavi_digits((string) $line['qty'])) . '</b><button type="button" data-molavi-step="' . esc_attr((string) $step) . '" aria-label="افزودن به اندازه واحد سفارش">+</button></div>';
             echo '<button type="button" class="molavi-trash" data-molavi-clear aria-label="حذف از سبد">' . molavi_basket_trash_svg() . '</button></div>';
             echo '</article>';
         }

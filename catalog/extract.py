@@ -82,6 +82,11 @@ PRODUCT_HEADERS = [
     "Reference Match ID",
     "Reference Price Role",
     "Reference Decision ID",
+    "Source Post URL",
+    "Reference Approval State",
+    "Reference Price Change Percent",
+    "Reference Price Checked At",
+    "Reference Review Reason",
 ]
 
 OFFER_HEADERS = [
@@ -124,6 +129,10 @@ OFFER_HEADERS = [
     "Reference Price Role Hint",
     "Reference Decision ID",
     "Reference Usage Warning",
+    "Source Post URL",
+    "Reference Approval State",
+    "Reference Price Change Percent",
+    "Reference Price Checked At",
     "Derived From Offer ID",
     "Owner Decision ID",
     "Owner Decision Actor",

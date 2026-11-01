@@ -13,6 +13,7 @@ import os
 import threading
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import urlparse
 
 import requests
 
@@ -88,6 +89,15 @@ def site_products(store: MemoryStore | GoogleSheetStore) -> list[dict[str, Any]]
             str(record.get("Packaging") or ""),
             name,
         )
+        package_size = _positive_price(record.get('Package Count')) or minimum
+        source_url = str(record.get('Source Post URL') or '').strip()
+        try:
+            parsed_source_url = urlparse(source_url)
+            if (parsed_source_url.scheme != 'https' or parsed_source_url.hostname not in
+                    {'t.me', 'www.t.me', 'bale.ai', 'www.bale.ai'}):
+                source_url = ''
+        except (TypeError, ValueError):
+            source_url = ''
         stock_status = str(record.get("Stock Status") or "").strip().lower()
         if stock_status in {"out of stock", "outofstock", "ناموجود"}:
             availability = "outofstock"
@@ -106,6 +116,15 @@ def site_products(store: MemoryStore | GoogleSheetStore) -> list[dict[str, Any]]
             "sale": int(sale),
             "shelf": int(shelf),
             "min": int(minimum),
+            "pack_size": int(max(1, min(999, package_size))),
+            "source_post_url": source_url,
+            "reference_snapshot_id": str(record.get('Reference Snapshot ID') or '').strip(),
+            "reference_match_id": str(record.get('Reference Match ID') or '').strip(),
+            "reference_price_role": str(record.get('Reference Price Role') or '').strip(),
+            "reference_approval_state": str(record.get('Reference Approval State') or '').strip(),
+            "reference_price_change_percent": _positive_price(record.get('Reference Price Change Percent')) or 0,
+            "reference_price_checked_at": str(record.get('Reference Price Checked At') or '').strip(),
+            "reference_review_reason": str(record.get('Reference Review Reason') or '').strip(),
             "image_file_id": safe_file_id(record.get("Image File ID")),
             "status": "hold" if held else "sell",
             "supplier_availability": availability,

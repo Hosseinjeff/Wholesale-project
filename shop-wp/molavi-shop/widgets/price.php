@@ -77,10 +77,13 @@ class Price extends Widget_Base
             return;
         }
         $curve = molavi_curve($product);
-        $unit = molavi_unit_price($curve, molavi_cart_progress());
+        $profile = molavi_product_profile($product);
+        $buyerType = molavi_buyer_type();
+        $profileCurve = molavi_profile_curve($curve, $profile, $buyerType);
+        $unit = molavi_price_for_product($product)['price'];
         $shelf = (int) $curve['shelf'];
         $rate = $shelf > $unit ? ($shelf - $unit) / $shelf : 0.0;
-        echo '<div class="molavi-offer" data-molavi-price data-product="' . esc_attr((string) $product->get_id()) . '" data-name="' . esc_attr($product->get_name()) . '" data-discountable="' . ($curve['discountable'] ? '1' : '0') . '" data-shelf="' . esc_attr((string) $shelf) . '" data-floor="' . esc_attr((string) $curve['floor']) . '" data-ceiling="' . esc_attr((string) $curve['ceiling']) . '" data-fixed-price="' . esc_attr((string) ($shelf > 0 ? 0 : $unit)) . '" data-unit="' . esc_attr((string) $unit) . '">';
+        echo '<div class="molavi-offer" data-molavi-price data-product="' . esc_attr((string) $product->get_id()) . '" data-name="' . esc_attr($product->get_name()) . '" data-min="' . esc_attr((string) molavi_profile_order_unit($product, $buyerType)) . '" data-household-min="' . esc_attr((string) $profile['household_unit']) . '" data-shop-min="' . esc_attr((string) $profile['shop_unit']) . '" data-discountable="' . ($curve['discountable'] ? '1' : '0') . '" data-shelf="' . esc_attr((string) $shelf) . '" data-floor="' . esc_attr((string) $profileCurve['floor']) . '" data-ceiling="' . esc_attr((string) $profileCurve['ceiling']) . '" data-fixed-price="' . esc_attr((string) ($shelf > 0 ? 0 : $unit)) . '" data-unit="' . esc_attr((string) $unit) . '">';
         echo '<p class="molavi-now">';
         echo '<span class="molavi-rate-label"' . ($rate > 0 ? '' : ' hidden') . '>تخفیف فعلی <b class="molavi-rate">' . esc_html(molavi_percent($rate)) . '</b></span>';
         echo '<span class="molavi-amount">' . esc_html(molavi_toman($unit)) . '</span>';

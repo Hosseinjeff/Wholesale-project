@@ -25,6 +25,7 @@ require_once __DIR__ . '/includes/reference-item-reviews.php';
 require_once __DIR__ . '/includes/ai-confirmations.php';
 require_once __DIR__ . '/includes/pipeline-holds.php';
 require_once __DIR__ . '/includes/operations-dashboard.php';
+require_once __DIR__ . '/includes/product-status-snapshots.php';
 require_once __DIR__ . '/includes/clearance-pricing.php';
 require_once __DIR__ . '/includes/inventory-management.php';
 require_once __DIR__ . '/includes/order-handoff.php';
@@ -114,6 +115,13 @@ add_action('wp_enqueue_scripts', static function (): void {
             'name' => (string) $row['name'],
             'image' => $image ?: wc_placeholder_img_src('woocommerce_thumbnail'),
             'min' => (int) $row['min'],
+            'pack_size' => (int) $row['pack_size'],
+            'household_unit' => (int) $row['household_unit'],
+            'shop_unit' => (int) $row['shop_unit'],
+            'household_threshold_units' => (int) $row['household_threshold_units'],
+            'shop_threshold_units' => (int) $row['shop_threshold_units'],
+            'household_cap_ratio' => (float) $row['household_cap_ratio'],
+            'shop_cap_ratio' => (float) $row['shop_cap_ratio'],
             'shelf' => (int) $row['shelf'],
             'fixed' => (int) $row['shelf'] > 0 ? 0 : molavi_unit_price($row, 0.0),
             'floor' => (int) $row['floor'],
@@ -126,8 +134,10 @@ add_action('wp_enqueue_scripts', static function (): void {
     wp_localize_script('molavi-shop', 'molaviShop', [
         'qty' => WC_AJAX::get_endpoint('molavi_qty'),
         'quote' => WC_AJAX::get_endpoint('molavi_quote'),
+        'buyer' => WC_AJAX::get_endpoint('molavi_buyer'),
         'nonce' => wp_create_nonce('molavi-qty'),
-        'unlock' => (int) molavi_price_settings()['unlock_target'],
+        'unlock' => 0,
+        'buyerType' => molavi_buyer_type(),
         'checkout' => wc_get_checkout_url(),
         'qtys' => $quote['qtys'] === [] ? new stdClass() : $quote['qtys'],
         'initial' => $quote,
@@ -172,8 +182,11 @@ add_action('elementor/widgets/register', static function ($widgets): void {
 add_filter('woocommerce_quantity_input_args', static function (array $args, $product): array {
     $min = molavi_product_min($product);
     $args['min_value'] = $min;
-    if ((int) ($args['input_value'] ?? 0) < $min) {
+    $args['step'] = $min;
+    if (!function_exists('is_cart') || !is_cart()) {
+        if ((int) ($args['input_value'] ?? 0) < $min) {
         $args['input_value'] = $min;
+        }
     }
     return $args;
 }, 10, 2);
@@ -181,7 +194,7 @@ add_filter('woocommerce_quantity_input_args', static function (array $args, $pro
 add_filter('woocommerce_add_to_cart_quantity', static function (int $quantity, int $productId): int {
     $product = wc_get_product($productId);
     $min = $product ? molavi_product_min($product) : 1;
-    return max($min, $quantity);
+    return molavi_normalize_order_quantity($quantity, $min);
 }, 10, 2);
 
 add_filter('woocommerce_get_price_html', static function (string $html, $product): string {
@@ -189,7 +202,11 @@ add_filter('woocommerce_get_price_html', static function (string $html, $product
         return $html;
     }
     $curve = molavi_curve($product);
-    $unit = molavi_unit_price($curve, molavi_cart_progress());
+    $map = molavi_catalog_map();
+    $row = $map[(string) $product->get_id()] ?? null;
+    $quote = $row ? molavi_catalog_product_price($row, molavi_cart_qty($product->get_id()), molavi_buyer_type())
+        : ['price' => molavi_unit_price($curve, 0.0)];
+    $unit = (int) $quote['price'];
     $shelf = (int) $curve['shelf'];
     $rate = $shelf > $unit ? ($shelf - $unit) / $shelf : 0.0;
     $markup = '<span class="molavi-public-price">';
@@ -273,8 +290,7 @@ function molavi_product_min($product): int
     if (!$product instanceof WC_Product) {
         return 1;
     }
-    $set = (int) $product->get_meta('_molavi_min');
-    return $set > 0 ? min(999, $set) : 1;
+    return molavi_profile_order_unit($product, molavi_buyer_type());
 }
 
 function molavi_digits(string $value): string

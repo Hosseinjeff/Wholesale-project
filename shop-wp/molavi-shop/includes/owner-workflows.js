@@ -140,7 +140,8 @@
             ['molavi-sheet-conflicts', 'تعارض شیت'],
             ['molavi-inventory-management', 'موجودی'],
             ['molavi-clearance-pricing', 'قیمت حراج'],
-            ['molavi-paid-orders', 'سفارش‌ها']
+            ['molavi-paid-orders', 'سفارش‌ها'],
+            ['molavi-product-status-snapshots', 'وضعیت کالا']
         ];
         const tabs = node('div', null, 'molavi-admin-tabs');
         tabs.setAttribute('role', 'tablist');
@@ -300,6 +301,8 @@
         card.appendChild(node('p', `تأمین‌کننده: ${item.channel || 'نامشخص'} · مبلغ فروش تأمین‌کننده: ${amount(item.detected_price || item.sale_price)} · مبنا: ${roleLabel}`));
         card.appendChild(node('p', `دلیل بررسی: ${item.reason || 'نیازمند بررسی'} · حداقل خرید: ${item.min_qty || 'ثبت نشده'}`));
         if (item.message_timestamp) card.appendChild(node('p', `زمان پیام منبع: ${item.message_timestamp}`));
+        const originalPost = safeSourceLink(item.source_post_url);
+        if (originalPost) card.appendChild(originalPost);
         if (item.historical_reextract) card.appendChild(notice('این پیشنهاد از بازاستخراج یک پیام قبلی آمده است. پیش از تأیید، مطمئن شوید قیمت و موجودی هنوز معتبرند.', 'warning'));
         if (item.original_message) {
             const details = document.createElement('details'); details.appendChild(node('summary', 'متن اصلی پیام تأمین‌کننده'));
@@ -576,10 +579,17 @@
         card.appendChild(node('h2', item.product_name || 'کالای بدون نام'));
         card.appendChild(node('p', `تأمین‌کننده: ${item.channel || ''} · قیمت ثبت‌شده: ${amount(item.supplier_price)}`));
         card.appendChild(node('p', `دلیل بررسی: ${item.reason || ''} · نقش پیشنهادی: ${item.price_role_hint || 'نیازمند بررسی'}`));
+        if (item.reference_update) {
+            const percent = Number(item.reference_update.change_percent);
+            card.appendChild(notice(`تغییر قیمت مرجع: ${Number.isFinite(percent) ? percent.toLocaleString('fa-IR') + '٪' : 'نامشخص'}؛ برای به‌روزرسانی، پیام منبع را بازبینی کنید.`, 'warning'));
+        }
+        const originalPost = safeSourceLink(item.source_post_url);
+        if (originalPost) card.appendChild(originalPost);
         if (item.decision) card.appendChild(node('p', `تصمیم فعلی: ${item.decision.choice || ''} · مرجع: ${item.decision.reference_id || 'ندارد'} · نقش: ${item.decision.price_role || ''} · ${item.decision.note || ''}`));
         const form = document.createElement('form');
         const candidateRows = (item.candidates || []).filter(row => row && row.reference_id);
-        const currentReference = item.decision && item.decision.reference_id;
+        const currentReference = item.decision && item.decision.reference_id
+            || (item.reference_update && item.reference_update.reference_id) || '';
         let selectedReferenceId = candidateRows.some(row => row.reference_id === currentReference) ? currentReference : '';
         const candidates = node('div', null, 'molavi-reference-candidates');
         if (candidateRows.length) {
@@ -661,6 +671,19 @@
         return card;
     }
 
+    function safeSourceLink(value) {
+        if (typeof value !== 'string' || !value) return null;
+        try {
+            const url = new URL(value);
+            if (url.protocol !== 'https:' || !['t.me', 'www.t.me', 'bale.ai', 'www.bale.ai'].includes(url.hostname)) return null;
+            const link = node('a', 'باز کردن پیام اصلی', 'button button-secondary');
+            link.href = url.href;
+            link.target = '_blank';
+            link.rel = 'noopener noreferrer';
+            return link;
+        } catch (_error) { return null; }
+    }
+
     async function referenceItems(message = '', messageKind = 'info') {
         shell('تطبیق کالای تأمین‌کننده', 'هر پیشنهاد را به کالای مرجع درست وصل کنید و مشخص کنید قیمت برای یک واحد است یا یک بسته. کالای بدون تطبیق در بررسی می‌ماند.');
         if (message) root.appendChild(notice(message, messageKind));
@@ -675,6 +698,76 @@
                 ? 'برای این پیشنهاد، مورد تطبیق بازی پیدا نشد؛ وضعیت کالا را در فهرست بررسی کنید.'
                 : 'مورد تطبیقی برای بررسی وجود ندارد.'));
             cases.forEach(item => root.appendChild(referenceItemCard(item)));
+        } catch (error) { root.appendChild(notice(errorText(error.message), 'error')); }
+    }
+
+    async function productStatusSnapshots(message = '', messageKind = 'info') {
+        shell('سوابق وضعیت کالا', 'از تغییرهای مهم وضعیت، تطبیق مرجع و نیاز به به‌روزرسانی کالا نسخه ثبت می‌شود. با باز کردن این بخش، اگر از آخرین نسخه یک روز گذشته باشد، نسخه روزانه هم ثبت می‌شود؛ از هر زمان می‌توانید snapshot دستی بگیرید.');
+        if (message) root.appendChild(notice(message, messageKind));
+        const refresh = node('button', 'ثبت snapshot جدید', 'button button-primary');
+        refresh.type = 'button';
+        refresh.addEventListener('click', async () => {
+            refresh.disabled = true;
+            try {
+                const receipt = await request('POST', {action: 'capture'});
+                if (!receipt.capture || !receipt.capture.snapshot_id) throw new Error('invalid_receipt');
+                const next = new URL(window.location.href);
+                next.searchParams.delete('snapshot_id');
+                window.history.replaceState({}, '', next.toString());
+                await productStatusSnapshots('نسخه جدید وضعیت کالا ثبت شد.', 'success');
+            } catch (error) {
+                root.appendChild(notice(errorText(error.message), 'error'));
+                refresh.disabled = false;
+            }
+        });
+        root.appendChild(refresh);
+        try {
+            const requestedSnapshot = new URLSearchParams(window.location.search).get('snapshot_id') || '';
+            const snapshotUrl = new URL(config.apiUrl);
+            if (requestedSnapshot) snapshotUrl.searchParams.set('snapshot_id', requestedSnapshot);
+            const data = await request('GET', undefined, snapshotUrl.toString());
+            const products = Array.isArray(data.products) ? data.products : [];
+            const snapshots = Array.isArray(data.snapshots) ? data.snapshots : [];
+            const selectedSnapshotId = data.selected_snapshot_id || data.latest_snapshot_id || '';
+            const selectedSnapshot = snapshots.find(item => item.snapshot_id === selectedSnapshotId) || null;
+            const updateNeeded = products.filter(item => item.update_needed).length;
+            const retained = products.filter(item => item.reference_review_result === 'due_no_update_within_margin').length;
+            const summary = node('section', null, 'card');
+            summary.appendChild(node('h2', requestedSnapshot ? 'وضعیت snapshot انتخاب‌شده' : 'آخرین وضعیت ثبت‌شده'));
+            summary.appendChild(node('p', `کالاهای ثبت‌شده: ${products.length} · نیازمند به‌روزرسانی یا بررسی: ${updateNeeded} · بازبینی شد و تأیید ماند: ${retained}`));
+            root.appendChild(summary);
+            const history = node('section', null, 'card');
+            history.appendChild(node('h2', 'تاریخچه snapshotها'));
+            if (!snapshots.length) history.appendChild(node('p', 'هنوز نسخه‌ای ثبت نشده است.'));
+            snapshots.forEach(item => {
+                const button = node('button', `${item.captured_at || ''} · ${item.reason || ''} · کالا: ${item.product_count || 0} · تغییر از نسخه قبل: ${item.changed_count || 0}`, 'button button-secondary');
+                button.type = 'button';
+                button.disabled = item.snapshot_id === selectedSnapshotId;
+                button.addEventListener('click', () => {
+                    const next = new URL(window.location.href);
+                    next.searchParams.set('snapshot_id', item.snapshot_id);
+                    window.history.replaceState({}, '', next.toString());
+                    productStatusSnapshots();
+                });
+                history.appendChild(button);
+            });
+            root.appendChild(history);
+            if (selectedSnapshot) {
+                const title = node('section', null, 'card');
+                title.appendChild(node('h2', 'وضعیت‌های ثبت‌شده در نسخه انتخاب‌شده'));
+                title.appendChild(node('p', `${selectedSnapshot.captured_at || ''} · ${selectedSnapshot.reason || ''} · کالا: ${selectedSnapshot.product_count || 0} · تغییر از نسخه قبل: ${selectedSnapshot.changed_count || 0}`));
+                root.appendChild(title);
+            }
+            products.forEach(item => {
+                const card = node('section', null, 'card');
+                card.appendChild(node('h3', item.product_name || 'کالای بدون نام'));
+                card.appendChild(node('p', `وضعیت: ${item.status || 'نامشخص'} · وضعیت به‌روزرسانی: ${item.update_needed ? 'نیازمند بررسی' : 'فعلاً نیاز ندارد'}`));
+                card.appendChild(node('p', `تطبیق مرجع: ${item.reference_approval_state || 'ثبت نشده'} · تغییر قیمت: ${item.reference_price_change_percent ? item.reference_price_change_percent + '٪' : '—'} · نقش قیمت: ${item.reference_price_role || '—'}`));
+                card.appendChild(node('p', `تازگی قیمت تأمین‌کننده: ${item.supplier_price_state || 'ثبت نشده'} · بررسی مرجع: ${item.reference_review_result || 'ثبت نشده'}`));
+                const originalPost = safeSourceLink(item.source_post_url);
+                if (originalPost) card.appendChild(originalPost);
+                root.appendChild(card);
+            });
         } catch (error) { root.appendChild(notice(errorText(error.message), 'error')); }
     }
 
@@ -859,7 +952,8 @@
         'molavi-reference-decisions': referenceDecisions,
         'molavi-publication-holds': publicationHolds,
         'molavi-supplier-prices': supplierPrices,
-        'molavi-sheet-conflicts': sheetConflicts
+        'molavi-sheet-conflicts': sheetConflicts,
+        'molavi-product-status-snapshots': productStatusSnapshots
     };
     if (actions[config.page]) actions[config.page]();
 })();

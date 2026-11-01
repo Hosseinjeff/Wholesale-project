@@ -1,6 +1,6 @@
 # MolaviSale decision log
 
-Revision 4.1. Updated 2026-11-01, Asia/Tehran. This is a business/design decision log,
+Revision 4.2. Updated 2026-11-01, Asia/Tehran. This is a business/design decision log,
 not an infrastructure access log.
 
 ## Explicit user requirements
@@ -668,3 +668,35 @@ Do not record suggested options, silence, or previously inferred preferences as 
   a fallback when embedded admin content cannot load.
 - Status: deployed from `main` at `b4626edf118cc2fbbc4f8753d1bbce66ecf0724a`;
   the uploader verified the changed plugin files by read-back.
+
+### D-042 — Link extracted offers to references and keep auditable product snapshots
+
+- User requirement: identify the point where an incoming offer is linked to its
+  reference product, retain the original supplier post, keep approval through a
+  reasonable reference-price change, and record product statuses including due
+  reviews that do not require an update.
+- Matching remains after AI extraction and quality checks, in `import_product_data`.
+  The owner confirms unit-versus-package price when that role is ambiguous. A saved
+  link carries forward to a new reference snapshot only when the linked role price
+  changes by no more than the user's confirmed **5%**. A larger change, missing link,
+  or unavailable comparison price sets the product to review and shows its source post.
+- The server keeps append-only product status snapshots after completed extraction,
+  AI/reference review decisions, and reference activation; it also checkpoints at most
+  once per day when the owner opens the status history. Each snapshot stores product
+  approval, source link, reference state and price drift, supplier-price freshness,
+  update-required state, and the product fields needed to reconstruct that view. The
+  owner page can open earlier snapshots and distinguish “review due, approval kept
+  within 5%” from “update required.”
+- Buyer type is selectable on the shop page and WooCommerce cart. Both profiles use
+  each product's extracted package count. Implementation defaults are **inferred**
+  and remain editable per product in WooCommerce: shop unit = extracted pack size;
+  household unit = rounded-up half pack size; household cap = 50% of the product's
+  existing maximum discount, shop cap = 100%; price ceiling thresholds = one household
+  unit and four shop units. These ratios and thresholds were not separately confirmed
+  by the user. The 4-unit shop threshold reflects their tuna-pack example. The screen
+  warns which cart lines conflict after a profile switch, provides a quantity fix, and
+  offers the other profile when its threshold is the better fit.
+- Buyer type and the order unit used for each line are carried into the Woo order and
+  its server-side OrderLines record. WooCommerce remains authoritative for the order.
+- Status: implementation prepared on `main`; deployment and live interaction checks
+  are recorded in `docs/project-handoff.md` and `docs/site-change-workflow.md`.

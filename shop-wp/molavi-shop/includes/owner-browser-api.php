@@ -12,6 +12,7 @@ function molavi_owner_workflow_pages(): array {
         'molavi-publication-holds' => ['/pipeline/publication-holds', 'owner:/pipeline/publication-holds'],
         'molavi-supplier-prices' => ['/pipeline/supplier-price-evidence', 'owner:/pipeline/supplier-price-evidence'],
         'molavi-sheet-conflicts' => ['/pipeline/sheet-conflicts', 'owner:/pipeline/sheet-conflicts'],
+        'molavi-product-status-snapshots' => ['/pipeline/product-status-snapshots', 'owner:/pipeline/product-status-snapshots'],
     ];
 }
 
@@ -20,7 +21,7 @@ function molavi_owner_workflow_page_urls(): array {
         'molavi-operations', 'molavi-ai-confirmations', 'molavi-reference-items',
         'molavi-reference-decisions', 'molavi-reference-snapshots', 'molavi-publication-holds',
         'molavi-sheet-conflicts', 'molavi-supplier-prices', 'molavi-clearance-pricing',
-        'molavi-inventory-management', 'molavi-paid-orders',
+        'molavi-inventory-management', 'molavi-paid-orders', 'molavi-product-status-snapshots',
     ];
     $urls = [];
     foreach ($pages as $page) {

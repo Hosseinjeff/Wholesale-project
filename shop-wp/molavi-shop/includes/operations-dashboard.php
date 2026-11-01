@@ -19,7 +19,7 @@ add_action('admin_footer', static function (): void {
         'molavi-reference-decisions', 'molavi-reference-snapshots', 'molavi-reference-items',
         'molavi-ai-confirmations', 'molavi-publication-holds', 'molavi-supplier-prices',
         'molavi-sheet-conflicts', 'molavi-paid-orders', 'molavi-clearance-pricing',
-        'molavi-inventory-management',
+        'molavi-inventory-management', 'molavi-product-status-snapshots',
     ];
     echo '<script>(function(){var pages=' . wp_json_encode($pages)
         . ';var menu=document.querySelector("#toplevel_page_woocommerce .wp-submenu");'
@@ -49,6 +49,7 @@ function molavi_operations_dashboard_screen(): void {
         'molavi-inventory-management' => 'موجودی',
         'molavi-clearance-pricing' => 'قیمت حراج',
         'molavi-paid-orders' => 'سفارش‌ها',
+        'molavi-product-status-snapshots' => 'سوابق وضعیت کالا',
     ];
     $pageUrls = molavi_owner_workflow_page_urls();
     foreach ($labels as $slug=>$label) {

@@ -458,6 +458,7 @@ def apply_decision(store, ledger, case, decision):
         'id': source.get('Message ID') or '', 'channel': source.get('Channel') or '',
         'channel_username': source.get('Channel Username') or '',
         'content': source.get('Original Message') or '', 'timestamp': source.get('Message Timestamp') or '',
+        'url': source.get('Source Post URL') or '',
         'forwarded_by': source.get('Forwarded By') or '', 'batch_id': 'owner-ai-confirmation:' + decision_id,
         'image_file_id': source.get('Image File ID') or '',
         'image_file_unique_id': source.get('Image File Unique ID') or '',

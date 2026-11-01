@@ -1,8 +1,38 @@
 # MolaviSale — whole-workflow handoff
 
-Snapshot 4.61. Updated 2026-11-01, Asia/Tehran. The canonical roleplay decisions are in
+Snapshot 4.62. Updated 2026-11-01, Asia/Tehran. The canonical roleplay decisions are in
 `roleplay-state.json`; current live evidence and release gates are in
 `pipeline-readiness.md` and `pipeline-readiness-evidence.json`.
+
+## Reference-linked approvals and buyer-profile order flow — prepared on main
+
+Product association happens after supplier-message AI extraction and quality checks,
+inside `catalog.sync.import_product_data`. The owner matching screen selects the
+reference product and confirms whether the supplier amount is per unit or per package
+when automated evidence cannot settle the role. Original Telegram/Bale post URLs now
+follow the offer into Products, WooCommerce, owner review, and product status history.
+
+When an active reference snapshot changes, products keep their existing approval when
+their linked unit/package reference price moves by at most 5%. Larger moves, a missing
+reference product, or a missing comparison price place the product in review and show
+the original post link. Every status snapshot records the approval/reference result,
+source URL, supplier freshness, and update-needed state; the owner can inspect older
+snapshots. Event snapshots follow extraction/review/reference activation, with a daily
+checkpoint when the owner opens status history.
+
+The shop page and WooCommerce cart offer “household buyer” and “shop owner.” Both use
+the bot-extracted pack count, show both order units, recalculate each product's price
+curve, and report incompatible cart lines after switching. Quantity fixes are provided
+before checkout. The order handoff stores the chosen buyer type and order unit per line.
+
+The user confirmed that pack size should drive the rules and that values should be
+configurable. Current editable per-product defaults are inferred, not separately
+confirmed: shop unit = extracted pack count; household unit = rounded-up half pack;
+household discount cap = half the existing maximum discount; shop cap = the full
+existing maximum; ceiling thresholds = one household unit and four shop units. Review
+these defaults through actual product examples before treating them as final business
+policy. Runtime code checks so far: Python and JavaScript syntax pass; this workspace
+does not have PHP CLI, so PHP lint could not run. No production data has been changed.
 
 ## WooCommerce product and order integration — deployed 2026-11-01
 

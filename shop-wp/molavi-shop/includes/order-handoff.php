@@ -49,10 +49,13 @@ function molavi_order_handoff_payload(
                 : ($product ? (string) $product->get_meta('_molavi_supplier_offer_id', true) : ''),
             'name' => $item->get_name(),
             'qty' => $item->get_quantity(),
+            'order_unit' => (int) $item->get_meta('_molavi_order_unit_size', true),
             'total' => (int) $item->get_total(),
         ];
     }
     $paidAt = $order->get_date_paid();
+    $buyerType = (string) $order->get_meta('_molavi_buyer_type', true);
+    if (!in_array($buyerType, ['household', 'shop'], true)) { $buyerType = 'household'; }
     $isPaid = $paymentVerified || $order->is_paid();
     $wooStatus = (string) $order->get_status();
     if ($paymentVerified && !$order->is_paid() && !in_array($wooStatus, ['cancelled', 'refunded', 'failed'], true)) {
@@ -73,6 +76,7 @@ function molavi_order_handoff_payload(
             'woo_status' => $wooStatus,
             'payment_status' => $paymentStatus,
             'payment_method' => (string) $order->get_payment_method(),
+            'buyer_type' => $buyerType,
             'transaction_id' => $verifiedTransactionId !== ''
                 ? $verifiedTransactionId : (string) $order->get_transaction_id(),
             'paid_at' => $paidAt ? $paidAt->date('c') : ($paymentVerified ? gmdate('c') : ''),
@@ -87,9 +91,18 @@ function molavi_capture_order_line_source($item, string $cartItemKey, array $val
     if (!$product instanceof WC_Product) { return; }
     $sku = (string) $product->get_sku();
     $offerId = (string) $product->get_meta('_molavi_supplier_offer_id', true);
+    $buyerType = (string) ($order instanceof WC_Order ? $order->get_meta('_molavi_buyer_type', true) : molavi_buyer_type());
+    if (!in_array($buyerType, ['household', 'shop'], true)) { $buyerType = molavi_buyer_type(); }
+    $item->add_meta_data('_molavi_buyer_type', $buyerType, true);
+    $item->add_meta_data('_molavi_order_unit_size', molavi_profile_order_unit($product, $buyerType), true);
     if ($sku !== '') { $item->add_meta_data('_molavi_order_sku', $sku, true); }
     if ($offerId !== '') { $item->add_meta_data('_molavi_order_supplier_offer_id', $offerId, true); }
 }
+
+add_action('woocommerce_checkout_create_order', static function ($order): void {
+    if (!$order instanceof WC_Order) { return; }
+    $order->update_meta_data('_molavi_buyer_type', molavi_buyer_type());
+}, 10, 1);
 
 function molavi_post_order_handoff(array $payload): bool
 {

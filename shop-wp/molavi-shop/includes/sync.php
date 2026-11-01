@@ -120,7 +120,8 @@ function molavi_apply_settings(array $settings): void
         if (!isset($settings[$field]) || !is_numeric($settings[$field])) {
             continue;
         }
-        $next[$field] = $field === 'min_profit' || $field === 'unlock_target'
+        $next[$field] = in_array($field, ['min_profit', 'unlock_target',
+            'household_discount_threshold_units', 'shop_discount_threshold_units'], true)
             ? (int) $settings[$field]
             : (float) $settings[$field];
     }
@@ -130,6 +131,20 @@ function molavi_apply_settings(array $settings): void
     update_option('molavi_price_settings', $next);
     global $wpdb;
     $wpdb->delete($wpdb->postmeta, ['meta_key' => '_molavi_curve']);
+}
+
+function molavi_valid_source_post_url(string $value): string
+{
+    $url = trim($value);
+    if ($url === '' || strlen($url) > 500) { return ''; }
+    $parts = wp_parse_url($url);
+    if (!is_array($parts) || ($parts['scheme'] ?? '') !== 'https'
+        || !in_array(strtolower((string) ($parts['host'] ?? '')),
+            ['t.me', 'www.t.me', 'bale.ai', 'www.bale.ai'], true)
+        || empty($parts['path']) || isset($parts['user']) || isset($parts['pass'])) {
+        return '';
+    }
+    return esc_url_raw($url, ['https']);
 }
 
 function molavi_clean_product(array $row): ?array
@@ -170,6 +185,21 @@ function molavi_clean_product(array $row): ?array
         'sale' => $sale,
         'shelf' => max(0, min(100000000, (int) ($row['shelf'] ?? 0))),
         'min' => max(1, min(999, (int) ($row['min'] ?? 1))),
+        'pack_size' => max(1, min(999, (int) ($row['pack_size'] ?? ($row['min'] ?? 1)))),
+        'source_post_url' => molavi_valid_source_post_url((string) ($row['source_post_url'] ?? '')),
+        'reference_snapshot_id' => preg_match('/^[a-f0-9]{64}$/', (string) ($row['reference_snapshot_id'] ?? ''))
+            ? (string) $row['reference_snapshot_id'] : '',
+        'reference_match_id' => mb_substr(trim(wp_strip_all_tags((string) ($row['reference_match_id'] ?? ''))), 0, 300),
+        'reference_price_role' => in_array(($row['reference_price_role'] ?? ''), ['unit','package'], true)
+            ? (string) $row['reference_price_role'] : '',
+        'reference_approval_state' => in_array(($row['reference_approval_state'] ?? ''),
+            ['owner_approved','approved_compatible','approved_within_margin','outside_margin','reference_missing','price_unavailable','needs_review'], true)
+            ? (string) $row['reference_approval_state'] : '',
+        'reference_price_change_percent' => max(0, min(100000, (float) ($row['reference_price_change_percent'] ?? 0))),
+        'reference_price_checked_at' => is_string($row['reference_price_checked_at'] ?? null)
+            && strtotime($row['reference_price_checked_at']) !== false
+            ? gmdate('c', strtotime($row['reference_price_checked_at'])) : '',
+        'reference_review_reason' => mb_substr(trim(wp_strip_all_tags((string) ($row['reference_review_reason'] ?? ''))), 0, 500),
         'image' => $image,
         'status' => $status,
         'supplier_availability' => in_array(($row['supplier_availability'] ?? ''), ['instock', 'outofstock'], true) ? $row['supplier_availability'] : 'unknown',
@@ -264,6 +294,15 @@ function molavi_upsert_product(int $productId, array $clean): int
     $product->set_sale_price(!empty($curve['discountable']) ? (string) $curve['ceiling'] : '');
     $product->update_meta_data('_molavi_market_shelf_toman', $shelf);
     $product->update_meta_data('_molavi_supplier_cost_toman', $supplierCost);
+    $product->update_meta_data('_molavi_pack_size', $clean['pack_size']);
+    $product->update_meta_data('_molavi_source_post_url', $clean['source_post_url']);
+    $product->update_meta_data('_molavi_reference_snapshot_id', $clean['reference_snapshot_id']);
+    $product->update_meta_data('_molavi_reference_match_id', $clean['reference_match_id']);
+    $product->update_meta_data('_molavi_reference_price_role', $clean['reference_price_role']);
+    $product->update_meta_data('_molavi_reference_approval_state', $clean['reference_approval_state']);
+    $product->update_meta_data('_molavi_reference_price_change_percent', $clean['reference_price_change_percent']);
+    $product->update_meta_data('_molavi_reference_price_checked_at', $clean['reference_price_checked_at']);
+    $product->update_meta_data('_molavi_reference_review_reason', $clean['reference_review_reason']);
     $product->set_short_description($clean['supplier']);
     if ($clean['source_record_id'] !== '') {
         $product->update_meta_data('_molavi_supplier_offer_id', $clean['source_record_id']);
@@ -293,6 +332,8 @@ function molavi_upsert_product(int $productId, array $clean): int
     }
     update_post_meta($id, '_molavi_source_id', $clean['id']);
     update_post_meta($id, '_molavi_min', $clean['min']);
+    update_post_meta($id, '_molavi_pack_size', $clean['pack_size']);
+    update_post_meta($id, '_molavi_source_post_url', $clean['source_post_url']);
     update_post_meta($id, '_molavi_supplier', $clean['supplier']);
     update_post_meta($id, '_molavi_packaging', $clean['packaging']);
     update_post_meta($id, '_molavi_category', $clean['category']);

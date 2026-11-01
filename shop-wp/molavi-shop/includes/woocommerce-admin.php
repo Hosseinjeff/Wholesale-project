@@ -119,6 +119,20 @@ add_action('woocommerce_product_data_panels', static function (): void {
     $shelf = $product->get_meta('_molavi_market_shelf_toman', true);
     $supplierCost = $product->get_meta('_molavi_supplier_cost_toman', true);
     $minimum = (int) $product->get_meta('_molavi_min', true);
+    $profile = molavi_product_profile($product);
+    $sourcePostUrl = molavi_valid_source_post_url((string) $product->get_meta('_molavi_source_post_url', true));
+    $referenceApprovalState = (string) $product->get_meta('_molavi_reference_approval_state', true);
+    $referenceApprovalLabel = [
+        'owner_approved' => 'تأیید مالک',
+        'approved_compatible' => 'تطبیق خودکار سازگار',
+        'approved_within_margin' => 'تأیید حفظ شد؛ تغییر مرجع حداکثر ۵٪',
+        'outside_margin' => 'تغییر مرجع بیش از ۵٪؛ نیازمند بررسی',
+        'reference_missing' => 'کالا در نسخه مرجع جدید نیست',
+        'price_unavailable' => 'قیمت مرجع برای سنجش موجود نیست',
+        'needs_review' => 'نیازمند بررسی مرجع',
+    ][$referenceApprovalState] ?? $referenceApprovalState;
+    $referenceChangePercent = (float) $product->get_meta('_molavi_reference_price_change_percent', true);
+    $referenceReviewReason = (string) $product->get_meta('_molavi_reference_review_reason', true);
     $referenceUrl = admin_url('admin.php?page=molavi-reference-items');
     if ($offerId !== '') { $referenceUrl = add_query_arg('offer_id', $offerId, $referenceUrl); }
     $supplierReviewUrl = add_query_arg([
@@ -128,6 +142,7 @@ add_action('woocommerce_product_data_panels', static function (): void {
     ?>
     <div id="molavi_owner_data" class="panel woocommerce_options_panel hidden">
         <div class="options_group">
+            <?php wp_nonce_field('molavi_product_profile_settings', 'molavi_product_profile_nonce'); ?>
             <p class="form-field"><strong><?php echo esc_html('اطلاعات منبع کالا'); ?></strong></p>
             <p class="form-field"><label><?php echo esc_html('تأمین‌کننده'); ?></label>
                 <span><?php echo esc_html($supplier !== '' ? $supplier : 'ثبت نشده'); ?></span></p>
@@ -137,6 +152,24 @@ add_action('woocommerce_product_data_panels', static function (): void {
                 <span><?php echo esc_html((string) $product->get_meta('_molavi_category', true) ?: 'ثبت نشده'); ?></span></p>
             <p class="form-field"><label><?php echo esc_html('حداقل خرید'); ?></label>
                 <span><?php echo esc_html($minimum > 0 ? number_format_i18n($minimum) : 'ثبت نشده'); ?></span></p>
+            <p class="form-field"><label><?php echo esc_html('واحد سفارش فعلی'); ?></label>
+                <span><?php echo esc_html('خانوار: ' . number_format_i18n($profile['household_unit'])
+                    . ' · فروشگاه: ' . number_format_i18n($profile['shop_unit'])
+                    . ' · اندازه بسته استخراج‌شده: ' . number_format_i18n($profile['pack_size'])); ?></span></p>
+            <p class="form-field"><label for="_molavi_household_order_unit">واحد سفارش خانوار (اختیاری)</label>
+                <input type="number" min="1" max="999" step="1" id="_molavi_household_order_unit" name="_molavi_household_order_unit" value="<?php echo esc_attr((string) $product->get_meta('_molavi_household_order_unit', true)); ?>" placeholder="<?php echo esc_attr((string) $profile['household_unit']); ?>" />
+                <span class="description">خالی بماند تا نصف اندازه بسته از پیام استخراج شود.</span></p>
+            <p class="form-field"><label for="_molavi_shop_order_unit">واحد سفارش فروشگاه (اختیاری)</label>
+                <input type="number" min="1" max="999" step="1" id="_molavi_shop_order_unit" name="_molavi_shop_order_unit" value="<?php echo esc_attr((string) $product->get_meta('_molavi_shop_order_unit', true)); ?>" placeholder="<?php echo esc_attr((string) $profile['shop_unit']); ?>" />
+                <span class="description">خالی بماند تا اندازه بسته استخراج‌شده از پیام استفاده شود.</span></p>
+            <p class="form-field"><label for="_molavi_household_discount_threshold_units">تعداد واحد تا سقف خانوار (اختیاری)</label>
+                <input type="number" min="1" max="100" step="1" id="_molavi_household_discount_threshold_units" name="_molavi_household_discount_threshold_units" value="<?php echo esc_attr((string) $product->get_meta('_molavi_household_discount_threshold_units', true)); ?>" placeholder="<?php echo esc_attr((string) $profile['household_threshold_units']); ?>" /></p>
+            <p class="form-field"><label for="_molavi_shop_discount_threshold_units">تعداد واحد تا سقف فروشگاه (اختیاری)</label>
+                <input type="number" min="1" max="100" step="1" id="_molavi_shop_discount_threshold_units" name="_molavi_shop_discount_threshold_units" value="<?php echo esc_attr((string) $product->get_meta('_molavi_shop_discount_threshold_units', true)); ?>" placeholder="<?php echo esc_attr((string) $profile['shop_threshold_units']); ?>" /></p>
+            <p class="form-field"><label for="_molavi_household_discount_cap_percent">سقف خانوار از حداکثر تخفیف کالا ٪</label>
+                <input type="number" min="0" max="100" step="0.1" id="_molavi_household_discount_cap_percent" name="_molavi_household_discount_cap_percent" value="<?php echo esc_attr($product->get_meta('_molavi_household_discount_cap_ratio', true) === '' ? '' : (string) ((float) $product->get_meta('_molavi_household_discount_cap_ratio', true) * 100)); ?>" placeholder="<?php echo esc_attr((string) round($profile['household_cap_ratio'] * 100, 1)); ?>" /></p>
+            <p class="form-field"><label for="_molavi_shop_discount_cap_percent">سقف فروشگاه از حداکثر تخفیف کالا ٪</label>
+                <input type="number" min="0" max="100" step="0.1" id="_molavi_shop_discount_cap_percent" name="_molavi_shop_discount_cap_percent" value="<?php echo esc_attr($product->get_meta('_molavi_shop_discount_cap_ratio', true) === '' ? '' : (string) ((float) $product->get_meta('_molavi_shop_discount_cap_ratio', true) * 100)); ?>" placeholder="<?php echo esc_attr((string) round($profile['shop_cap_ratio'] * 100, 1)); ?>" /></p>
             <p class="form-field"><label><?php echo esc_html('قیمت مرجع مشتری'); ?></label>
                 <span><?php echo esc_html(is_numeric($shelf) && (int) $shelf > 0
                     ? number_format_i18n((int) $shelf) . ' تومان' : 'ثبت نشده'); ?></span></p>
@@ -149,9 +182,20 @@ add_action('woocommerce_product_data_panels', static function (): void {
                         · <?php echo esc_html(wp_date('Y-m-d H:i', strtotime($verified))); ?>
                     <?php endif; ?>
                 </span></p>
+            <?php if ($referenceApprovalState !== '') : ?>
+                <p class="form-field"><label><?php echo esc_html('وضعیت تطبیق و تأیید مرجع'); ?></label>
+                    <span><?php echo esc_html($referenceApprovalLabel . ($referenceChangePercent > 0
+                        ? ' · تغییر قیمت مرجع ' . number_format_i18n($referenceChangePercent, 2) . '٪' : '')); ?></span>
+                    <?php if ($referenceReviewReason !== '') : ?><br><small><?php echo esc_html($referenceReviewReason); ?></small><?php endif; ?>
+                </p>
+            <?php endif; ?>
             <?php if ($offerId !== '') : ?>
                 <p class="form-field"><label><?php echo esc_html('شناسه پیشنهاد منبع'); ?></label>
                     <code><?php echo esc_html($offerId); ?></code></p>
+            <?php endif; ?>
+            <?php if ($sourcePostUrl !== '') : ?>
+                <p class="form-field"><label><?php echo esc_html('پیام اصلی استخراج'); ?></label>
+                    <a href="<?php echo esc_url($sourcePostUrl); ?>" target="_blank" rel="noopener noreferrer"><?php echo esc_html('باز کردن پیام اصلی برای بررسی و به‌روزرسانی'); ?></a></p>
             <?php endif; ?>
             <?php if ($sourceProductId !== '') : ?>
                 <p class="form-field"><label><?php echo esc_html('شناسه کالا در منبع'); ?></label>
@@ -166,6 +210,34 @@ add_action('woocommerce_product_data_panels', static function (): void {
     </div>
     <?php
 });
+
+add_action('woocommerce_process_product_meta', static function (int $postId): void {
+    if (!molavi_reference_owner() || !current_user_can('edit_post', $postId)
+        || !isset($_POST['molavi_product_profile_nonce'])
+        || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['molavi_product_profile_nonce'])), 'molavi_product_profile_settings')) {
+        return;
+    }
+    $integerFields = [
+        '_molavi_household_order_unit' => [1, 999],
+        '_molavi_shop_order_unit' => [1, 999],
+        '_molavi_household_discount_threshold_units' => [1, 100],
+        '_molavi_shop_discount_threshold_units' => [1, 100],
+    ];
+    foreach ($integerFields as $key => [$minimumValue, $maximumValue]) {
+        $raw = isset($_POST[$key]) ? trim(wp_unslash((string) $_POST[$key])) : '';
+        if ($raw === '') { delete_post_meta($postId, $key); continue; }
+        if (!ctype_digit($raw)) { continue; }
+        update_post_meta($postId, $key, max($minimumValue, min($maximumValue, (int) $raw)));
+    }
+    foreach (['_molavi_household_discount_cap_percent' => '_molavi_household_discount_cap_ratio',
+              '_molavi_shop_discount_cap_percent' => '_molavi_shop_discount_cap_ratio'] as $input => $key) {
+        $raw = isset($_POST[$input]) ? trim(wp_unslash((string) $_POST[$input])) : '';
+        if ($raw === '') { delete_post_meta($postId, $key); continue; }
+        if (!is_numeric($raw)) { continue; }
+        update_post_meta($postId, $key, max(0.0, min(1.0, (float) $raw / 100)));
+    }
+    molavi_forget_catalog();
+}, 40);
 
 function molavi_admin_order_columns(array $columns): array
 {
@@ -246,6 +318,9 @@ function molavi_admin_order_meta_box($postOrOrder): void
     $prepUrl = add_query_arg(['page' => 'molavi-paid-orders', 'order_id' => $orderId], admin_url('admin.php'));
     echo '<p><strong>' . esc_html(molavi_admin_order_handoff_label($order)) . '</strong></p>';
     echo '<p>' . esc_html('وضعیت سفارش ووکامرس: ' . wc_get_order_status_name($order->get_status())) . '</p>';
+    $buyerType = (string) $order->get_meta('_molavi_buyer_type', true);
+    $buyerLabel = $buyerType === 'shop' ? 'صاحب فروشگاه' : ($buyerType === 'household' ? 'خریدار خانوار' : 'ثبت نشده');
+    echo '<p>' . esc_html('نوع خریدار: ' . $buyerLabel) . '</p>';
     if ($order->is_paid()) {
         echo '<p><a class="button button-primary" href="' . esc_url($prepUrl) . '">'
             . esc_html('پیگیری تأمین و تکمیل همین سفارش') . '</a></p>';
