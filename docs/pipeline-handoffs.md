@@ -1,6 +1,6 @@
 # Whole-flow handoff implementation record — 2026-10-26 onward (Asia/Tehran)
 
-## Saved-message re-extraction workflow — source change 2026-11-01
+## Saved-message re-extraction workflow — deployed 2026-11-01
 
 The owner extraction screen now previews and can queue either messages still awaiting
 AI processing/review or all eligible saved text messages. Previously owner-decided,
@@ -17,30 +17,20 @@ current. Owner decisions and not-a-product outcomes remain excluded from replay.
 
 The owner re-extraction controls are deployed in the WordPress plugin. This does not
 mean a live re-extraction has run; no messages were reprocessed from the owner screen.
-The AI-only backend behavior is a separate source release checkpoint below.
 
 ## Production AI-only release checkpoint — 2026-11-01
 
-After the owner workflow deployment, the user reported that the re-extraction panel says
-AI extraction is not active. The source change recorded in D-038 removes the
-`EXTRACTION_MODE` gate and regex fallback: supplier message extraction always uses
-Gemini. The backend change is committed and pushed to `main` as `4033962` (included in
-current `main` commit `6448f09`). Railway shows
-the `Wholesale-project` service still running successful deployment
-`653d3bd1-b109-4a87-b43b-7967acfa5024` from commit `f16c120`; it has not deployed
-`4033962`. `GOOGLE_API_KEY` is defined as a service variable; its value was not read.
+After the owner workflow deployment, the user reported that the re-extraction panel said
+AI extraction was not active. D-038 removes the `EXTRACTION_MODE` gate and regex fallback:
+supplier message extraction always uses Gemini. Backend code commit `4033962` is live in
+Railway deployment `f454e55f-bcbb-4d09-9cef-401176b8ed3a`, which reached `SUCCESS` from
+`main` at release commit `25a5b1b`. The service now tracks the GitHub repository's `main`
+branch; future pushes deploy automatically. `/health` returned `healthy` after rollout.
 
-Railway reports the service is linked to `Hosseinjeff/Wholesale-project`, and the project
-has only one environment (`production`). Reconnecting the service source explicitly to
-`main` was rejected twice by automatic approval review because the source change triggers
-a live build and applies across environments; the second review explicitly required
-user authorization for that source change. No backend deployment or variable change was
-made. Obtain approval before reconnecting the same repository to `main`, then verify a
-terminal successful deployment of the new commit.
-
-The WordPress owner panel now recognizes an older backend response and reports that the
-server must be updated instead of incorrectly saying its Gemini key is missing. No
-re-extraction run has been started.
+Railway lists `GOOGLE_API_KEY` as a configured service variable; its value was not read.
+The WordPress panel at plugin commit `6448f09` checks whether the running backend supports
+AI-only extraction and gives a specific missing-key notice when appropriate. No supplier
+messages have been re-extracted yet.
 
 ## Current live product setup — 2026-10-31
 

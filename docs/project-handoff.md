@@ -659,8 +659,10 @@ D-038 supersedes the method switch and regex fallback described in the historica
 snapshot above. Current supplier messages always use Gemini. Missing credentials or
 Gemini failures fail the batch into its existing publication hold; an AI response of
 `[]` is accepted as a message with no product listings. The owner re-extraction panel
-checks for the API key and explains the missing setting. This source change has not yet
-been deployed; Railway access still prevents confirming production key presence.
+checks for the API key and explains the missing setting. The code is live in Railway
+deployment `f454e55f-bcbb-4d09-9cef-401176b8ed3a` (`SUCCESS`, release commit `25a5b1b`);
+the service health endpoint returned `healthy`. Railway lists `GOOGLE_API_KEY` as a
+configured variable, but its value was not read. No live re-extraction run has started.
 
 ### 2026-10-28 continued execution — verified Woo payment mirror
 
