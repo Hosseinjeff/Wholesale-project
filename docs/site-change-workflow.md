@@ -40,11 +40,17 @@ the plugin directory.
 After a successful deploy, record the deployed commit here or in the relevant
 release note and use it as `--since` for the next deployment.
 
-Most recent plugin deployment: commit `3ed092cbf6c2f2ac669b8532837c317d3429d72c`
-(2026-11-01). Bulk message/case dismissal, optional dismissal notes, and visible
-reference suggestions in `includes/owner-workflows.js` and
-`includes/owner-workflows.css` were uploaded and read back successfully with
+Most recent plugin deployment: commit `0a3e7f27c12f419d175645592166913e2c9f8db1`
+(2026-11-01). WooCommerce product and order context was deployed from `main` with
 `python tools/deploy_wordpress_plugin.py --since
+3ed092cbf6c2f2ac669b8532837c317d3429d72c`. The uploader changed and verified by read-back
+`includes/owner-workflows.js`, `includes/pipeline-holds.php`,
+`includes/woocommerce-admin.php`, and `molavi-shop.php`; it reported no host normalization.
+No WooCommerce records or Railway service were changed. The previous plugin deployment was
+commit `3ed092cbf6c2f2ac669b8532837c317d3429d72c` (2026-11-01), where bulk
+message/case dismissal, optional dismissal notes, and visible reference suggestions in
+`includes/owner-workflows.js` and `includes/owner-workflows.css` were uploaded and read back
+successfully with `python tools/deploy_wordpress_plugin.py --since
 6448f09e0f5579f7094f5a097b3eafacc90144e0`. The previous plugin deployment was commit
 `6448f09e0f5579f7094f5a097b3eafacc90144e0` (2026-11-01), which added the owner
 extraction panel's AI-only configuration message and stale-backend detection from base

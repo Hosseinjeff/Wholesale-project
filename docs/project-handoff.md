@@ -4,7 +4,7 @@ Snapshot 4.60. Updated 2026-11-01, Asia/Tehran. The canonical roleplay decisions
 `roleplay-state.json`; current live evidence and release gates are in
 `pipeline-readiness.md` and `pipeline-readiness-evidence.json`.
 
-## WooCommerce product and order integration — implementation checkpoint
+## WooCommerce product and order integration — deployed 2026-11-01
 
 The plugin source now adds MolaviSale context to WooCommerce Products and Orders. Product
 list columns show supplier and freshness; the product editor has an owner-only tab with
@@ -12,8 +12,10 @@ source details and links to the matching and supplier-price review paths. Order 
 the order editor show handoff state and link to the focused order-preparation workflow.
 Actions return to that order. Source-owned product fields remain read-only in the tab.
 
-The code and plugin README are on `main`; production plugin deployment and read-back are
-pending. Existing product/order data was not changed by this source update.
+Commit `0a3e7f27c12f419d175645592166913e2c9f8db1` is on `main`. The WordPress plugin
+deployment script uploaded and read back the changed plugin files successfully.
+Existing product/order data was not changed by the release. The live admin screens were
+not opened in a browser after deployment; the file uploader's source comparison passed.
 
 ## Current owner extraction release — 2026-11-01
 

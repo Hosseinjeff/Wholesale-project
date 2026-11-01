@@ -16,6 +16,13 @@ screen reuses existing server-side order operations. Deployment and file read-ba
 recorded after the release below. No production product/order records were edited for
 this integration.
 
+Deployment record: commit `0a3e7f27c12f419d175645592166913e2c9f8db1` is on `main` and
+was uploaded through the WordPress plugin release script. The uploader read back and
+verified `includes/owner-workflows.js`, `includes/pipeline-holds.php`,
+`includes/woocommerce-admin.php`, and `molavi-shop.php`. No Railway service, product,
+order, payment, or owner review decision was changed. The admin screens were not opened
+in a live browser after deployment.
+
 ## Bulk dismissal and uncertain-item suggestions — deployed 2026-11-01
 
 Commit `3ed092cbf6c2f2ac669b8532837c317d3429d72c` is on `main`. Railway deployment

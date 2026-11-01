@@ -652,5 +652,5 @@ Do not record suggested options, silence, or previously inferred preferences as 
   workflow. Existing server-backed order actions return to that order after submission.
 - WooCommerce remains authoritative for catalog/order records. Context links and display
   do not create or change products, orders, inventory, payments or customer messages.
-- Status: requested behavior implemented in the plugin source; production deployment and
-  file read-back remain pending and will be recorded in the release handoff.
+- Status: deployed from `main` at `0a3e7f27c12f419d175645592166913e2c9f8db1`; the
+  WordPress uploader verified the changed plugin files by read-back.
