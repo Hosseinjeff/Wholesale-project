@@ -3,6 +3,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import time
 import uuid
@@ -263,6 +264,93 @@ class Handoffs:
                        (job_id, kind, raw, time.time()))
         return job_id
 
+    def enqueue_reextraction(self, run_id, actor_id, items):
+        """Queue one source message per job; extracted offers are staged for owner review."""
+        if not isinstance(run_id, str) or not re.fullmatch(r'[a-f0-9]{32}', run_id):
+            raise ValueError('invalid re-extraction run id')
+        if not isinstance(actor_id, str) or not actor_id.strip():
+            raise ValueError('re-extraction owner required')
+        prepared=[]
+        for item in items:
+            if not isinstance(item, dict):
+                raise ValueError('invalid re-extraction message')
+            message_id=str(item.get('message_id') or '')
+            batch_id=str(item.get('batch_id') or '')
+            channel_username=str(item.get('channel_username') or '')
+            message_key=str(item.get('message_key') or '')
+            content_sha256=str(item.get('content_sha256') or '')
+            if (not message_id or not message_key
+                    or not re.fullmatch(r'[a-f0-9]{64}', message_key)
+                    or not re.fullmatch(r'[a-f0-9]{64}', content_sha256)):
+                raise ValueError('invalid re-extraction identity')
+            payload={**item, 'run_id':run_id, 'actor_id':actor_id}
+            job_id='reextract:'+run_id+':'+message_key
+            prepared.append((job_id,self.encode(payload)))
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            active=db.execute("SELECT id,payload FROM jobs WHERE kind='reextract' AND state IN ('queued','running') ORDER BY rowid LIMIT 1").fetchone()
+            if active:
+                active_payload=json.loads(active['payload'])
+                raise JobConflict('re-extraction run already active:'+str(active_payload.get('run_id') or ''))
+            now=time.time()
+            for job_id,raw in prepared:
+                old=db.execute('SELECT payload FROM jobs WHERE id=?',(job_id,)).fetchone()
+                if old and old['payload']!=raw:
+                    raise JobConflict('re-extraction receipt key reused with different content')
+                db.execute("INSERT OR IGNORE INTO jobs (id,kind,payload,state,available) VALUES (?,'reextract',?,'queued',?)",
+                           (job_id,raw,now))
+        return len(prepared)
+
+    def reextraction_status(self, run_id):
+        if not isinstance(run_id,str) or not re.fullmatch(r'[a-f0-9]{32}',run_id):
+            return None
+        prefix='reextract:'+run_id+':'
+        with self.connect() as db:
+            rows=db.execute('''SELECT id,state,attempts,error,result,payload FROM jobs
+                WHERE kind='reextract' AND id LIKE ? ORDER BY id''',(prefix+'%',)).fetchall()
+        if not rows:
+            return None
+        items=[]
+        counts={}
+        for row in rows:
+            state=str(row['state'])
+            counts[state]=counts.get(state,0)+1
+            payload=json.loads(row['payload'])
+            result=json.loads(row['result']) if row['result'] else None
+            items.append({'state':state,'error':row['error'] or '',
+                          'result':result})
+        total=len(items)
+        complete=(counts.get('done',0)+counts.get('failed',0)+counts.get('needs_review',0)
+                  +counts.get('cancelled',0))
+        return {'run_id':run_id,'total':total,'completed':complete,'counts':counts,
+                'items':items,'state':'complete' if complete==total else 'running'}
+
+    def cancel_reextraction(self, run_id, actor_id):
+        if not isinstance(run_id,str) or not re.fullmatch(r'[a-f0-9]{32}',run_id):
+            raise ValueError('invalid re-extraction run id')
+        prefix='reextract:'+run_id+':'
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            rows=db.execute('SELECT id,payload FROM jobs WHERE kind=\'reextract\' AND id LIKE ?',(prefix+'%',)).fetchall()
+            if not rows or any(json.loads(row['payload']).get('actor_id')!=actor_id for row in rows):
+                raise JobConflict('re-extraction run not found for this owner')
+            changed=db.execute("UPDATE jobs SET state='cancelled',result=?,error=NULL,lease=NULL,expires=NULL WHERE kind='reextract' AND id LIKE ? AND state='queued'",
+                (self.encode({'status':'cancelled'}),prefix+'%')).rowcount
+            running=db.execute("SELECT COUNT(*) AS count FROM jobs WHERE kind='reextract' AND id LIKE ? AND state='running'",(prefix+'%',)).fetchone()['count']
+        return {'cancelled':int(changed),'running':int(running)}
+
+    def active_reextraction_run(self):
+        with self.connect() as db:
+            rows=db.execute("SELECT payload,state FROM jobs WHERE kind='reextract' AND state IN ('queued','running') ORDER BY rowid").fetchall()
+        if not rows:
+            return None
+        payload=json.loads(rows[0]['payload'])
+        run_id=str(payload.get('run_id') or '')
+        status=self.reextraction_status(run_id) if run_id else None
+        if not status:
+            return None
+        return {key:status[key] for key in ('run_id','state','total','completed','counts')}
+
     def receive(self, message):
         # Stable source/chat/message/revision identity; re-forward metadata does not create new work.
         identity = {k:message.get(k) for k in ('channel','channel_username','id','content',
@@ -319,7 +407,7 @@ class Handoffs:
         return {**dict(row),'result':json.loads(row['result']) if row['result'] else None} if row else None
 
     def run_one(self, *, finalize, publish, order_write, notify=None, job_id=None,
-                publish_with_payload=None):
+                publish_with_payload=None, reextract=None):
         job=self.claim(job_id)
         if not job:return False
         try:
@@ -347,6 +435,10 @@ class Handoffs:
                 if notify is None:raise RuntimeError('notice_sender_unconfigured')
                 result=notify(job['payload'])
                 if result.get('delivered') is not True:raise RuntimeError('notice_not_delivered')
+            elif job['kind']=='reextract':
+                if reextract is None:raise RuntimeError('re-extraction_worker_unconfigured')
+                result=reextract(job['payload'])
+                if result.get('ok') is not True:raise RuntimeError('re-extraction_failed')
             else:raise RuntimeError('unknown_handoff')
             self.finish(job,result)
         except ReferencePending:

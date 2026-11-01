@@ -10,11 +10,13 @@ The Apps Script webhook is a legacy ingest path and does not write these sheets.
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
 import os
 import re
 import threading
 import time
+from contextlib import nullcontext
 from typing import Any
 from urllib.parse import quote
 
@@ -775,6 +777,7 @@ def import_product_data(
     *,
     reference_snapshot=None,
     prepared_products: list[dict[str, Any]] | None = None,
+    stage_for_review: bool = False,
 ) -> dict[str, Any]:
     try:
         _fill_message_from_sheet(store, data)
@@ -790,14 +793,21 @@ def import_product_data(
 
         reference_headers = []
         store.ensure("Offers", OFFER_HEADERS + reference_headers)
-        store.ensure("Products", PRODUCT_HEADERS)
+        if not stage_for_review:
+            store.ensure("Products", PRODUCT_HEADERS)
         offer_headers = _headers(store, "Offers", OFFER_HEADERS + reference_headers)
         existing_offers = _read_sheet_if_present(store, "Offers")
         _, existing_offer_records = _records(existing_offers)
         imported_at = _now()
         offer_rows = []
         keys: list[tuple[str, str]] = []
+        staged_offer_ids=[]
         for index, product in enumerate(products):
+            if stage_for_review:
+                product['needs_review']=True
+                prior_reason=str(product.get('review_reason') or '').strip()
+                product['review_reason']='; '.join(part for part in
+                    (prior_reason,'Re-extraction result awaiting owner review') if part)
             product["min_qty"] = minimum_purchase(product.get("packaging") or "", product.get("name") or "")
             if 'detected_price' in product or 'source_price_amount' in product:
                 from catalog.price_scale import apply_price_scale, assess_price_scale
@@ -820,9 +830,10 @@ def import_product_data(
             review_reason = "; ".join(dict.fromkeys(reason for reason in review_reasons if reason))
             requires_review = bool(qa["requires_review"] or product.get("needs_review"))
             product["status"] = "needs_review" if requires_review else "imported"
-            if requires_review:
+            if requires_review and not stage_for_review:
                 _log_issue(store, "WARN", data.get("id"), review_reason)
             offer_id = f"{data.get('batch_id') or 'offer'}:{data.get('id') or index}:{index}"
+            staged_offer_ids.append(offer_id)
             fields = _offer_fields(product, data, offer_id, imported_at, review_reason)
             if reference_snapshot is not None:
                 from reference_import.matching import candidate_match, price_role_hint
@@ -850,16 +861,82 @@ def import_product_data(
             offer_rows.append(_row_from_map(offer_headers, fields))
             keys.append((product.get("name") or "", data.get("channel_username") or ""))
 
-        opening_rows = _opening_offer_rows(store, keys, offer_headers, existing_offers)
+        opening_rows = [] if stage_for_review else _opening_offer_rows(store, keys, offer_headers, existing_offers)
         fresh_rows = _unseen_offer_rows(existing_offers, offer_headers, opening_rows + offer_rows)
         if fresh_rows:
             _append_at_next_row(store, "Offers", offer_headers, fresh_rows)
+        if stage_for_review:
+            return {"success": True, "products_found": len(products), "row": None,
+                    "staged_for_review": True, "staged_offer_ids": staged_offer_ids}
         last_row = _restore_current_book(store, _dedupe_keys(keys))
         _check_systemic_errors(store)
         return {"success": True, "products_found": len(products), "row": last_row}
     except Exception as exc:
         logger.error("Product import failed: %s", exc.__class__.__name__)
         return {"success": False, "error": exc.__class__.__name__}
+
+
+def reextract_saved_message(store, payload: dict[str, Any], *, write_lock=None) -> dict[str, Any]:
+    """Re-run current extraction rules for one saved message and stage offers for review."""
+    if not ai_extraction_enabled():
+        raise RuntimeError('AI extraction is disabled')
+    message_id=str(payload.get('message_id') or '')
+    batch_id=str(payload.get('batch_id') or '')
+    channel_username=str(payload.get('channel_username') or '')
+    timestamp=str(payload.get('timestamp') or '')
+    expected_hash=str(payload.get('content_sha256') or '')
+    if not message_id or not re.fullmatch(r'[a-f0-9]{64}',expected_hash):
+        raise ValueError('invalid_source_identity')
+    rows=_read_sheet_if_present(store,'MessageData')
+    headers,messages=_records(rows)
+    matches=[]
+    for item in messages:
+        if str(item.get('ID') or '')!=message_id:
+            continue
+        if str(item.get('Batch ID') or '')!=batch_id:
+            continue
+        if str(item.get('Channel Username') or '')!=channel_username:
+            continue
+        if str(item.get('Timestamp') or '')!=timestamp:
+            continue
+        if hashlib.sha256(str(item.get('Content') or '').encode()).hexdigest()!=expected_hash:
+            continue
+        matches.append(item)
+    if len(matches)!=1:
+        return {'ok':True,'message_id':message_id,'status':'source_changed',
+                'products_found':0,'staged_offers':0}
+    source=matches[0]
+    run_id=str(payload.get('run_id') or '')
+    message_key=str(payload.get('message_key') or '')
+    if not re.fullmatch(r'[a-f0-9]{32}',run_id) or not re.fullmatch(r'[a-f0-9]{64}',message_key):
+        raise ValueError('invalid_re-extraction_run')
+    identity=json.dumps([message_id,batch_id,channel_username,expected_hash,timestamp],
+        ensure_ascii=False,separators=(',',':'))
+    if hashlib.sha256(identity.encode()).hexdigest()!=message_key:
+        raise ValueError('invalid_re-extraction_identity')
+    content=str(source.get('Content') or '')
+    if not content.strip():
+        return {'ok':True,'message_id':message_id,'status':'no_text','products_found':0,'staged_offers':0}
+    products=_extract_supplier_products(content,channel_username)
+    if not products:
+        return {'ok':True,'message_id':message_id,'status':'no_products','products_found':0,'staged_offers':0}
+    stage_batch_id=f'reextract:{run_id}:{message_key}'
+    data={
+        'id':message_id,'batch_id':stage_batch_id,'channel':source.get('Channel') or '',
+        'channel_username':channel_username,'content':content,'timestamp':source.get('Timestamp') or '',
+        'forwarded_by':source.get('Forwarded By') or '',
+        'image_file_id':source.get('Image File ID') or '',
+        'image_file_unique_id':source.get('Image File Unique ID') or '',
+    }
+    lock_context=write_lock or nullcontext()
+    with lock_context:
+        with _WRITE_LOCK:
+            result=import_product_data(store,data,prepared_products=products,stage_for_review=True)
+    if not result.get('success') or result.get('staged_for_review') is not True:
+        raise RuntimeError('re-extraction staging failed')
+    return {'ok':True,'message_id':message_id,'status':'staged_for_review',
+            'products_found':int(result.get('products_found') or 0),
+            'staged_offers':len(result.get('staged_offer_ids') or [])}
 
 
 _SYSTEM_ITEM_FIELDS = {

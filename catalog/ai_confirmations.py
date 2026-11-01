@@ -132,6 +132,7 @@ def _as_case(offer, ledger, *, include_decided=False):
         'channel': str(offer.get('Channel Username') or ''),
         'source_channel': str(offer.get('Channel') or ''),
         'batch_id': str(offer.get('Batch ID') or ''),
+        'historical_reextract': str(offer.get('Batch ID') or '').startswith('reextract:'),
         'message_id': str(offer.get('Message ID') or ''),
         'message_timestamp': str(offer.get('Message Timestamp') or ''),
         'original_message': str(offer.get('Original Message') or ''),
@@ -157,6 +158,12 @@ def find_case(store, ledger, case_id, offer_id):
     source = next((item for item in offers if str(item.get('Offer ID') or '') == offer_id), None)
     if source is None or review_case_id(offer_id) != case_id:
         return None
+    source_marker=(str(source.get('Message ID') or ''),str(source.get('Channel Username') or ''))
+    if not str(source.get('Batch ID') or '').startswith('reextract:') and any(
+            str(item.get('Batch ID') or '').startswith('reextract:')
+            and (str(item.get('Message ID') or ''),str(item.get('Channel Username') or ''))==source_marker
+            for item in offers):
+        return None
     return _as_case(source, ledger, include_decided=True)
 
 
@@ -166,13 +173,20 @@ def review_cases(store, ledger, *, include_history=False, limit=200):
     _, offers = _records(raw)
     cases = []
     all_by_offer = {}
+    reextracted_messages={
+        (str(offer.get('Message ID') or ''),str(offer.get('Channel Username') or ''))
+        for offer in offers if str(offer.get('Batch ID') or '').startswith('reextract:')
+    }
     for offer in offers:
         offer_id = str(offer.get('Offer ID') or '')
         if not offer_id:
             continue
         case_id = review_case_id(offer_id)
         latest = ledger.latest(case_id)
-        case = _as_case(offer, ledger)
+        marker=(str(offer.get('Message ID') or ''),str(offer.get('Channel Username') or ''))
+        superseded=(marker in reextracted_messages
+                    and not str(offer.get('Batch ID') or '').startswith('reextract:'))
+        case = None if superseded else _as_case(offer, ledger)
         if case:
             cases.append(case)
         all_by_offer[offer_id] = (offer, latest)
@@ -187,16 +201,91 @@ def review_cases(store, ledger, *, include_history=False, limit=200):
         seen_cases.add(decision['case_id'])
         pair = all_by_offer.get(decision['offer_id'])
         if pair:
+            source=pair[0]
+            marker=(str(source.get('Message ID') or ''),str(source.get('Channel Username') or ''))
+            if (marker in reextracted_messages
+                    and not str(source.get('Batch ID') or '').startswith('reextract:')):
+                continue
             case = _as_case(pair[0], ledger, include_decided=True)
             if case:
                 recent.append({**case, 'decision': decision})
     return cases[:limit], recent[:limit]
 
 
+def reextraction_inventory(store):
+    """List saved source messages safe to re-extract without replaying owner decisions."""
+    from catalog.sync import _records
+    _, messages = _records(store.read('MessageData'))
+    _, offers = _records(store.read('Offers'))
+    owner_decisions=set()
+    staged=set()
+    for offer in offers:
+        marker=(str(offer.get('Message ID') or ''),str(offer.get('Channel Username') or ''))
+        if not marker[0]:
+            continue
+        if str(offer.get('Owner Decision ID') or '').strip():
+            owner_decisions.add(marker)
+        if (str(offer.get('Batch ID') or '').startswith('reextract:')
+                and str(offer.get('Status') or '').strip().lower()=='needs_review'):
+            staged.add(marker)
+    seen=set()
+    candidates=[]
+    pending=[]
+    no_content=0
+    excluded_owner=0
+    excluded_not_product=0
+    already_staged=0
+    for message in messages:
+        message_id=str(message.get('ID') or '').strip()
+        batch_id=str(message.get('Batch ID') or '').strip()
+        channel=str(message.get('Channel Username') or '').strip()
+        content=str(message.get('Content') or '')
+        if not message_id:
+            continue
+        identity=(message_id,batch_id,channel,content)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        marker=(message_id,channel)
+        ai_status=str(message.get('AI Status') or '').strip().lower()
+        if ai_status=='not_product':
+            excluded_not_product+=1
+            continue
+        if marker in owner_decisions:
+            excluded_owner+=1
+            continue
+        if marker in staged:
+            already_staged+=1
+            continue
+        if not content.strip():
+            no_content+=1
+            continue
+        item={
+            'message_id':message_id,'batch_id':batch_id,'channel_username':channel,
+            'channel':str(message.get('Channel') or ''),'timestamp':str(message.get('Timestamp') or ''),
+            'content':content,'ai_status':ai_status,
+        }
+        candidates.append(item)
+        if ai_status in {'','pending_ai','needs_confirmation','needs_review','pending'}:
+            pending.append(item)
+    return {
+        'all_messages':candidates,
+        'pending_messages':pending,
+        'counts':{
+            'all_available':len(candidates),'pending':len(pending),'without_text':no_content,
+            'owner_decisions_preserved':excluded_owner,'not_product_preserved':excluded_not_product,
+            'already_staged':already_staged,
+        },
+    }
+
+
 def validate_choice(body):
-    if not isinstance(body, dict) or set(body) != {
-            'case_id','offer_id','signature','choice','fields','note','expected_decision_id'}:
+    required={'case_id','offer_id','signature','choice','fields','note','expected_decision_id'}
+    allowed=required|{'source_current_verified'}
+    if not isinstance(body, dict) or not required.issubset(body) or not set(body).issubset(allowed):
         raise ValueError('invalid_body')
+    if 'source_current_verified' in body and not isinstance(body['source_current_verified'],bool):
+        raise ValueError('invalid_fields')
     for key, maximum in (('case_id', 100),('offer_id', 300),('signature', 64),
                          ('choice', 20),('note', 1000)):
         value = body.get(key)

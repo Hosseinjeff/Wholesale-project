@@ -48,19 +48,26 @@
             sheet_value_changed: 'مقدار فعلی شیت با این تعارض یکسان نیست؛ فهرست را تازه کنید.',
             safe_cell_writer_unavailable: 'نوشتن امن روی این سلول در دسترس نیست.',
             write_unconfirmed: 'تغییر شیت تأیید نشد؛ دوباره بررسی کنید.',
-            resolution_failed: 'ثبت تصمیم تعارض ناموفق بود؛ وضعیت را تازه کنید.'
+            resolution_failed: 'ثبت تصمیم تعارض ناموفق بود؛ وضعیت را تازه کنید.',
+            reextraction_active: 'یک بازاستخراج دیگر هنوز در صف یا در حال اجراست؛ ابتدا وضعیت همان اجرا را پیگیری کنید.',
+            reextraction_preview_changed: 'فهرست پیام‌ها تغییر کرده است؛ تعداد تازه را بررسی و دوباره شروع کنید.',
+            no_reextraction_messages: 'پیامی برای بازاستخراج در این گروه پیدا نشد.',
+            ai_extraction_disabled: 'استخراج هوشمند فعال نیست؛ تنظیم کلید و مدل هوش مصنوعی را بررسی کنید.',
+            unknown_reextraction_run: 'اجرای بازاستخراج پیدا نشد؛ فهرست را تازه کنید.',
+            reextraction_conflict: 'صف بازاستخراج تغییر کرده است؛ صفحه را تازه کنید و دوباره تلاش کنید.',
+            reextraction_price_not_verified: 'برای تأیید قیمت بازاستخراج‌شده، تازگی آن را در منبع فعلی تأیید کنید.'
         };
         return labels[code] || 'ارتباط با سرور برقرار نشد. کد پیگیری: ' + (code || 'نامشخص');
     }
 
-    async function request(method = 'GET', payload = undefined) {
+    async function request(method = 'GET', payload = undefined, url = config.apiUrl) {
         const options = { method, mode: 'cors', cache: 'no-store',
             headers: { Authorization: 'Bearer ' + config.token } };
         if (payload !== undefined) {
             options.headers['Content-Type'] = 'application/json';
             options.body = JSON.stringify(payload);
         }
-        const response = await fetch(config.apiUrl, options);
+        const response = await fetch(url, options);
         const body = await response.json().catch(() => null);
         if (!response.ok || !body || body.ok !== true) {
             throw new Error(body && typeof body.error === 'string' ? body.error : 'request_failed');
@@ -144,8 +151,8 @@
         board.appendChild(node('h2', 'وضعیت پردازش'));
         board.appendChild(node('p', 'در حال دریافت وضعیت کارهای صف…'));
         const groups = [
-            ['۱', 'دریافت و بررسی پیام', 'پیشنهاد استخراج‌شده را با متن اصلی مقایسه و مشخصات محصول را تأیید کنید.', [
-                ['بررسی استخراج کالا', 'اصلاح نام، قیمت، تعداد بسته و وضعیت موجودی تأمین‌کننده.', 'molavi-ai-confirmations']
+            ['۱', 'دریافت و بررسی پیام', 'پیام‌های قبلی را در صورت نیاز با قواعد فعلی دوباره استخراج کنید؛ سپس پیشنهادها را با متن اصلی تطبیق دهید.', [
+                ['بررسی استخراج کالا', 'بازاستخراج پیام‌های ذخیره‌شده و اصلاح نام، قیمت، تعداد بسته و موجودی.', 'molavi-ai-confirmations']
             ]],
             ['۲', 'بررسی قیمت مرجع', 'پیش از تطبیق، از فعال و معتبر بودن فهرست مرجع مطمئن شوید.', [
                 ['دریافت و فعال‌سازی فهرست', 'نسخه دریافت‌شده از API ووکامرس را بررسی کنید.', 'molavi-reference-snapshots'],
@@ -174,7 +181,7 @@
             const counts = ops.by_state || {};
             const stateLabels = {queued: 'در صف', running: 'در حال اجرا', waiting_reference: 'انتظار مرجع',
                 waiting_publication: 'انتظار رفع توقف انتشار', failed: 'خطا', needs_review: 'نیازمند بررسی'};
-            const kindLabels = {batch: 'دسته پیام', publish: 'انتشار کالا', order: 'سفارش', notice: 'اعلان'};
+            const kindLabels = {batch: 'دسته پیام', reextract: 'بازاستخراج پیام', publish: 'انتشار کالا', order: 'سفارش', notice: 'اعلان'};
             const errorLabels = {RuntimeError: 'خطای اجرا', publication_held_for_review: 'انتظار بررسی توقف انتشار',
                 batch_recovery_requires_owner_review: 'نیازمند بررسی دسته'};
             const content = node('div');
@@ -221,6 +228,8 @@
             || 'مبنای هر واحد یا بسته هنوز مشخص نیست';
         card.appendChild(node('p', `تأمین‌کننده: ${item.channel || 'نامشخص'} · مبلغ فروش تأمین‌کننده: ${amount(item.detected_price || item.sale_price)} · مبنا: ${roleLabel}`));
         card.appendChild(node('p', `دلیل بررسی: ${item.reason || 'نیازمند بررسی'} · حداقل خرید: ${item.min_qty || 'ثبت نشده'}`));
+        if (item.message_timestamp) card.appendChild(node('p', `زمان پیام منبع: ${item.message_timestamp}`));
+        if (item.historical_reextract) card.appendChild(notice('این پیشنهاد از بازاستخراج یک پیام قبلی آمده است. پیش از تأیید، مطمئن شوید قیمت و موجودی هنوز معتبرند.', 'warning'));
         if (item.original_message) {
             const details = document.createElement('details'); details.appendChild(node('summary', 'متن اصلی پیام تأمین‌کننده'));
             details.appendChild(node('pre', item.original_message)); card.appendChild(details);
@@ -245,6 +254,14 @@
         form.appendChild(field('وضعیت موجودی تأمین‌کننده', 'stock_status', fields.stock_status || item.stock_status || 'Unknown', 'select', {
             choices: [['Available', 'موجود'], ['Out of Stock', 'ناموجود'], ['Unknown', 'نامشخص']]
         }));
+        let currentPriceVerified = null;
+        if (item.historical_reextract) {
+            const checkLabel = node('label', null, 'molavi-reextract-current-check');
+            currentPriceVerified = document.createElement('input');
+            currentPriceVerified.type = 'checkbox';
+            checkLabel.append(currentPriceVerified, document.createTextNode(' قیمت و موجودی را با تأمین‌کننده یا منبع فعلی دوباره بررسی کردم.'));
+            form.appendChild(checkLabel);
+        }
         form.appendChild(field('یادداشت مالک', 'note', item.decision && item.decision.note || '', 'textarea', { required: true, maxLength: 1000 }));
         const confirm = node('button', item.decision ? 'ثبت اصلاح و تأیید دوباره' : 'تأیید مشخصات استخراج‌شده', 'button button-primary');
         confirm.type = 'submit'; confirm.value = 'confirm';
@@ -256,10 +273,15 @@
             const choice = event.submitter && event.submitter.value;
             if (!['confirm', 'not_product'].includes(choice)) return;
             if (choice === 'confirm' && !form.reportValidity()) return;
+            if (choice === 'confirm' && item.historical_reextract && !currentPriceVerified.checked) {
+                errorBox('پیش از تأیید، تازگی قیمت و موجودی را در منبع فعلی بررسی کنید.', card);
+                return;
+            }
             if (!form.elements.note.value.trim()) { form.elements.note.reportValidity(); return; }
             const payload = {
                 case_id: item.case_id, offer_id: item.offer_id, signature: item.signature,
                 choice, note: form.elements.note.value, expected_decision_id: item.previous_decision_id || null,
+                source_current_verified: Boolean(item.historical_reextract && choice === 'confirm' && currentPriceVerified.checked),
                 fields: choice === 'confirm' ? {
                     price_role: form.elements.price_role.value,
                     sale_price: intValue(form, 'sale_price'),
@@ -285,9 +307,110 @@
         return card;
     }
 
+    function reextractionUrl(action, runId = '') {
+        const params = new URLSearchParams({ reextract: action });
+        if (runId) params.set('run_id', runId);
+        return config.apiUrl + '?' + params.toString();
+    }
+
+    async function showReextractionProgress(panel, runId) {
+        if (!root.contains(panel)) return;
+        try {
+            const status = await request('GET', undefined, reextractionUrl('run', runId));
+            const counts = status.counts || {};
+            const finished = Number(status.completed || 0);
+            const total = Number(status.total || 0);
+            const box = notice(`بازاستخراج پیام‌ها: ${finished} از ${total} · در صف ${counts.queued || 0} · در حال اجرا ${counts.running || 0} · پایان‌یافته ${counts.done || 0} · لغوشده ${counts.cancelled || 0} · ناموفق ${counts.failed || 0}`, status.state === 'complete' ? (counts.failed ? 'warning' : 'success') : 'info');
+            panel.querySelector('.molavi-reextract-progress')?.replaceWith(box);
+            box.classList.add('molavi-reextract-progress');
+            if (status.state === 'complete') {
+                const outcomes = status.outcomes || {};
+                box.appendChild(node('p', `پیشنهادهای آماده بررسی: ${status.staged_offers || 0} · پیام بدون کالای قابل استخراج: ${outcomes.no_products || 0}`));
+                if (outcomes.source_changed) box.appendChild(node('p', `${outcomes.source_changed} پیام پس از پیش‌نمایش تغییر کرده یا چند نسخه مبهم داشته؛ نتیجه‌ای برای آن‌ها ثبت نشد. پیش‌نمایش را تازه کنید و دوباره اجرا کنید.`, 'notice'));
+                if (counts.cancelled) box.appendChild(node('p', 'کارهای در صف لغو شدند؛ پیامِ در حال اجرا ممکن است کامل شده باشد.'));
+                box.appendChild(node('p', 'نتیجه‌ها به‌صورت پیشنهاد بررسی ثبت شده‌اند؛ برای تصمیم درباره هر مورد، همین فهرست را پایین صفحه ببینید.'));
+                if (counts.failed) box.appendChild(node('p', 'پیام‌های ناموفق را پس از بررسی صف می‌توانید با اجرای دوباره گروه مربوط پردازش کنید.'));
+                setTimeout(() => aiConfirmations(counts.failed ? 'بازاستخراج تمام شد؛ بخشی از پیام‌ها ناموفق ماند.' : 'بازاستخراج تمام شد؛ پیشنهادها برای بررسی مالک آماده‌اند.', counts.failed ? 'warning' : 'success'), 1200);
+                return;
+            }
+            const cancel = node('button', 'توقف پیام‌های باقی‌مانده', 'button');
+            cancel.type = 'button';
+            cancel.addEventListener('click', async () => {
+                if (!window.confirm('پیام‌های در صف لغو می‌شوند؛ پیام در حال اجرا ممکن است کامل شود. ادامه می‌دهید؟')) return;
+                cancel.disabled = true;
+                try {
+                    const receipt=await request('POST',{action:'cancel_reextraction',run_id:runId});
+                    box.appendChild(node('p', `لغو شد: ${receipt.cancelled || 0} پیام در صف · ${receipt.running || 0} پیام در حال اجرا`));
+                } catch (error) {
+                    box.appendChild(notice(errorText(error.message),'error'));
+                    cancel.disabled=false;
+                }
+            });
+            box.appendChild(cancel);
+            setTimeout(() => showReextractionProgress(panel, runId), 3500);
+        } catch (error) {
+            panel.querySelector('.molavi-reextract-progress')?.replaceWith(notice(errorText(error.message), 'error'));
+        }
+    }
+
+    async function reextractionPanel(panel) {
+        panel.className = 'card molavi-reextract-panel';
+        panel.appendChild(node('h2', 'بازاستخراج پیام‌های ذخیره‌شده'));
+        panel.appendChild(node('p', 'پیام‌های قبلی را با قواعد فعلی استخراج دوباره پردازش کنید. خروجی فقط به پیشنهادهای نیازمند بررسی مالک افزوده می‌شود؛ تا تأیید موردی، فهرست فعلی کالاها و انتشار تغییر نمی‌کند.'));
+        try {
+            const preview = await request('GET', undefined, reextractionUrl('preview'));
+            const counts = preview.counts || {};
+            panel.appendChild(node('p', `در صف بررسی: ${counts.pending || 0} پیام · همه پیام‌های متنی آماده: ${counts.all_available || 0}`));
+            panel.appendChild(node('p', `پیام‌های بدون متن: ${counts.without_text || 0} · تصمیم‌های مالک حفظ‌شده: ${counts.owner_decisions_preserved || 0} · موارد «کالا نیست» حفظ‌شده: ${counts.not_product_preserved || 0} · قبلاً بازاستخراج‌شده و هنوز در بررسی: ${counts.already_staged || 0}`));
+            if (!preview.ai_enabled) {
+                panel.appendChild(notice('استخراج هوشمند فعال نیست. برای استفاده از همین معیارهای AI، تنظیم کلید Gemini را بررسی کنید.', 'error'));
+            }
+            if (preview.active_run) {
+                const progress = notice('در حال آماده‌سازی وضعیت بازاستخراج…', 'info');
+                progress.classList.add('molavi-reextract-progress');
+                panel.appendChild(progress);
+                showReextractionProgress(panel, preview.active_run.run_id);
+                return;
+            }
+            const controls = node('div', null, 'molavi-reextract-actions');
+            const pendingButton = node('button', `بازاستخراج پیام‌های در صف بررسی (${counts.pending || 0})`, 'button button-primary');
+            const allButton = node('button', `بازاستخراج همه پیام‌های ذخیره‌شده (${counts.all_available || 0})`, 'button');
+            pendingButton.type = 'button'; allButton.type = 'button';
+            pendingButton.disabled = !preview.ai_enabled || !(counts.pending > 0);
+            allButton.disabled = !preview.ai_enabled || !(counts.all_available > 0);
+            async function start(button, scope, count) {
+                const label = scope === 'all' ? 'همه پیام‌های متنی ذخیره‌شده و فاقد تصمیم نهایی مالک' : 'پیام‌هایی که هنوز در صف بررسی یا پردازش هستند';
+                const warning = `قرار است ${count} پیام از ${label} با قواعد فعلی دوباره پردازش شوند. هر خروجی به‌صورت پیشنهاد نیازمند بررسی ثبت می‌شود و هیچ کالایی خودکار منتشر نمی‌شود. ادامه می‌دهید؟`;
+                if (!window.confirm(warning)) return;
+                pendingButton.disabled = true; allButton.disabled = true;
+                try {
+                    const receipt = await request('POST', {action: 'start_reextraction', scope, expected_count: count});
+                    if (!/^[a-f0-9]{32}$/.test(receipt.run_id || '') || receipt.queued !== count) throw new Error('invalid_receipt');
+                    const progress = notice('در صف بازاستخراج قرار گرفت…', 'info');
+                    progress.classList.add('molavi-reextract-progress');
+                    controls.replaceWith(progress);
+                    showReextractionProgress(panel, receipt.run_id);
+                } catch (error) {
+                    panel.appendChild(notice(errorText(error.message), 'error'));
+                    pendingButton.disabled = !(counts.pending > 0);
+                    allButton.disabled = !(counts.all_available > 0);
+                }
+            }
+            pendingButton.addEventListener('click', () => start(pendingButton, 'pending', counts.pending));
+            allButton.addEventListener('click', () => start(allButton, 'all', counts.all_available));
+            controls.append(pendingButton, allButton);
+            panel.appendChild(controls);
+        } catch (error) {
+            panel.appendChild(notice(errorText(error.message), 'error'));
+        }
+    }
+
     async function aiConfirmations(message = '', messageKind = 'info') {
         shell('تأیید استخراج کالا', 'مشخصات نامطمئن را با متن پیام اصلی بررسی کنید. تا ثبت تصمیم مالک، این پیشنهادها در فروشگاه منتشر نمی‌شوند.');
         if (message) root.appendChild(notice(message, messageKind));
+        const reextract = node('section');
+        root.appendChild(reextract);
+        await reextractionPanel(reextract);
         try {
             const data = await request();
             if (data.publication_held) root.appendChild(notice('توقف ایمنی انتشار فعال است؛ ابتدا آن را در بخش انتشار و بازیابی بررسی کنید.', 'warning'));

@@ -1,5 +1,24 @@
 # Whole-flow handoff implementation record — 2026-10-26 onward (Asia/Tehran)
 
+## Saved-message re-extraction workflow — source change 2026-11-01
+
+The owner extraction screen now previews and can queue either messages still awaiting
+AI processing/review or all eligible saved text messages. Previously owner-decided,
+not-a-product, and already-staged messages are excluded and counted in the preview.
+Each source message is re-extracted by the current configured AI rules as its own
+durable job; source identity and content are checked again before processing. The
+owner can cancel queued work; one already running may finish.
+
+Re-extracted offers are appended to `Offers` as owner-review cases. This path does not
+rewrite `MessageData` or the current `Products` book, and does not queue publication.
+The existing owner review shows the original message and timestamp. Confirming a
+historical result also requires an explicit owner check that its price and stock are
+current. Owner decisions and not-a-product outcomes remain excluded from replay.
+
+This is a source change on `main`, not a production deployment or a completed live
+re-extraction. Do not claim production behavior until the release is deployed and the
+owner starts a run from the Persian **بررسی استخراج کالا** screen.
+
 ## Current live product setup — 2026-10-31
 
 The streamlined owner pipeline screens are deployed from commit

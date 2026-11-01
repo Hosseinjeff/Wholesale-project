@@ -5,6 +5,7 @@ Flask app for Railway/Render deployment with Telegram webhooks.
 
 from flask import Flask, Response, request, jsonify
 import base64
+import hashlib
 import hmac
 import json
 import logging
@@ -13,6 +14,7 @@ import os
 import re
 import time
 import threading
+import uuid
 from urllib.parse import urlparse
 from utils.logger import setup_logger
 
@@ -29,6 +31,7 @@ from catalog.sync import (
     release_idle_memory,
     SHEET_PROVENANCE_FIELDS,
     resolve_prompt,
+    reextract_saved_message,
     sheets_configured,
     shop_catalog,
 )
@@ -39,7 +42,7 @@ app = Flask(__name__)
 WEB_APP_URL = os.getenv('GOOGLE_WEB_APP_URL')
 BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 BALE_BOT_TOKEN = os.getenv('BALE_BOT_TOKEN')
-APP_VERSION = "2026-10-17-shop-publish"
+APP_VERSION = "2026-11-01-ai-reextraction"
 setup_logger(logging.INFO, log_file=None)
 logger = logging.getLogger(__name__)
 
@@ -318,9 +321,13 @@ def run_durable_handoff(queue, job_id=None):
             queue.mark_sheet_projection_published(after)
         return result
 
+    def reextract(payload):
+        return reextract_saved_message(build_store(),payload,write_lock=queue.publication_lock())
+
     return queue.run_one(finalize=finalize, publish=publish_projection,
                          publish_with_payload=publish_projection,
-                         order_write=order_write, notify=notify, job_id=job_id)
+                         order_write=order_write, notify=notify, job_id=job_id,
+                         reextract=reextract)
 
 
 batch_manager = None
@@ -1539,8 +1546,9 @@ def ai_confirmations_route():
     """Owner review of uncertain AI supplier extracts; source Offers are append-only."""
     from catalog.ai_confirmations import (
         AIConfirmationLedger, ConfirmationConflict, apply_decision, find_case,
-        review_cases, validate_choice,
+        reextraction_inventory, review_cases, validate_choice,
     )
+    from catalog.gemini import ai_extraction_enabled
     token = os.getenv('REFERENCE_BRIDGE_TOKEN') or ''
     owners = {value.strip() for value in (os.getenv('REFERENCE_OWNER_IDS') or '').split(',') if value.strip()}
     queue = handoff_queue()
@@ -1553,12 +1561,85 @@ def ai_confirmations_route():
     try:
         store = build_store()
         if request.method == 'GET':
+            reextract_action=request.args.get('reextract') or ''
+            if reextract_action=='preview':
+                inventory=reextraction_inventory(store)
+                response=jsonify({'ok':True,'counts':inventory['counts'],
+                    'ai_enabled':ai_extraction_enabled(),
+                    'active_run':queue.active_reextraction_run()})
+                response.headers['Cache-Control']='no-store'
+                return response
+            if reextract_action=='run':
+                run_id=request.args.get('run_id') or ''
+                status=queue.reextraction_status(run_id)
+                if not status:
+                    return jsonify({'ok':False,'error':'unknown_reextraction_run'}),404
+                outcomes={}
+                products_found=0
+                staged_offers=0
+                for item in status['items']:
+                    result=item.get('result') or {}
+                    outcome=str(result.get('status') or item.get('state') or 'unknown')
+                    outcomes[outcome]=outcomes.get(outcome,0)+1
+                    products_found+=int(result.get('products_found') or 0)
+                    staged_offers+=int(result.get('staged_offers') or 0)
+                response=jsonify({'ok':True,'run_id':status['run_id'],'state':status['state'],
+                    'total':status['total'],'completed':status['completed'],'counts':status['counts'],
+                    'outcomes':outcomes,'products_found':products_found,'staged_offers':staged_offers})
+                response.headers['Cache-Control']='no-store'
+                return response
             cases, recent = review_cases(store, ledger, include_history=True)
             response = jsonify({'ok': True, 'cases': cases, 'recent_decisions': recent,
                                 'publication_held': bool(queue.publication_holds())})
             response.headers['Cache-Control'] = 'no-store'
             return response
         body = request.get_json(silent=True)
+        if isinstance(body,dict) and body.get('action')=='cancel_reextraction':
+            if set(body)!={'action','run_id'}:
+                return jsonify({'ok':False,'error':'invalid_reextraction_request'}),400
+            try:
+                cancelled=queue.cancel_reextraction(body['run_id'],actor)
+            except (ValueError,JobConflict):
+                return jsonify({'ok':False,'error':'reextraction_conflict'}),409
+            response=jsonify({'ok':True,'run_id':body['run_id'],**cancelled})
+            response.headers['Cache-Control']='no-store'
+            return response
+        if isinstance(body,dict) and body.get('action')=='start_reextraction':
+            if set(body)!={'action','scope','expected_count'} or body.get('scope') not in {'pending','all'}:
+                return jsonify({'ok':False,'error':'invalid_reextraction_request'}),400
+            if not ai_extraction_enabled():
+                return jsonify({'ok':False,'error':'ai_extraction_disabled'}),409
+            expected_count=body.get('expected_count')
+            if isinstance(expected_count,bool) or not isinstance(expected_count,int) or expected_count<1:
+                return jsonify({'ok':False,'error':'invalid_reextraction_count'}),400
+            inventory=reextraction_inventory(store)
+            selected=(inventory['pending_messages'] if body['scope']=='pending'
+                      else inventory['all_messages'])
+            if len(selected)!=expected_count:
+                return jsonify({'ok':False,'error':'reextraction_preview_changed',
+                    'current_count':len(selected)}),409
+            if not selected:
+                return jsonify({'ok':False,'error':'no_reextraction_messages'}),409
+            run_id=uuid.uuid4().hex
+            items=[]
+            for message in selected:
+                content_sha256=hashlib.sha256(message['content'].encode()).hexdigest()
+                identity=json.dumps([message['message_id'],message['batch_id'],
+                    message['channel_username'],content_sha256,message['timestamp']],
+                    ensure_ascii=False,separators=(',',':'))
+                message_key=hashlib.sha256(identity.encode()).hexdigest()
+                items.append({'message_id':message['message_id'],'batch_id':message['batch_id'],
+                    'channel_username':message['channel_username'],'message_key':message_key,
+                    'content_sha256':content_sha256,'timestamp':message['timestamp']})
+            try:
+                queued=queue.enqueue_reextraction(run_id,actor,items)
+            except JobConflict as exc:
+                if str(exc).startswith('re-extraction run already active:'):
+                    return jsonify({'ok':False,'error':'reextraction_active'}),409
+                return jsonify({'ok':False,'error':'reextraction_conflict'}),409
+            response=jsonify({'ok':True,'run_id':run_id,'queued':queued,'scope':body['scope']})
+            response.headers['Cache-Control']='no-store'
+            return response,202
         try:
             validate_choice(body)
         except ValueError as exc:
@@ -1569,13 +1650,20 @@ def ai_confirmations_route():
             case = find_case(store, ledger, body['case_id'], body['offer_id'])
             if not case or case['signature'] != body['signature']:
                 return jsonify({'ok': False, 'error': 'stale_case'}), 409
+            if (body['choice']=='confirm' and case.get('historical_reextract')
+                    and body.get('source_current_verified') is not True):
+                return jsonify({'ok':False,'error':'reextraction_price_not_verified'}),400
+            decision_note=body['note'].strip()
+            if body['choice']=='confirm' and case.get('historical_reextract'):
+                decision_note='تازگی قیمت و موجودی با منبع فعلی بررسی شد. '+decision_note
             decision = ledger.decide(case_id=case['case_id'], offer_id=case['offer_id'],
                 signature=case['signature'], choice=body['choice'], fields=body['fields'],
-                actor_id=actor, note=body['note'],
+                actor_id=actor, note=decision_note,
                 expected_decision_id=body['expected_decision_id'])
             apply_decision(store, ledger, case, decision)
             from catalog.sync import refresh_ai_message_status
-            refresh_ai_message_status(store, {'id':case['message_id'],'batch_id':case['batch_id'],
+            refresh_ai_message_status(store, {'id':case['message_id'],
+                'batch_id':'' if case.get('historical_reextract') else case['batch_id'],
                 'channel':case['source_channel']})
             reference_block = False
             if body['choice'] == 'confirm':
