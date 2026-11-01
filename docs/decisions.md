@@ -1,6 +1,6 @@
 # MolaviSale decision log
 
-Revision 4.0. Updated 2026-10-25, Asia/Tehran. This is a business/design decision log,
+Revision 4.1. Updated 2026-11-01, Asia/Tehran. This is a business/design decision log,
 not an infrastructure access log.
 
 ## Explicit user requirements
@@ -624,3 +624,17 @@ Do not record suggested options, silence, or previously inferred preferences as 
   method choice.
 - This source change is on `main`; production deployment and verification are recorded
   separately in the handoff and deployment notes.
+
+### D-039 — Owner review supports bulk dismissal and visible match suggestions
+
+- The owner can dismiss many saved messages awaiting re-extraction at once. The
+  dismissal is recorded against each message's stable source identity, excludes it
+  from later re-extraction, and leaves the original source message intact. A count and
+  content digest prevent applying a stale preview.
+- The owner can select multiple open AI review cases and mark them as not a product.
+  Dismissal notes are optional; confirming extracted product details still requires a
+  review note and the existing source checks.
+- Reference item review displays the highest ranked matching catalog items as visible
+  suggestions. Their similarity scores are guidance only; the owner must select and
+  submit a match. Manual entry accepts an exact normalized product name or reference
+  ID, and ambiguous names remain unselected for the owner to resolve.

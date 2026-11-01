@@ -25,6 +25,11 @@ class AIConfirmationLedger:
                 actor_id TEXT NOT NULL, note TEXT NOT NULL, created_at REAL NOT NULL)''')
             db.execute('''CREATE INDEX IF NOT EXISTS ai_confirmation_case_history
                 ON ai_confirmation_decisions(case_id,created_at)''')
+            db.execute('''CREATE TABLE IF NOT EXISTS ai_message_dismissals (
+                message_key TEXT PRIMARY KEY, message_id TEXT NOT NULL, batch_id TEXT NOT NULL,
+                channel_username TEXT NOT NULL, source_timestamp TEXT NOT NULL,
+                content_sha256 TEXT NOT NULL, actor_id TEXT NOT NULL, note TEXT NOT NULL,
+                created_at REAL NOT NULL)''')
         os.chmod(self.path, 0o600)
 
     @contextmanager
@@ -50,6 +55,52 @@ class AIConfirmationLedger:
     def latest(self, case_id):
         rows = self.history(case_id, 1)
         return rows[0] if rows else None
+
+    def dismissed_message_keys(self):
+        with self.connect() as db:
+            rows = db.execute('SELECT message_key FROM ai_message_dismissals').fetchall()
+        return {str(row['message_key']) for row in rows}
+
+    def dismiss_message(self, message, *, actor_id, note=''):
+        return self.dismiss_messages([message], actor_id=actor_id, note=note)[0]
+
+    def dismiss_messages(self, messages, *, actor_id, note=''):
+        if not isinstance(actor_id,str) or not actor_id.strip():
+            raise ValueError('invalid_dismissal_identity')
+        if not isinstance(note, str) or len(note) > 1000:
+            raise ValueError('invalid_dismissal_note')
+        prepared=[]
+        for message in messages:
+            message_id = str(message.get('message_id') or '').strip()
+            batch_id = str(message.get('batch_id') or '')
+            channel = str(message.get('channel_username') or '')
+            timestamp = str(message.get('timestamp') or '')
+            content = str(message.get('content') or '')
+            if not message_id or not content.strip():
+                raise ValueError('invalid_dismissal_identity')
+            content_sha256 = hashlib.sha256(content.encode()).hexdigest()
+            message_key = reextraction_message_key({
+                'message_id': message_id, 'batch_id': batch_id,
+                'channel_username': channel, 'timestamp': timestamp, 'content': content,
+            })
+            prepared.append((message_key,message_id,batch_id,channel,timestamp,content_sha256))
+        rows=[]
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            for message_key,message_id,batch_id,channel,timestamp,content_sha256 in prepared:
+                db.execute('''INSERT OR IGNORE INTO ai_message_dismissals
+                    (message_key,message_id,batch_id,channel_username,source_timestamp,
+                     content_sha256,actor_id,note,created_at) VALUES (?,?,?,?,?,?,?,?,?)''',
+                    (message_key,message_id,batch_id,channel,timestamp,content_sha256,
+                     actor_id,note.strip(),time.time()))
+                row=db.execute('SELECT * FROM ai_message_dismissals WHERE message_key=?',
+                               (message_key,)).fetchone()
+                if not row or (row['message_id'],row['batch_id'],row['channel_username'],
+                               row['source_timestamp'],row['content_sha256']) != (
+                        message_id,batch_id,channel,timestamp,content_sha256):
+                    raise ConfirmationConflict('message dismissal identity changed')
+                rows.append(dict(row))
+        return rows
 
     def decide(self, *, case_id, offer_id, signature, choice, fields, actor_id, note,
                expected_decision_id=None):
@@ -212,13 +263,24 @@ def review_cases(store, ledger, *, include_history=False, limit=200):
     return cases[:limit], recent[:limit]
 
 
-def reextraction_inventory(store):
+def reextraction_message_key(message):
+    content_sha256 = hashlib.sha256(str(message.get('content') or '').encode()).hexdigest()
+    identity = json.dumps([
+        str(message.get('message_id') or ''), str(message.get('batch_id') or ''),
+        str(message.get('channel_username') or ''), content_sha256,
+        str(message.get('timestamp') or ''),
+    ], ensure_ascii=False, separators=(',', ':'))
+    return hashlib.sha256(identity.encode()).hexdigest()
+
+
+def reextraction_inventory(store, ledger=None):
     """List saved source messages safe to re-extract without replaying owner decisions."""
     from catalog.sync import _records
     _, messages = _records(store.read('MessageData'))
     _, offers = _records(store.read('Offers'))
     owner_decisions=set()
     staged=set()
+    dismissed_keys=ledger.dismissed_message_keys() if ledger else set()
     for offer in offers:
         marker=(str(offer.get('Message ID') or ''),str(offer.get('Channel Username') or ''))
         if not marker[0]:
@@ -235,6 +297,7 @@ def reextraction_inventory(store):
     excluded_owner=0
     excluded_not_product=0
     already_staged=0
+    dismissed_by_owner=0
     for message in messages:
         message_id=str(message.get('ID') or '').strip()
         batch_id=str(message.get('Batch ID') or '').strip()
@@ -248,6 +311,13 @@ def reextraction_inventory(store):
         seen.add(identity)
         marker=(message_id,channel)
         ai_status=str(message.get('AI Status') or '').strip().lower()
+        message_key=reextraction_message_key({
+            'message_id':message_id,'batch_id':batch_id,'channel_username':channel,
+            'timestamp':str(message.get('Timestamp') or ''),'content':content,
+        })
+        if message_key in dismissed_keys:
+            dismissed_by_owner+=1
+            continue
         if ai_status=='not_product':
             excluded_not_product+=1
             continue
@@ -263,7 +333,7 @@ def reextraction_inventory(store):
         item={
             'message_id':message_id,'batch_id':batch_id,'channel_username':channel,
             'channel':str(message.get('Channel') or ''),'timestamp':str(message.get('Timestamp') or ''),
-            'content':content,'ai_status':ai_status,
+            'content':content,'ai_status':ai_status,'message_key':message_key,
         }
         candidates.append(item)
         if ai_status in {'','pending_ai','needs_confirmation','needs_review','pending'}:
@@ -274,7 +344,7 @@ def reextraction_inventory(store):
         'counts':{
             'all_available':len(candidates),'pending':len(pending),'without_text':no_content,
             'owner_decisions_preserved':excluded_owner,'not_product_preserved':excluded_not_product,
-            'already_staged':already_staged,
+            'already_staged':already_staged,'dismissed_by_owner':dismissed_by_owner,
         },
     }
 
@@ -291,7 +361,7 @@ def validate_choice(body):
         value = body.get(key)
         if not isinstance(value, str) or len(value) > maximum:
             raise ValueError('invalid_fields')
-    if not body['note'].strip() or len(body['signature']) != 64:
+    if (body['choice'] != 'not_product' and not body['note'].strip()) or len(body['signature']) != 64:
         raise ValueError('invalid_fields')
     expected = body['expected_decision_id']
     if expected is not None and (not isinstance(expected, str) or len(expected) != 64):

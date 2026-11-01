@@ -1546,7 +1546,7 @@ def ai_confirmations_route():
     """Owner review of uncertain AI supplier extracts; source Offers are append-only."""
     from catalog.ai_confirmations import (
         AIConfirmationLedger, ConfirmationConflict, apply_decision, find_case,
-        reextraction_inventory, review_cases, validate_choice,
+        reextraction_inventory, reextraction_message_key, review_cases, validate_choice,
     )
     from catalog.gemini import ai_extraction_configured
     token = os.getenv('REFERENCE_BRIDGE_TOKEN') or ''
@@ -1563,9 +1563,13 @@ def ai_confirmations_route():
         if request.method == 'GET':
             reextract_action=request.args.get('reextract') or ''
             if reextract_action=='preview':
-                inventory=reextraction_inventory(store)
+                inventory=reextraction_inventory(store,ledger)
+                pending_digest=hashlib.sha256(json.dumps(
+                    sorted(item['message_key'] for item in inventory['pending_messages']),
+                    separators=(',',':')).encode()).hexdigest()
                 response=jsonify({'ok':True,'counts':inventory['counts'],
                     'ai_configured':ai_extraction_configured(),
+                    'pending_digest':pending_digest,
                     'active_run':queue.active_reextraction_run()})
                 response.headers['Cache-Control']='no-store'
                 return response
@@ -1594,6 +1598,95 @@ def ai_confirmations_route():
             response.headers['Cache-Control'] = 'no-store'
             return response
         body = request.get_json(silent=True)
+        if isinstance(body,dict) and body.get('action')=='dismiss_pending_messages':
+            if set(body)!={'action','expected_count','expected_digest','note'}:
+                return jsonify({'ok':False,'error':'invalid_dismissal_request'}),400
+            expected_count=body.get('expected_count')
+            expected_digest=body.get('expected_digest')
+            note=body.get('note')
+            if (isinstance(expected_count,bool) or not isinstance(expected_count,int)
+                    or expected_count<1 or not isinstance(expected_digest,str)
+                    or not re.fullmatch(r'[a-f0-9]{64}',expected_digest)
+                    or not isinstance(note,str) or len(note)>1000):
+                return jsonify({'ok':False,'error':'invalid_dismissal_request'}),400
+            with queue.publication_lock():
+                if queue.active_reextraction_run():
+                    return jsonify({'ok':False,'error':'reextraction_active'}),409
+                inventory=reextraction_inventory(store,ledger)
+                selected=inventory['pending_messages']
+                current_digest=hashlib.sha256(json.dumps(
+                    sorted(item['message_key'] for item in selected),
+                    separators=(',',':')).encode()).hexdigest()
+                if len(selected)!=expected_count or current_digest!=expected_digest:
+                    return jsonify({'ok':False,'error':'reextraction_preview_changed',
+                        'current_count':len(selected)}),409
+                if not selected:
+                    return jsonify({'ok':False,'error':'no_reextraction_messages'}),409
+                ledger.dismiss_messages(selected,actor_id=actor,note=note)
+            response=jsonify({'ok':True,'dismissed_count':len(selected),
+                'dismissed_by_owner':inventory['counts'].get('dismissed_by_owner',0)+len(selected)})
+            response.headers['Cache-Control']='no-store'
+            return response
+        if isinstance(body,dict) and body.get('action')=='dismiss_cases':
+            if set(body)!={'action','cases','note'}:
+                return jsonify({'ok':False,'error':'invalid_dismissal_request'}),400
+            selected=body.get('cases')
+            note=body.get('note')
+            if (not isinstance(selected,list) or not selected or len(selected)>200
+                    or not isinstance(note,str) or len(note)>1000):
+                return jsonify({'ok':False,'error':'invalid_dismissal_request'}),400
+            seen_case_ids=set()
+            for item in selected:
+                if not isinstance(item,dict) or set(item)!={'case_id','offer_id','signature','expected_decision_id'}:
+                    return jsonify({'ok':False,'error':'invalid_dismissal_request'}),400
+                case_id=item.get('case_id');offer_id=item.get('offer_id');signature=item.get('signature')
+                expected=item.get('expected_decision_id')
+                if (not isinstance(case_id,str) or not case_id or len(case_id)>100
+                        or not isinstance(offer_id,str) or not offer_id or len(offer_id)>300
+                        or not isinstance(signature,str) or not re.fullmatch(r'[a-f0-9]{64}',signature)
+                        or (expected is not None and (not isinstance(expected,str)
+                            or not re.fullmatch(r'[a-f0-9]{64}',expected)))
+                        or case_id in seen_case_ids):
+                    return jsonify({'ok':False,'error':'invalid_dismissal_request'}),400
+                seen_case_ids.add(case_id)
+            dismissed=[]
+            failed=[]
+            with queue.publication_lock():
+                if queue.publication_holds():
+                    return jsonify({'ok':False,'error':'publication_held_for_review'}),409
+                available={case['case_id']:case for case in review_cases(store,ledger,limit=200)}
+                cases_to_dismiss=[]
+                for item in selected:
+                    case=available.get(item['case_id'])
+                    if (not case or case['offer_id']!=item['offer_id']
+                            or case['signature']!=item['signature']
+                            or case['previous_decision_id']!=item['expected_decision_id']):
+                        return jsonify({'ok':False,'error':'stale_case'}),409
+                    cases_to_dismiss.append(case)
+                for case in cases_to_dismiss:
+                    try:
+                        decision=ledger.decide(case_id=case['case_id'],offer_id=case['offer_id'],
+                            signature=case['signature'],choice='not_product',fields={},actor_id=actor,
+                            note=note,expected_decision_id=case['previous_decision_id'])
+                        apply_decision(store,ledger,case,decision)
+                        publish_job=queue.put('publish','ai-confirmation:'+decision['decision_id'],
+                            {'decision_id':decision['decision_id']})
+                        try:
+                            from catalog.sync import refresh_ai_message_status
+                            refresh_ai_message_status(store,{'id':case['message_id'],
+                                'batch_id':'' if case.get('historical_reextract') else case['batch_id'],
+                                'channel':case['source_channel']})
+                        except Exception:
+                            logger.exception('Could not persist AI message dismissal status')
+                        dismissed.append({'case_id':case['case_id'],'decision_id':decision['decision_id'],
+                                          'publish_job':publish_job})
+                    except Exception:
+                        logger.exception('Bulk AI case dismissal failed for %s',case['case_id'])
+                        failed.append({'case_id':case['case_id'],'error':'dismiss_failed'})
+            response=jsonify({'ok':True,'requested':len(selected),
+                'dismissed_count':len(dismissed),'failed':failed,'dismissed':dismissed})
+            response.headers['Cache-Control']='no-store'
+            return response
         if isinstance(body,dict) and body.get('action')=='cancel_reextraction':
             if set(body)!={'action','run_id'}:
                 return jsonify({'ok':False,'error':'invalid_reextraction_request'}),400
@@ -1612,27 +1705,25 @@ def ai_confirmations_route():
             expected_count=body.get('expected_count')
             if isinstance(expected_count,bool) or not isinstance(expected_count,int) or expected_count<1:
                 return jsonify({'ok':False,'error':'invalid_reextraction_count'}),400
-            inventory=reextraction_inventory(store)
-            selected=(inventory['pending_messages'] if body['scope']=='pending'
-                      else inventory['all_messages'])
-            if len(selected)!=expected_count:
-                return jsonify({'ok':False,'error':'reextraction_preview_changed',
-                    'current_count':len(selected)}),409
-            if not selected:
-                return jsonify({'ok':False,'error':'no_reextraction_messages'}),409
             run_id=uuid.uuid4().hex
-            items=[]
-            for message in selected:
-                content_sha256=hashlib.sha256(message['content'].encode()).hexdigest()
-                identity=json.dumps([message['message_id'],message['batch_id'],
-                    message['channel_username'],content_sha256,message['timestamp']],
-                    ensure_ascii=False,separators=(',',':'))
-                message_key=hashlib.sha256(identity.encode()).hexdigest()
-                items.append({'message_id':message['message_id'],'batch_id':message['batch_id'],
-                    'channel_username':message['channel_username'],'message_key':message_key,
-                    'content_sha256':content_sha256,'timestamp':message['timestamp']})
             try:
-                queued=queue.enqueue_reextraction(run_id,actor,items)
+                with queue.publication_lock():
+                    inventory=reextraction_inventory(store,ledger)
+                    selected=(inventory['pending_messages'] if body['scope']=='pending'
+                              else inventory['all_messages'])
+                    if len(selected)!=expected_count:
+                        return jsonify({'ok':False,'error':'reextraction_preview_changed',
+                            'current_count':len(selected)}),409
+                    if not selected:
+                        return jsonify({'ok':False,'error':'no_reextraction_messages'}),409
+                    items=[]
+                    for message in selected:
+                        content_sha256=hashlib.sha256(message['content'].encode()).hexdigest()
+                        message_key=reextraction_message_key(message)
+                        items.append({'message_id':message['message_id'],'batch_id':message['batch_id'],
+                            'channel_username':message['channel_username'],'message_key':message_key,
+                            'content_sha256':content_sha256,'timestamp':message['timestamp']})
+                    queued=queue.enqueue_reextraction(run_id,actor,items)
             except JobConflict as exc:
                 if str(exc).startswith('re-extraction run already active:'):
                     return jsonify({'ok':False,'error':'reextraction_active'}),409
@@ -1694,6 +1785,7 @@ def reference_item_reviews_route():
     from reference_import.item_reviews import (ItemReviewConflict, ItemReviewLedger,
         review_cases, review_case_id)
     from reference_import.matching import package_count
+    from reference_import.importer import normalize_name
     from reference_import.workflow import active_reference_use
     from datetime import datetime, timezone
     path = os.getenv('REFERENCE_STORE_PATH') or ''
@@ -1746,9 +1838,20 @@ def reference_item_reviews_route():
                 or current['snapshot_id'] != body['snapshot_id']):
             return jsonify({'ok': False, 'error': 'stale_case'}), 409
         if body['choice'] == 'match':
-            references = {str(row[16] or row[2]): row for row in snapshot.get('rows') or []
-                          if isinstance(row, (list, tuple)) and len(row) > 16}
-            selected_reference = references.get(body['reference_id'])
+            reference_rows=[row for row in snapshot.get('rows') or []
+                if isinstance(row,(list,tuple)) and len(row)>16]
+            references = {str(row[16] or row[2]): row for row in reference_rows}
+            manual_value=body['reference_id'].strip()
+            selected_reference = references.get(manual_value)
+            if manual_value and not selected_reference:
+                normalized=normalize_name(manual_value)
+                name_matches={str(row[16] or row[2]):row for row in reference_rows
+                    if normalized and normalized in {normalize_name(str(row[0] or '')),
+                                                      normalize_name(str(row[1] or ''))}}
+                if len(name_matches)>1:
+                    return jsonify({'ok':False,'error':'ambiguous_reference_name'}),400
+                if len(name_matches)==1:
+                    body['reference_id'],selected_reference=next(iter(name_matches.items()))
             if not body['reference_id'] or not selected_reference:
                 return jsonify({'ok': False, 'error': 'unknown_reference'}), 400
             if body['price_role'] not in {'unit', 'package'}:

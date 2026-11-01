@@ -32,7 +32,8 @@
             decision_conflict: 'تصمیم دیگری هم‌زمان ثبت شده است؛ فهرست را تازه کنید.',
             publication_held_for_review: 'تا بررسی توقف انتشار، این تصمیم ثبت نمی‌شود.',
             package_count_required: 'برای قیمت بسته، تعداد داخل بسته را مشخص کنید.',
-            unknown_reference: 'شناسه کالای مرجع معتبر نیست.',
+            unknown_reference: 'نام دقیق یا شناسه کالای مرجع پیدا نشد؛ یکی از پیشنهادها را انتخاب کنید.',
+            ambiguous_reference_name: 'این نام با چند کالای مرجع تطبیق دارد؛ یکی از پیشنهادها را انتخاب کنید یا شناسه دقیق را وارد کنید.',
             invalid_price_role: 'نقش قیمت را انتخاب کنید.',
             stale_or_conflicting_decision: 'وضعیت تصمیم تغییر کرده است؛ صفحه را تازه کنید.',
             review_unavailable: 'ثبت تصمیم موقتاً انجام نشد. صفحه را تازه کنید و دوباره تلاش کنید.',
@@ -52,6 +53,8 @@
             reextraction_active: 'یک بازاستخراج دیگر هنوز در صف یا در حال اجراست؛ ابتدا وضعیت همان اجرا را پیگیری کنید.',
             reextraction_preview_changed: 'فهرست پیام‌ها تغییر کرده است؛ تعداد تازه را بررسی و دوباره شروع کنید.',
             no_reextraction_messages: 'پیامی برای بازاستخراج در این گروه پیدا نشد.',
+            invalid_dismissal_request: 'درخواست رد گروهی معتبر نیست؛ صفحه را تازه کنید.',
+            dismiss_failed: 'رد کردن همه موارد انجام نشد؛ صفحه را تازه کنید و موارد باقی‌مانده را بررسی کنید.',
             ai_extraction_disabled: 'برای استفاده از استخراج فقط با هوش مصنوعی، ابتدا سرویس سرور را به‌روزرسانی کنید.',
             ai_extraction_unconfigured: 'برای استخراج کالا، کلید GOOGLE_API_KEY را در تنظیمات سرویس اجرا تنظیم کنید.',
             unknown_reextraction_run: 'اجرای بازاستخراج پیدا نشد؛ فهرست را تازه کنید.',
@@ -220,8 +223,16 @@
         return value === '' ? '' : Number.parseInt(value, 10);
     }
 
-    function aiCaseCard(item) {
+    function aiCaseCard(item, onSelect = null) {
         const card = node('section', null, 'card');
+        if (typeof onSelect === 'function') {
+            const selection = node('label', null, 'molavi-ai-case-select');
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.addEventListener('change', () => onSelect(item, checkbox.checked, checkbox));
+            selection.append(checkbox, document.createTextNode(' انتخاب برای رد گروهی'));
+            card.appendChild(selection);
+        }
         card.appendChild(node('h2', item.product_name || 'کالای بدون نام'));
         const roleLabels = {unit: 'هر واحد', single: 'هر واحد', per_unit: 'هر واحد',
             pack: 'هر بسته', package: 'هر بسته', carton: 'هر کارتن'};
@@ -263,7 +274,7 @@
             checkLabel.append(currentPriceVerified, document.createTextNode(' قیمت و موجودی را با تأمین‌کننده یا منبع فعلی دوباره بررسی کردم.'));
             form.appendChild(checkLabel);
         }
-        form.appendChild(field('یادداشت مالک', 'note', item.decision && item.decision.note || '', 'textarea', { required: true, maxLength: 1000 }));
+        form.appendChild(field('یادداشت مالک (اختیاری برای رد کالا)', 'note', item.decision && item.decision.note || '', 'textarea', { maxLength: 1000 }));
         const confirm = node('button', item.decision ? 'ثبت اصلاح و تأیید دوباره' : 'تأیید مشخصات استخراج‌شده', 'button button-primary');
         confirm.type = 'submit'; confirm.value = 'confirm';
         const notProduct = node('button', 'این مورد کالا نیست', 'button');
@@ -278,7 +289,7 @@
                 errorBox('پیش از تأیید، تازگی قیمت و موجودی را در منبع فعلی بررسی کنید.', card);
                 return;
             }
-            if (!form.elements.note.value.trim()) { form.elements.note.reportValidity(); return; }
+            if (choice === 'confirm' && !form.elements.note.value.trim()) { form.elements.note.reportValidity(); return; }
             const payload = {
                 case_id: item.case_id, offer_id: item.offer_id, signature: item.signature,
                 choice, note: form.elements.note.value, expected_decision_id: item.previous_decision_id || null,
@@ -364,7 +375,7 @@
             const supportsAiOnly = typeof preview.ai_configured === 'boolean';
             const aiConfigured = supportsAiOnly && preview.ai_configured;
             panel.appendChild(node('p', `در صف بررسی: ${counts.pending || 0} پیام · همه پیام‌های متنی آماده: ${counts.all_available || 0}`));
-            panel.appendChild(node('p', `پیام‌های بدون متن: ${counts.without_text || 0} · تصمیم‌های مالک حفظ‌شده: ${counts.owner_decisions_preserved || 0} · موارد «کالا نیست» حفظ‌شده: ${counts.not_product_preserved || 0} · قبلاً بازاستخراج‌شده و هنوز در بررسی: ${counts.already_staged || 0}`));
+            panel.appendChild(node('p', `پیام‌های بدون متن: ${counts.without_text || 0} · تصمیم‌های مالک حفظ‌شده: ${counts.owner_decisions_preserved || 0} · موارد «کالا نیست» حفظ‌شده: ${counts.not_product_preserved || 0} · ردشده توسط مالک: ${counts.dismissed_by_owner || 0} · قبلاً بازاستخراج‌شده و هنوز در بررسی: ${counts.already_staged || 0}`));
             if (!supportsAiOnly) {
                 panel.appendChild(notice('نسخه سرویس سرور هنوز از استخراج فقط با هوش مصنوعی پشتیبانی نمی‌کند؛ ابتدا سرور را به‌روزرسانی کنید.', 'error'));
             } else if (!aiConfigured) {
@@ -380,9 +391,11 @@
             const controls = node('div', null, 'molavi-reextract-actions');
             const pendingButton = node('button', `بازاستخراج پیام‌های در صف بررسی (${counts.pending || 0})`, 'button button-primary');
             const allButton = node('button', `بازاستخراج همه پیام‌های ذخیره‌شده (${counts.all_available || 0})`, 'button');
-            pendingButton.type = 'button'; allButton.type = 'button';
+            const dismissButton = node('button', `ردّ گروهی پیام‌های منتظر (${counts.pending || 0})`, 'button');
+            pendingButton.type = 'button'; allButton.type = 'button'; dismissButton.type = 'button';
             pendingButton.disabled = !aiConfigured || !(counts.pending > 0);
             allButton.disabled = !aiConfigured || !(counts.all_available > 0);
+            dismissButton.disabled = !supportsAiOnly || !(counts.pending > 0);
             async function start(button, scope, count) {
                 const label = scope === 'all' ? 'همه پیام‌های متنی ذخیره‌شده و فاقد تصمیم نهایی مالک' : 'پیام‌هایی که هنوز در صف بررسی یا پردازش هستند';
                 const warning = `قرار است ${count} پیام از ${label} با قواعد فعلی دوباره پردازش شوند. هر خروجی به‌صورت پیشنهاد نیازمند بررسی ثبت می‌شود و هیچ کالایی خودکار منتشر نمی‌شود. ادامه می‌دهید؟`;
@@ -403,7 +416,23 @@
             }
             pendingButton.addEventListener('click', () => start(pendingButton, 'pending', counts.pending));
             allButton.addEventListener('click', () => start(allButton, 'all', counts.all_available));
-            controls.append(pendingButton, allButton);
+            dismissButton.addEventListener('click', async () => {
+                const count = Number(counts.pending || 0);
+                if (!count || !window.confirm(`قرار است همه ${count} پیامِ در صف از بازاستخراج کنار گذاشته شوند. متن اصلی پیام‌ها حذف نمی‌شود و یادداشت اجباری نیست. ادامه می‌دهید؟`)) return;
+                dismissButton.disabled = true;
+                try {
+                    const receipt = await request('POST', {
+                        action: 'dismiss_pending_messages', expected_count: count,
+                        expected_digest: preview.pending_digest, note: ''
+                    });
+                    if (receipt.dismissed_count !== count) throw new Error('invalid_receipt');
+                    await aiConfirmations(`${receipt.dismissed_count} پیام از صف بازاستخراج کنار گذاشته شد.`, 'success');
+                } catch (error) {
+                    panel.appendChild(notice(errorText(error.message), 'error'));
+                    dismissButton.disabled = !(counts.pending > 0);
+                }
+            });
+            controls.append(pendingButton, allButton, dismissButton);
             panel.appendChild(controls);
         } catch (error) {
             panel.appendChild(notice(errorText(error.message), 'error'));
@@ -419,10 +448,67 @@
         try {
             const data = await request();
             if (data.publication_held) root.appendChild(notice('توقف ایمنی انتشار فعال است؛ ابتدا آن را در بخش انتشار و بازیابی بررسی کنید.', 'warning'));
-            const cases = new Map();
-            [...(data.cases || []), ...(data.recent_decisions || [])].forEach(item => { if (item && item.case_id) cases.set(item.case_id, item); });
-            if (!cases.size) root.appendChild(node('p', 'موردی برای بررسی وجود ندارد.'));
-            for (const item of cases.values()) root.appendChild(aiCaseCard(item));
+            const openCases = (data.cases || []).filter(item => item && item.case_id);
+            const recentCases = (data.recent_decisions || []).filter(item => item && item.case_id);
+            const selected = new Map();
+            const caseCheckboxes = new Map();
+            if (openCases.length) {
+                const toolbar = node('div', null, 'molavi-bulk-dismiss');
+                const selectAllLabel = node('label', null, 'molavi-bulk-select-all');
+                const selectAll = document.createElement('input');
+                selectAll.type = 'checkbox';
+                selectAllLabel.append(selectAll, document.createTextNode(' انتخاب همه موارد باز'));
+                const count = node('span', 'انتخاب‌شده: ۰');
+                const dismiss = node('button', 'ردّ انتخاب‌شده‌ها به‌عنوان «کالا نیست»', 'button');
+                dismiss.type = 'button';
+                dismiss.disabled = true;
+                toolbar.append(selectAllLabel, count, dismiss);
+                root.appendChild(toolbar);
+                const updateSelection = () => {
+                    const selectedCount = selected.size;
+                    count.textContent = `انتخاب‌شده: ${new Intl.NumberFormat('fa-IR').format(selectedCount)}`;
+                    dismiss.disabled = !selectedCount || Boolean(data.publication_held);
+                    selectAll.checked = selectedCount === openCases.length;
+                    selectAll.indeterminate = selectedCount > 0 && selectedCount < openCases.length;
+                };
+                selectAll.addEventListener('change', () => {
+                    selected.clear();
+                    openCases.forEach(item => {
+                        const checkbox = caseCheckboxes.get(item.case_id);
+                        if (checkbox) checkbox.checked = selectAll.checked;
+                        if (selectAll.checked) selected.set(item.case_id, item);
+                    });
+                    updateSelection();
+                });
+                dismiss.addEventListener('click', async () => {
+                    const items = [...selected.values()];
+                    if (!items.length || !window.confirm(`قرار است ${items.length} مورد انتخاب‌شده به‌عنوان «کالا نیست» ثبت شوند. متن پیام‌های اصلی حذف نمی‌شود و یادداشت اجباری نیست. ادامه می‌دهید؟`)) return;
+                    dismiss.disabled = true;
+                    try {
+                        const receipt = await request('POST', {action:'dismiss_cases',note:'',cases:items.map(item => ({
+                            case_id:item.case_id, offer_id:item.offer_id, signature:item.signature,
+                            expected_decision_id:item.previous_decision_id || null
+                        }))});
+                        if (receipt.requested !== items.length || !Array.isArray(receipt.failed)) throw new Error('invalid_receipt');
+                        const failedCount = receipt.failed.length;
+                        const summary = `${receipt.dismissed_count || 0} مورد رد شد${failedCount ? `؛ ${failedCount} مورد ناموفق ماند` : ''}.`;
+                        await aiConfirmations(summary, failedCount ? 'warning' : 'success');
+                    } catch (error) {
+                        root.appendChild(notice(errorText(error.message), 'error'));
+                        updateSelection();
+                    }
+                });
+                openCases.forEach(item => root.appendChild(aiCaseCard(item, (row, checked, checkbox) => {
+                    caseCheckboxes.set(row.case_id, checkbox);
+                    if (checked) selected.set(row.case_id, row);
+                    else selected.delete(row.case_id);
+                    updateSelection();
+                })));
+            }
+            const seenCaseIds = new Set(openCases.map(item => item.case_id));
+            recentCases.filter(item => !seenCaseIds.has(item.case_id))
+                .forEach(item => root.appendChild(aiCaseCard(item)));
+            if (!openCases.length && !recentCases.length) root.appendChild(node('p', 'موردی برای بررسی وجود ندارد.'));
         } catch (error) { root.appendChild(notice(errorText(error.message), 'error')); }
     }
 
@@ -435,14 +521,41 @@
         const form = document.createElement('form');
         const candidateRows = (item.candidates || []).filter(row => row && row.reference_id);
         const currentReference = item.decision && item.decision.reference_id;
-        const choices = [['', 'انتخاب مرجع']];
-        if (currentReference && !candidateRows.some(row => row.reference_id === currentReference)) {
-            choices.push([currentReference, 'تطبیق فعلی: ' + currentReference]);
+        let selectedReferenceId = candidateRows.some(row => row.reference_id === currentReference) ? currentReference : '';
+        const candidates = node('div', null, 'molavi-reference-candidates');
+        if (candidateRows.length) {
+            candidates.appendChild(node('p', 'پیشنهادهای احتمالی بر اساس شباهت؛ انتخاب شما برای تأیید ثبت می‌شود.'));
+            candidateRows.slice(0, 6).forEach(row => {
+                const option = node('button', null, 'button molavi-reference-candidate');
+                option.type = 'button';
+                option.setAttribute('aria-pressed', String(row.reference_id === selectedReferenceId));
+                option.appendChild(node('strong', row.name || row.reference_id));
+                const score = Number(row.score);
+                option.appendChild(node('span', `امتیاز تطبیق: ${Number.isFinite(score) ? Math.round(score * 100) + '٪' : 'نامشخص'}`));
+                option.appendChild(node('span', `تکی: ${amount(row.unit_price)} · بسته: ${amount(row.package_price)}`));
+                option.addEventListener('click', () => {
+                    selectedReferenceId = row.reference_id;
+                    manualReference.value = '';
+                    candidates.querySelectorAll('.molavi-reference-candidate').forEach(button =>
+                        button.setAttribute('aria-pressed', String(button === option)));
+                });
+                candidates.appendChild(option);
+            });
+        } else {
+            candidates.appendChild(node('p', 'پیشنهاد دقیقی پیدا نشد؛ نام دقیق یا شناسه کالا را دستی وارد کنید.'));
         }
-        candidateRows.forEach(row => choices.push([row.reference_id,
-            `${row.name || row.reference_id} · تطبیق ${row.score || ''} · تکی ${amount(row.unit_price)} · بسته ${amount(row.package_price)}`]));
-        form.appendChild(field('نامزدهای پیشنهادی', 'candidate_reference_id', item.decision && item.decision.reference_id || '', 'select', { choices }));
-        form.appendChild(field('یا شناسه دقیق مرجع', 'reference_id', '', 'text', { maxLength: 300 }));
+        form.appendChild(candidates);
+        const manualReferenceField = field('یا نام دقیق یا شناسه مرجع را وارد کنید', 'reference_id',
+            currentReference && !selectedReferenceId ? currentReference : '', 'text', { maxLength: 300 });
+        const manualReference = manualReferenceField.querySelector('input');
+        manualReference.addEventListener('input', () => {
+            if (manualReference.value.trim()) {
+                selectedReferenceId = '';
+                candidates.querySelectorAll('.molavi-reference-candidate').forEach(button =>
+                    button.setAttribute('aria-pressed', 'false'));
+            }
+        });
+        form.appendChild(manualReferenceField);
         form.appendChild(field('نقش قیمت', 'price_role', item.decision && item.decision.price_role || 'unit', 'select', {
             choices: [['unit', 'قیمت هر واحد'], ['package', 'قیمت بسته / کارتن']]
         }));
@@ -459,7 +572,7 @@
             if (choice === 'match' && !form.reportValidity()) return;
             if (!form.elements.note.value.trim()) { form.elements.note.reportValidity(); return; }
             const referenceId = choice === 'match'
-                ? (form.elements.reference_id.value.trim() || form.elements.candidate_reference_id.value) : '';
+                ? (manualReference.value.trim() || selectedReferenceId) : '';
             if (choice === 'match' && !referenceId) {
                 errorBox('یک کالای مرجع را از فهرست انتخاب کنید یا شناسه دقیق آن را وارد کنید.', card);
                 return;
