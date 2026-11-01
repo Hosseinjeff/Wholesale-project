@@ -1,5 +1,27 @@
 # Whole-flow handoff implementation record — 2026-10-26 onward (Asia/Tehran)
 
+## Bulk dismissal and uncertain-item suggestions — deployed 2026-11-01
+
+Commit `3ed092cbf6c2f2ac669b8532837c317d3429d72c` is on `main`. Railway deployment
+`6619c66b-0bb7-4442-a215-bf38dd041c99` reached `SUCCESS`; `/health` returned
+`healthy`. The Railway service now explicitly follows the repository's `main` branch.
+The owner plugin files were uploaded from the same commit and read back successfully.
+
+In the extraction screen, the owner can dismiss every message currently awaiting
+re-extraction with one confirmed action. A durable record uses the source message's
+identity and content hash, so dismissal excludes that message from later re-extraction
+without deleting or rewriting its original content. The preview count and digest are
+checked again under the same lock used to enqueue re-extraction. Open AI cases can also
+be selected individually or all at once and marked “not a product.” A note is optional
+for that dismissal; confirming extracted details still requires a review note.
+
+Reference item review now displays the six highest ranked candidate products, including
+their similarity score and unit/package prices. A candidate remains a suggestion until
+the owner selects and submits it. The existing manual entry is retained and accepts an
+exact normalized product name or reference ID; ambiguous names are held for selection.
+No owner decision was submitted while deploying, and the new interactions have not been
+exercised against live messages or reference cases.
+
 ## Saved-message re-extraction workflow — deployed 2026-11-01
 
 The owner extraction screen now previews and can queue either messages still awaiting

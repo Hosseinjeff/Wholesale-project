@@ -1,10 +1,21 @@
 # MolaviSale — whole-workflow handoff
 
-Snapshot 4.58. Updated 2026-10-31, Asia/Tehran. The canonical roleplay decisions are in
+Snapshot 4.59. Updated 2026-11-01, Asia/Tehran. The canonical roleplay decisions are in
 `roleplay-state.json`; current live evidence and release gates are in
 `pipeline-readiness.md` and `pipeline-readiness-evidence.json`.
 
-## Current live checkpoint — 2026-10-31
+## Current owner extraction release — 2026-11-01
+
+Railway deployment `6619c66b-0bb7-4442-a215-bf38dd041c99` is successful at commit
+`3ed092cbf6c2f2ac669b8532837c317d3429d72c` on `main`; `/health` returned `healthy`.
+The service is explicitly configured to follow GitHub `main`. WordPress plugin files
+from the same commit were uploaded and read back successfully. The owner screen supports
+bulk dismissal of messages awaiting re-extraction and open AI cases, optional notes for
+“not a product,” and visible ranked product suggestions alongside manual exact-name or
+reference-ID entry. No owner decisions or source-message changes were made during
+deployment; the new interactions remain unverified against live review cases.
+
+## Detailed product setup audit — 2026-10-31
 
 Railway deployment `d8f294a2-7d38-43b9-b8ae-990a4dde0bc1` is successful and online at
 commit `49b93820b8601f49e793849edfe1bf19b997c95f`. `/health` and `/health/detailed`
