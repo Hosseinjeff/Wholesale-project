@@ -40,13 +40,15 @@ the plugin directory.
 After a successful deploy, record the deployed commit here or in the relevant
 release note and use it as `--since` for the next deployment.
 
-Most recent plugin deployment: commit `66b90019860fe3a7309802c56235c177359dd720`
-(2026-11-01). The owner extraction re-run controls in `includes/owner-workflows.js`
-and `includes/owner-workflows.css` were uploaded and read back successfully with
-`python tools/deploy_wordpress_plugin.py --since 4c5d83852e4eb6ec2a627f433ed9286d1a8aa637`.
-The previous plugin deployment was commit `4c5d83852e4eb6ec2a627f433ed9286d1a8aa637`
-(2026-10-31), which uploaded `includes/owner-workflows.js` from base
-`7abe6d6a7f2afb47d6e1cd7f3cd548f8783a018e`. Use the deployed plugin commit as the next
+Most recent plugin deployment: commit `6448f09e0f5579f7094f5a097b3eafacc90144e0`
+(2026-11-01). The owner extraction panel's AI-only configuration message and stale
+backend detection in `includes/owner-workflows.js` were uploaded and read back
+successfully with `python tools/deploy_wordpress_plugin.py --since
+66b90019860fe3a7309802c56235c177359dd720`. The previous plugin deployment was commit
+`66b90019860fe3a7309802c56235c177359dd720` (2026-11-01), which uploaded the owner
+re-extraction controls in `includes/owner-workflows.js` and
+`includes/owner-workflows.css` from base
+`4c5d83852e4eb6ec2a627f433ed9286d1a8aa637`. Use the deployed plugin commit as the next
 deployment's `--since` value.
 
 ## WordPress data

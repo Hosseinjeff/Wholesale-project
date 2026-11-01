@@ -15,27 +15,28 @@ The existing owner review shows the original message and timestamp. Confirming a
 historical result also requires an explicit owner check that its price and stock are
 current. Owner decisions and not-a-product outcomes remain excluded from replay.
 
-This is a source change on `main`, not a production deployment or a completed live
-re-extraction. Do not claim production behavior until the release is deployed and the
-owner starts a run from the Persian **بررسی استخراج کالا** screen.
+The owner re-extraction controls are deployed in the WordPress plugin. This does not
+mean a live re-extraction has run; no messages were reprocessed from the owner screen.
+The AI-only backend behavior is a separate source release checkpoint below.
 
 ## Production AI-only release checkpoint — 2026-11-01
 
 After the owner workflow deployment, the user reported that the re-extraction panel says
 AI extraction is not active. The source change recorded in D-038 removes the
 `EXTRACTION_MODE` gate and regex fallback: supplier message extraction always uses
-Gemini. The source change is committed and pushed to `main` as `4033962`. Railway shows
+Gemini. The backend change is committed and pushed to `main` as `4033962` (included in
+current `main` commit `6448f09`). Railway shows
 the `Wholesale-project` service still running successful deployment
 `653d3bd1-b109-4a87-b43b-7967acfa5024` from commit `f16c120`; it has not deployed
 `4033962`. `GOOGLE_API_KEY` is defined as a service variable; its value was not read.
 
 Railway reports the service is linked to `Hosseinjeff/Wholesale-project`, and the project
-has only one environment (`production`). The source attachment to `main` was still
-rejected twice by automatic approval review because reattaching the service source
-triggers a live build and applies across environments; the second review explicitly
-required user authorization for that source change. No backend deployment or variable
-change was made. Obtain approval before reconnecting the same repository to `main`, then
-verify a terminal successful deployment of the new commit.
+has only one environment (`production`). Reconnecting the service source explicitly to
+`main` was rejected twice by automatic approval review because the source change triggers
+a live build and applies across environments; the second review explicitly required
+user authorization for that source change. No backend deployment or variable change was
+made. Obtain approval before reconnecting the same repository to `main`, then verify a
+terminal successful deployment of the new commit.
 
 The WordPress owner panel now recognizes an older backend response and reports that the
 server must be updated instead of incorrectly saying its Gemini key is missing. No
