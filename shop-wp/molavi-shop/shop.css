@@ -5,6 +5,7 @@
     font-style: normal;
     font-display: swap;
 }
+
 @font-face {
     font-family: Vazirmatn;
     src: url("fonts/Vazirmatn-Bold.woff2") format("woff2");

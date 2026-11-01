@@ -1,7 +1,7 @@
 import os
 import unittest
 
-from catalog.extract import OFFER_HEADERS, PRODUCT_HEADERS, extract_products
+from catalog.extract import OFFER_HEADERS, PRODUCT_HEADERS, extract_products, extract_volume, extract_weight
 from catalog.sync import (
     GoogleSheetStore,
     MemoryStore,
@@ -39,6 +39,17 @@ BONAKDAR_REPRICE = BONAKDAR.replace("۵۲,۰۰۰", "۶۰,۰۰۰").replace("۶۵,
 
 
 class ExtractTests(unittest.TestCase):
+    def test_volume_and_weight_parsing_are_distinct_and_support_shorthand(self):
+        self.assertEqual(extract_weight('آبلیمو مجید کوچک180گ(138ف)20ع***'), '180 گرم')
+        self.assertEqual(extract_volume('آبلیمو دست چین1/2ل (304ف)6ع***'), '1.2 لیتر')
+        self.assertEqual(extract_volume('محصول 180 گرم'), '')
+
+    def test_regex_supplier_path_keeps_name_and_saves_title_weight(self):
+        products = extract_products('آبلیمو مجید کوچک180گ(138ف)20ع***\nقیمت: ۴۰٬۰۰۰ تومان', '@other')
+        self.assertEqual(len(products), 1)
+        self.assertEqual(products[0]['name'], 'آبلیمو مجید کوچک180گ(138ف)20ع***')
+        self.assertEqual(products[0]['weight'], '180 گرم')
+
     def test_bonakdar_uses_unit_price_and_consumer_price(self):
         products = extract_products(BONAKDAR, "@bonakdarjavan")
         self.assertEqual(len(products), 1)
@@ -120,7 +131,8 @@ class ExtractTests(unittest.TestCase):
         products = extract_products(tuna, "@bonakdarjavan")
         self.assertEqual(products[0]["name"], "تن ۱۸۰ گرم درب شفاف شیان")
         self.assertEqual(products[0]["packaging"], "۲۴عدد")
-        self.assertEqual(products[0]["volume"], "180 گرم")
+        self.assertEqual(products[0]["volume"], "")
+        self.assertEqual(products[0]["weight"], "180 گرم")
         self.assertEqual(products[0]["sale_price"], 255000)
         self.assertEqual(products[0]["consumer_price"], 345000)
 
@@ -140,7 +152,8 @@ class ExtractTests(unittest.TestCase):
 
         products = extract_products(sugar, "@bonakdarjavan")
         self.assertEqual(products[0]["name"], "قند شکسته درجه یک،۵ کیلویی")
-        self.assertEqual(products[0]["volume"], "5 کیلویی")
+        self.assertEqual(products[0]["volume"], "")
+        self.assertEqual(products[0]["weight"], "5 کیلوگرم")
         self.assertEqual(products[0]["sale_price"], 126000)
         self.assertEqual(products[0]["packaging"], "")
 
@@ -648,12 +661,20 @@ class RecordingSheets:
         self.calls.append(("get", range_name))
         return {"values": [["Sale Price"], ["52000"]]}
 
+    def values_get_unformatted(self, range_name):
+        self.calls.append(("get_unformatted", range_name))
+        return {"values": [["Sale Price"], [52000]]}
+
     def values_append(self, range_name, value_input, insert_data, body):
         self.calls.append(("append", range_name, value_input, insert_data, body))
         return {}
 
     def values_update(self, range_name, value_input, body):
         self.calls.append(("update", range_name, value_input, body))
+        return {}
+
+    def values_batch_update(self, value_input, body):
+        self.calls.append(("batch_values", value_input, body))
         return {}
 
     def batch_update(self, body):
@@ -671,6 +692,23 @@ class SheetTransportTests(unittest.TestCase):
         self.assertEqual(http.calls[1][0], "append")
         self.assertEqual(http.calls[1][1], "'Offers'!A1:B1")
         self.assertEqual(http.calls[1][4], {"values": [["a", "b"]]})
+
+    def test_fresh_unformatted_read_uses_google_sheets_raw_values(self):
+        http = RecordingSheets()
+        store = GoogleSheetStore("sheet-id", {}, http=http)
+        self.assertEqual(store.read_fresh_unformatted("Products"), [["Sale Price"], [52000]])
+        self.assertEqual(http.calls, [("get_unformatted", "'Products'")])
+
+    def test_rest_client_requests_unformatted_values(self):
+        seen = {}
+
+        def transport(method, path, params, body):
+            seen.update(method=method, path=path, params=params, body=body)
+            return {"values": [[52000]]}
+
+        client = SheetsRest("sheet-id", transport=transport)
+        self.assertEqual(client.values_get_unformatted("'Products'!A2"), {"values": [[52000]]})
+        self.assertEqual(seen["params"], {"valueRenderOption": "UNFORMATTED_VALUE"})
 
     def test_one_batch_reads_a_sheet_once(self):
         http = RecordingSheets()
@@ -693,6 +731,20 @@ class SheetTransportTests(unittest.TestCase):
         self.assertEqual(growth[1]["appendDimension"]["dimension"], "COLUMNS")
         self.assertEqual(http.calls[2][0], "update")
         self.assertEqual(http.calls[2][1], "'Products'!A2:B2")
+
+    def test_field_reconciliation_writes_only_changed_cells_in_one_batch(self):
+        http = RecordingSheets()
+        store = GoogleSheetStore("sheet-id", {}, http=http)
+        store.read("Products")
+        store.write_cells("Products", 2, ["Sale Price", "Consumer Price"],
+                          {"Sale Price": 53000, "Consumer Price": 70000})
+        batch = next(call for call in http.calls if call[0] == "batch_values")
+        self.assertEqual(batch[1], "RAW")
+        self.assertEqual(batch[2]["data"], [
+            {"range": "'Products'!A2:A2", "values": [[53000]]},
+            {"range": "'Products'!B2:B2", "values": [[70000]]},
+        ])
+        self.assertEqual(store.read("Products")[1], [53000, 70000])
 
     def test_rest_client_encodes_the_sheet_range(self):
         seen = {}

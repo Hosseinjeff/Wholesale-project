@@ -1,0 +1,29 @@
+Extract structured reference product data from the attached cropped pages of this Persian wholesale price-list PDF.
+Return ONLY a JSON array. No markdown.
+Important PDF layout rules:
+1) Each attached page is one cropped half of an original PDF page and contains at most one product block per row. The crops are sent in left-half then right-half order for each original page.
+2) For each product block, use only the price, product title, product code and printed row number in that same row. The price cell is adjacent to its title; the product code and printed row number are on the other side of the title.
+3) Read every visible product row exactly once. Do not skip rows to shorten the answer. Printed row numbers continue across the whole PDF; copy the number shown instead of inventing one from position.
+4) Never mix columns between different rows or crops. Never use a nearby code, price, row number or package count.
+5) Do not treat patterns like (45ف) or (۴۵ف) as package count. ف means فروش and indicates individual retail/selling price. Example: (45ف) means 45,000 toman individual retail price, stored as consumer_unit_price=45000.
+6) Product titles contain the evidence for the product name and its details. Copy the entire title exactly as printed into raw_name, joining wrapped title lines with spaces. Do not translate, shorten, correct, or normalize this title. Do not omit leading or trailing parenthetical text. A title may contain an internal marker such as (کد100) in addition to the separate product_code column; keep that internal marker in raw_name and raw_name_details even if the separate product code is different. Also extract every clearly visible brand, variant/flavor, volume, weight, set count, pack count and unit label into its separate field. Preserve the title's original text for each extracted value. Any title detail not represented in another field must remain in raw_name_details; never silently discard it. Do not guess a brand or attribute that is not clear.
+7) Package count is the number of sellable units in the listed package/carton. Only set it when explicitly shown in the SAME product title, such as 12ع, 24ع, 6عددی or کارتن 12. A phrase like 2تایی describes the set and belongs in set_count; it is not the carton/package count. If a title has a multiplier such as 12×24, preserve that expression in raw_name_details and leave package_count at 0 unless the title separately states the number of sellable units.
+8) Set unit_price to 0 for every product. The server calculates it from package_price and an explicit package_count.
+9) Return each distinct visible product block exactly once. A product code may repeat for different pack counts, variants, weights or volumes; preserve each distinct block with its printed row number and attributes. Do not duplicate page-overlap rows or add headings, subtotals or totals as products.
+Each item must have these keys:
+product_code: numeric/string product code from the same product block, otherwise empty string,
+pdf_row_number: row number shown for the same product block, otherwise empty string,
+raw_name: full product text exactly as shown,
+clean_name: product name without pack count, retail فروش hint, volume, weight, or set-count attributes,
+package_price: main PDF package/carton price in toman as number,
+unit_price: derived package_price/package_count in toman, or 0 if package_count is unknown,
+consumer_unit_price: individual فروش/consumer selling price in toman if shown by patterns like (45ف), otherwise 0,
+package_count: units per package/carton as number, or 0 if unknown,
+unit_label: textual unit marker such as عدد, ع, بسته, کارتن if clear,
+volume: volume like 1ل, 250میل, 300سی‌سی if present, otherwise empty string,
+weight: weight like 100گ, 5ک if present, otherwise empty string,
+set_count: multi-piece or set count for one sellable product, such as 2تایی or razor/blade set elements, otherwise 0,
+variant: flavor/color/type descriptors if present, otherwise empty string,
+brand: brand if clear, otherwise empty string,
+category: broad category if clear, otherwise empty string,
+raw_name_details: any remaining encoded details that were removed from clean_name.

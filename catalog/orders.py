@@ -24,6 +24,11 @@ ORDER_HEADERS = [
     "Total",
     "Currency",
     "Status",
+    "Woo Status",
+    "Payment Status",
+    "Payment Method",
+    "Transaction ID",
+    "Paid At",
     "Line Count",
 ]
 
@@ -37,6 +42,7 @@ ORDER_LINE_HEADERS = [
     "Volume",
     "Supplier",
     "SKU",
+    "Supplier Offer ID",
     "Quantity",
     "Min Qty",
     "Sale Price",
@@ -128,7 +134,8 @@ def normalize_order(order: dict[str, Any]) -> dict[str, Any]:
             "packaging": _text(raw.get("packaging"), 120),
             "volume": _text(raw.get("volume"), 80),
             "supplier": _text(raw.get("supplier"), 80),
-            "sku": _text(raw.get("sku"), 40),
+            "sku": _text(raw.get("sku") or raw.get("id") or raw.get("product_id"), 80),
+            "supplier_offer_id": _text(raw.get("supplier_offer_id"), 120),
             "qty": max(0, _whole(raw.get("qty") or raw.get("quantity"))),
             "min": max(0, _whole(raw.get("min") or raw.get("min_qty"))),
             "sale": _whole(raw.get("sale")),
@@ -139,6 +146,12 @@ def normalize_order(order: dict[str, Any]) -> dict[str, Any]:
     status = _text(order.get("status") or "new", 20)
     if status not in ORDER_STATUSES:
         status = "new"
+    payment_status = _text(order.get("payment_status") or "pending", 20).lower()
+    if payment_status not in {"pending", "verified", "failed", "refunded", "unknown"}:
+        payment_status = "unknown"
+    woo_status = _text(order.get("woo_status"), 32).lower()
+    if woo_status and not all(char.isalnum() or char in "-_" for char in woo_status):
+        woo_status = "unknown"
     created = _text(order.get("at") or order.get("created_at"), 40)
     return {
         "id": _text(order.get("id"), 40),
@@ -152,6 +165,11 @@ def normalize_order(order: dict[str, Any]) -> dict[str, Any]:
         "progress": order.get("progress") if isinstance(order.get("progress"), (int, float)) else 0,
         "total": _whole(order.get("total")),
         "status": status,
+        "woo_status": woo_status,
+        "payment_status": payment_status,
+        "payment_method": _text(order.get("payment_method"), 80),
+        "transaction_id": _text(order.get("transaction_id"), 120),
+        "paid_at": _text(order.get("paid_at"), 40),
         "lines": [line for line in lines if line["name"] and line["qty"] > 0],
     }
 
@@ -171,6 +189,11 @@ def _order_record(order: dict[str, Any], updated_at: str) -> dict[str, Any]:
         "Total": order["total"],
         "Currency": "IRT",
         "Status": order["status"],
+        "Woo Status": order["woo_status"],
+        "Payment Status": order["payment_status"],
+        "Payment Method": order["payment_method"],
+        "Transaction ID": order["transaction_id"],
+        "Paid At": order["paid_at"],
         "Line Count": len(order["lines"]),
     }
 
@@ -186,6 +209,7 @@ def _line_record(order: dict[str, Any], line: dict[str, Any], number: int) -> di
         "Volume": line["volume"],
         "Supplier": line["supplier"],
         "SKU": line["sku"],
+        "Supplier Offer ID": line["supplier_offer_id"],
         "Quantity": line["qty"],
         "Min Qty": line["min"],
         "Sale Price": line["sale"],

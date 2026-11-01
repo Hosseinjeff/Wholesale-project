@@ -1,0 +1,101 @@
+PASS: configured owner with Woo capability allowed
+PASS: another administrator is not implicitly the owner
+PASS: non-owner cannot access server bridge
+PASS: event text is escaped
+PASS: decision forms carry native WordPress nonce
+PASS: snapshot has continue option
+PASS: bridge token absent from HTML
+PASS: backend asserts logged-in actor
+PASS: bridge does not follow redirects with token
+PASS: missing snapshot hides continue
+PASS: generic success without matching receipt rejected
+PASS: matching durable decision receipt accepted
+PASS: network failure is not acknowledged
+PASS: item review appears in private Woo admin with nonce-bound actions
+PASS: item review lists escaped candidates without exposing bridge token
+PASS: item review rejects a receipt for another offer
+PASS: item review accepts matching decision and publication receipt
+PASS: AI extraction review appears in private Woo admin with nonce-bound actions
+PASS: AI review shows escaped source context without exposing the bridge token
+PASS: AI confirmation rejects receipt for another case
+PASS: AI confirmation accepts matching durable owner receipt
+PASS: PDF/Gemini snapshot review appears in private Woo admin with nonce-bound actions
+PASS: reference candidate displays coverage metadata without exposing the bridge token
+PASS: snapshot review rejects a receipt for another candidate
+PASS: snapshot review accepts matching owner receipt
+PASS: activation requires a matching ReferencePrices row receipt
+PASS: invalid WordPress nonce rejected
+WordPress 7.1.3; WooCommerce 11.2.1; runtime checks completed
+PASS: HTTP 200 without written acknowledgement does not transfer order
+PASS: failed handoff remains visible on Woo order
+PASS: Woo Action Scheduler retains retry
+PASS: matching written receipt marks order transferred
+PASS: classic checkout uses same handoff
+PASS: verified Woo payment is mirrored with a receipt
+PASS: payment sync is emitted only from Woo paid state
+PASS: payment snapshot carries transaction reference
+PASS: order line carries the catalog SKU for later stock allocation
+PASS: order line retains exact supplier offer provenance
+PASS: source provenance is frozen onto order items at checkout
+PASS: Woo verified-payment hook is registered
+PASS: Woo cancellation sends terminal state for open stock reservation release
+PASS: unconfirmed payment mirror remains pending
+PASS: paid-status update retains a retry
+PASS: paid-status retry completes only after a matching receipt
+Order handoff runtime checks completed
+PASS: supplier out-of-stock becomes unavailable in Woo
+PASS: unknown supplier status cannot silently restore availability
+PASS: explicit current supplier availability restores demand-led checkout
+PASS: held stale offer blocks Woo checkout
+PASS: verified supplier price remains purchasable during warning window
+PASS: 14-day supplier price limit blocks Woo cart purchase
+PASS: fresh supplier verification restores Woo purchase eligibility
+PASS: stable product row identity survives a blank Sheet name
+PASS: invalid Sheet name hides its existing Woo product
+PASS: native Woo delivery method registered
+delivery test currency=IRT, items=1, total=4999999, packages=1, rates=1
+PASS: below threshold fixed Tehran fee
+threshold total=5000000, rates=1, cost=0
+PASS: at threshold delivery is free
+PASS: delivery threshold uses discounted goods subtotal
+PASS: toman delivery fee converts to rial exactly
+PASS: delivery method can be assigned to a Woo shipping zone
+PASS: Woo shipping-zone calculation uses fixed fee
+PASS: publication hold data escaped
+PASS: publication recovery requires WP nonce, note and explicit replay
+PASS: non-owner cannot access publication holds
+PASS: failed publication recovery is not acknowledged
+PASS: review authorizes explicit batch replay
+PASS: supplier price data is escaped in Woo dashboard
+PASS: price verification is bound to source revision and note
+PASS: manual price verification requires matching server receipt
+PASS: sheet conflict dashboard displays escaped values from both sides
+PASS: sheet conflict dashboard offers both reviewed resolutions
+PASS: sheet conflict resolution requires matching server receipt
+PASS: paid-order dashboard safely displays stock shortfall
+PASS: supplier terms form binds exact source offer and WordPress nonce
+PASS: dashboard states that proposal does not place a purchase
+PASS: paid-order dashboard exposes owner assignment and reviewable replacement proposal
+PASS: dashboard records a customer cancellation choice through a nonce-protected owner form
+PASS: cancelled order keeps an already placed supplier receipt and refund visible for owner follow-up
+PASS: dashboard lists lots and supports expiry-aware stock receipts
+PASS: supplier purchase action form captures actual purchase date
+PASS: stock receipt requires a matching durable server hash
+PASS: stock receipt without its hash is rejected
+PASS: clearance calculation requires a matching lot receipt and an auditable result
+PASS: clearance proposal form is integrated into private Woo admin
+PASS: clearance proposal is explicitly owner-reviewed and never auto-published
+PASS: legacy lot with missing purchase date exposes a receipt-hash-bound correction form
+PASS: historical purchase-date correction accepts only a matching server receipt
+PASS: stock correction requires a current lot revision and matching server event receipt
+PASS: stock correction rejects an event receipt tied to another reviewed revision
+PASS: owner inventory screen binds stock edits to the lot revision
+PASS: inventory event history is escaped and visible to the owner
+PASS: pack calculation requires a matching owner dashboard receipt
+PASS: paid-order result without a terms hash is rejected
+PASS: workflow action requires a matching durable owner receipt
+PASS: workflow action with a mismatched receipt is rejected
+PASS: unified operations dashboard escapes job error data
+PASS: unified operations dashboard lists held pipeline work
+PASS: unified operations dashboard links existing Woo review workflows
+PASS: non-owner cannot read unified operations dashboard

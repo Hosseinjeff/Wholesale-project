@@ -1,0 +1,16 @@
+#!/bin/sh
+
+set -u
+
+upstream=$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null) || {
+    echo "[molavisale] Commit is safe locally, but this branch has no Git upstream; push it before deployment." >&2
+    exit 0
+}
+remote=${upstream%%/*}
+branch=${upstream#*/}
+
+if ! git push --quiet "$remote" "HEAD:refs/heads/$branch"; then
+    echo "[molavisale] Commit is safe locally, but the automatic push failed; run git push before deployment." >&2
+fi
+
+exit 0

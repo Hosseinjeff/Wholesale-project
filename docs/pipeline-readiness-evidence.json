@@ -1,0 +1,361 @@
+{
+  "date": "2026-10-31",
+  "mode": "Persian slash-decimal correction deployed; supplier API timeout blocked a corrected refresh; no customer order/payment or reference activation",
+  "results": {
+    "health": {
+      "http": 200,
+      "status": "healthy",
+      "version": "2026-10-17-shop-publish"
+    },
+    "health_detailed": {
+      "http": 200,
+      "status": "healthy",
+      "version": "2026-10-17-shop-publish",
+      "sheet_writer": "service_account"
+    },
+    "api_shop": {
+      "http": 200,
+      "returned_products": 2,
+      "sheet_backed": true
+    },
+    "shop_publish": {
+      "http": 200,
+      "ok": true,
+      "created": 0,
+      "updated": 2,
+      "hidden": 0,
+      "images_left": 0
+    },
+    "woocommerce_store_api": {
+      "http": 200,
+      "currency": "IRT",
+      "products": [
+        {
+          "name": "ویتامین سی برنتین",
+          "regular_toman": 85000,
+          "customer_price_toman": 73320
+        },
+        {
+          "name": "ترشیکس قوطی",
+          "regular_toman": 75000,
+          "customer_price_toman": 71850
+        }
+      ],
+      "supplier_cost_publicly_exposed": false
+    },
+    "shop_page": {
+      "http": 200,
+      "page_id": 7,
+      "shortcode_product_cards": 2,
+      "coming_soon_mode": true
+    },
+    "cart_delivery": {
+      "currency": "IRT",
+      "minimum_quantity_test": 6,
+      "unit_price_toman": 72847,
+      "goods_subtotal_toman": 437082,
+      "delivery_toman": 250000,
+      "bulk_quantity": 100,
+      "bulk_goods_subtotal_toman": 6542900,
+      "bulk_delivery_toman": 0,
+      "cart_cleared": true
+    },
+    "checkout": {
+      "http": 200,
+      "enabled_payment_methods": []
+    },
+    "wordpress_to_railway_bridge": {
+      "wordpress_host_wp_remote_get_error": "http_request_failed",
+      "target": "wholesale-project-production.up.railway.app:443"
+    },
+    "historical_telegram_check_2026_10_25": {
+      "http": 200,
+      "ok": true,
+      "pending_updates": 0,
+      "last_error_present": false
+    }
+  },
+  "sheets_note": "Railway reports a service-account writer and /api/shop returns the two live Products rows. Bilateral edits, conflict receipts and automatic publication cadence are not verified.",
+  "limits": "The Rezvan reference source is the WooCommerce Store API. The last complete snapshot 2976f2004a643e5546dc242ec876607dad1fd03d2fb6ee7cd124881d30497380 is inactive but contains the superseded 0.5 L interpretation of title 1/2ل; do not activate it. The corrected parser is deployed, but the supplier API timed out before a corrected snapshot could be staged. No active snapshot or ReferencePrices write exists. The older PDF/Gemini candidates are historical, incomplete and inactive. Payment setup and the complete order-to-aftercare flow remain separate open work.",
+  "latest_measurement_notation_correction": {
+    "date": "2026-10-31",
+    "ascii_slash_semantics": "Persian decimal separator: 1/2 = 1.2 and 1/5 = 1.5",
+    "dedicated_fraction_slash_semantics": "U+2044 remains a mathematical fraction",
+    "commit": "7abe6d6a7f2afb47d6e1cd7f3cd548f8783a018e",
+    "deployment_id": "c98011ca-4a05-4a92-8cf5-2738faf3312f",
+    "deployment_status": "SUCCESS",
+    "health_http": 200,
+    "focused_tests": 54,
+    "refresh_attempt_at": "2026-10-31T09:55:16.448106+00:00",
+    "refresh_result": "failed",
+    "refresh_error_code": "woocommerce_transport_read_timeout_page_1",
+    "refresh_duration_ms": 189435,
+    "supplier_site_and_api_probes": "Timed out for the homepage, WordPress JSON root, Store API with per_page=1, and alternate www Store API",
+    "new_snapshot_staged": false,
+    "previous_snapshot_id": "2976f2004a643e5546dc242ec876607dad1fd03d2fb6ee7cd124881d30497380",
+    "previous_snapshot_active": false,
+    "referenceprices_write": false
+  },
+  "previous_successful_reference_refresh": {
+    "date": "2026-10-31",
+    "previous_failure_code": "woocommerce_transport_failed",
+    "fix_commit": "a157ee59d464910708f2f22083bb7ded7eac172e",
+    "retry_policy": "Restart the full import with 50-item pages and two concurrent requests after transport, rate-limit, or server errors; preserve a page-specific safe error if retries fail",
+    "result": "staged",
+    "snapshot_id": "2976f2004a643e5546dc242ec876607dad1fd03d2fb6ee7cd124881d30497380",
+    "rows": 3919,
+    "pages": 40,
+    "coverage_verified": true,
+    "active": false,
+    "referenceprices_write": false,
+    "sample_products": [
+      {
+        "name": "آبلیمو مجید کوچک180گ(138ف)20ع***",
+        "weight": "180 گرم",
+        "package_count": 20
+      },
+      {
+        "name": "آبلیمو دست چین1/2ل (304ف)6ع***",
+        "previously_parsed_volume": "0.5 لیتر (incorrect old parser)",
+        "package_count": 6
+      }
+    ]
+  },
+  "reference_source_correction": {
+    "date": "2026-10-30",
+    "authoritative_source": "https://rezvanpakhsh.com/wp-json/wc/store/v1/products",
+    "audit_result": "3,895 products across 39 pages; all have a title, SKU, category, and positive IRR price",
+    "import_policy": "Preserve full title, SKU, and category; convert IRR to toman; derive package/set/volume/weight only from explicit title markers and API attributes",
+    "legacy_pdf_attempt": "Failed with extraction_batch_row_count_mismatch_page_15_left before staging a new snapshot",
+    "legacy_snapshots": "Two existing 10-row PDF/Gemini candidates; coverage unverified and inactive",
+    "supplier_message_gemini_model": "gemini-3.5-flash-lite",
+    "reference_source_uses_gemini": false,
+    "activation_or_sheet_write": false,
+    "fresh_api_candidate": {
+      "snapshot_id": "4bf9d367c07dcf1af29e4fc61dfb1eddcb23cbbc4db3ffcdeb63fc987e80f7a9",
+      "state": "staged_for_owner_review",
+      "rows": 3895,
+      "pages": 39,
+      "coverage_verified": true,
+      "active": false,
+      "referenceprices_write": false,
+      "first_row_live_api_match": true
+    }
+  },
+  "latest_deployment_checkpoint": {
+    "date": "2026-10-31",
+    "project": "stellar-solace",
+    "environment": "production",
+    "service": "Wholesale-project",
+    "commit": "49b93820b8601f49e793849edfe1bf19b997c95f",
+    "deployment_id": "d8f294a2-7d38-43b9-b8ae-990a4dde0bc1",
+    "deployment_status": "SUCCESS",
+    "health_http": 200,
+    "service_domain": "https://wholesale-project-production.up.railway.app",
+    "persistent_volume": {
+      "mount_path": "/data",
+      "size_mb": 500
+    },
+    "supervised_processes": [
+      "web",
+      "pipeline-worker"
+    ],
+    "sleep_enabled": true,
+    "isolated_staging_environment": false,
+    "pending_railway_changes": 0,
+    "wordpress_owner_workflows_commit": "4c5d83852e4eb6ec2a627f433ed9286d1a8aa637",
+    "wordpress_owner_workflows_readback_verified": true,
+    "pending_railway_patch_count": 1,
+    "pending_railway_patch_changes": 0,
+    "pending_railway_patch_left_untouched": true
+  },
+  "latest_ai_review_triage": {
+    "date": "2026-10-31",
+    "source": "authenticated WordPress owner page with a scoped read-only Railway request",
+    "pending_cases": 47,
+    "overlapping_review_reason_counts": {
+      "reference_no_compatible_reference": 44,
+      "supplier_price_role_unclear": 37,
+      "pack_count_price_role_needs_history": 10,
+      "gemini_volume_mismatch": 3,
+      "gemini_weight_mismatch": 2,
+      "low_confidence": 4,
+      "unusual_discount_rounded_to_zero": 6,
+      "unusual_negative_discount": 1,
+      "consumer_price_below_wholesale": 1,
+      "unresolved_multi_flavor_box_listing": 1
+    },
+    "fixable_false_positives": {
+      "unique_source_title_measurement_mismatches": 5,
+      "zero_or_small_positive_discount_flags": 6
+    },
+    "supplier_sale_rule": "A single unlabeled amount from these wholesaler channels is the supplier sale amount, not a consumer price.",
+    "price_basis_policy": "No unit/package label was tied to the uniquely matched title line for the 37 ambiguous-role cases; preserve the amount and keep its per-unit/per-package basis in owner review.",
+    "live_queue_changed": false,
+    "messages_reprocessed": false,
+    "owner_decisions_submitted": false,
+    "published_products_changed": false,
+    "fix_commit": "49b93820b8601f49e793849edfe1bf19b997c95f",
+    "deployment_id": "d8f294a2-7d38-43b9-b8ae-990a4dde0bc1",
+    "deployment_status": "SUCCESS",
+    "health_http": 200,
+    "post_deployment_pending_cases": 47,
+    "post_deployment_publication_held": true,
+    "post_deployment_queue_http": 200,
+    "focused_tests": 43,
+    "follow_up_queue_check": {
+      "http_status": 200,
+      "pending_cases": 47,
+      "publication_held": true,
+      "unique_source_title_matches": 34,
+      "explicit_unit_amount_matches": 10,
+      "explicit_package_amount_matches": 4,
+      "cases_with_explicit_price_role_match": 11,
+      "queue_changed": false,
+      "messages_reprocessed": false,
+      "owner_decisions_submitted": false
+    },
+    "additional_root_causes": [
+      "The old source context ended after carton-count lines, missing later unit/package labels in the same product listing.",
+      "Some unit/package and consumer label variants were not recognized.",
+      "A supplier amount copied into the AI consumer field could receive a consumer label from another product when the same amount appeared there.",
+      "Persian number words in explicit title measurements were not parsed."
+    ],
+    "parser_corrections": [
+      "Tie each labeled amount to its label and product context.",
+      "Treat a single unlabeled wholesale amount as supplier sale while preserving unknown unit/package basis.",
+      "Parse Persian number words in source title measurements and slash-grouped toman amounts."
+    ],
+    "wordpress_review_ui_readback_verified": true
+  },
+  "live_reference_sample": {
+    "status": "historical_legacy_pdf_candidate_superseded_by_woocommerce_api",
+    "source": "https://rezvanpakhsh.com/pdf/price-list.pdf",
+    "source_pdf_http": 200,
+    "mime_type": "application/pdf",
+    "size_bytes": 1411828,
+    "gemini_reached": true,
+    "gemini_result": "extraction_succeeded",
+    "model": "gemini-3.1-flash-lite",
+    "refresh_state": "staged",
+    "refresh_last_attempt_at": "2026-10-28T20:53:11.165732+00:00",
+    "snapshot_id": "3adf331cfe5877a05b0637774f8dbdb1e02422a1da1cc7437880f62893edcca4",
+    "row_count": 10,
+    "owner_dashboard_preview_rows": 8,
+    "candidate_staged": true,
+    "active_snapshot_id": null,
+    "referenceprices_write_performed": false,
+    "owner_review_required_before_activation": true,
+    "owner_retry_screen_installed": true,
+    "owner_wordpress_user_id": 3,
+    "wordpress_preview_file_matches_local": true,
+    "wordpress_preview_file_sha256": "2d96f576f07bca37aeb07d55994b156ffe91bc238a8291c8eb80f2f2c35536fd",
+    "owner_wordpress_user_ids": [
+      1,
+      2
+    ],
+    "owner_dashboard_bridge_reachable": false,
+    "owner_dashboard_last_error": "http_request_failed from CloudyLink PHP host"
+  },
+  "production_actions": {
+    "reference_snapshot_activated": false,
+    "customer_orders_or_payments": false,
+    "followup_bot_changed": false,
+    "shop_sync_secret_rotated_and_paired": true,
+    "wordpress_runtime_config_path": "/home/h434558/private/config.php",
+    "wordpress_runtime_config_modified": true,
+    "wordpress_database_modified": true,
+    "wordpress_database_change": "Shop page 7 content set to native Woo products shortcode",
+    "shop_products_updated": 2,
+    "customer_store_opened": false,
+    "temporary_probe_files_removed": true,
+    "production_plugin_files_updated": true,
+    "plugin_source_commit": "fc0a7b2"
+  },
+  "latest_local_validation": {
+    "python_tests": 246,
+    "wordpress_woocommerce_runtime_assertions": 104,
+    "wordpress_runtime": "WordPress 7.1.3; WooCommerce 11.2.1"
+  },
+  "live_wordpress_site": {
+    "date": "2026-10-29",
+    "domains": [
+      "https://molavisale.ir/",
+      "https://www.molavisale.ir/"
+    ],
+    "root_http": 200,
+    "shop_http": 200,
+    "root_wp_config_path": "public_html/wp-config.php",
+    "root_wp_config_bytes": 1550,
+    "database": "h434558_Salesman",
+    "database_host": "localhost",
+    "database_prefix": "mvs_",
+    "wordpress_admin_login_verified": true,
+    "woocommerce_active": true,
+    "molavi_shop_active": true,
+    "elementor_active": true,
+    "wordfence_active": true,
+    "coming_soon_mode": true,
+    "shop_page_id": 7,
+    "shop_page_assigned_to_woocommerce": true,
+    "shop_page_products_shortcode": true,
+    "products_in_store_api": 2,
+    "customer_prices_currency": "IRT",
+    "payment_methods_enabled": [],
+    "original_site_files_preserved": "/home/h434558/public_html_recovery_20261029",
+    "legacy_products_orders_media_restored": false,
+    "wordpress_to_railway_bridge_error": "http_request_failed",
+    "original_wp_docroot_backup_feature_available": false
+  },
+  "current_live_recheck": {
+    "date": "2026-10-29",
+    "source": "authenticated WordPress admin and public HTTP/API reads after user enabled public access",
+    "root_page": {
+      "http": 200,
+      "title": "MolaviSale",
+      "renders_storefront": true,
+      "coming_soon": false,
+      "front_page_id": 7,
+      "front_page_slug": "shop"
+    },
+    "shop_page": {
+      "http": 200,
+      "page_id": 7,
+      "renders_storefront": true,
+      "store_api_products": 2,
+      "currency": "IRT"
+    },
+    "woocommerce_page_ids": {
+      "cart": 8,
+      "checkout": 9,
+      "my_account": 10
+    },
+    "delivery": {
+      "method_id": "molavi_tehran_delivery",
+      "enabled": true,
+      "zone_id": 1,
+      "zone_name": "Tehran",
+      "zone_location_count": 0,
+      "fee_toman": 250000,
+      "free_delivery_threshold_toman": 5000000,
+      "customer_area_defined": false
+    },
+    "owner_access": {
+      "authenticated_user_id": 1,
+      "roles": [
+        "administrator"
+      ],
+      "manage_woocommerce": true,
+      "documented_owner_user_id": 3,
+      "owner_screen_access": "denied",
+      "owner_allowlist_changed": false
+    },
+    "changes_during_recheck": {
+      "static_front_page_set_to_shop_page_7": true,
+      "order_created": false,
+      "payment_settings_changed": false,
+      "shipping_zone_changed": false,
+      "supplier_data_changed": false
+    }
+  }
+}

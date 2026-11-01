@@ -1,5 +1,10 @@
 # Environment variables
 .env
+shop-wp/molavi-shop/includes/runtime-config.php
+
+# WordPress configuration can contain database and bridge secrets
+wp-config.php
+wp-config.php.*
 
 # Python
 __pycache__/
@@ -37,3 +42,6 @@ shop/data/shop.sqlite-shm
 shop/assets/uploads/*
 !shop/assets/uploads/.htaccess
 !shop/assets/uploads/.gitkeep
+
+# Intermediate local integration-test assets and databases
+/work/

@@ -1,5 +1,6 @@
 import hashlib
 import os
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -73,6 +74,33 @@ class PublishTests(unittest.TestCase):
             hashlib.sha256("@bonakdarjavan|آب سودا".encode()).hexdigest()[:12],
         )
         self.assertEqual(by_name["خراب"]["status"], "hold")
+
+    def test_explicit_supplier_unavailability_is_carried_but_unknown_is_not_stock_proof(self):
+        store = _store()
+        store.sheets["Products"][0].append("Stock Status")
+        store.sheets["Products"][1].append("Out of Stock")
+        by_name = {item["name"]: item for item in site_products(store)}
+        self.assertEqual(by_name["آب سودا"]["supplier_availability"], "outofstock")
+        self.assertEqual(by_name["خراب"]["supplier_availability"], "unknown")
+
+    def test_invalid_product_cells_are_projected_as_holds_instead_of_leaving_old_woo_prices_live(self):
+        store = MemoryStore()
+        store.sheets['Products'] = [[
+            'Product ID','Product Name','Channel Username','Sale Price','Consumer Price',
+            'Status','Stock Status','Latest Offer ID','Message Timestamp',
+        ], [
+            'stable-row-1','Edited item','@bonakdarjavan',50000,'bad amount',
+            'imported','Available','offer-1','2026-10-28T12:00:00+00:00',
+        ], [
+            'stable-row-2','','@bonakdarjavan',50000,80000,
+            'imported','Available','offer-2','2026-10-28T12:00:00+00:00',
+        ]]
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {
+                'PIPELINE_DB_PATH': os.path.join(directory, 'pipeline.sqlite')}):
+            products = site_products(store)
+        self.assertEqual({item['source_record_id']:item['status'] for item in products},
+                         {'stable-row-1':'hold','stable-row-2':'hold'})
+        self.assertEqual(next(item for item in products if item['source_record_id']=='stable-row-2')['name'],'')
 
     def test_missing_sheet_is_not_an_empty_catalog(self):
         self.assertIsNone(site_products(MemoryStore()))

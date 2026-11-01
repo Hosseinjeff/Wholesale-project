@@ -1,7 +1,6 @@
 # Storefront design decisions
 
-Updated: 2026-10-25, Asia/Tehran. Status: mockup v2, awaiting visual/business review.
-Implementation has not been deployed to the production storefront.
+Updated: 2026-10-29, Asia/Tehran. The user's latest screenshot is the active storefront reference. The screenshot-aligned storefront is deployed on `/` and `/shop/`; both routes return HTTP 200 and the live markup includes the custom header, catalog, and basket. The user has explicitly taken the site live; payment configuration is outside the current implementation scope.
 
 ## Discovery scope
 
@@ -30,17 +29,20 @@ review artifacts must have externally verified browser URLs.
 
 ## Design direction
 
-Warm white surfaces, a dark neutral type color, generous but practical spacing, fine
-borders, consistent product-image frames, and locally bundled Vazirmatn typography.
+Use the user's latest screenshot for the storefront composition: a compact RTL header with
+brand, navigation, search and account/favorite/cart controls; four desktop product columns;
+a right-side persistent basket; and a two-column phone catalog with a bottom basket action.
+Keep warm white surfaces, dark neutral type, fine borders, consistent product-image frames,
+and locally bundled Vazirmatn typography.
 
 | Color | Role | Value |
 |---|---|---|
-| Orange | Main actions and brand | `#D94419` |
-| Raspberry | Maximum-discount badge | `#B82058` |
+| Orange | Main actions and brand | `#FF6B21` |
+| Raspberry | Maximum-discount badge | `#F13D5D` |
 | Teal | Current discount and realized savings | `#08766B` |
 | Violet | Progress toward maximum discounts | `#6043A9` / `#7951BD` |
 | Ink | Primary text | `#243239` |
-| Warm white | Background | `#FAFAF9` |
+| Warm white | Background | `#F7F3EC` |
 
 Color is reinforced with words. A customer must not need to distinguish colors to
 understand maximum versus current discount. No unsupported promotional or delivery claims.
@@ -108,15 +110,21 @@ the current live inventory, pricing settings, payment availability, and stock ar
 
 ## Verification and production boundary
 
-Before sharing v2, verify syntax, numeric parity with the existing pricing engine,
-minimum quantities, removal, fixed-price exclusion from progress, target saturation,
-empty state, searching/filtering/sorting, guest-review demonstration, responsive overflow,
-and the phone basket. Record the completed results in the revision record below.
+The plugin replaces the WooCommerce Shop archive with a dedicated template on the Shop
+route and the same Shop page when configured as the homepage. It uses the live catalog,
+server-calculated basket quote, maximum/current discount labels, basket progress, favorites,
+list/grid control, and product thumbnails in the basket. Live HTML checks confirm the new
+markup on `/` and `/shop/`; a browser inspection confirmed the header, toolbar, grid, and
+right-side basket. The catalog currently has two real products, so no mockup products were
+added. The CSS uses four columns on wide screens, three at 1360px and below, and two at
+1080px and below. Search, sort, favorite, and cart controls are implemented; business,
+shipping, and payment readiness remain separate work.
 
-Production work after mockup approval must integrate the existing WooCommerce quote
-endpoints, preserve server authority for pricing, handle network failures and stale quotes,
-reconcile the legacy PHP checkout, and test the real order/Sheets/Telegram path. A mockup
-passing local UI checks does not establish production readiness.
+The mockup's guest-request form remains a demonstration; the production storefront
+continues to the existing WooCommerce checkout. Visual/business review and connected
+non-payment handoffs remain pending. The public rendering does not prove shipping-zone
+coverage or full workflow readiness; the current Tehran zone has no configured locations.
+Payment setup and payment validation are outside the scope of the current work.
 
 ## Revision record
 
@@ -124,3 +132,6 @@ passing local UI checks does not establish production readiness.
 - v2: interactive responsive prototype; separate maximum/current discounts, actual pricing
   formula applied to illustrative fixtures, vibrant semantic colors, phone basket, guest
   request proposal, and business-flow documentation. Verification results pending build check.
+- 2026-10-29: user supplied the current target screenshot; the compact header, toolbar,
+  responsive product grid, product cards, and basket are deployed while retaining live
+  catalog and pricing behavior. Browser review confirmed the main regions are rendered.

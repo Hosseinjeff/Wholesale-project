@@ -1,5 +1,60 @@
 # ReferencePrices source recovery checkpoint
 
+## Persian slash notation correction — 2026-10-31
+
+In these Persian supplier titles, ASCII `/` is a decimal separator: `1/2ل` means
+`1.2 لیتر`, and `1/5ل` means `1.5 لیتر`. The dedicated fraction slash `⁄` remains an
+exact mathematical fraction. Commit `47c4ee7` updates the shared parser and Gemini
+prompt; Railway deployment `a2c53fc2-25f8-41f2-9204-b90ec196c196` succeeded and both
+health routes returned HTTP 200. The focused parser/importer/Gemini tests pass (54).
+
+A full owner refresh after deployment failed after 189 seconds with
+`woocommerce_transport_read_timeout_page_1`. The supplier homepage, WordPress JSON root,
+Store API (including `per_page=1`), and alternate `www` Store API all timed out in
+independent probes. No new snapshot was staged. The previous complete candidate
+`2976f2004a643e5546dc242ec876607dad1fd03d2fb6ee7cd124881d30497380` remains inactive
+and contains the old, incorrect `0.5 لیتر` reading for `آبلیمو دست چین1/2ل`; it must not
+be activated. `active_snapshot_id` remains unset and no `ReferencePrices` write occurred.
+A corrected full snapshot still requires a successful source fetch.
+
+## Previous successful full refresh before notation correction — 2026-10-31
+
+The owner reported repeated refresh failures. Railway recorded the generic
+`woocommerce_transport_failed` result, but the old importer did not preserve which
+page or transport exception failed. Commit `a157ee5` now retries a complete fetch with
+smaller pages and lower concurrency after transport, rate-limit or server errors, and
+returns a safe page-specific error if retry still fails. It also improves the Persian
+owner-page error message. Railway deployment `b7901971-078f-44f7-8ce5-46586d807e91`
+and the WordPress JavaScript from that commit are live; the plugin uploader read the
+file back successfully.
+
+The owner-authorized retry succeeded: snapshot
+`2976f2004a643e5546dc242ec876607dad1fd03d2fb6ee7cd124881d30497380` contains 3,919 of
+3,919 products across 40 of 40 pages with verified coverage. It remains inactive and
+`active_snapshot_id` is unset; no `ReferencePrices` write occurred. The full titles
+`آبلیمو مجید کوچک180گ(138ف)20ع***` and `آبلیمو دست چین1/2ل (304ف)6ع***` were preserved;
+the parser at that time produced 180 grams / 20 per package and the now-known-wrong
+0.5-liter / 6-per-package value. This candidate must remain inactive and is superseded
+for review by a corrected full snapshot once the source API is reachable.
+
+## Current source decision — 2026-10-30
+
+The user has explicitly corrected the source: Rezvan Pakhsh reference products must be
+fetched through its WooCommerce Store API, not extracted from the official PDF. The
+production endpoint is
+`https://rezvanpakhsh.com/wp-json/wc/store/v1/products`. A read-only audit fetched all
+3,895 products across 39 pages; all had titles, SKUs, categories and positive IRR prices.
+The importer converts IRR to toman and retains the full product title. The PDF/Gemini
+code and snapshots described below are historical; old PDF candidates must stay inactive
+and cannot be reviewed or activated.
+
+Production confirmation — 2026-10-30: commit `3d8a7d2` deployed as Railway
+`f87efd11-381c-4195-b82e-ce26263b78be`; Woo candidate
+`4bf9d367c07dcf1af29e4fc61dfb1eddcb23cbbc4db3ffcdeb63fc987e80f7a9` staged 3,895/3,895
+rows across 39/39 pages. Its coverage is verified, its active state is false, and no
+`ReferencePrices` write occurred. The page's sample title/SKU/category/toman price was
+checked against the live API. Owner review is the remaining reference decision.
+
 Updated 2026-10-25, Asia/Tehran. The user supplied source as `gas.rar`; Google sign-in
 is no longer needed to inspect those files. Do not ask the user to export them again.
 
@@ -16,23 +71,20 @@ is no longer needed to inspect those files. Do not ask the user to export them a
 - Audit: `recovered-gas-audit.md`. The archive is user-associated with this project;
   authenticated linkage to the editor/deployed revision was not independently verified.
 
-## Latest clarification — D-008
+## Historical clarification — D-008 (superseded by D-036)
 
-The user identifies Google inference as the mechanism used with the Rezvan Pakhsh
-reference source. The export's PDF importer calls Gemini using AI_API_KEY and AI_MODEL.
-That implementation is already recovered. REFERENCE_REFRESH_SERVER_URL is a separate
-delegation wrapper; its existence does not prove a separately configured/running helper.
-Discovery of such a helper is conditional on evidence of its use, not a prerequisite
-for continuing the server migration. Earlier unconditional requests for its source
-were too strong. Check active path/settings and schedule without reopening the server target.
+The earlier note identified Google inference and the recovered PDF/Gemini importer as
+the Rezvan reference path. The user's later direct correction establishes the WooCommerce
+Store API as the required source. The old PDF/Gemini implementation is not the production
+reference source. The unrelated REFERENCE_REFRESH_SERVER_URL wrapper remains historical
+code and is not required to fetch the public Store API.
 
 ## Remaining evidence (apply the clarification above)
 
-1. The main refresh reads `REFERENCE_REFRESH_SERVER_URL` from Script Properties and
-   delegates to a separate server. The actual property value and server implementation
-   are absent. Recover that service's source/configuration metadata; never request or
-   publish token values. The legacy PDF path names Rezvan Pakhsh; active Store API
-   source identity is not independently established by that legacy URL.
+1. Historical GAS main refresh reads `REFERENCE_REFRESH_SERVER_URL` from Script
+   Properties and delegates to a separate server. The actual property value and server
+   implementation are absent. This is not a prerequisite for the WooCommerce API
+   source now selected by the user.
 2. No `appsscript.json` or library/scope/timezone metadata is included.
 3. No installed trigger list is included. Source defines daily reference refresh around
    04:00 in script timezone and a five-minute AI queue trigger. Do not assume installed.
