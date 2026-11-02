@@ -719,7 +719,8 @@ Do not record suggested options, silence, or previously inferred preferences as 
   The current Sheets API path does not provide reliable per-cell editor attribution;
   a true simultaneous divergence therefore remains held for explicit owner choice.
   Choosing the Sheet value means “I manually edited this cell; publish it to Woo,” and
-  leaves the append-only supplier offer evidence unchanged.
+  leaves the append-only supplier offer evidence unchanged. The conflict screen now
+  makes the Railway action primary and the Sheet override explicit.
 - This supersedes D-030's owner-choice-as-the-only-described-policy while retaining its
   preservation of both values for ambiguous simultaneous edits. Existing automatic
   one-sided reconciliation remains: server-only changes update the Sheet, and
@@ -727,3 +728,6 @@ Do not record suggested options, silence, or previously inferred preferences as 
 - No data was migrated as part of this decision. Move durable business records to
   WordPress only through an audited, reversible migration; retain only the queue and
   retry metadata Railway needs to process work.
+- Conflict-screen wording was deployed from `main` commit
+  `a80e20865ea4f196956f41a4d9743f6f74c992f6`; the WordPress uploader verified the
+  changed JavaScript by read-back. No product, order, or Sheet records were modified.

@@ -40,7 +40,17 @@ the plugin directory.
 After a successful deploy, record the deployed commit here or in the relevant
 release note and use it as `--since` for the next deployment.
 
-Most recent plugin deployment: commit `3a5e9e0af76be33fc009a193768522e8130b3e18`
+Most recent plugin deployment: commit `a80e20865ea4f196956f41a4d9743f6f74c992f6`
+(2026-11-02). `python tools/deploy_wordpress_plugin.py --since
+3a5e9e0af76be33fc009a193768522e8130b3e18` uploaded `includes/owner-workflows.js`
+and verified its read-back; no host normalization was reported. The Sheet conflict
+screen now names Railway as the source of the default computed value, and the alternate
+action explicitly confirms a manual Sheet edit before queueing WooCommerce publication.
+JavaScript syntax and whitespace checks passed. No product, order or Sheet data changed.
+The WordPress runtime test could not start because Docker socket access is blocked; an
+authenticated visual admin click-through was not available.
+
+The previous plugin deployment was commit `3a5e9e0af76be33fc009a193768522e8130b3e18`
 (2026-11-02). `python tools/deploy_wordpress_plugin.py --since
 53531d00632a070b8fe505e890a28d681fed945c` uploaded and verified the read-back of
 `includes/operations-dashboard.php`, `includes/owner-browser-api.php`,
