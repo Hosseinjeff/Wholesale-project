@@ -37,7 +37,7 @@ from catalog.extract import (
     quality_check,
 )
 from catalog.media import share_album_images
-from catalog.gemini import extract_message_products
+from catalog.gemini import GeminiError, extract_message_products
 from catalog.sheet_reconcile import field_values_equal, reconcile_field, stable_conflict_id
 from catalog.pricing import (
     SHOP_FORMULA_ROW,
@@ -652,6 +652,7 @@ def _finalize_batch(store: MemoryStore | GoogleSheetStore, payload: dict[str, An
         "written_count": written,
         "extraction_status": extraction["status"],
         "extraction_error": str(extraction.get("error") or ""),
+        "extraction_detail": str(extraction.get("detail") or "")[:180],
         "processed_messages": extraction["processed"],
         "rollback": bool(extraction.get("rollback")),
         "saved": desk.get("saved") or [],
@@ -674,11 +675,12 @@ def _process_batch_products(store, batch_id: str, messages: list[dict[str, Any]]
                 if content.strip() else []
             )
         except Exception as exc:
+            detail = (str(exc) if isinstance(exc, GeminiError) else exc.__class__.__name__)[:180]
             logger.warning("AI supplier extraction failed for message %s: %s",
-                           message.get("id") or "", exc.__class__.__name__)
+                           message.get("id") or "", detail)
             _rollback_catalog(store, batch_id)
             return {"status": "error", "processed": processed, "rollback": True,
-                    "error": "ai_extraction_failed"}
+                    "error": "ai_extraction_failed", "detail": detail}
         for _attempt in range(3):
             result = import_product_data(
                 store, message, reference_snapshot=reference_snapshot,

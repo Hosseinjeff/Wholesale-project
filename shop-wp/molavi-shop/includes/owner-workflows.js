@@ -1230,11 +1230,18 @@
                 card.appendChild(node('p', `شناسه دسته: ${hold.hold_id || ''} · زمان ثبت: ${timeLabel}`));
                 const context = hold.context && typeof hold.context === 'object' ? hold.context : {};
                 const messages = Array.isArray(context.messages) ? context.messages : [];
+                const reconcileWithoutRetry = hold.reason === 'batch_in_progress'
+                    && context.batch_state === 'failed' && context.batch_error === 'JobConflict'
+                    && context.expected_messages > 0 && messages.length === context.expected_messages;
                 const checkbox = document.createElement('input');
-                checkbox.type = 'checkbox'; checkbox.checked = holdIndex < 100 && messages.length > 0;
+                checkbox.type = 'checkbox'; checkbox.checked = !reconcileWithoutRetry
+                    && holdIndex < 100 && messages.length > 0;
+                checkbox.disabled = reconcileWithoutRetry;
                 checkbox.addEventListener('change', () => { checks.set(hold.hold_id, checkbox.checked); updateSelection(); });
                 checks.set(hold.hold_id, checkbox.checked);
-                const selectLabel = node('label', 'این دسته را برای یک بار پردازش دوباره انتخاب کن', 'molavi-hold-select');
+                const selectLabel = node('label', reconcileWithoutRetry
+                    ? 'این دسته پردازش شده است؛ بازپردازش نکنید'
+                    : 'این دسته را برای یک بار پردازش دوباره انتخاب کن', 'molavi-hold-select');
                 selectLabel.prepend(checkbox); card.appendChild(selectLabel);
                 const processingErrors = {
                     ai_extraction_failed: 'استخراج هوش مصنوعی برای یکی از پیام‌ها ناموفق شد.',
@@ -1247,7 +1254,49 @@
                     const code = context.processing_error || context.batch_error;
                     card.appendChild(notice(processingErrors[code] || `دلیل فنی: ${code}`, 'warning'));
                 }
+                if (context.processing_detail) card.appendChild(node('p', `جزئیات خطای پردازش: ${context.processing_detail}`));
                 if (context.rollback) card.appendChild(node('p', 'تغییرهای کاتالوگ این دسته بازگردانده شدند؛ انتشار این دسته انجام نشده است.'));
+                if (reconcileWithoutRetry) {
+                    card.appendChild(notice('رسید پردازش این دسته در صف خطا خورده، اما پیام و موارد تأیید استخراج آن در شیت ثبت شده‌اند. اقدام زیر فقط توقف تکراری را می‌بندد؛ این دسته را دوباره اجرا یا موارد تأیید را تصویب نمی‌کند.', 'info'));
+                    const action = node('button', 'تطبیق و بستن توقف، بدون بازپردازش', 'button button-primary');
+                    action.type = 'button'; action.disabled = !contextStored;
+                    action.addEventListener('click', async () => {
+                        action.disabled = true;
+                        const eventId = reviewEventId('publication_hold', hold.hold_id);
+                        const note = 'Reconciled the existing Sheet messages and AI review cases; clear the stale hold without replaying the batch.';
+                        const decision = {action:'reconcile_without_retry', expected_reason:hold.reason,
+                            expected_batch_state:context.batch_state, expected_batch_error:context.batch_error,
+                            attempt_id:eventId, note};
+                        try {
+                            await persistOwnerReviews([reviewRecord(eventId, 'publication_hold', hold.hold_id,
+                                'pending', {}, decision)]);
+                            const receipt = await request('POST', {hold_id:hold.hold_id,
+                                expected_reason:hold.reason, expected_batch_state:context.batch_state,
+                                expected_batch_error:context.batch_error, note, resume_batch:false});
+                            if (receipt.hold_id !== hold.hold_id || receipt.batch_resumed !== false
+                                || receipt.reconciled !== true) throw new Error('invalid_receipt');
+                            let localWarning = '';
+                            try {
+                                await persistOwnerReviews([reviewRecord(reviewEventId('publication_hold', hold.hold_id),
+                                    'publication_hold', hold.hold_id, 'accepted', {}, decision, receipt)]);
+                            } catch (_error) { localWarning = ' وضعیت ثبت محلی وردپرس در انتظار همگام‌سازی است.'; }
+                            await publicationHolds(`توقف تکراری بسته شد و این دسته دوباره اجرا نشد.${localWarning}`,
+                                localWarning ? 'warning' : 'success');
+                        } catch (error) {
+                            try {
+                                await persistOwnerReviews([reviewRecord(reviewEventId('publication_hold', hold.hold_id),
+                                    'publication_hold', hold.hold_id, 'failed', {}, decision, {error:error.message})]);
+                            } catch (_ignored) {}
+                            await publicationHolds(errorText(error.message), 'warning');
+                        }
+                    });
+                    card.appendChild(action);
+                    const reviewUrl = config.pageUrls && config.pageUrls['molavi-ai-confirmations'];
+                    if (reviewUrl) {
+                        const link = node('a', 'رفتن به موارد تأیید استخراج');
+                        link.href = reviewUrl; link.target = '_top'; card.appendChild(link);
+                    }
+                }
                 card.appendChild(node('h3', `پیام‌های مبدأ این دسته (${messages.length})`));
                 if (!messages.length) card.appendChild(notice('جزئیات پیام مبدأ از سرویس پردازش دریافت نشد؛ برای جلوگیری از پردازش دوبارهٔ دستهٔ نامشخص، این مورد تا نمایش جزئیات غیرفعال است.', 'warning'));
                 for (const source of messages) {

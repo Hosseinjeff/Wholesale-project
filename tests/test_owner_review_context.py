@@ -28,7 +28,8 @@ class OwnerReviewContextTests(unittest.TestCase):
             db.execute("""UPDATE jobs SET state='needs_review',result=? WHERE id=?""",
                        (self.queue.encode({'expected_count':1,'written_count':1,
                            'processed_messages':0,'extraction_status':'error',
-                           'extraction_error':'ai_extraction_failed','rollback':True}),
+                           'extraction_error':'ai_extraction_failed',
+                           'extraction_detail':'Gemini request failed (HTTP 429)','rollback':True}),
                         'batch:' + hold_id))
 
     def test_context_returns_source_post_and_safe_processing_reason(self):
@@ -36,6 +37,7 @@ class OwnerReviewContextTests(unittest.TestCase):
         context = self.queue.publication_hold_context('context-1')
         self.assertEqual(context['batch_state'], 'needs_review')
         self.assertEqual(context['processing_error'], 'ai_extraction_failed')
+        self.assertEqual(context['processing_detail'], 'Gemini request failed (HTTP 429)')
         self.assertTrue(context['rollback'])
         self.assertEqual(context['messages'][0]['message_id'], '7317')
         self.assertEqual(context['messages'][0]['source_url'], 'https://t.me/supplier/7317')

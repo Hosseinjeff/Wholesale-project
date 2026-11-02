@@ -2,7 +2,7 @@ import tempfile,threading,time,unittest,multiprocessing
 from pathlib import Path
 from unittest.mock import patch
 from catalog.durable import Handoffs
-from catalog.sync import MemoryStore
+from catalog.sync import MESSAGE_HEADERS, OFFER_HEADERS, MemoryStore, _row_from_map
 
 class GuardTests(unittest.TestCase):
  def setUp(self):
@@ -103,6 +103,75 @@ class GuardRecoveryTests(unittest.TestCase):
    self.assertEqual(context['messages'][0]['message_id'],'7317')
    self.assertEqual(context['messages'][0]['content'],'supplier source text')
    self.assertNotIn('chat_id',repr(context))
+
+ def test_owner_can_reconcile_a_completed_batch_without_replaying_it(self):
+  import json,os,app
+  from unittest.mock import patch
+  from catalog.ai_confirmations import review_case_id
+  with tempfile.TemporaryDirectory() as directory:
+   path=str(Path(directory)/'queue.sqlite');queue=Handoffs(path)
+   hold_id='batch-reconciled';offer_id=hold_id+':7317:0'
+   message={'id':'7317','channel_username':'@supplier','timestamp':'2026-11-02T13:01:00Z',
+       'content':'supplier source','url':'https://t.me/supplier/7317'}
+   queue.put('batch',hold_id,{'batch_id':hold_id,'expected_count':1,'messages':[message]})
+   with queue.connect() as db:
+    db.execute("UPDATE jobs SET state='failed',error='JobConflict',result=NULL WHERE id=?",('batch:'+hold_id,))
+   queue.hold_publication(hold_id,'batch_in_progress')
+   store=MemoryStore();store.ensure('MessageData',MESSAGE_HEADERS);store.ensure('Offers',OFFER_HEADERS)
+   store.append('MessageData',[_row_from_map(MESSAGE_HEADERS,{
+       'ID':'7317','Channel Username':'@supplier','Content':'supplier source','Batch ID':hold_id,
+       'AI Status':'needs_confirmation','AI Review Case IDs':json.dumps([review_case_id(offer_id)]),
+       'AI Processed At':'2026-11-02T13:02:00+00:00'})])
+   store.append('Offers',[_row_from_map(OFFER_HEADERS,{
+       'Offer ID':offer_id,'Message ID':'7317','Channel Username':'@supplier','Batch ID':hold_id,
+       'Status':'needs_review','Review Reason':'supplier sale amount has no confirmed unit/package basis'})])
+   secret='synthetic-reference-token-1234567890'
+   headers={'X-Molavi-Reference-Token':secret,'X-Molavi-Actor':'wp:7'}
+   body={'hold_id':hold_id,'expected_reason':'batch_in_progress',
+       'note':'Existing Sheet output and open AI cases were reconciled; do not replay.',
+       'resume_batch':False,'expected_batch_state':'failed','expected_batch_error':'JobConflict'}
+   with patch.dict(os.environ,{'PIPELINE_DB_PATH':path,'REFERENCE_OWNER_IDS':'wp:7','REFERENCE_BRIDGE_TOKEN':secret}), \
+       patch.object(app,'USE_SHEETS',True),patch.object(app,'handoff_queue',return_value=queue), \
+       patch.object(app,'build_store',return_value=store):
+    response=app.app.test_client().post('/pipeline/publication-holds',headers=headers,json=body)
+   self.assertEqual(response.status_code,200,response.get_json())
+   self.assertFalse(response.get_json()['batch_resumed'])
+   self.assertTrue(response.get_json()['reconciled'])
+   self.assertEqual(queue.publication_holds(),[])
+   self.assertEqual(queue.get('batch:'+hold_id)['state'],'failed')
+   self.assertIsNone(queue.get('publish:batch:'+hold_id))
+
+ def test_no_replay_reconciliation_requires_terminal_sheet_ai_state(self):
+  import json,os,app
+  from unittest.mock import patch
+  from catalog.ai_confirmations import review_case_id
+  with tempfile.TemporaryDirectory() as directory:
+   path=str(Path(directory)/'queue.sqlite');queue=Handoffs(path)
+   hold_id='batch-incomplete';offer_id=hold_id+':7318:0'
+   queue.put('batch',hold_id,{'batch_id':hold_id,'expected_count':1,'messages':[
+       {'id':'7318','channel_username':'@supplier','content':'supplier source'}]})
+   with queue.connect() as db:
+    db.execute("UPDATE jobs SET state='failed',error='JobConflict',result=NULL WHERE id=?",('batch:'+hold_id,))
+   queue.hold_publication(hold_id,'batch_in_progress')
+   store=MemoryStore();store.ensure('MessageData',MESSAGE_HEADERS);store.ensure('Offers',OFFER_HEADERS)
+   store.append('MessageData',[_row_from_map(MESSAGE_HEADERS,{
+       'ID':'7318','Channel Username':'@supplier','Content':'supplier source','Batch ID':hold_id,
+       'AI Status':'pending_ai','AI Review Case IDs':json.dumps([review_case_id(offer_id)]),
+       'AI Processed At':''})])
+   store.append('Offers',[_row_from_map(OFFER_HEADERS,{
+       'Offer ID':offer_id,'Message ID':'7318','Channel Username':'@supplier','Batch ID':hold_id,
+       'Status':'needs_review','Review Reason':'uncertain price role'})])
+   secret='synthetic-reference-token-1234567890'
+   headers={'X-Molavi-Reference-Token':secret,'X-Molavi-Actor':'wp:7'}
+   body={'hold_id':hold_id,'expected_reason':'batch_in_progress','note':'No replay after incomplete review.',
+       'resume_batch':False,'expected_batch_state':'failed','expected_batch_error':'JobConflict'}
+   with patch.dict(os.environ,{'PIPELINE_DB_PATH':path,'REFERENCE_OWNER_IDS':'wp:7','REFERENCE_BRIDGE_TOKEN':secret}), \
+       patch.object(app,'USE_SHEETS',True),patch.object(app,'handoff_queue',return_value=queue), \
+       patch.object(app,'build_store',return_value=store):
+    response=app.app.test_client().post('/pipeline/publication-holds',headers=headers,json=body)
+   self.assertEqual(response.status_code,409,response.get_json())
+   self.assertEqual(response.get_json()['error'],'batch_not_reconciled')
+   self.assertEqual(queue.publication_holds()[0]['hold_id'],hold_id)
 
  def test_bulk_publication_hold_retry_is_atomic_and_audited(self):
   import os,app

@@ -483,6 +483,10 @@ ob_start();molavi_publication_holds_screen();$holds_html=ob_get_clean();
 ref_assert(strpos($holds_html,'id="molavi-owner-workflow"')!==false, 'publication recovery mounts the scoped owner UI');
 ref_assert(strpos($holds_html,MOLAVI_REFERENCE_BRIDGE_TOKEN)===false, 'publication page never exposes the bridge secret');
 ref_assert(strpos($workflow_js,'resume_batch: true')!==false && strpos($workflow_js,'window.confirm')!==false, 'publication replay requires owner note and explicit confirmation');
+ref_assert(strpos($workflow_js,'reconcileWithoutRetry')!==false
+    && strpos($workflow_js,'resume_batch:false')!==false
+    && strpos($workflow_js,'تطبیق و بستن توقف، بدون بازپردازش')!==false,
+    'completed failed batches can be reconciled without duplicate replay');
 wp_set_current_user($other);
 ref_assert(is_wp_error(molavi_pipeline_holds_request('GET')), 'non-owner cannot access publication holds');
 wp_set_current_user($owner->ID);$http_mode='offline';

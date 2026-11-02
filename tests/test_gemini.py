@@ -34,6 +34,18 @@ class FakeSession:
         return self.response
 
 
+class FailureResponse:
+    status_code = 429
+
+    def json(self):
+        return {'error': {'message': 'sensitive provider response detail'}}
+
+
+class FailureSession:
+    def post(self, url, **kwargs):
+        return FailureResponse()
+
+
 class FlakyOffersStore(MemoryStore):
     def __init__(self):
         super().__init__()
@@ -47,6 +59,12 @@ class FlakyOffersStore(MemoryStore):
 
 
 class GeminiExtractionTests(unittest.TestCase):
+    def test_provider_http_failure_exposes_status_without_response_body(self):
+        with patch.dict(os.environ, {'GOOGLE_API_KEY':'test-key'}, clear=True):
+            with self.assertRaisesRegex(GeminiError, 'HTTP 429') as raised:
+                extract_message_products('supplier post', '@supplier', session=FailureSession())
+        self.assertNotIn('sensitive provider response detail', str(raised.exception))
+
     def test_ai_extraction_requires_key_and_ignores_mode(self):
         with patch.dict(os.environ, {}, clear=True):
             self.assertFalse(ai_extraction_configured())

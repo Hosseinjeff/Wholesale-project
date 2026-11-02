@@ -154,6 +154,7 @@ class Handoffs:
             'processed_messages': int(result.get('processed_messages') or 0),
             'extraction_state': str(result.get('extraction_status') or ''),
             'processing_error': str(result.get('extraction_error') or '')[:300],
+            'processing_detail': str(result.get('extraction_detail') or '')[:200],
             'rollback': bool(result.get('rollback')),
             'messages': messages,
         }

@@ -772,7 +772,75 @@ def publication_holds_route():
             response=jsonify(result)
             response.headers['Cache-Control']='no-store'
             return response
-        if (not isinstance(body, dict) or set(body) != {"hold_id", "expected_reason", "note", "resume_batch"}
+        if not isinstance(body, dict):
+            return jsonify({"ok": False, "error": "invalid_body"}), 400
+        if body.get('resume_batch') is False:
+            required={'hold_id','expected_reason','note','resume_batch',
+                      'expected_batch_state','expected_batch_error'}
+            if (set(body)!=required or body.get('expected_reason')!='batch_in_progress'
+                    or body.get('expected_batch_state')!='failed'
+                    or body.get('expected_batch_error')!='JobConflict'
+                    or not isinstance(body.get('hold_id'),str) or not body['hold_id']
+                    or len(body['hold_id'])>100 or not isinstance(body.get('note'),str)
+                    or not body['note'].strip() or len(body['note'])>1000):
+                return jsonify({"ok":False,"error":"invalid_body"}),400
+            try:
+                with queue.publication_lock():
+                    job=queue.get('batch:'+body['hold_id'])
+                    if (not job or job.get('state')!=body['expected_batch_state']
+                            or job.get('error')!=body['expected_batch_error']):
+                        return jsonify({"ok":False,"error":"publication_hold_changed"}),409
+                    context=queue.publication_hold_context(body['hold_id'])
+                    sources=context.get('messages') or []
+                    expected=int(context.get('expected_messages') or 0)
+                    if not sources or expected!=len(sources):
+                        return jsonify({"ok":False,"error":"batch_not_reconciled"}),409
+                    from catalog.ai_confirmations import review_case_id
+                    from catalog.sync import _ai_review_reason,_fresh_read,_records
+                    store=build_store()
+                    _,message_rows=_records(_fresh_read(store,'MessageData'))
+                    _,offer_rows=_records(_fresh_read(store,'Offers'))
+                    for source in sources:
+                        message_id=str(source.get('message_id') or '')
+                        channel=str(source.get('channel') or '')
+                        matches=[row for row in message_rows
+                            if str(row.get('ID') or '')==message_id
+                            and str(row.get('Channel Username') or '')==channel
+                            and str(row.get('Batch ID') or '')==body['hold_id']]
+                        if len(matches)!=1:
+                            return jsonify({"ok":False,"error":"batch_not_reconciled"}),409
+                        row=matches[0]
+                        ai_state=str(row.get('AI Status') or '').strip().lower()
+                        if (ai_state not in {'needs_confirmation','ai_processed','not_product'}
+                                or not str(row.get('AI Processed At') or '').strip()):
+                            return jsonify({"ok":False,"error":"batch_not_reconciled"}),409
+                        if ai_state=='needs_confirmation':
+                            try:
+                                case_ids=json.loads(str(row.get('AI Review Case IDs') or '[]'))
+                            except (TypeError,ValueError):
+                                case_ids=[]
+                            offer_cases={review_case_id(str(offer.get('Offer ID') or ''))
+                                for offer in offer_rows
+                                if str(offer.get('Message ID') or '')==message_id
+                                and str(offer.get('Channel Username') or '')==channel
+                                and str(offer.get('Batch ID') or '')==body['hold_id']
+                                and _ai_review_reason(offer)}
+                            if (not isinstance(case_ids,list) or not case_ids
+                                    or set(case_ids)!=offer_cases):
+                                return jsonify({"ok":False,"error":"batch_not_reconciled"}),409
+                    queue.resolve_publication_hold(body['hold_id'],
+                        expected_reason=body['expected_reason'],actor_id=actor,
+                        note=body['note'],resume_batch=False)
+            except ValueError:
+                return jsonify({"ok":False,"error":"publication_hold_changed"}),409
+            except Exception:
+                logger.exception('Publication hold reconciliation failed')
+                return jsonify({"ok":False,"error":"publication_reconciliation_unavailable"}),503
+            response=jsonify({"ok":True,"hold_id":body['hold_id'],
+                "batch_resumed":False,"reconciled":True})
+            response.headers['Cache-Control']='no-store'
+            return response
+        if (set(body) != {"hold_id", "expected_reason", "note", "resume_batch"}
                 or body.get('resume_batch') is not True):
             return jsonify({"ok": False, "error": "invalid_body"}), 400
         try:

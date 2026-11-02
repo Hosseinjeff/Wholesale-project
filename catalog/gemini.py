@@ -536,7 +536,7 @@ def extract_message_products(content, channel, *, session=None, api_key=None, mo
     except Exception as exc:
         raise GeminiError('Gemini request failed') from exc
     if response.status_code != 200:
-        raise GeminiError('Gemini request failed')
+        raise GeminiError(f'Gemini model {model} request failed (HTTP {response.status_code})')
     try:
         candidates = response.json()['candidates']
         if len(candidates) != 1 or candidates[0].get('finishReason') != 'STOP':
