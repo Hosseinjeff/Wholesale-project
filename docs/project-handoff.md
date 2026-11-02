@@ -13,9 +13,10 @@ now recovers those labeled values from the source even if Gemini omits them, and
 the flavor list into seven same-price variant records. A regression test stages all seven
 offers and verifies their prices and carton count survive into the owner-review data.
 
-This backend fix is committed and pushed, but Railway still runs the prior deployment
-below because its production source has no branch attached. An earlier automatic review
-rejected reattaching that service to moving `main`; the live source was not changed.
+This backend fix is committed and pushed as `c469e29`, but Railway still runs deployment
+`ce182584-7a2c-4812-ac97-fef8e9517d8f` from `3c0464e`. Its source has no branch attached,
+so the push did not deploy. An earlier automatic review rejected reattaching that service
+to moving `main`; the live source was not changed.
 
 ## Variant extraction and owner cards — 2026-11-02
 

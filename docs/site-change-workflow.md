@@ -15,6 +15,8 @@ title parsing for the flavor, volume and Tetra Pak format while the API is pendi
 The complete Son juice post is now covered by a regression test for its labeled supplier
 price, consumer price, carton quantity and seven flavors. See `project-handoff.md` for the
 correction and `pipeline-readiness.md` for the earlier queue snapshot and outstanding backlog.
+The latest backend source commit is `c469e29`; it is pushed to `main`, but it has not been
+deployed to Railway.
 
 ## Source of truth
 
