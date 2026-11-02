@@ -16,7 +16,7 @@ from catalog.measurements import (
 DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash-lite'
 _ARABIC_DIGITS = str.maketrans('٠١٢٣٤٥٦٧٨٩', '0123456789')
 _UNIT_PRICE_LABEL = re.compile(
-    r'(?:قیمت\s*(?:تکی|واحدی)|(?:دونه|دانه)\s*ای|'
+    r'(?:قیمت\s*(?:تکی|واحدی|فروش\s*ما)|(?:دونه|دانه)\s*ای|'
     r'(?:هر\s*|قیمت\s*هر\s*)(?:عدد|دونه|دانه|واحد)|فی\s*(?:عدد|دونه|دانه)|'
     r'هر\s*کیلو(?:گرم)?|کیلویی|کیلوئی|'
     r'\b(?:unit\s+price|price\s+per\s+(?:unit|item)|per[- ]?(?:unit|item))\b)', re.I)
@@ -29,6 +29,8 @@ _PACKAGE_PRICE_LABEL = re.compile(
 _CONSUMER_PRICE_LABEL = re.compile(
     r'(?:قیمت\s*(?:مصرف\s*(?:کننده)?|خرده\s*فروشی)|'
     r'\b(?:consumer|retail)\s+price\b)', re.I)
+_VARIANT_LIST_LABEL = re.compile(
+    r'(?:طعم|مزه)[\s\u200c]*(?:های|ها)\s*[:：]?\s*(.+)', re.I)
 
 
 def _english_numbers(value):
@@ -79,7 +81,9 @@ do not guess a unit price. Split different sizes, flavors, variants and pack cou
 separate products only when they are separately listed. A flavor or size written within
 one title is an attribute of that one item, not a second product. When several variants
 are separately listed at the same explicit price, preserve one product per listed
-variant and repeat the same price fields for each.
+variant and repeat the same price fields for each. A plural flavor list such as
+`طعم های: انبه، هلو و آلبالو` explicitly lists separate variants: return one record per
+flavor with the shared source price, without asking the owner to choose each flavor.
 
 Read measurements from each product title literally. The Persian suffix `گ` means
 grams and `ل` means liters, even when attached to the number with no spaces: `180گ`
@@ -107,7 +111,8 @@ count marker, keep that exact title and do not request review only because a gen
 structured measurement or count conflicts with it; the title is the source of truth.
 
 Recognize these explicit price labels: `قیمت مصرف` and `قیمت مصرف کننده` are consumer prices;
-`دونه ای`, `هر عدد` and `قیمت تکی` are unit prices; `قیمت باکس`, `قیمت کارتن`,
+`قیمت فروش ما`, `دونه ای`, `هر عدد` and `قیمت تکی` are supplier unit prices;
+`قیمت باکس`, `قیمت کارتن`,
 `باکسی`, `قیمت هر یک بسته`, `هر باکس` and `هر کارتن` are package prices. Keep the
 amount exactly as written.
 If no label or structure establishes unit-versus-package basis, leave that basis
@@ -178,6 +183,24 @@ def _explicit_variant(text):
     value = strip_measurement_tokens(value)
     value = re.sub(r'(?<!\d)\d+\s*(?:عددی|عدد|تایی|ع)(?=$|[^\w])', ' ', value)
     return re.sub(r'\s+', ' ', value).strip()
+
+
+def _listed_source_variants(source_context):
+    """Read a comma/conjunction-separated flavor list from the scoped source."""
+    variants = []
+    for line in source_context:
+        match = _VARIANT_LIST_LABEL.search(line)
+        if not match:
+            continue
+        value = match.group(1).strip().strip(' :،,؛;*-–—')
+        parts = re.split(r'[،,؛;]+', value)
+        if parts and re.search(r'\s+و\s+', parts[-1]):
+            parts[-1:] = re.split(r'\s+و\s+', parts[-1])
+        for part in parts:
+            variant = re.sub(r'\s+', ' ', part).strip(' :،,؛;*-–—')
+            if variant and variant not in variants:
+                variants.append(variant)
+    return variants
 
 
 def _explicit_packaging(text):
@@ -276,6 +299,20 @@ def _labeled_amounts(content, label_pattern):
     return amounts
 
 
+def _source_package_counts(source_context):
+    """Read carton/package quantities only from an explicit count statement."""
+    counts = set()
+    for line in source_context:
+        text = _english_numbers(line)
+        patterns = (
+            r'تعداد\s*(?:در|داخل)\s*(?:کارتن|کارتون|باکس|بسته)\s*[:：]?\s*(\d{1,4})\s*(?:عدد|تایی|عددی)?',
+            r'(?:در|داخل)\s*(?:کارتن|کارتون|باکس|بسته)\s*[:：]?\s*(\d{1,4})\s*(?:عدد|تایی|عددی)',
+        )
+        for pattern in patterns:
+            counts.update(int(value) for value in re.findall(pattern, text, re.I))
+    return counts
+
+
 def _source_title_context(source_title, content, source_titles=(), ambiguous=False):
     """Collect one product's listing lines, ending at another recovered product title."""
     if not source_title or ambiguous:
@@ -327,18 +364,22 @@ def _source_title_context(source_title, content, source_titles=(), ambiguous=Fal
 
 
 def _source_price_role(source_title, content, candidate_amounts, source_titles=(), ambiguous=False):
-    """Map only model amounts that also appear beside a matching source price label."""
+    """Recover uniquely labeled prices from the matching product's source lines."""
     if not source_title or ambiguous:
         return {}
     context = _source_title_context(source_title, content, source_titles, ambiguous)
     if not context:
         return {}
     candidates = {int(amount) for amount in candidate_amounts if amount and int(amount) > 0}
-    if not candidates:
-        return {}
     roles = {}
     for role, pattern in (('unit', _UNIT_PRICE_LABEL), ('package', _PACKAGE_PRICE_LABEL)):
-        matches = candidates.intersection(_labeled_amounts('\n'.join(context), pattern))
+        labeled = _labeled_amounts('\n'.join(context), pattern)
+        matches = candidates.intersection(labeled)
+        # A single amount under an explicit label is stronger evidence than a
+        # missing or malformed model field. Retain model disambiguation only when
+        # the source itself contains several amounts for the same role.
+        if not matches and len(labeled) == 1:
+            matches = labeled
         if len(matches) == 1:
             roles[role] = next(iter(matches))
     return roles
@@ -426,12 +467,18 @@ def _product(item, content, channel, source_titles=()):
     variation_type = _explicit_variant(name) or str(item.get('variant') or item.get('variation_type') or '').strip()
     model_count = _count(item.get('package_count'))
     title_piece_counts = set(_explicit_piece_counts(name))
+    source_package_counts = _source_package_counts(source_context)
     named_pack_count = pack_count('', name)
-    count_conflict = bool(title_piece_counts and (
-        len(title_piece_counts) > 1 or
-        (named_pack_count and named_pack_count not in title_piece_counts)))
+    source_count_conflict = len(source_package_counts) > 1
+    source_count = next(iter(source_package_counts)) if len(source_package_counts) == 1 else 0
+    explicit_counts = title_piece_counts | source_package_counts
+    count_conflict = source_count_conflict or bool(explicit_counts and (
+        len(explicit_counts) > 1 or
+        (named_pack_count and named_pack_count not in explicit_counts)))
     if count_conflict:
         count = 0
+    elif source_count:
+        count = source_count
     elif title_piece_counts:
         count = next(iter(title_piece_counts))
     else:
@@ -465,7 +512,14 @@ def _product(item, content, channel, source_titles=()):
     source_package_price = source_price_roles.get('package', 0)
     conflicting_role_amount = bool(
         source_unit_price and source_package_price and source_unit_price == source_package_price)
-    consumer_is_labeled = _has_explicit_consumer_price_label(content, consumer, source_context)
+    source_consumer_amounts = _labeled_amounts(
+        '\n'.join(source_context), _CONSUMER_PRICE_LABEL) if source_context else set()
+    if len(source_consumer_amounts) == 1:
+        consumer = next(iter(source_consumer_amounts))
+    consumer_is_labeled = (
+        bool(source_consumer_amounts and consumer in source_consumer_amounts)
+        or _has_explicit_consumer_price_label(content, consumer, source_context)
+    )
     consumer_package_is_labeled = _has_explicit_consumer_price_label(
         content, consumer_package, source_context)
     unlabelled_consumer_amounts = {
@@ -487,6 +541,7 @@ def _product(item, content, channel, source_titles=()):
         'supplier sale amount has no confirmed unit/package basis',
         'sale price role is ambiguous: unit or package',
         'pack count is detected but sale price role is not explicit',
+        'supplier unit price is missing',
     }
     confirmed_source_role = bool(source_unit_price or source_package_price) and not conflicting_role_amount
     reasons = [reason for reason in original_review_reasons if not (
@@ -557,6 +612,15 @@ def _product(item, content, channel, source_titles=()):
         confidence = 0.0
     if not 0 <= confidence <= 1:
         confidence = 0.0
+    source_currency = bool(re.search(r'(?:تومان|تومن|ریال|\bIRT\b|\bIRR\b)', price_evidence, re.I))
+    source_backed_price = bool(
+        source_title_verified and confirmed_source_role and source_currency
+        and price_type != 'needs_review' and not count_conflict
+        and not measurement_review_reasons and currency == 'IRT')
+    if source_backed_price and role_only_model_review:
+        # Unique title + explicit source price role + explicit currency are stronger
+        # evidence than Gemini's missing-field/uncertainty score.
+        confidence = max(confidence, 0.95)
     if confidence < 0.85:
         review = True
         reasons.append('low confidence')
@@ -566,8 +630,8 @@ def _product(item, content, channel, source_titles=()):
         'brand': str(item.get('brand') or '').strip(),
         'sale_price': sale,
         'price': sale,
-        'detected_price': unit or package or sale_raw or 0,
-        'source_price_amount': source_package_price or sale_raw or unit or package or 0,
+        'detected_price': source_package_price or source_unit_price or unit or package or sale_raw or 0,
+        'source_price_amount': source_package_price or source_unit_price or sale_raw or unit or package or 0,
         'confirmed_price_role': confirmed_role,
         'actual_price': consumer or None,
         'consumer_price': consumer or None,
@@ -605,7 +669,28 @@ def parse_message_products(response_text, content, channel):
         source_title, _ambiguous = _source_title_evidence(name.strip(), content)
         if source_title and source_title not in source_titles:
             source_titles.append(source_title)
-    return [_product(item, content, channel, source_titles) for item in items]
+    products = []
+    groups = {}
+    for item in items:
+        product = _product(item, content, channel, source_titles)
+        source_title, ambiguous = _source_title_evidence(product['name'], content)
+        variants = _listed_source_variants(_source_title_context(
+            source_title, content, source_titles, ambiguous))
+        if variants:
+            key = source_title[0]
+            groups.setdefault(key, {'variants': variants, 'products': []})['products'].append(product)
+        else:
+            products.append(product)
+
+    # A single explicit flavor list shares the source listing's price/count data.
+    # Emit one actionable record per flavor even when the model omitted the list.
+    for group in groups.values():
+        prototype = group['products'][0]
+        for variant in group['variants']:
+            expanded = dict(prototype)
+            expanded['variation_type'] = variant
+            products.append(expanded)
+    return products
 
 
 def extract_message_products(content, channel, *, session=None, api_key=None, model=None):

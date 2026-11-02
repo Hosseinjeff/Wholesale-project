@@ -4,15 +4,29 @@ Snapshot 4.67. Updated 2026-11-02, Asia/Tehran. The canonical roleplay decisions
 `roleplay-state.json`; current live evidence and release gates are in
 `pipeline-readiness.md` and `pipeline-readiness-evidence.json`.
 
+## Complete Son juice post correction — 2026-11-02
+
+The earlier “no supplier price” conclusion applied only to the isolated one-line title.
+The complete post supplied afterward clearly gives a supplier price of 18,500 toman, a
+consumer price of 50,000 toman, 36 per carton, and seven flavors. The extraction adapter
+now recovers those labeled values from the source even if Gemini omits them, and expands
+the flavor list into seven same-price variant records. A regression test stages all seven
+offers and verifies their prices and carton count survive into the owner-review data.
+
+This backend fix is committed and pushed, but Railway still runs the prior deployment
+below because its production source has no branch attached. An earlier automatic review
+rejected reattaching that service to moving `main`; the live source was not changed.
+
 ## Variant extraction and owner cards — 2026-11-02
 
 Commit `dea080c531170e1fd90f384d7335fc2eca724b5c` is pushed to `main`. The WordPress
 plugin files are deployed and verified by cPanel read-back. For the title
 `آبمیوه تتراپک سون،۲۲۰ میلی لیتر طعم هلو`, the adapter now preserves `سون` as brand,
 `هلو` as variant, `220 میل` as volume, and `تتراپک` as packaging. A 220 ml measurement is
-not accepted as a price without a separate source amount. Because the sample has no
-supplier price, it correctly remains pending; the dashboard explains the missing price
-and hides its manual edit fields. Flavor variants share one card only when the source,
+not accepted as a price without a separate source amount. The isolated title has no
+supplier price and correctly remains pending; the dashboard explains the missing price
+and hides its manual edit fields. The complete Son juice post described above contains
+explicit prices. Flavor variants share one card only when the source,
 price, size, package format and review terms match. Unpriced or differently sized items
 remain separate.
 

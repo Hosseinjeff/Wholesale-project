@@ -270,7 +270,7 @@ class GeminiExtractionTests(unittest.TestCase):
             {'name': second, 'consumer_price': 40000,
              'currency': 'IRT', 'confidence': 0.99},
         ], ensure_ascii=False), content, '@supplier')
-        self.assertIsNone(products[0]['consumer_price'])
+        self.assertEqual(products[0]['consumer_price'], 50000)
         self.assertEqual(products[0]['sale_price'], 40000)
         self.assertEqual(products[1]['consumer_price'], 40000)
 
@@ -317,6 +317,73 @@ class GeminiExtractionTests(unittest.TestCase):
         self.assertEqual(priced['sale_price'], 220)
         self.assertEqual(priced['price_type'], 'unit')
         self.assertFalse(priced['needs_review'])
+
+    def test_full_son_juice_post_recovers_labeled_prices_carton_count_and_flavors(self):
+        title = 'آبمیوه تتراپک سون،۲۲۰ میلی لیتر'
+        content = '''آبمیوه تتراپک سون،۲۲۰ میلی لیتر
+
+طعم های: انبه ،آناناس،سیب موز،انار،آلبالو،پرتقال و هلو
+
+تعداد در کارتن ۳۶ عدد
+
+قیمت فروش ما : ۱۸/۵۰۰ تومان
+
+قیمت مصرف کننده ۵۰/۰۰۰ تومان
+
+ثبت سفارش از طريق لينك زير
+
+👇👇👇👇👇👇👇👇👇👇👇
+
+پاسخگو ۱👇
+[https://wa.me/message/4TDVRFCKRSV3N1](https://wa.me/message/4TDVRFCKRSV3N1)
+
+پاسخگو۲👇
+[https://wa.me/message/GJFXKCGPRLGRL1](https://wa.me/message/GJFXKCGPRLGRL1)
+
+آدرس :تهران میدان محمدیه ( اعدام )اول خیابان خیام جنوبی پاساژ برلیان طبقه همکف پلاک۲۱
+۰۲۱-۵۵۸۱۵۷۳۲—۰۲۱-۵۵۸۱۵۷۳۳'''
+        # Simulate the failure mode: Gemini returns the title but misses all of the
+        # obvious labeled values and says it cannot determine the supplier price.
+        products = parse_message_products(json.dumps([{
+            'name': title, 'brand': 'سون', 'confidence': 0.6,
+            'needs_review': True, 'review_reason': 'supplier unit price is missing',
+        }], ensure_ascii=False), content, '@supplier')
+
+        self.assertEqual(len(products), 7)
+        self.assertEqual([p['variation_type'] for p in products], [
+            'انبه', 'آناناس', 'سیب موز', 'انار', 'آلبالو', 'پرتقال', 'هلو',
+        ])
+        for product in products:
+            with self.subTest(variant=product['variation_type']):
+                self.assertEqual(product['name'], title)
+                self.assertEqual(product['brand'], 'سون')
+                self.assertEqual(product['sale_price'], 18500)
+                self.assertEqual(product['consumer_price'], 50000)
+                self.assertEqual(product['actual_price'], 50000)
+                self.assertEqual(product['price_type'], 'unit')
+                self.assertEqual(product['detected_price'], 18500)
+                self.assertEqual(product['source_price_amount'], 18500)
+                self.assertEqual(product['package_count'], 36)
+                self.assertEqual(product['volume'], '220 میل')
+                self.assertEqual(product['packaging'], 'تتراپک')
+                self.assertFalse(product['needs_review'])
+                self.assertGreaterEqual(product['confidence'], 0.85)
+
+        # Re-extraction stages owner-review offers; verify every flavor retains
+        # the same recovered prices and carton count in the durable offer shape.
+        store = MemoryStore()
+        imported = import_product_data(store, {
+            'id': 'son-juice-message', 'batch_id': 'son-juice-batch',
+            'channel_username': '@supplier', 'content': content,
+        }, prepared_products=products, stage_for_review=True)
+        _, offers = _records(store.read('Offers'))
+        self.assertEqual(imported['products_found'], 7)
+        self.assertEqual([offer['Variation Type'] for offer in offers], [
+            'انبه', 'آناناس', 'سیب موز', 'انار', 'آلبالو', 'پرتقال', 'هلو',
+        ])
+        self.assertTrue(all(offer['Sale Price'] == 18500 for offer in offers))
+        self.assertTrue(all(offer['Consumer Price'] == 50000 for offer in offers))
+        self.assertTrue(all(offer['Package Count'] == 36 for offer in offers))
 
     def test_per_kilo_labels_and_source_backed_measurements_are_preserved(self):
         examples = (
@@ -473,6 +540,8 @@ class GeminiExtractionTests(unittest.TestCase):
         prompt = ' '.join(prompt.split())
         self.assertIn('`۲۲۰ میلی لیتر` is volume 220 ml, not a price of 220', prompt)
         self.assertIn('`طعم هلو` is variant `هلو`', prompt)
+        self.assertIn('`قیمت فروش ما`', prompt)
+        self.assertIn('one record per flavor with the shared source price', prompt)
         self.assertIn('`تتراپک` is packaging', prompt)
         self.assertIn('do not ask the owner to confirm the flavor or volume', prompt)
         self.assertIn('All source channels are wholesalers', prompt)
