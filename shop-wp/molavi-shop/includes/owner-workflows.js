@@ -1369,7 +1369,7 @@
         } catch (error) { root.appendChild(notice(errorText(error.message), 'error')); }
     }
 
-    function referenceItemCard(item) {
+    function referenceItemCard(item, contextStored = true) {
         const card = node('section', null, 'card');
         card.appendChild(node('h2', item.product_name || 'کالای بدون نام'));
         card.appendChild(node('p', `تأمین‌کننده: ${item.channel || ''} · قیمت ثبت‌شده: ${amount(item.supplier_price)}`));
@@ -1433,11 +1433,13 @@
         match.type = 'submit'; match.value = 'match';
         const noMatch = node('button', 'تأیید نبود تطبیق و نگه داشتن کالا در بررسی', 'button');
         noMatch.type = 'submit'; noMatch.value = 'no_match'; noMatch.formNoValidate = true;
+        match.disabled = !contextStored;
+        noMatch.disabled = !contextStored;
         form.append(match, noMatch);
         form.addEventListener('submit', async event => {
             event.preventDefault();
             const choice = event.submitter && event.submitter.value;
-            if (!['match', 'no_match'].includes(choice)) return;
+            if (!['match', 'no_match'].includes(choice) || !contextStored) return;
             const referenceId = choice === 'match' ? selectedReferenceId : '';
             if (choice === 'match' && (!referenceId || !selectedPriceRole)) {
                 errorBox('یک پیشنهاد مرجع و نقش قیمت را با دکمه‌ها انتخاب کنید.', card);
@@ -1450,8 +1452,12 @@
                 note: choice === 'match' ? 'مالک تطبیق پیشنهادی را از پنل بررسی تأیید کرد.' : 'مالک تأیید کرد که پیشنهادهای فعلی تطبیق ندارند.',
                 expected_decision_id: item.decision && item.decision.decision_id || null
             };
+            const eventId = reviewEventId('reference_item', item.case_id);
+            const decision = {...payload};
             match.disabled = true; noMatch.disabled = true;
             try {
+                await persistOwnerReviews([reviewRecord(eventId, 'reference_item', item.case_id,
+                    'pending', item, decision)]);
                 const receipt = await request('POST', payload);
                 if (receipt.case_id !== payload.case_id || receipt.offer_id !== payload.offer_id
                     || receipt.snapshot_id !== payload.snapshot_id || receipt.choice !== choice
@@ -1461,8 +1467,22 @@
                     || (choice === 'match' && receipt.projection_state === 'held_for_review')) {
                     throw new Error('invalid_receipt');
                 }
+                try {
+                    await persistOwnerReviews([reviewRecord(eventId, 'reference_item', item.case_id,
+                        'accepted', item, decision, receipt)]);
+                } catch (_error) {
+                    await referenceItems('تصمیم در سرویس ثبت شد، اما رسید وردپرس هنوز همگام نشده است.', 'warning');
+                    return;
+                }
                 await referenceItems('تصمیم تطبیق ثبت شد.', 'success');
-            } catch (error) { errorBox(errorText(error.message), card); match.disabled = false; noMatch.disabled = false; }
+            } catch (error) {
+                try {
+                    await persistOwnerReviews([reviewRecord(eventId, 'reference_item', item.case_id,
+                        error.remoteRejected ? 'failed' : 'pending', item, decision,
+                        {error:String(error.message || 'request_failed'), request_status:error.requestStatus || null})]);
+                } catch (_ignored) {}
+                errorBox(errorText(error.message), card); match.disabled = false; noMatch.disabled = false;
+            }
         });
         card.appendChild(form);
         return card;
@@ -1491,10 +1511,22 @@
             const requestedOfferId = new URLSearchParams(window.location.search).get('offer_id') || '';
             let cases = [...(data.cases || []), ...(data.recent_decisions || [])];
             if (requestedOfferId) cases = cases.filter(item => String(item.offer_id || '') === requestedOfferId);
+            let contextStored = true;
+            if (cases.length) {
+                try {
+                    await persistOwnerReviews(cases.map(item => reviewRecord(
+                        `context:reference_item:${item.case_id}`, 'reference_item', item.case_id,
+                        'observed', item
+                    )));
+                } catch (_error) {
+                    contextStored = false;
+                    root.appendChild(notice('موارد تطبیق نمایش داده می‌شوند، اما ثبت زمینهٔ آن‌ها در پایگاه داده وردپرس تأیید نشد؛ تا رفع خطا تصمیم تازه‌ای ثبت نمی‌شود.', 'error'));
+                }
+            }
             if (!cases.length) root.appendChild(node('p', requestedOfferId
                 ? 'برای این پیشنهاد، مورد تطبیق بازی پیدا نشد؛ وضعیت کالا را در فهرست بررسی کنید.'
                 : 'مورد تطبیقی برای بررسی وجود ندارد.'));
-            cases.forEach(item => root.appendChild(referenceItemCard(item)));
+            cases.forEach(item => root.appendChild(referenceItemCard(item, contextStored)));
         } catch (error) { root.appendChild(notice(errorText(error.message), 'error')); }
     }
 

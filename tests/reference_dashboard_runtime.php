@@ -306,6 +306,12 @@ ref_assert($ai_review_row && $ai_review_row['state']==='accepted'
 ref_assert(json_decode($ai_review_row['context_json'],true)['decision_history'][0]['choice']==='not_product'
     && json_decode($ai_review_row['context_json'],true)['source_post_url']==='https://t.me/supplier/runtime',
     'WordPress retains source links and prior AI decision history');
+$reference_item_event=['event_id'=>'context:reference_item:item:runtime-case',
+    'review_type'=>'reference_item','review_id'=>'item:runtime-case','state'=>'observed',
+    'context'=>['offer_id'=>'runtime-offer:1','snapshot_id'=>'runtime-snapshot',
+        'product_name'=>'چای سبز','candidates'=>[['reference_id'=>'R-1','name'=>'چای سبز']]]];
+ref_assert(molavi_owner_review_store_write($reference_item_event),
+    'reference-match context is stored in the WordPress review database');
 $workflow_js=file_get_contents('/plugin/includes/owner-workflows.js');
 ref_assert(strpos($workflow_js,'original_message')!==false && strpos($workflow_js,'expected_decision_id')!==false,
     'browser review UI displays source messages and submits optimistic decision revisions');
@@ -314,6 +320,10 @@ ref_assert(strpos($workflow_js,'context:ai_confirmation:')!==false
     && strpos($workflow_js,"'pending', context, decision")!==false
     && strpos($workflow_js,"'accepted', context, decision, receipt")!==false,
     'AI review saves context and pending/accepted receipts in WordPress during browser decisions');
+ref_assert(strpos($workflow_js,'context:reference_item:')!==false
+    && strpos($workflow_js,"'pending', item, decision")!==false
+    && strpos($workflow_js,"'accepted', item, decision, receipt")!==false,
+    'reference-match review saves context and pending/accepted receipts in WordPress');
 $ai_payload=['case_id'=>$ai_case['case_id'],'offer_id'=>$ai_case['offer_id'],
     'signature'=>$ai_case['signature'],'choice'=>'confirm','fields'=>[
         'price_role'=>'package','sale_price'=>120000,'actual_price'=>150000,
@@ -569,6 +579,17 @@ ref_assert(is_array($workflow_config)
     && str_starts_with((string)($workflow_config['pipelineUrl'] ?? ''),'/')
     && str_starts_with((string)($workflow_config['pageUrls']['molavi-sheet-conflicts'] ?? ''),'/'),
     'owner review and navigation URLs stay on the active admin origin');
+$http_mode='queue';ref_prepare_owner_workflow_page('molavi-reference-items');
+$reference_workflow_data=wp_scripts()->get_data('molavi-owner-workflows','data');
+$reference_workflow_matches=[];
+$has_reference_workflow=is_string($reference_workflow_data)
+    && preg_match_all('/var molaviOwnerWorkflow = (\{.*?\});/s',$reference_workflow_data,$reference_workflow_matches);
+$reference_workflow=$has_reference_workflow ? json_decode(end($reference_workflow_matches[1]),true) : null;
+ref_assert(is_array($reference_workflow)
+    && str_starts_with((string)($reference_workflow['reviewStoreUrl'] ?? ''),'/')
+    && is_string($reference_workflow['reviewStoreNonce'] ?? null)
+    && $reference_workflow['reviewStoreNonce']!=='',
+    'reference-match decisions have a same-origin WordPress audit-store capability');
 $conflict_request=molavi_sheet_conflicts_request('POST',['conflict_id'=>'sheet:synthetic-conflict','choice'=>'sheet','note'=>'keep sheet edit']);
 ref_assert(!is_wp_error($conflict_request) && $conflict_request['conflict_id']==='sheet:synthetic-conflict', 'sheet conflict resolution requires matching server receipt');
 $http_mode='queue';ob_start();molavi_paid_orders_screen();$orders_html=ob_get_clean();
