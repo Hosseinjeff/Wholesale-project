@@ -35,6 +35,7 @@ class AIConfirmationTests(unittest.TestCase):
             'Status': 'needs_review', 'Review Reason': 'supplier price role is unclear; low confidence',
             'Extraction Confidence Score': .42, 'Confidence': .42, 'Message ID': 'msg-1',
             'Batch ID': 'batch-1', 'Message Timestamp': '2026-10-27T10:00:00Z',
+            'Source Post URL': 'https://t.me/supplier/1',
             'Forwarded By': 'owner', 'Import Timestamp': '2026-10-27T10:01:00Z',
             'Original Message': 'Tuna 24 pack, 240000 toman', 'Min Qty': 24,
             'Package Count': 24, 'Reference Match State': '',
@@ -44,6 +45,7 @@ class AIConfirmationTests(unittest.TestCase):
             'ID':'msg-1','Channel':'telegram','Channel Username':'@supplier','Content':'Tuna 24 pack, 240000 toman',
             'Timestamp':'2026-10-27T10:00:00Z','Status':'product','Batch ID':'batch-1','AI Status':'pending_ai'})])
         self.case = review_cases(self.store, self.ledger)[0]
+        self.assertEqual(self.case['source_post_url'], 'https://t.me/supplier/1')
 
     def decision(self, *, choice='confirm', fields=None, expected=None, note='Checked source'):
         return self.ledger.decide(case_id=self.case['case_id'], offer_id=self.case['offer_id'],

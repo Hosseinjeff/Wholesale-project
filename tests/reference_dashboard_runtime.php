@@ -279,7 +279,10 @@ ref_assert(strpos($ai_html,'id="molavi-owner-workflow"')!==false,
 ref_assert(strpos($ai_html,MOLAVI_REFERENCE_BRIDGE_TOKEN)===false,
     'AI review page does not expose the static bridge token');
 $ai_review_context=['case_id'=>$ai_case['case_id'],'offer_id'=>$ai_case['offer_id'],
-    'original_message'=>$ai_case['original_message'],'product_name'=>$ai_case['product_name']];
+    'original_message'=>$ai_case['original_message'],'product_name'=>$ai_case['product_name'],
+    'source_post_url'=>'https://t.me/supplier/runtime','previous_decision_id'=>str_repeat('e',64),
+    'decision_history'=>[['decision_id'=>str_repeat('c',64),'choice'=>'not_product','actor_id'=>'wp:owner',
+        'note'=>'Previous owner review','created_at'=>1761652800,'fields'=>[]]]];
 $ai_review_event=['event_id'=>'context:ai_confirmation:'.$ai_case['case_id'],
     'review_type'=>'ai_confirmation','review_id'=>$ai_case['case_id'],'state'=>'observed',
     'context'=>$ai_review_context];
@@ -300,10 +303,14 @@ $ai_review_row=$wpdb->get_row($wpdb->prepare('SELECT * FROM '.molavi_owner_revie
 ref_assert($ai_review_row && $ai_review_row['state']==='accepted'
     && json_decode($ai_review_row['receipt_json'],true)['publish_job']==='publish:runtime',
     'WordPress retains the AI decision receipt alongside its source context');
+ref_assert(json_decode($ai_review_row['context_json'],true)['decision_history'][0]['choice']==='not_product'
+    && json_decode($ai_review_row['context_json'],true)['source_post_url']==='https://t.me/supplier/runtime',
+    'WordPress retains source links and prior AI decision history');
 $workflow_js=file_get_contents('/plugin/includes/owner-workflows.js');
 ref_assert(strpos($workflow_js,'original_message')!==false && strpos($workflow_js,'expected_decision_id')!==false,
     'browser review UI displays source messages and submits optimistic decision revisions');
 ref_assert(strpos($workflow_js,'context:ai_confirmation:')!==false
+    && strpos($workflow_js,'decision_history:Array.isArray(context.decision_history)')!==false
     && strpos($workflow_js,"'pending', context, decision")!==false
     && strpos($workflow_js,"'accepted', context, decision, receipt")!==false,
     'AI review saves context and pending/accepted receipts in WordPress during browser decisions');

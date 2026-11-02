@@ -205,6 +205,7 @@ def _as_case(offer, ledger, *, include_decided=False):
         'historical_reextract': str(offer.get('Batch ID') or '').startswith('reextract:'),
         'message_id': str(offer.get('Message ID') or ''),
         'message_timestamp': str(offer.get('Message Timestamp') or ''),
+        'source_post_url': str(offer.get('Source Post URL') or ''),
         'original_message': str(offer.get('Original Message') or ''),
         'reason': reason,
         'sale_price': offer.get('Sale Price') or '',

@@ -122,11 +122,31 @@
         if (type === 'ai_confirmation' && context && typeof context === 'object') {
             const source = String(context.original_message || '');
             const characters = Array.from(source);
+            const decisionSnapshot = decision => {
+                if (!decision || typeof decision !== 'object' || Array.isArray(decision)) return null;
+                const fields = decision.fields && typeof decision.fields === 'object' && !Array.isArray(decision.fields)
+                    ? decision.fields : {};
+                return {
+                    decision_id:String(decision.decision_id || '').slice(0, 120),
+                    case_id:String(decision.case_id || context.case_id || '').slice(0, 120),
+                    offer_id:String(decision.offer_id || context.offer_id || '').slice(0, 300),
+                    signature:String(decision.signature || '').slice(0, 64),
+                    choice:String(decision.choice || '').slice(0, 40),
+                    actor_id:String(decision.actor_id || '').slice(0, 120),
+                    note:String(decision.note || '').slice(0, 1000),
+                    created_at:decision.created_at || '',
+                    fields:{price_role:fields.price_role || '', sale_price:fields.sale_price || '',
+                        actual_price:fields.actual_price || '', package_count:fields.package_count || '',
+                        min_qty:fields.min_qty || '', stock_status:fields.stock_status || ''}
+                };
+            };
             return {
                 case_id:String(context.case_id || '').slice(0, 120),
                 offer_id:String(context.offer_id || '').slice(0, 300),
                 message_id:String(context.message_id || '').slice(0, 100),
                 channel:String(context.channel || '').slice(0, 100),
+                source_channel:String(context.source_channel || '').slice(0, 100),
+                batch_id:String(context.batch_id || '').slice(0, 300),
                 message_timestamp:String(context.message_timestamp || '').slice(0, 60),
                 source_post_url:String(context.source_post_url || '').slice(0, 500),
                 product_name:String(context.product_name || '').slice(0, 1000),
@@ -135,10 +155,17 @@
                 actual_price:context.actual_price || '', package_price:context.package_price || '',
                 package_count:context.package_count || '', min_qty:context.min_qty || '',
                 price_type:String(context.price_type || '').slice(0, 40),
+                currency:String(context.currency || '').slice(0, 40),
                 packaging:String(context.packaging || '').slice(0, 300),
                 stock_status:String(context.stock_status || '').slice(0, 40),
                 reference_match_state:String(context.reference_match_state || '').slice(0, 120),
                 reference_match_id:String(context.reference_match_id || '').slice(0, 300),
+                reference_price_role_hint:String(context.reference_price_role_hint || '').slice(0, 120),
+                historical_reextract:Boolean(context.historical_reextract),
+                previous_decision_id:String(context.previous_decision_id || '').slice(0, 64),
+                decision:decisionSnapshot(context.decision),
+                decision_history:Array.isArray(context.decision_history)
+                    ? context.decision_history.slice(-10).map(decisionSnapshot).filter(Boolean) : [],
                 original_message:characters.slice(0, 1000).join(''),
                 original_message_truncated:Boolean(source.length > 1000)
             };
