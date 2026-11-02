@@ -807,8 +807,23 @@ def publication_holds_route():
                             if str(row.get('ID') or '')==message_id
                             and str(row.get('Channel Username') or '')==channel
                             and str(row.get('Batch ID') or '')==body['hold_id']]
-                        if len(matches)!=1:
+                        if len(matches)>1:
                             return jsonify({"ok":False,"error":"batch_not_reconciled"}),409
+                        if not matches:
+                            # Some older completed batches persisted their Offers rows and
+                            # AI review cases but never wrote MessageData. Those offers are
+                            # sufficient to prove that the source was handled only when
+                            # every offer for that source is itself awaiting AI review.
+                            # Never infer completion from a partial or publishable offer.
+                            source_offers=[offer for offer in offer_rows
+                                if str(offer.get('Message ID') or '')==message_id
+                                and str(offer.get('Channel Username') or '')==channel
+                                and str(offer.get('Batch ID') or '')==body['hold_id']]
+                            if not source_offers or any(not _ai_review_reason(offer)
+                                    or not str(offer.get('Offer ID') or '').strip()
+                                    for offer in source_offers):
+                                return jsonify({"ok":False,"error":"batch_not_reconciled"}),409
+                            continue
                         row=matches[0]
                         ai_state=str(row.get('AI Status') or '').strip().lower()
                         if (ai_state not in {'needs_confirmation','ai_processed','not_product'}
