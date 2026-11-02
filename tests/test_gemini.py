@@ -34,6 +34,16 @@ class FakeSession:
         return self.response
 
 
+class SequenceSession:
+    def __init__(self, texts):
+        self.responses = [FakeResponse(text) for text in texts]
+        self.calls = []
+
+    def post(self, url, **kwargs):
+        self.calls.append((url, kwargs))
+        return self.responses.pop(0)
+
+
 class FailureResponse:
     status_code = 429
 
@@ -59,6 +69,27 @@ class FlakyOffersStore(MemoryStore):
 
 
 class GeminiExtractionTests(unittest.TestCase):
+    def test_invalid_json_response_gets_one_constrained_retry(self):
+        valid = json.dumps([{
+            'name': 'چای', 'sale_price': 10000, 'price_type': 'unit',
+            'currency': 'IRT', 'confidence': 0.96,
+        }], ensure_ascii=False)
+        session = SequenceSession(['not-json', valid])
+        with patch.dict(os.environ, {'GOOGLE_API_KEY': 'test-key'}, clear=True):
+            products = extract_message_products('چای\nهر کیلو: ۱۰/۰۰۰ تومان',
+                                                '@supplier', session=session)
+        self.assertEqual(len(session.calls), 2)
+        self.assertEqual(products[0]['name'], 'چای')
+        retry_prompt = session.calls[1][1]['json']['contents'][0]['parts'][0]['text']
+        self.assertIn('previous response was not valid JSON', retry_prompt)
+
+    def test_invalid_json_after_retry_has_bounded_diagnostic(self):
+        session = SequenceSession(['not-json', 'still-not-json'])
+        with patch.dict(os.environ, {'GOOGLE_API_KEY': 'test-key'}, clear=True):
+            with self.assertRaisesRegex(GeminiError, 'after one retry'):
+                extract_message_products('supplier post', '@supplier', session=session)
+        self.assertEqual(len(session.calls), 2)
+
     def test_provider_http_failure_exposes_status_without_response_body(self):
         with patch.dict(os.environ, {'GOOGLE_API_KEY':'test-key'}, clear=True):
             with self.assertRaisesRegex(GeminiError, 'HTTP 429') as raised:

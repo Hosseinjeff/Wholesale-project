@@ -292,7 +292,7 @@ def _has_explicit_consumer_price_label(content, amount, source_context=None):
 
 
 def _array(response_text):
-    text = str(response_text or '').strip()
+    text = str(response_text or '').strip().lstrip('\ufeff')
     if text.startswith('```'):
         text = re.sub(r'^```(?:json)?\s*', '', text, flags=re.I)
         text = re.sub(r'\s*```$', '', text)
@@ -522,28 +522,43 @@ def extract_message_products(content, channel, *, session=None, api_key=None, mo
         'https://generativelanguage.googleapis.com/v1beta/models/'
         f'{quote(model, safe="-._")}:generateContent'
     )
-    try:
-        response = session.post(endpoint, headers={'x-goog-api-key': key}, timeout=(10, 60), json={
-            'contents': [{'parts': [{
-                'text': _MESSAGE_PROMPT + json.dumps(content, ensure_ascii=False)}]}],
-            'generationConfig':{
-                'temperature': 0,
-                'candidateCount': 1,
-                'maxOutputTokens': 8192,
-                'responseMimeType': 'application/json',
-            },
-        })
-    except Exception as exc:
-        raise GeminiError('Gemini request failed') from exc
-    if response.status_code != 200:
-        raise GeminiError(f'Gemini model {model} request failed (HTTP {response.status_code})')
-    try:
-        candidates = response.json()['candidates']
-        if len(candidates) != 1 or candidates[0].get('finishReason') != 'STOP':
-            raise GeminiError('Gemini extraction was incomplete or ambiguous')
-        parts = candidates[0]['content']['parts']
-        text = ''.join(
-            part['text'] for part in parts if part.get('text') and not part.get('thought'))
-    except (KeyError, TypeError, ValueError):
-        raise GeminiError('Gemini returned an invalid response') from None
-    return parse_message_products(text, content, channel)
+    for attempt in range(2):
+        prompt = _MESSAGE_PROMPT
+        if attempt:
+            prompt += (
+                '\nThe previous response was not valid JSON. Extract the products again '
+                'from the supplier message below. Return only a syntactically valid JSON '
+                'array, with correctly escaped strings and no markdown or surrounding text.'
+            )
+        try:
+            response = session.post(endpoint, headers={'x-goog-api-key': key}, timeout=(10, 60), json={
+                'contents': [{'parts': [{
+                    'text': prompt + json.dumps(content, ensure_ascii=False)}]}],
+                'generationConfig':{
+                    'temperature': 0,
+                    'candidateCount': 1,
+                    'maxOutputTokens': 8192,
+                    'responseMimeType': 'application/json',
+                },
+            })
+        except Exception as exc:
+            raise GeminiError('Gemini request failed') from exc
+        if response.status_code != 200:
+            raise GeminiError(f'Gemini model {model} request failed (HTTP {response.status_code})')
+        try:
+            candidates = response.json()['candidates']
+            if len(candidates) != 1 or candidates[0].get('finishReason') != 'STOP':
+                raise GeminiError('Gemini extraction was incomplete or ambiguous')
+            parts = candidates[0]['content']['parts']
+            text = ''.join(
+                part['text'] for part in parts if part.get('text') and not part.get('thought'))
+        except (KeyError, TypeError, ValueError):
+            raise GeminiError('Gemini returned an invalid response') from None
+        try:
+            return parse_message_products(text, content, channel)
+        except GeminiError as exc:
+            if attempt == 0 and str(exc) == 'Gemini returned invalid JSON':
+                continue
+            if str(exc) == 'Gemini returned invalid JSON':
+                raise GeminiError(f'Gemini model {model} returned invalid JSON after one retry') from None
+            raise
