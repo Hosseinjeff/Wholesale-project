@@ -13,10 +13,9 @@ now recovers those labeled values from the source even if Gemini omits them, and
 the flavor list into seven same-price variant records. A regression test stages all seven
 offers and verifies their prices and carton count survive into the owner-review data.
 
-This backend fix is committed and pushed as `c469e29`, but Railway still runs deployment
-`ce182584-7a2c-4812-ac97-fef8e9517d8f` from `3c0464e`. Its source has no branch attached,
-so the push did not deploy. An earlier automatic review rejected reattaching that service
-to moving `main`; the live source was not changed.
+This backend fix is committed as `c469e29` and is live through Railway deployment
+`463ecb86-0a74-484b-ab34-e07fa6108b7d` from `main` commit `cd272e9`. The `/health`
+endpoint returned HTTP 200 with `healthy`. The service is now attached to `main`.
 
 ## Variant extraction and owner cards — 2026-11-02
 
@@ -31,14 +30,10 @@ explicit prices. Flavor variants share one card only when the source,
 price, size, package format and review terms match. Unpriced or differently sized items
 remain separate.
 
-The Railway production service still runs successful deployment `ce182584-7a2c-4812-ac97-fef8e9517d8f`
-from commit `3c0464ec1aae196d84b12636b82d74c494e394ba`. Its GitHub source has no branch
-attached and no staged changes, so the new extraction prompt, deterministic adapter and
-backend variant-group response are not live yet. An automatic approval review rejected
-reattaching the production source to moving `main`; no workaround or alternate source
-change was attempted. The WordPress UI can already recover title attributes locally, but
-server-side grouping and prompt improvements require approval of that production source
-change.
+The Railway production service now runs successful deployment
+`463ecb86-0a74-484b-ab34-e07fa6108b7d` from `main` commit `cd272e9`. The WordPress UI
+deployment remains at `dea080c`; it groups matching flavor variants into one review card.
+The backend now supplies each listed flavor and its source-backed price/count fields.
 
 ## Product extraction and WP review persistence — 2026-11-02
 

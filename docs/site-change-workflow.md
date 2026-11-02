@@ -4,19 +4,19 @@ Updated: 2026-11-02, Asia/Tehran
 
 ## Latest live deployment — 2026-11-02
 
-Railway deployment `ce182584-7a2c-4812-ac97-fef8e9517d8f` succeeded from commit
-`3c0464ec1aae196d84b12636b82d74c494e394ba`; `/health` returned HTTP 200. The latest
+Railway deployment `463ecb86-0a74-484b-ab34-e07fa6108b7d` succeeded from commit
+`cd272e9a4d5e24166fcb8d5d0c4bf2b6de0f9970`; `/health` returned HTTP 200 and `healthy`.
+The production source now follows GitHub `main`. The latest
 WordPress plugin deployment is commit `dea080c531170e1fd90f384d7335fc2eca724b5c`; cPanel
 read-back verified the changed owner workflow JavaScript and CSS. The extraction adapter
-and review fields are pushed to `main`, but the Railway production service still
-runs `3c0464e`. Its source currently has no branch attached and no staged changes, so the
-prompt and backend response changes are not live yet. The WordPress UI includes local
-title parsing for the flavor, volume and Tetra Pak format while the API is pending.
+and review fields are pushed to `main` and are live. The WordPress UI includes local title
+parsing for the flavor, volume and Tetra Pak format; the Railway API now returns the
+source-backed prices, carton quantity and separate flavor records.
 The complete Son juice post is now covered by a regression test for its labeled supplier
 price, consumer price, carton quantity and seven flavors. See `project-handoff.md` for the
 correction and `pipeline-readiness.md` for the earlier queue snapshot and outstanding backlog.
-The latest backend source commit is `c469e29`; it is pushed to `main`, but it has not been
-deployed to Railway.
+The backend fix is in `c469e29`; deployment `463ecb86-0a74-484b-ab34-e07fa6108b7d` uses
+the subsequent documentation commit `cd272e9` on `main`.
 
 ## Source of truth
 
