@@ -3,12 +3,13 @@ import json
 import os
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
 from catalog.ai_confirmations import (
-    AIConfirmationLedger, ConfirmationConflict, apply_decision, review_cases,
-    review_case_id, validate_choice,
+    AIConfirmationLedger, ConfirmationConflict, apply_decision, case_reextraction_inventory,
+    review_cases, review_case_id, validate_choice,
 )
 from catalog.extract import MESSAGE_HEADERS, OFFER_HEADERS, PRODUCT_HEADERS
 from catalog.pricing import catalog_from_records, default_settings
@@ -117,13 +118,109 @@ class AIConfirmationTests(unittest.TestCase):
         cases = review_cases(self.store, self.ledger)
         self.assertEqual(len(cases), 1)
         case = cases[0]
-        self.assertEqual(case['duplicate_count'], 2)
+        self.assertFalse(case['historical_reextract'])
 
         decision = self.ledger.decide(case_id=case['case_id'], offer_id=case['offer_id'],
             signature=case['signature'], choice='confirm', fields=self.package_fields(),
             actor_id='wp:7', note='Verified once against the linked supplier post')
         apply_decision(self.store, self.ledger, case, decision)
         self.assertEqual(review_cases(self.store, self.ledger), [])
+
+    def test_open_case_reextraction_inventory_deduplicates_variants_by_source_post(self):
+        first = dict(self.source, **{'Offer ID':'batch-1:msg-1:1', 'Product Name':'Juice Mango',
+            'Variation Type':'Mango'})
+        second = dict(self.source, **{'Offer ID':'batch-1:msg-1:2', 'Product Name':'Juice Peach',
+            'Variation Type':'Peach'})
+        self.store.append('Offers', [
+            _row_from_map(OFFER_HEADERS, first), _row_from_map(OFFER_HEADERS, second)])
+
+        inventory = case_reextraction_inventory(self.store, self.ledger)
+
+        self.assertEqual(inventory['case_count'], 3)
+        self.assertEqual(inventory['message_count'], 1)
+        self.assertEqual(inventory['unmatched_case_ids'], [])
+        self.assertEqual(inventory['messages'][0]['case_count'], 3)
+        self.assertEqual(inventory['messages'][0]['source_message_id'], 'msg-1')
+
+    def test_reextraction_imports_clean_recent_result_and_closes_old_case(self):
+        from catalog.sync import reextract_saved_message
+        now = datetime.now(timezone.utc).isoformat()
+        content = 'Beans, price 100000 toman, consumer 150000 toman'
+        source = {**self.source, 'Offer ID':'batch-current:msg-current:0',
+            'Product Name':'Beans', 'Sale Price':0, 'Actual Price':150000,
+            'Price':'', 'Status':'needs_review', 'Review Reason':'low confidence',
+            'Message ID':'msg-current', 'Batch ID':'batch-current',
+            'Message Timestamp':now, 'Original Message':content,
+            'Source Post URL':'https://t.me/supplier/2'}
+        store = MemoryStore()
+        store.ensure('Offers', OFFER_HEADERS)
+        store.ensure('Products', PRODUCT_HEADERS)
+        store.ensure('MessageData', MESSAGE_HEADERS)
+        store.append('Offers', [_row_from_map(OFFER_HEADERS, source)])
+        store.append('MessageData', [_row_from_map(MESSAGE_HEADERS, {
+            'ID':'msg-current','Channel':'telegram','Channel Username':'@supplier',
+            'Content':content,'Timestamp':now,'URL':'https://t.me/supplier/2',
+            'Status':'product','Batch ID':'batch-current','AI Status':'needs_confirmation'})])
+        ledger = AIConfirmationLedger(self.path)
+        inventory = case_reextraction_inventory(store, ledger)
+        payload = {**inventory['messages'][0], 'run_id':'a' * 32, 'actor_id':'wp:7'}
+        extracted = [{'name':'Beans','sale_price':100000,'price':100000,
+            'actual_price':150000,'consumer_price':150000,'package_price':0,
+            'packaging':'','volume':'','weight':'','category':'Food','variation_type':'',
+            'currency':'IRT','stock_status':'Unknown','description':content,
+            'confidence':0.98,'extraction_confidence':0.98,'price_type':'unit'}]
+
+        with patch.dict(os.environ, {'PIPELINE_DB_PATH':self.path,'REFERENCE_STORE_PATH':''}), \
+                patch('catalog.sync._extract_supplier_products', return_value=extracted):
+            result = reextract_saved_message(store, payload)
+
+        self.assertEqual(result['status'], 'reprocessed')
+        self.assertEqual(result['offers_written'], 1)
+        self.assertEqual(result['open_cases_remaining'], 0)
+        self.assertEqual(review_cases(store, ledger), [])
+        self.assertEqual(len(store.read('Products')), 2)
+        self.assertEqual(ledger.source_reextractions()[payload['source_key']]['outcome'], 'products')
+        _, messages = _records(store.read('MessageData'))
+        self.assertEqual(messages[0]['AI Status'], 'ai_processed')
+
+    def test_historical_reextraction_keeps_price_out_of_current_book(self):
+        from catalog.sync import reextract_saved_message
+        timestamp = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+        content = 'Beans, price 100000 toman, consumer 150000 toman'
+        source = {**self.source, 'Offer ID':'batch-old:msg-old:0',
+            'Product Name':'Beans', 'Sale Price':0, 'Actual Price':150000,
+            'Price':'', 'Status':'needs_review', 'Review Reason':'low confidence',
+            'Message ID':'msg-old', 'Batch ID':'batch-old',
+            'Message Timestamp':timestamp, 'Original Message':content,
+            'Source Post URL':'https://t.me/supplier/3'}
+        store = MemoryStore()
+        store.ensure('Offers', OFFER_HEADERS)
+        store.ensure('Products', PRODUCT_HEADERS)
+        store.ensure('MessageData', MESSAGE_HEADERS)
+        store.append('Offers', [_row_from_map(OFFER_HEADERS, source)])
+        store.append('MessageData', [_row_from_map(MESSAGE_HEADERS, {
+            'ID':'msg-old','Channel':'telegram','Channel Username':'@supplier',
+            'Content':content,'Timestamp':timestamp,'URL':'https://t.me/supplier/3',
+            'Status':'product','Batch ID':'batch-old','AI Status':'needs_confirmation'})])
+        ledger = AIConfirmationLedger(self.path)
+        payload = {**case_reextraction_inventory(store, ledger)['messages'][0],
+            'run_id':'b' * 32,'actor_id':'wp:7'}
+        extracted = [{'name':'Beans','sale_price':100000,'price':100000,
+            'actual_price':150000,'consumer_price':150000,'package_price':0,
+            'packaging':'','volume':'','weight':'','category':'Food','variation_type':'',
+            'currency':'IRT','stock_status':'Unknown','description':content,
+            'confidence':0.98,'extraction_confidence':0.98,'price_type':'unit'}]
+
+        with patch.dict(os.environ, {'PIPELINE_DB_PATH':self.path,'REFERENCE_STORE_PATH':''}), \
+                patch('catalog.sync._extract_supplier_products', return_value=extracted):
+            result = reextract_saved_message(store, payload)
+
+        self.assertEqual(result['status'], 'reprocessed')
+        self.assertEqual(result['open_cases_remaining'], 1)
+        self.assertEqual(len(store.read('Products')), 1)
+        case = review_cases(store, ledger)[0]
+        self.assertTrue(case['historical_reextract'])
+        self.assertIn('Historical price needs current supplier verification', case['reason'])
 
     def test_unpriced_variants_are_not_grouped_as_same_price(self):
         first = dict(self.source, **{'Offer ID':'batch-1:msg-1:1', 'Product Name':'Juice Peach',
@@ -259,7 +356,7 @@ class AIConfirmationRouteTests(unittest.TestCase):
                 'Detected Price':100000,'Actual Price':150000,'Price Type':'needs_review',
                 'Currency':'IRT','Status':'needs_review','Review Reason':'Re-extraction result awaiting owner review',
                 'Stock Status':'Unknown','Package Count':12,'Min Qty':1,'Message ID':'message',
-                'Batch ID':'reextract:run','Message Timestamp':'2026-10-28T10:00:00Z',
+                'Batch ID':'reextract:run','Message Timestamp':'2026-09-28T10:00:00Z',
                 'Source Post URL':'https://t.me/supplier/1','Import Timestamp':'2026-10-28T10:01:00Z',
                 'Original Message':'Beans, 100000 toman'}
             store.append('Offers', [_row_from_map(OFFER_HEADERS, source)])

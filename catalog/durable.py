@@ -571,10 +571,16 @@ class Handoffs:
             return None
         items=[]
         counts={}
+        scope='saved_messages'
+        case_count=0
+        digest=''
         for row in rows:
             state=str(row['state'])
             counts[state]=counts.get(state,0)+1
             payload=json.loads(row['payload'])
+            scope=str(payload.get('reextraction_scope') or scope)
+            case_count+=int(payload.get('case_count') or 0)
+            digest=str(payload.get('reextraction_digest') or digest)
             result=json.loads(row['result']) if row['result'] else None
             items.append({'job_id':row['id'],'state':state,'error':row['error'] or '',
                           'result':result})
@@ -582,7 +588,8 @@ class Handoffs:
         complete=(counts.get('done',0)+counts.get('failed',0)+counts.get('needs_review',0)
                   +counts.get('cancelled',0))
         return {'run_id':run_id,'total':total,'completed':complete,'counts':counts,
-                'items':items,'state':'complete' if complete==total else 'running'}
+                'items':items,'scope':scope,'case_count':case_count,'digest':digest,
+                'state':'complete' if complete==total else 'running'}
 
     def cancel_reextraction(self, run_id, actor_id):
         if not isinstance(run_id,str) or not re.fullmatch(r'[a-f0-9]{32}',run_id):
@@ -608,7 +615,8 @@ class Handoffs:
         status=self.reextraction_status(run_id) if run_id else None
         if not status:
             return None
-        return {key:status[key] for key in ('run_id','state','total','completed','counts')}
+        return {key:status[key] for key in
+                ('run_id','state','total','completed','counts','scope','case_count','digest')}
 
     def receive(self, message):
         # Stable source/chat/message/revision identity; re-forward metadata does not create new work.

@@ -348,6 +348,15 @@ def _drain_reextraction_run(queue, run_id):
     if status:
         logger.info('Saved-message re-extraction run %s finished %s/%s jobs; states=%s',
                     run_id,status['completed'],status['total'],status['counts'])
+        written=sum(int((item.get('result') or {}).get('offers_written') or 0)
+                    for item in status['items'])
+        if written:
+            try:
+                publication_job=queue.put('publish',f'ai-reextraction:{run_id}',
+                    {'source':'ai_reextraction','run_id':run_id})
+                run_durable_handoff(queue,publication_job)
+            except Exception:
+                logger.exception('Could not publish catalog changes from re-extraction run %s',run_id)
 
 
 batch_manager = None
@@ -1964,7 +1973,8 @@ def ai_confirmations_route():
     """Owner review of uncertain AI supplier extracts; source Offers are append-only."""
     from catalog.ai_confirmations import (
         AIConfirmationLedger, ConfirmationConflict, apply_decision, find_case,
-        reextraction_inventory, reextraction_message_key, review_cases, validate_choice,
+        case_reextraction_inventory, reextraction_inventory, reextraction_message_key,
+        review_cases, validate_choice,
     )
     from catalog.gemini import ai_extraction_configured
     token = os.getenv('REFERENCE_BRIDGE_TOKEN') or ''
@@ -1982,12 +1992,19 @@ def ai_confirmations_route():
             reextract_action=request.args.get('reextract') or ''
             if reextract_action=='preview':
                 inventory=reextraction_inventory(store,ledger)
+                open_case_inventory=case_reextraction_inventory(store,ledger)
                 pending_digest=hashlib.sha256(json.dumps(
                     sorted(item['message_key'] for item in inventory['pending_messages']),
                     separators=(',',':')).encode()).hexdigest()
                 response=jsonify({'ok':True,'counts':inventory['counts'],
                     'ai_configured':ai_extraction_configured(),
                     'pending_digest':pending_digest,
+                    'open_cases':{
+                        'case_count':open_case_inventory['case_count'],
+                        'message_count':open_case_inventory['message_count'],
+                        'unmatched_case_count':len(open_case_inventory['unmatched_case_ids']),
+                        'digest':open_case_inventory['digest'],
+                    },
                     'active_run':queue.active_reextraction_run()})
                 response.headers['Cache-Control']='no-store'
                 return response
@@ -1998,16 +2015,28 @@ def ai_confirmations_route():
                     return jsonify({'ok':False,'error':'unknown_reextraction_run'}),404
                 outcomes={}
                 products_found=0
-                staged_offers=0
+                offers_written=0
+                open_cases_remaining=0
                 for item in status['items']:
                     result=item.get('result') or {}
                     outcome=str(result.get('status') or item.get('state') or 'unknown')
                     outcomes[outcome]=outcomes.get(outcome,0)+1
                     products_found+=int(result.get('products_found') or 0)
-                    staged_offers+=int(result.get('staged_offers') or 0)
+                    offers_written+=int(result.get('offers_written') or result.get('staged_offers') or 0)
+                    open_cases_remaining+=int(result.get('open_cases_remaining') or 0)
+                publication=queue.get(f'publish:ai-reextraction:{run_id}')
+                publication_state=str(publication.get('state') or '') if publication else ''
                 response=jsonify({'ok':True,'run_id':status['run_id'],'state':status['state'],
                     'total':status['total'],'completed':status['completed'],'counts':status['counts'],
-                    'outcomes':outcomes,'products_found':products_found,'staged_offers':staged_offers})
+                    'scope':status.get('scope') or 'saved_messages',
+                    'case_count':int(status.get('case_count') or 0),
+                    'digest':status.get('digest') or '',
+                    'outcomes':outcomes,'products_found':products_found,
+                    'offers_written':offers_written,'open_cases_remaining':open_cases_remaining,
+                    'catalog_publication':{
+                        'state':publication_state,
+                        'result':(publication.get('result') or {}) if publication else {},
+                    }})
                 response.headers['Cache-Control']='no-store'
                 return response
             cases, recent = review_cases(store, ledger, include_history=True)
@@ -2016,6 +2045,52 @@ def ai_confirmations_route():
             response.headers['Cache-Control'] = 'no-store'
             return response
         body = request.get_json(silent=True)
+        if isinstance(body,dict) and body.get('action')=='start_open_case_reextraction':
+            if set(body)!={'action','run_id','expected_case_count','expected_message_count','expected_digest'}:
+                return jsonify({'ok':False,'error':'invalid_reextraction_request'}),400
+            if not ai_extraction_configured():
+                return jsonify({'ok':False,'error':'ai_extraction_unconfigured'}),409
+            run_id=body.get('run_id')
+            if not isinstance(run_id,str) or not re.fullmatch(r'[a-f0-9]{32}',run_id):
+                return jsonify({'ok':False,'error':'invalid_reextraction_run'}),400
+            expected_cases=body.get('expected_case_count')
+            expected_messages=body.get('expected_message_count')
+            expected_digest=body.get('expected_digest')
+            if (isinstance(expected_cases,bool) or not isinstance(expected_cases,int) or expected_cases<1
+                    or isinstance(expected_messages,bool) or not isinstance(expected_messages,int)
+                    or expected_messages<1 or not isinstance(expected_digest,str)
+                    or not re.fullmatch(r'[a-f0-9]{64}',expected_digest)):
+                return jsonify({'ok':False,'error':'invalid_reextraction_count'}),400
+            try:
+                with queue.publication_lock():
+                    if queue.active_reextraction_run():
+                        return jsonify({'ok':False,'error':'reextraction_active'}),409
+                    inventory=case_reextraction_inventory(store,ledger)
+                    if (inventory['case_count']!=expected_cases
+                            or inventory['message_count']!=expected_messages
+                            or inventory['digest']!=expected_digest):
+                        return jsonify({'ok':False,'error':'reextraction_preview_changed',
+                            'current_case_count':inventory['case_count'],
+                            'current_message_count':inventory['message_count']}),409
+                    if inventory['unmatched_case_ids']:
+                        return jsonify({'ok':False,'error':'reextraction_sources_unavailable',
+                            'unmatched_case_count':len(inventory['unmatched_case_ids'])}),409
+                    selected=[{**item,'reextraction_scope':'open_cases',
+                        'reextraction_digest':inventory['digest']}
+                        for item in inventory['messages']]
+                    if not selected:
+                        return jsonify({'ok':False,'error':'no_reextraction_messages'}),409
+                    queued=queue.enqueue_reextraction(run_id,actor,selected)
+            except JobConflict as exc:
+                if str(exc).startswith('re-extraction run already active:'):
+                    return jsonify({'ok':False,'error':'reextraction_active'}),409
+                return jsonify({'ok':False,'error':'reextraction_conflict'}),409
+            threading.Thread(target=_drain_reextraction_run,args=(queue,run_id),
+                name='owner-open-case-reextract',daemon=True).start()
+            response=jsonify({'ok':True,'run_id':run_id,'queued':queued,
+                'case_count':expected_cases,'message_count':expected_messages,'scope':'open_cases'})
+            response.headers['Cache-Control']='no-store'
+            return response,202
         if isinstance(body,dict) and body.get('action')=='dismiss_pending_messages':
             if set(body)!={'action','expected_count','expected_digest','note'}:
                 return jsonify({'ok':False,'error':'invalid_dismissal_request'}),400
@@ -2146,7 +2221,8 @@ def ai_confirmations_route():
                         message_key=reextraction_message_key(message)
                         items.append({'message_id':message['message_id'],'batch_id':message['batch_id'],
                             'channel_username':message['channel_username'],'message_key':message_key,
-                            'content_sha256':content_sha256,'timestamp':message['timestamp']})
+                            'content_sha256':content_sha256,'timestamp':message['timestamp'],
+                            'reextraction_scope':body['scope']})
                     queued=queue.enqueue_reextraction(run_id,actor,items)
             except JobConflict as exc:
                 if str(exc).startswith('re-extraction run already active:'):

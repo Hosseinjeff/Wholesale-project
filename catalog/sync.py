@@ -17,6 +17,7 @@ import re
 import threading
 import time
 from contextlib import nullcontext
+from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import quote
 
@@ -789,6 +790,7 @@ def import_product_data(
     reference_snapshot=None,
     prepared_products: list[dict[str, Any]] | None = None,
     stage_for_review: bool = False,
+    defer_current_book: bool = False,
 ) -> dict[str, Any]:
     try:
         _fill_message_from_sheet(store, data)
@@ -804,7 +806,7 @@ def import_product_data(
 
         reference_headers = []
         store.ensure("Offers", OFFER_HEADERS + reference_headers)
-        if not stage_for_review:
+        if not stage_for_review and not defer_current_book:
             store.ensure("Products", PRODUCT_HEADERS)
         offer_headers = _headers(store, "Offers", OFFER_HEADERS + reference_headers)
         existing_offers = _read_sheet_if_present(store, "Offers")
@@ -882,13 +884,16 @@ def import_product_data(
             offer_rows.append(_row_from_map(offer_headers, fields))
             keys.append((product.get("name") or "", data.get("channel_username") or ""))
 
-        opening_rows = [] if stage_for_review else _opening_offer_rows(store, keys, offer_headers, existing_offers)
+        opening_rows = [] if stage_for_review or defer_current_book else _opening_offer_rows(store, keys, offer_headers, existing_offers)
         fresh_rows = _unseen_offer_rows(existing_offers, offer_headers, opening_rows + offer_rows)
         if fresh_rows:
             _append_at_next_row(store, "Offers", offer_headers, fresh_rows)
         if stage_for_review:
             return {"success": True, "products_found": len(products), "row": None,
                     "staged_for_review": True, "staged_offer_ids": staged_offer_ids}
+        if defer_current_book:
+            return {"success": True, "products_found": len(products), "row": None,
+                    "current_book_updated": False}
         last_row = _restore_current_book(store, _dedupe_keys(keys))
         _check_systemic_errors(store)
         return {"success": True, "products_found": len(products), "row": last_row}
@@ -898,7 +903,10 @@ def import_product_data(
 
 
 def reextract_saved_message(store, payload: dict[str, Any], *, write_lock=None) -> dict[str, Any]:
-    """Re-run current extraction rules for one saved message and stage offers for review."""
+    """Re-run extraction for one saved source and let quality checks decide review."""
+    from catalog.ai_confirmations import AIConfirmationLedger, reextraction_source_key, review_cases
+    from catalog.launch_policies import BLOCKING_AGE
+    from catalog.supplier_freshness import source_datetime
     message_id=str(payload.get('message_id') or '')
     batch_id=str(payload.get('batch_id') or '')
     channel_username=str(payload.get('channel_username') or '')
@@ -906,40 +914,113 @@ def reextract_saved_message(store, payload: dict[str, Any], *, write_lock=None) 
     expected_hash=str(payload.get('content_sha256') or '')
     if not message_id or not re.fullmatch(r'[a-f0-9]{64}',expected_hash):
         raise ValueError('invalid_source_identity')
-    rows=_read_sheet_if_present(store,'MessageData')
-    headers,messages=_records(rows)
-    matches=[]
-    for item in messages:
-        if str(item.get('ID') or '')!=message_id:
-            continue
-        if str(item.get('Batch ID') or '')!=batch_id:
-            continue
-        if str(item.get('Channel Username') or '')!=channel_username:
-            continue
-        if str(item.get('Timestamp') or '')!=timestamp:
-            continue
-        if hashlib.sha256(str(item.get('Content') or '').encode()).hexdigest()!=expected_hash:
-            continue
-        matches.append(item)
-    if len(matches)!=1:
-        return {'ok':True,'message_id':message_id,'status':'source_changed',
-                'products_found':0,'staged_offers':0}
-    source=matches[0]
     run_id=str(payload.get('run_id') or '')
     message_key=str(payload.get('message_key') or '')
     if not re.fullmatch(r'[a-f0-9]{32}',run_id) or not re.fullmatch(r'[a-f0-9]{64}',message_key):
         raise ValueError('invalid_re-extraction_run')
-    identity=json.dumps([message_id,batch_id,channel_username,expected_hash,timestamp],
-        ensure_ascii=False,separators=(',',':'))
-    if hashlib.sha256(identity.encode()).hexdigest()!=message_key:
-        raise ValueError('invalid_re-extraction_identity')
+    actor_id=str(payload.get('actor_id') or '')
+    if not actor_id:
+        raise ValueError('invalid_re-extraction_actor')
+
+    source_offer_id=str(payload.get('source_offer_id') or '')
+    if source_offer_id:
+        from catalog.ai_confirmations import (
+            _stable, case_reextraction_message_key,
+        )
+        _, offers=_records(_read_sheet_if_present(store,'Offers'))
+        matches=[item for item in offers if str(item.get('Offer ID') or '')==source_offer_id]
+        if len(matches)!=1:
+            return {'ok':True,'message_id':message_id,'status':'source_changed',
+                    'products_found':0,'offers_written':0,
+                    'open_cases_remaining':int(payload.get('case_count') or 0)}
+        offer=matches[0]
+        signature=str(payload.get('source_offer_signature') or '')
+        if (not re.fullmatch(r'[a-f0-9]{64}',signature)
+                or hashlib.sha256(_stable(offer)).hexdigest()!=signature):
+            return {'ok':True,'message_id':message_id,'status':'source_changed',
+                    'products_found':0,'offers_written':0,
+                    'open_cases_remaining':int(payload.get('case_count') or 0)}
+        content=str(offer.get('Original Message') or '')
+        if hashlib.sha256(content.encode()).hexdigest()!=expected_hash:
+            return {'ok':True,'message_id':message_id,'status':'source_changed',
+                    'products_found':0,'offers_written':0,
+                    'open_cases_remaining':int(payload.get('case_count') or 0)}
+        source_message_id=str(offer.get('Message ID') or '')
+        source_batch_id=str(offer.get('Batch ID') or '')
+        source_channel=str(offer.get('Channel') or '')
+        source_url=str(offer.get('Source Post URL') or '')
+        source_timestamp=str(offer.get('Message Timestamp') or '')
+        source_username=str(offer.get('Channel Username') or '')
+        computed_source_key=reextraction_source_key(
+            source_url=source_url,channel=source_username,message_id=source_message_id,
+            timestamp=source_timestamp,content=content)
+        if (computed_source_key!=payload.get('source_key')
+                or case_reextraction_message_key(source_key=computed_source_key,
+                    offer_id=source_offer_id,signature=signature,content_sha256=expected_hash,
+                    timestamp=source_timestamp)!=message_key
+                or source_message_id!=str(payload.get('source_message_id') or '')
+                or source_batch_id!=str(payload.get('source_batch_id') or '')):
+            return {'ok':True,'message_id':message_id,'status':'source_changed',
+                    'products_found':0,'offers_written':0,
+                    'open_cases_remaining':int(payload.get('case_count') or 0)}
+        source={
+            'ID':source_message_id,'Batch ID':source_batch_id,'Channel':source_channel,
+            'Channel Username':source_username,'Timestamp':source_timestamp,
+            'Content':content,'URL':source_url,'Forwarded By':offer.get('Forwarded By') or '',
+            'Image File ID':offer.get('Image File ID') or '',
+            'Image File Unique ID':offer.get('Image File Unique ID') or '',
+        }
+        message_id=source_message_id or source_offer_id
+        batch_id=source_batch_id
+        channel_username=source_username
+        timestamp=source_timestamp
+        source_key=computed_source_key
+    else:
+        rows=_read_sheet_if_present(store,'MessageData')
+        _,messages=_records(rows)
+        matches=[]
+        for item in messages:
+            if str(item.get('ID') or '')!=message_id:
+                continue
+            if str(item.get('Batch ID') or '')!=batch_id:
+                continue
+            if str(item.get('Channel Username') or '')!=channel_username:
+                continue
+            if str(item.get('Timestamp') or '')!=timestamp:
+                continue
+            if hashlib.sha256(str(item.get('Content') or '').encode()).hexdigest()!=expected_hash:
+                continue
+            matches.append(item)
+        if len(matches)!=1:
+            return {'ok':True,'message_id':message_id,'status':'source_changed',
+                    'products_found':0,'offers_written':0,'open_cases_remaining':0}
+        source=matches[0]
+        identity=json.dumps([message_id,batch_id,channel_username,expected_hash,timestamp],
+            ensure_ascii=False,separators=(',',':'))
+        if hashlib.sha256(identity.encode()).hexdigest()!=message_key:
+            raise ValueError('invalid_re-extraction_identity')
+        source_key=reextraction_source_key(
+            source_url=source.get('URL'),channel=channel_username,message_id=message_id,
+            timestamp=timestamp,content=source.get('Content'))
+
     content=str(source.get('Content') or '')
     if not content.strip():
-        return {'ok':True,'message_id':message_id,'status':'no_text','products_found':0,'staged_offers':0}
+        return {'ok':True,'message_id':message_id,'status':'no_text','products_found':0,
+                'offers_written':0,'open_cases_remaining':0}
     products=_extract_supplier_products(content,channel_username)
     if not products:
-        return {'ok':True,'message_id':message_id,'status':'no_products','products_found':0,'staged_offers':0}
+        return {'ok':True,'message_id':message_id,'status':'no_products','products_found':0,
+                'offers_written':0,'open_cases_remaining':int(payload.get('case_count') or 0)}
     stage_batch_id=f'reextract:{run_id}:{message_key}'
+    source_stamp=source_datetime(source.get('Timestamp'))
+    now=datetime.now(timezone.utc)
+    historical=(source_stamp is None or source_stamp>now or now-source_stamp>=BLOCKING_AGE)
+    if historical:
+        for product in products:
+            product['needs_review']=True
+            prior_reason=str(product.get('review_reason') or '').strip()
+            product['review_reason']='; '.join(part for part in
+                (prior_reason,'Historical price needs current supplier verification') if part)
     data={
         'id':message_id,'batch_id':stage_batch_id,'channel':source.get('Channel') or '',
         'channel_username':channel_username,'content':content,'timestamp':source.get('Timestamp') or '',
@@ -951,12 +1032,37 @@ def reextract_saved_message(store, payload: dict[str, Any], *, write_lock=None) 
     lock_context=write_lock or nullcontext()
     with lock_context:
         with _WRITE_LOCK:
-            result=import_product_data(store,data,prepared_products=products,stage_for_review=True)
-    if not result.get('success') or result.get('staged_for_review') is not True:
-        raise RuntimeError('re-extraction staging failed')
-    return {'ok':True,'message_id':message_id,'status':'staged_for_review',
+            result=import_product_data(store,data,prepared_products=products,
+                defer_current_book=historical)
+    if not result.get('success'):
+        raise RuntimeError('re-extraction import failed')
+    if int(result.get('products_found') or 0)<=0:
+        return {'ok':True,'message_id':message_id,'status':'no_products','products_found':0,
+                'offers_written':0,'open_cases_remaining':int(payload.get('case_count') or 0)}
+    ledger=AIConfirmationLedger(os.getenv('PIPELINE_DB_PATH') or 'pipeline.sqlite')
+    ledger.record_source_reextraction(source_key=source_key,batch_id=stage_batch_id,
+        outcome='products',run_id=run_id,actor_id=actor_id)
+    source_cases=[]
+    for case in review_cases(store,ledger,limit=1000):
+        case_source_key=reextraction_source_key(
+            source_url=case.get('source_post_url'),channel=case.get('channel'),
+            message_id=case.get('message_id'),timestamp=case.get('message_timestamp'),
+            content=case.get('original_message'))
+        if case_source_key==source_key:
+            source_cases.append(case)
+    try:
+        from catalog.sync import _write_ai_message_status
+        _write_ai_message_status(store,{'id':source_message_id if source_offer_id else message_id,
+            'batch_id':source_batch_id if source_offer_id else batch_id,
+            'channel':source_channel if source_offer_id else str(source.get('Channel') or '')},
+            'needs_confirmation' if source_cases else 'ai_processed',
+            [case['case_id'] for case in source_cases])
+    except Exception:
+        logger.exception('Could not persist source status after re-extraction')
+    return {'ok':True,'message_id':message_id,'status':'reprocessed',
             'products_found':int(result.get('products_found') or 0),
-            'staged_offers':len(result.get('staged_offer_ids') or [])}
+            'offers_written':int(result.get('products_found') or 0),
+            'open_cases_remaining':len(source_cases),'source_key':source_key}
 
 
 _SYSTEM_ITEM_FIELDS = {

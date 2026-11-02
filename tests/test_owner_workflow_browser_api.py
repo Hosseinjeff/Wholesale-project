@@ -112,6 +112,72 @@ class OwnerWorkflowBrowserAPITests(unittest.TestCase):
         self.assertEqual(worker.call_args.kwargs.get('target'), server._drain_reextraction_run)
         worker.return_value.start.assert_called_once()
 
+    def test_open_case_reextraction_queues_each_original_supplier_post_once(self):
+        import app as server
+        from catalog.ai_confirmations import AIConfirmationLedger
+        from catalog.extract import MESSAGE_HEADERS, OFFER_HEADERS, PRODUCT_HEADERS
+        from catalog.sync import MemoryStore, _row_from_map
+        queue = Handoffs(self.db_path)
+        store = MemoryStore()
+        store.ensure('MessageData', MESSAGE_HEADERS)
+        store.ensure('Offers', OFFER_HEADERS)
+        store.ensure('Products', PRODUCT_HEADERS)
+        message = {
+            'ID':'message-1','Channel':'telegram','Channel Username':'@supplier',
+            'Content':'Juice mango and peach, price 100000 toman',
+            'Timestamp':'2026-11-01T10:00:00Z','URL':'https://t.me/supplier/1',
+            'Batch ID':'batch-1','AI Status':'needs_confirmation',
+        }
+        base_offer = {
+            'Product Name':'Juice mango','Channel':'telegram','Channel Username':'@supplier',
+            'Sale Price':100000,'Actual Price':150000,'Price Type':'unit','Currency':'IRT',
+            'Status':'needs_review','Review Reason':'low confidence','Stock Status':'Unknown',
+            'Message ID':'message-1','Batch ID':'batch-1',
+            'Message Timestamp':'2026-11-01T10:00:00Z','Source Post URL':'https://t.me/supplier/1',
+            'Original Message':message['Content'],
+        }
+        store.append('MessageData', [_row_from_map(MESSAGE_HEADERS, message)])
+        store.append('Offers', [
+            _row_from_map(OFFER_HEADERS, {**base_offer,'Offer ID':'batch-1:message-1:0'}),
+            _row_from_map(OFFER_HEADERS, {**base_offer,'Offer ID':'batch-1:message-1:1',
+                'Product Name':'Juice peach','Variation Type':'Peach'}),
+        ])
+        env = {'PIPELINE_DB_PATH':self.db_path,'REFERENCE_STORE_PATH':self.reference_path,
+               'REFERENCE_OWNER_IDS':'wp:7','REFERENCE_BRIDGE_TOKEN':self.secret,
+               'GOOGLE_API_KEY':'test-api-key'}
+        headers = {'Authorization':'Bearer '+owner_token(self.secret,
+            scope='owner:/pipeline/ai-confirmations')}
+        with patch.dict(os.environ, env), patch.object(server, 'USE_SHEETS', True), \
+                patch.object(server, 'handoff_queue', return_value=queue), \
+                patch.object(server, 'build_store', return_value=store), \
+                patch.object(server.threading, 'Thread') as worker:
+            client=server.app.test_client()
+            preview=client.get('/pipeline/ai-confirmations?reextract=preview',headers=headers)
+            self.assertEqual(preview.status_code,200,preview.get_json())
+            open_cases=preview.get_json()['open_cases']
+            self.assertEqual(open_cases['case_count'],2)
+            self.assertEqual(open_cases['message_count'],1)
+            response=client.post('/pipeline/ai-confirmations',json={
+                'action':'start_open_case_reextraction','run_id':'c'*32,
+                'expected_case_count':2,'expected_message_count':1,
+                'expected_digest':open_cases['digest'],
+            },headers=headers)
+        self.assertEqual(response.status_code,202,response.get_json())
+        self.assertEqual(response.get_json()['queued'],1)
+        status=queue.reextraction_status('c'*32)
+        self.assertEqual(status['total'],1)
+        self.assertEqual(status['scope'],'open_cases')
+        self.assertEqual(status['case_count'],2)
+        self.assertEqual(status['digest'],open_cases['digest'])
+        with queue.connect() as db:
+            payload=json.loads(db.execute('SELECT payload FROM jobs WHERE id LIKE ?',
+                ('reextract:'+'c'*32+':%',)).fetchone()['payload'])
+        self.assertIn(payload['source_offer_id'],
+            {'batch-1:message-1:0','batch-1:message-1:1'})
+        self.assertEqual(payload['case_count'],2)
+        worker.assert_called_once()
+        worker.return_value.start.assert_called_once()
+
     def test_item_review_empty_reference_state_has_complete_response_shape(self):
         import app as server
         queue = Handoffs(self.db_path)

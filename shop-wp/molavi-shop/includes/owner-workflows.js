@@ -66,6 +66,7 @@
             ai_extraction_disabled: 'برای استفاده از استخراج فقط با هوش مصنوعی، ابتدا سرویس سرور را به‌روزرسانی کنید.',
             ai_extraction_unconfigured: 'برای استخراج کالا، کلید GOOGLE_API_KEY را در تنظیمات سرویس اجرا تنظیم کنید.',
             unknown_reextraction_run: 'اجرای بازاستخراج پیدا نشد؛ فهرست را تازه کنید.',
+            reextraction_sources_unavailable: 'بعضی کارت‌ها به پیام اصلی متصل نیستند؛ چیزی اجرا نشد تا منبع همه موارد مشخص شود.',
             reextraction_conflict: 'صف بازاستخراج تغییر کرده است؛ صفحه را تازه کنید و دوباره تلاش کنید.',
             reextraction_price_not_verified: 'برای تأیید قیمت بازاستخراج‌شده، تازگی آن را در منبع فعلی تأیید کنید.'
         };
@@ -127,6 +128,15 @@
     }
 
     function storedReviewContext(type, context) {
+        if (type === 'ai_reextraction' && context && typeof context === 'object') {
+            return {
+                run_id:String(context.run_id || '').slice(0, 64),
+                scope:String(context.scope || 'open_cases').slice(0, 40),
+                case_count:Math.max(0, Math.min(10000, Number(context.case_count) || 0)),
+                message_count:Math.max(0, Math.min(10000, Number(context.message_count) || 0)),
+                digest:String(context.digest || '').slice(0, 64)
+            };
+        }
         if (type === 'ai_confirmation' && context && typeof context === 'object') {
             const source = String(context.original_message || '');
             const characters = Array.from(source);
@@ -1101,7 +1111,7 @@
         return config.apiUrl + '?' + params.toString();
     }
 
-    async function showReextractionProgress(panel, runId) {
+    async function showReextractionProgress(panel, runId, auditContext = {}) {
         if (!root.contains(panel)) return;
         try {
             const status = await request('GET', undefined, reextractionUrl('run', runId));
@@ -1113,12 +1123,37 @@
             box.classList.add('molavi-reextract-progress');
             if (status.state === 'complete') {
                 const outcomes = status.outcomes || {};
-                box.appendChild(node('p', `پیشنهادهای آماده بررسی: ${status.staged_offers || 0} · پیام بدون کالای قابل استخراج: ${outcomes.no_products || 0}`));
+                box.appendChild(node('p', `کالاهای استخراج‌شده: ${status.products_found || 0} · ردیف‌های ثبت‌شده: ${status.offers_written || 0} · موارد باقی‌مانده برای بررسی: ${status.open_cases_remaining || 0} · پیام بدون نتیجه: ${outcomes.no_products || 0}`));
+                const publicationState = String((status.catalog_publication || {}).state || '');
+                if (status.offers_written > 0) {
+                    const publicationLabel = publicationState === 'done' ? 'همگام‌سازی با وردپرس کامل شد.'
+                        : publicationState === 'waiting_publication' ? 'همگام‌سازی وردپرس پشت توقف انتشار منتظر بررسی است.'
+                        : publicationState === 'failed' ? 'همگام‌سازی وردپرس ناموفق ماند؛ خطای صف انتشار را بررسی کنید.'
+                        : publicationState ? 'همگام‌سازی تغییرها با وردپرس در صف است.'
+                        : 'تغییر محصولی برای همگام‌سازی با وردپرس ثبت نشد.';
+                    box.appendChild(node('p', publicationLabel, publicationState === 'done' ? '' : 'notice'));
+                }
                 if (outcomes.source_changed) box.appendChild(node('p', `${outcomes.source_changed} پیام پس از پیش‌نمایش تغییر کرده یا چند نسخه مبهم داشته؛ نتیجه‌ای برای آن‌ها ثبت نشد. پیش‌نمایش را تازه کنید و دوباره اجرا کنید.`, 'notice'));
                 if (counts.cancelled) box.appendChild(node('p', 'کارهای در صف لغو شدند؛ پیامِ در حال اجرا ممکن است کامل شده باشد.'));
-                box.appendChild(node('p', 'نتیجه‌ها به‌صورت پیشنهاد بررسی ثبت شده‌اند؛ برای تصمیم درباره هر مورد، همین فهرست را پایین صفحه ببینید.'));
+                box.appendChild(node('p', 'نتیجه‌های روشن و تازه با کنترل کیفیت ثبت شدند؛ موردهای نامطمئن و قیمت‌های قدیمی در همین فهرست برای بررسی می‌مانند.'));
                 if (counts.failed) box.appendChild(node('p', 'پیام‌های ناموفق را پس از بررسی صف می‌توانید با اجرای دوباره گروه مربوط پردازش کنید.'));
-                setTimeout(() => aiConfirmations(counts.failed ? 'بازاستخراج تمام شد؛ بخشی از پیام‌ها ناموفق ماند.' : 'بازاستخراج تمام شد؛ پیشنهادها برای بررسی مالک آماده‌اند.', counts.failed ? 'warning' : 'success'), 1200);
+                if (auditContext && auditContext.run_id && !panel.dataset.reextractAuditSaved) {
+                    panel.dataset.reextractAuditSaved = '1';
+                    try {
+                        const eventId = 'reextraction-run:' + runId;
+                        await persistOwnerReviews([reviewRecord(eventId, 'ai_reextraction', runId,
+                            counts.failed ? 'failed' : 'accepted', auditContext,
+                            {action:'reprocess_open_extraction_cases'}, {
+                                state:status.state, total, completed:finished, outcomes,
+                                products_found:Number(status.products_found || 0),
+                                offers_written:Number(status.offers_written || 0),
+                                open_cases_remaining:Number(status.open_cases_remaining || 0)
+                            })]);
+                    } catch (_error) {
+                        box.appendChild(notice('نتیجه پردازش انجام شد اما ثبت گزارش آن در پایگاه داده وردپرس ناموفق بود.', 'error'));
+                    }
+                }
+                setTimeout(() => aiConfirmations(counts.failed ? 'بازاستخراج تمام شد؛ بخشی از پیام‌ها ناموفق ماند.' : 'بازاستخراج تمام شد؛ موردهای نامطمئن باقی‌مانده برای بررسی نمایش داده می‌شوند.', counts.failed ? 'warning' : 'success'), 1200);
                 return;
             }
             const cancel = node('button', 'توقف پیام‌های باقی‌مانده', 'button');
@@ -1135,7 +1170,7 @@
                 }
             });
             box.appendChild(cancel);
-            setTimeout(() => showReextractionProgress(panel, runId), 3500);
+            setTimeout(() => showReextractionProgress(panel, runId, auditContext), 3500);
         } catch (error) {
             panel.querySelector('.molavi-reextract-progress')?.replaceWith(notice(errorText(error.message), 'error'));
         }
@@ -1144,14 +1179,19 @@
     async function reextractionPanel(panel) {
         panel.className = 'card molavi-reextract-panel';
         panel.appendChild(node('h2', 'بازاستخراج پیام‌های ذخیره‌شده'));
-        panel.appendChild(node('p', 'پیام‌های قبلی را با قواعد فعلی استخراج دوباره پردازش کنید. خروجی فقط به پیشنهادهای نیازمند بررسی مالک افزوده می‌شود؛ تا تأیید موردی، فهرست فعلی کالاها و انتشار تغییر نمی‌کند.'));
+        panel.appendChild(node('p', 'پیام اصلی هر کارت دوباره استخراج می‌شود. نتیجه‌های روشن پس از کنترل کیفیت ثبت می‌شوند؛ موارد نامطمئن برای بررسی می‌مانند و قیمت‌های قدیمی‌تر از ۱۴ روز بدون تأیید منبع فعلی وارد محصول جاری نمی‌شوند.'));
         try {
             const preview = await request('GET', undefined, reextractionUrl('preview'));
             const counts = preview.counts || {};
+            const openCases = preview.open_cases || {};
             const supportsAiOnly = typeof preview.ai_configured === 'boolean';
             const aiConfigured = supportsAiOnly && preview.ai_configured;
             panel.appendChild(node('p', `در صف بررسی: ${counts.pending || 0} پیام · همه پیام‌های متنی آماده: ${counts.all_available || 0}`));
-            panel.appendChild(node('p', `پیام‌های بدون متن: ${counts.without_text || 0} · تصمیم‌های مالک حفظ‌شده: ${counts.owner_decisions_preserved || 0} · موارد «کالا نیست» حفظ‌شده: ${counts.not_product_preserved || 0} · ردشده توسط مالک: ${counts.dismissed_by_owner || 0} · قبلاً بازاستخراج‌شده و هنوز در بررسی: ${counts.already_staged || 0}`));
+            panel.appendChild(node('p', `کارت‌های باز استخراج: ${openCases.case_count || 0} · پیام‌های اصلی یکتا: ${openCases.message_count || 0} · قبلاً بازاستخراج‌شده: ${counts.already_reprocessed || 0}`));
+            panel.appendChild(node('p', `پیام‌های بدون متن: ${counts.without_text || 0} · تصمیم‌های مالک حفظ‌شده: ${counts.owner_decisions_preserved || 0} · موارد «کالا نیست» حفظ‌شده: ${counts.not_product_preserved || 0} · ردشده توسط مالک: ${counts.dismissed_by_owner || 0} · قبلاً در صف بررسی بازاستخراج‌شده: ${counts.already_staged || 0}`));
+            if (openCases.unmatched_case_count > 0) {
+                panel.appendChild(notice(`${openCases.unmatched_case_count} کارت به متن پیام اصلی وصل نیست و در بازاستخراج گروهی وارد نمی‌شود.`, 'warning'));
+            }
             if (!supportsAiOnly) {
                 panel.appendChild(notice('نسخه سرویس سرور هنوز از استخراج فقط با هوش مصنوعی پشتیبانی نمی‌کند؛ ابتدا سرور را به‌روزرسانی کنید.', 'error'));
             } else if (!aiConfigured) {
@@ -1161,20 +1201,29 @@
                 const progress = notice('در حال آماده‌سازی وضعیت بازاستخراج…', 'info');
                 progress.classList.add('molavi-reextract-progress');
                 panel.appendChild(progress);
-                showReextractionProgress(panel, preview.active_run.run_id);
+                const activeAudit = preview.active_run.scope === 'open_cases' ? {
+                    run_id:preview.active_run.run_id, scope:'open_cases',
+                    case_count:Number(preview.active_run.case_count || 0),
+                    message_count:Number(preview.active_run.total || 0),
+                    digest:String(preview.active_run.digest || '')
+                } : {};
+                showReextractionProgress(panel, preview.active_run.run_id, activeAudit);
                 return;
             }
             const controls = node('div', null, 'molavi-reextract-actions');
+            const openCasesButton = node('button', `بازاستخراج همه کارت‌های باز (${openCases.case_count || 0} کارت · ${openCases.message_count || 0} پیام)`, 'button button-primary');
             const pendingButton = node('button', `بازاستخراج پیام‌های در صف بررسی (${counts.pending || 0})`, 'button button-primary');
             const allButton = node('button', `بازاستخراج همه پیام‌های ذخیره‌شده (${counts.all_available || 0})`, 'button');
             const dismissButton = node('button', `ردّ گروهی پیام‌های منتظر (${counts.pending || 0})`, 'button');
-            pendingButton.type = 'button'; allButton.type = 'button'; dismissButton.type = 'button';
+            openCasesButton.type = 'button'; pendingButton.type = 'button'; allButton.type = 'button'; dismissButton.type = 'button';
+            openCasesButton.disabled = !aiConfigured || !(openCases.case_count > 0)
+                || Number(openCases.unmatched_case_count || 0) > 0;
             pendingButton.disabled = !aiConfigured || !(counts.pending > 0);
             allButton.disabled = !aiConfigured || !(counts.all_available > 0);
             dismissButton.disabled = !supportsAiOnly || !(counts.pending > 0);
             async function start(button, scope, count) {
                 const label = scope === 'all' ? 'همه پیام‌های متنی ذخیره‌شده و فاقد تصمیم نهایی مالک' : 'پیام‌هایی که هنوز در صف بررسی یا پردازش هستند';
-                const warning = `قرار است ${count} پیام از ${label} با قواعد فعلی دوباره پردازش شوند. هر خروجی به‌صورت پیشنهاد نیازمند بررسی ثبت می‌شود و هیچ کالایی خودکار منتشر نمی‌شود. ادامه می‌دهید؟`;
+                const warning = `قرار است ${count} پیام از ${label} با قواعد فعلی دوباره پردازش شوند. نتیجه‌های روشن پس از کنترل کیفیت ثبت می‌شوند و موارد نامطمئن در بررسی می‌مانند. ادامه می‌دهید؟`;
                 if (!window.confirm(warning)) return;
                 pendingButton.disabled = true; allButton.disabled = true;
                 try {
@@ -1190,6 +1239,55 @@
                     allButton.disabled = !(counts.all_available > 0);
                 }
             }
+            openCasesButton.addEventListener('click', async () => {
+                const caseCount = Number(openCases.case_count || 0);
+                const messageCount = Number(openCases.message_count || 0);
+                if (!caseCount || !window.confirm(`پیام اصلی ${messageCount} مورد، شامل ${caseCount} کارت باز، دوباره استخراج می‌شود. نتیجه‌های روشن از کنترل کیفیت عبور می‌کنند و موارد نامطمئن برای بررسی می‌مانند. شروع شود؟`)) return;
+                const bytes = new Uint8Array(16);
+                if (window.crypto && window.crypto.getRandomValues) window.crypto.getRandomValues(bytes);
+                else for (let index=0; index<bytes.length; index++) bytes[index]=Math.floor(Math.random()*256);
+                const runId = Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('');
+                const auditContext = {run_id:runId, scope:'open_cases', case_count:caseCount,
+                    message_count:messageCount, digest:String(openCases.digest || '')};
+                const eventId = 'reextraction-run:' + runId;
+                openCasesButton.disabled = true;
+                try {
+                    await persistOwnerReviews([reviewRecord(eventId, 'ai_reextraction', runId,
+                        'pending', auditContext, {action:'reprocess_open_extraction_cases'}, {})]);
+                } catch (error) {
+                    panel.appendChild(notice(errorText(error.message), 'error'));
+                    openCasesButton.disabled = false;
+                    return;
+                }
+                let receipt;
+                try {
+                    receipt = await request('POST', {action:'start_open_case_reextraction',
+                        run_id:runId, expected_case_count:caseCount,
+                        expected_message_count:messageCount, expected_digest:auditContext.digest});
+                    if (receipt.run_id !== runId || receipt.queued !== messageCount
+                        || receipt.case_count !== caseCount) throw new Error('invalid_receipt');
+                } catch (error) {
+                    try {
+                        await persistOwnerReviews([reviewRecord(eventId, 'ai_reextraction', runId,
+                            'failed', auditContext, {action:'reprocess_open_extraction_cases'},
+                            {error:String(error.message || 'request_failed')})]);
+                    } catch (_auditError) { /* Keep the API error visible. */ }
+                    panel.appendChild(notice(errorText(error.message), 'error'));
+                    openCasesButton.disabled = !(openCases.case_count > 0)
+                        || Number(openCases.unmatched_case_count || 0) > 0;
+                    return;
+                }
+                let auditWarning = false;
+                try {
+                    await persistOwnerReviews([reviewRecord(eventId, 'ai_reextraction', runId,
+                        'accepted', auditContext, {action:'reprocess_open_extraction_cases'}, receipt)]);
+                } catch (_error) { auditWarning = true; }
+                const progress = notice('بازاستخراج پیام‌های اصلی در صف قرار گرفت…', 'info');
+                progress.classList.add('molavi-reextract-progress');
+                if (auditWarning) progress.appendChild(node('p', 'اجرا در صف است، اما ثبت رسید اولیه در پایگاه داده وردپرس ناموفق بود؛ نتیجه نهایی در تلاش بعدی دوباره ذخیره می‌شود.', 'notice'));
+                controls.replaceWith(progress);
+                showReextractionProgress(panel, runId, auditContext);
+            });
             pendingButton.addEventListener('click', () => start(pendingButton, 'pending', counts.pending));
             allButton.addEventListener('click', () => start(allButton, 'all', counts.all_available));
             dismissButton.addEventListener('click', async () => {
@@ -1208,7 +1306,7 @@
                     dismissButton.disabled = !(counts.pending > 0);
                 }
             });
-            controls.append(pendingButton, allButton, dismissButton);
+            controls.append(openCasesButton, pendingButton, allButton, dismissButton);
             panel.appendChild(controls);
         } catch (error) {
             panel.appendChild(notice(errorText(error.message), 'error'));
@@ -1216,7 +1314,7 @@
     }
 
     async function aiConfirmations(message = '', messageKind = 'info') {
-        shell('تأیید استخراج کالا', 'مشخصات نامطمئن را با متن پیام اصلی بررسی کنید. تا ثبت تصمیم مالک، این پیشنهادها در فروشگاه منتشر نمی‌شوند.');
+        shell('تأیید استخراج کالا', 'موارد نامطمئن را با پیام اصلی بررسی کنید؛ قیمت‌های قدیمی تا تأیید منبع فعلی از فهرست کالای جاری کنار می‌مانند.');
         if (message) root.appendChild(notice(message, messageKind));
         const reextract = node('section');
         root.appendChild(reextract);

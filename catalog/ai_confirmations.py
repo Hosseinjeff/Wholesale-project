@@ -9,6 +9,7 @@ import sqlite3
 import time
 import unicodedata
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -33,6 +34,9 @@ class AIConfirmationLedger:
                 channel_username TEXT NOT NULL, source_timestamp TEXT NOT NULL,
                 content_sha256 TEXT NOT NULL, actor_id TEXT NOT NULL, note TEXT NOT NULL,
                 created_at REAL NOT NULL)''')
+            db.execute('''CREATE TABLE IF NOT EXISTS ai_source_reextractions (
+                source_key TEXT PRIMARY KEY, batch_id TEXT NOT NULL, outcome TEXT NOT NULL,
+                run_id TEXT NOT NULL, actor_id TEXT NOT NULL, completed_at REAL NOT NULL)''')
         os.chmod(self.path, 0o600)
 
     @contextmanager
@@ -82,6 +86,26 @@ class AIConfirmationLedger:
         with self.connect() as db:
             rows = db.execute('SELECT message_key FROM ai_message_dismissals').fetchall()
         return {str(row['message_key']) for row in rows}
+
+    def record_source_reextraction(self, *, source_key, batch_id, outcome, run_id, actor_id):
+        if (not isinstance(source_key, str) or not re.fullmatch(r'[a-f0-9]{64}', source_key)
+                or not isinstance(batch_id, str) or not batch_id.startswith('reextract:')
+                or outcome not in {'products', 'no_products'}
+                or not isinstance(run_id, str) or not re.fullmatch(r'[a-f0-9]{32}', run_id)
+                or not isinstance(actor_id, str) or not actor_id.strip()):
+            raise ValueError('invalid source re-extraction receipt')
+        with self.connect() as db:
+            db.execute('''INSERT INTO ai_source_reextractions
+                (source_key,batch_id,outcome,run_id,actor_id,completed_at) VALUES (?,?,?,?,?,?)
+                ON CONFLICT(source_key) DO UPDATE SET batch_id=excluded.batch_id,
+                outcome=excluded.outcome,run_id=excluded.run_id,actor_id=excluded.actor_id,
+                completed_at=excluded.completed_at''',
+                (source_key, batch_id, outcome, run_id, actor_id, time.time()))
+
+    def source_reextractions(self):
+        with self.connect() as db:
+            rows = db.execute('SELECT * FROM ai_source_reextractions').fetchall()
+        return {str(row['source_key']): dict(row) for row in rows}
 
     def dismiss_message(self, message, *, actor_id, note=''):
         return self.dismiss_messages([message], actor_id=actor_id, note=note)[0]
@@ -180,6 +204,16 @@ def _reference_only(reason):
     return bool(reasons) and all(part.startswith('reference:') for part in reasons)
 
 
+def _historical_reextraction(offer):
+    if not str(offer.get('Batch ID') or '').startswith('reextract:'):
+        return False
+    from catalog.launch_policies import BLOCKING_AGE
+    from catalog.supplier_freshness import source_datetime
+    stamp = source_datetime(offer.get('Message Timestamp'))
+    now = datetime.now(timezone.utc)
+    return stamp is None or stamp > now or now - stamp >= BLOCKING_AGE
+
+
 def _as_case(offer, ledger, *, include_decided=False):
     offer_id = str(offer.get('Offer ID') or '')
     if not offer_id:
@@ -205,7 +239,7 @@ def _as_case(offer, ledger, *, include_decided=False):
         'channel': str(offer.get('Channel Username') or ''),
         'source_channel': str(offer.get('Channel') or ''),
         'batch_id': str(offer.get('Batch ID') or ''),
-        'historical_reextract': str(offer.get('Batch ID') or '').startswith('reextract:'),
+        'historical_reextract': _historical_reextraction(offer),
         'message_id': str(offer.get('Message ID') or ''),
         'message_timestamp': str(offer.get('Message Timestamp') or ''),
         'source_post_url': str(offer.get('Source Post URL') or ''),
@@ -318,15 +352,11 @@ def _duplicate_source_offer_key(offer):
     identity = [
         canonical_url, title, original,
         normalized(offer.get('Channel Username')), normalized(offer.get('Channel')),
-        normalized(offer.get('Review Reason')),
         normalized(offer.get('Sale Price')), normalized(offer.get('Detected Price')),
         normalized(offer.get('Actual Price') or offer.get('Consumer Price')),
         normalized(offer.get('Package Price')), normalized(offer.get('Package Count')),
-        normalized(offer.get('Min Qty')), normalized(offer.get('Price Type')),
-        normalized(offer.get('Currency')), normalized(offer.get('Packaging')),
-        normalized(offer.get('Volume')), normalized(offer.get('Weight')),
-        normalized(offer.get('Brand')), normalized(offer.get('Category')),
-        normalized(offer.get('Variation Type')), normalized(offer.get('Stock Status')),
+        normalized(offer.get('Min Qty')), normalized(offer.get('Currency')),
+        normalized(offer.get('Stock Status')),
     ]
     return hashlib.sha256(_stable(identity)).hexdigest()
 
@@ -338,10 +368,21 @@ def review_cases(store, ledger, *, include_history=False, limit=200):
     cases = []
     source_duplicates = {}
     all_by_offer = {}
+    source_results = ledger.source_reextractions()
     reextracted_messages={
         (str(offer.get('Message ID') or ''),str(offer.get('Channel Username') or ''))
         for offer in offers if str(offer.get('Batch ID') or '').startswith('reextract:')
     }
+    latest_reextract_batch_by_source = {}
+    for offer in offers:
+        batch_id = str(offer.get('Batch ID') or '')
+        if not batch_id.startswith('reextract:'):
+            continue
+        source_key = reextraction_source_key(
+            source_url=offer.get('Source Post URL'), channel=offer.get('Channel Username'),
+            message_id=offer.get('Message ID'), timestamp=offer.get('Message Timestamp'),
+            content=offer.get('Original Message'))
+        latest_reextract_batch_by_source[source_key] = batch_id
     for offer in offers:
         offer_id = str(offer.get('Offer ID') or '')
         if not offer_id:
@@ -349,8 +390,21 @@ def review_cases(store, ledger, *, include_history=False, limit=200):
         case_id = review_case_id(offer_id)
         latest = ledger.latest(case_id)
         marker=(str(offer.get('Message ID') or ''),str(offer.get('Channel Username') or ''))
+        source_key = reextraction_source_key(
+            source_url=offer.get('Source Post URL'), channel=offer.get('Channel Username'),
+            message_id=offer.get('Message ID'), timestamp=offer.get('Message Timestamp'),
+            content=offer.get('Original Message'))
+        batch_id = str(offer.get('Batch ID') or '')
         superseded=(marker in reextracted_messages
-                    and not str(offer.get('Batch ID') or '').startswith('reextract:'))
+                    and not batch_id.startswith('reextract:'))
+        source_result = source_results.get(source_key) or {}
+        latest_source_batch = source_result.get('batch_id') if source_result.get('outcome') == 'products' else None
+        if latest_source_batch:
+            superseded = superseded or batch_id != latest_source_batch
+        elif batch_id.startswith('reextract:'):
+            superseded = superseded or batch_id != latest_reextract_batch_by_source.get(source_key)
+        elif source_key in latest_reextract_batch_by_source:
+            superseded = True
         case = None if superseded else _as_case(offer, ledger, include_decided=True)
         if case:
             latest_decision = ledger.latest(case['case_id'])
@@ -413,6 +467,96 @@ def reextraction_message_key(message):
     return hashlib.sha256(identity.encode()).hexdigest()
 
 
+def reextraction_source_key(*, source_url, channel, message_id, timestamp, content):
+    """Stable identity for one source post, independent of duplicate inbox rows."""
+    source_url = str(source_url or '').strip()
+    canonical_url = ''
+    try:
+        parsed = urlsplit(source_url)
+        host = (parsed.hostname or '').lower()
+        path = re.sub(r'^/s(?=/)', '', parsed.path).rstrip('/')
+        if (parsed.scheme.lower() == 'https' and host in {'t.me', 'www.t.me'}
+                and re.fullmatch(r'/[^/]+/\d+', path)):
+            canonical_url = f'https://t.me{path}'
+    except ValueError:
+        pass
+    content_sha256 = hashlib.sha256(str(content or '').encode()).hexdigest()
+    if str(timestamp or '').strip():
+        identity = ['supplier_message', str(channel or ''), str(timestamp), content_sha256]
+    elif canonical_url:
+        identity = ['telegram_post', canonical_url, str(channel or ''), content_sha256]
+    else:
+        identity = ['saved_message', str(channel or ''), str(message_id or ''), content_sha256]
+    return hashlib.sha256(_stable(identity)).hexdigest()
+
+
+def case_reextraction_message_key(*, source_key, offer_id, signature, content_sha256, timestamp):
+    identity = _stable(['case-source', source_key, offer_id, signature, content_sha256, timestamp])
+    return hashlib.sha256(identity).hexdigest()
+
+
+def case_reextraction_inventory(store, ledger):
+    """Build a source-deduplicated replay plan for every open extraction case."""
+    cases = review_cases(store, ledger, limit=1000)
+    groups = {}
+    unmatched = []
+    for case in cases:
+        content = str(case.get('original_message') or '')
+        if not content.strip():
+            unmatched.append(case['case_id'])
+            continue
+        source_key = reextraction_source_key(
+            source_url=case.get('source_post_url'), channel=case.get('channel'),
+            message_id=case.get('message_id'), timestamp=case.get('message_timestamp'),
+            content=content)
+        group = groups.setdefault(source_key, {'cases': [], 'content': content})
+        group['cases'].append(case)
+
+    messages = []
+    case_identities = []
+    for case in cases:
+        case_identities.append((case['case_id'], case['offer_id'], case['signature']))
+    for source_key, group in sorted(groups.items()):
+        candidates = group['cases']
+        # One owner action may cover many variant cards; select the newest source offer
+        # only as the immutable place from which to read the original message.
+        case = candidates[0]
+        content = group['content']
+        content_sha256 = hashlib.sha256(content.encode()).hexdigest()
+        timestamp = str(case.get('message_timestamp') or '')
+        message_key = case_reextraction_message_key(
+            source_key=source_key, offer_id=case['offer_id'], signature=case['signature'],
+            content_sha256=content_sha256, timestamp=timestamp)
+        messages.append({
+            'message_id': str(case.get('message_id') or case['offer_id']),
+            'batch_id': str(case.get('batch_id') or ''),
+            'channel_username': str(case.get('channel') or ''),
+            'channel': str(case.get('source_channel') or ''),
+            'timestamp': timestamp,
+            'content_sha256': content_sha256,
+            'message_key': message_key,
+            'source_message_id': str(case.get('message_id') or ''),
+            'source_batch_id': str(case.get('batch_id') or ''),
+            'source_offer_id': str(case['offer_id']),
+            'source_offer_signature': str(case['signature']),
+            'source_key': source_key,
+            'source_post_url': str(case.get('source_post_url') or ''),
+            'case_ids': sorted(item['case_id'] for item in candidates),
+            'case_count': len(candidates),
+        })
+    digest = hashlib.sha256(_stable({
+        'cases': sorted(case_identities),
+        'messages': sorted((item['source_key'], item['source_offer_id'],
+                            item['source_offer_signature'], item['content_sha256'])
+                           for item in messages),
+        'unmatched': sorted(unmatched),
+    })).hexdigest()
+    return {
+        'case_count': len(cases), 'message_count': len(messages),
+        'unmatched_case_ids': unmatched, 'digest': digest, 'messages': messages,
+    }
+
+
 def reextraction_inventory(store, ledger=None):
     """List saved source messages safe to re-extract without replaying owner decisions."""
     from catalog.sync import _records
@@ -438,6 +582,9 @@ def reextraction_inventory(store, ledger=None):
     excluded_not_product=0
     already_staged=0
     dismissed_by_owner=0
+    already_reprocessed=0
+    reprocessed_sources={key for key,value in (ledger.source_reextractions().items() if ledger else [])
+                         if value.get('outcome')=='products'}
     for message in messages:
         message_id=str(message.get('ID') or '').strip()
         batch_id=str(message.get('Batch ID') or '').strip()
@@ -451,6 +598,12 @@ def reextraction_inventory(store, ledger=None):
         seen.add(identity)
         marker=(message_id,channel)
         ai_status=str(message.get('AI Status') or '').strip().lower()
+        source_key=reextraction_source_key(
+            source_url=message.get('URL'),channel=channel,message_id=message_id,
+            timestamp=str(message.get('Timestamp') or ''),content=content)
+        if source_key in reprocessed_sources:
+            already_reprocessed+=1
+            continue
         message_key=reextraction_message_key({
             'message_id':message_id,'batch_id':batch_id,'channel_username':channel,
             'timestamp':str(message.get('Timestamp') or ''),'content':content,
@@ -484,7 +637,8 @@ def reextraction_inventory(store, ledger=None):
         'counts':{
             'all_available':len(candidates),'pending':len(pending),'without_text':no_content,
             'owner_decisions_preserved':excluded_owner,'not_product_preserved':excluded_not_product,
-            'already_staged':already_staged,'dismissed_by_owner':dismissed_by_owner,
+            'already_staged':already_staged,'already_reprocessed':already_reprocessed,
+            'dismissed_by_owner':dismissed_by_owner,
         },
     }
 
