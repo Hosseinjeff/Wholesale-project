@@ -5,16 +5,15 @@
 ### Dashboard review rollout status — 2026-11-02
 
 The owner-review plugin files were read-back verified from cPanel at commit
-78b3188ed0b377bf9a573ccec158cee516f7d334. Its WordPress table migration and write path
-are installed; live table creation and writes still need an authenticated admin check.
+78b3188ed0b377bf9a573ccec158cee516f7d334. The WordPress review-table migration and audit-write path are now verified through authenticated admin requests. Both owner pages returned HTTP 200 with their localized configuration; Railway returned 2 publication holds and 7 Sheet conflicts, and the WordPress review-store AJAX endpoint confirmed all 9 observed context records stored. No conflict decision or batch retry was submitted.
 
 Railway production is connected to Hosseinjeff/Wholesale-project on main, with automatic
 deploys enabled. Deployment 1ff80683-d0cf-4b4c-938d-a08426be5d8b succeeded from commit
 4020da234f62e4483eddf169c9bf3fd062335878. The service is online, one replica is running,
 there are no warnings, failures, or pending changes, and /health reports healthy. The
 source-linked publication context and bulk retry endpoint are live. The public shop
-loads; owner/admin click-through remains pending because the browser profile has no
-saved WordPress sign-in.
+loads. The owner pages and all 9 context writes were verified with authenticated requests;
+screenshot-based browser rendering and the interactive buyer flow remain unchecked.
 
 The operations dashboard now offers an owner-only, read-only receipt reconciliation
 report. It joins durable intake receipts to `MessageData`, extracted/reviewed `Offers`,

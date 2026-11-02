@@ -18,16 +18,15 @@ Updated: 2026-11-02, Asia/Tehran
 Most recent WordPress plugin deployment: commit 78b3188ed0b377bf9a573ccec158cee516f7d334
 (2026-11-02). The uploader changed and read back the affected PHP, JavaScript, and CSS
 files. The plugin includes the owner-review interface, WordPress review-table migration,
-and audit-write path; live table creation and writes still need an authenticated admin
-check.
+and audit-write path. The WordPress review-table migration and audit-write path are now verified through authenticated admin requests. Both owner pages returned HTTP 200 with their localized configuration; Railway returned 2 publication holds and 7 Sheet conflicts, and the WordPress review-store AJAX endpoint confirmed all 9 observed context records stored. No conflict decision or batch retry was submitted.
 
 The companion Railway API is now live in production. The existing service is connected
 to Hosseinjeff/Wholesale-project on main and automatically deploys pushes. Deployment
 1ff80683-d0cf-4b4c-938d-a08426be5d8b succeeded from commit
 4020da234f62e4483eddf169c9bf3fd062335878. Production is online with one running replica,
 no warnings or pending work, and /health reports healthy. The public storefront fetched
-successfully; the WordPress admin click-through and review-table writes remain unverified
-until the browser profile has a saved sign-in.
+successfully. Authenticated requests verified both owner pages and the 9 review-context
+writes; screenshot-based browser rendering and the full buyer flow remain unchecked.
 
 The cPanel uploader is `tools/deploy_wordpress_plugin.py`. It accepts a Git ref
 before the plugin changes, and only deploys tracked PHP, JavaScript and CSS files
