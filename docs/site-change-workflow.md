@@ -40,7 +40,20 @@ the plugin directory.
 After a successful deploy, record the deployed commit here or in the relevant
 release note and use it as `--since` for the next deployment.
 
-Most recent plugin deployment: commit `53531d00632a070b8fe505e890a28d681fed945c`
+Most recent plugin deployment: commit `3a5e9e0af76be33fc009a193768522e8130b3e18`
+(2026-11-02). `python tools/deploy_wordpress_plugin.py --since
+53531d00632a070b8fe505e890a28d681fed945c` uploaded and verified the read-back of
+`includes/operations-dashboard.php`, `includes/owner-browser-api.php`,
+`includes/owner-workflows.css`, and `includes/owner-workflows.js`; no host normalization
+was reported. The owner landing screen now puts the highest-priority open queue first,
+shows counts on workflow tabs, refreshes after a review decision, and keeps technical
+queue details collapsed. No product, order, or review-decision data changed. JavaScript
+syntax and whitespace checks passed. The WordPress runtime test could not start because
+the workspace cannot access the Docker socket; Python route tests could not start because
+Flask is not installed in this workspace. An authenticated visual admin click-through was
+not available from this workspace.
+
+The previous plugin deployment was commit `53531d00632a070b8fe505e890a28d681fed945c`
 (2026-11-02). `python tools/deploy_wordpress_plugin.py --since
 4f605fa0617ba7e6464cb4f32e5a051b6ce88c61` uploaded six changed plugin files and verified
 their read-back. The uploader reported the documented cPanel `<meta charset>` insertion
