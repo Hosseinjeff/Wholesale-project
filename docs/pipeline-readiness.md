@@ -8,21 +8,24 @@ marked purchasable and in stock, and one product from Railway `/api/shop`. This 
 current public visibility for that product; it does not trace a supplier receipt through
 approval and publication.
 
-The live Railway `/api/shop` response also exposed internal price-band and margin-policy
-fields. The source now returns only customer-facing product prices, stock state, and
-discount progress; WordPress storefront markup and localized data no longer contain
-internal price floors or ceilings. These source changes are not evidence of a production
-fix until the release is deployed and read back.
+The pre-release Railway `/api/shop` response exposed internal price-band and margin-policy
+fields. Commit `53531d00632a070b8fe505e890a28d681fed945c` is now deployed in Railway as
+`2265d265-34ed-4762-a805-dcdc3eec06b5` (`SUCCESS`). The public `/api/shop` read-back shows
+customer-facing prices, stock state, and discount progress, with no supplier channel,
+price floors, ceilings, or margin settings. The WordPress uploader also read back all six
+changed plugin files. No live admin click-through has been performed.
 
 The November 2 audit identified bulk decision previews/history, labelled AI accuracy
 measurement, and receipt-to-publication reconciliation as priorities. The reconciliation
-implementation adds a read-only owner report joining durable receipts, MessageData,
+deployed implementation adds a read-only owner report joining durable receipts, MessageData,
 Offers, Products, publication jobs, and WooCommerce visibility. Historical receipts do
 not have durable receive timestamps, so latency measures apply only to new receipts after
 the schema update. AI field accuracy remains unmeasured until an owner-labelled corpus is
 provided and evaluated.
 
-Private queue counts and review decisions were not rechecked during this public audit.
+The owner report returns HTTP 401 without its owner credential, confirming the anonymous
+route is closed; an authenticated report view was not exercised. Private queue counts and
+review decisions were not rechecked during this public audit.
 The October 31 counts below are historical and must not be treated as November 2 queue
 measurements. No production products, review decisions, orders, or payment records were
 changed during the audit.

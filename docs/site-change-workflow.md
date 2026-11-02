@@ -1,6 +1,6 @@
 # Site changes and preservation workflow
 
-Updated: 2026-11-01, Asia/Tehran
+Updated: 2026-11-02, Asia/Tehran
 
 ## Source of truth
 
@@ -40,14 +40,26 @@ the plugin directory.
 After a successful deploy, record the deployed commit here or in the relevant
 release note and use it as `--since` for the next deployment.
 
-Most recent plugin deployment: commit `4f605fa0617ba7e6464cb4f32e5a051b6ce88c61`
-(2026-11-01). The reference-linked approval, status history and buyer-profile flow were
-deployed from `main` with `python tools/deploy_wordpress_plugin.py --since
-b4626edf118cc2fbbc4f8753d1bbce66ecf0724a`. The uploader verified all 14 changed plugin
-files by read-back. It reported the documented cPanel `<meta charset>` insertion in
-`includes/storefront-renderer.php`; removing that insertion yielded a byte-for-byte
-source match. The owner snapshot page, Woo product controls, shop/cart profile selector
-and order-line buyer units are included. No product/order records were changed.
+Most recent plugin deployment: commit `53531d00632a070b8fe505e890a28d681fed945c`
+(2026-11-02). `python tools/deploy_wordpress_plugin.py --since
+4f605fa0617ba7e6464cb4f32e5a051b6ce88c61` uploaded six changed plugin files and verified
+their read-back. The uploader reported the documented cPanel `<meta charset>` insertion
+in `includes/storefront-renderer.php`; removing that insertion yielded a byte-for-byte
+source match. The updated owner dashboard, product trace details, and storefront price
+data handling were included.
+
+Railway deployment `2265d265-34ed-4762-a805-dcdc3eec06b5` reached `SUCCESS` from
+`main` commit `53531d00632a070b8fe505e890a28d681fed945c`. `/health` returned `healthy`.
+The public `/api/shop` response contained one product and no supplier channel, price-band
+floor/ceiling, or margin-policy fields. The public Woo Store API still returned one
+purchasable, in-stock product. An unauthenticated GET to `/pipeline/reconciliation`
+returned HTTP 401; the owner-authenticated report and live admin click-through were not
+exercised. No production product, order, review decision, or payment record was changed.
+
+Python compilation and JavaScript syntax checks passed. PHP CLI is unavailable in this
+workspace, and no automated tests or extraction-accuracy evaluation were run. The latter
+needs a private owner-labelled supplier-message corpus; see
+[`ai-extraction-validation.md`](ai-extraction-validation.md).
 
 Railway production service `Wholesale-project` follows `main`. Deployment
 `226ab34b-7b10-4512-b275-8c6105b59a5b` reached `SUCCESS` from commit
