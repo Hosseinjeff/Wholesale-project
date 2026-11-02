@@ -786,6 +786,30 @@ def operations_dashboard_route():
     return response
 
 
+@app.route('/pipeline/reconciliation', methods=['GET'])
+def pipeline_reconciliation_route():
+    """Owner-only, read-only join from intake receipts through Sheet and Woo visibility."""
+    token = os.getenv('REFERENCE_BRIDGE_TOKEN') or ''
+    owners = {value.strip() for value in (os.getenv('REFERENCE_OWNER_IDS') or '').split(',') if value.strip()}
+    queue = handoff_queue()
+    if not USE_SHEETS or queue is None or len(token) < 32 or not owners:
+        return jsonify({'ok': False, 'error': 'unconfigured'}), 503
+    actor, auth_error = _owner_api_actor('owner:/pipeline/operations-dashboard', token, owners)
+    if auth_error:
+        return jsonify({'ok': False, 'error': 'unauthorized' if auth_error == 401 else 'owner_required'}), auth_error
+    try:
+        from catalog.reconciliation import build_reconciliation_report
+        limit = request.args.get('limit', default=200, type=int)
+        report = build_reconciliation_report(build_store(), queue,
+            site_url=os.getenv('SHOP_SITE_URL') or '', limit=max(1, min(limit or 200, 500)))
+        response = jsonify(report)
+        response.headers['Cache-Control'] = 'no-store'
+        return response
+    except Exception:
+        logger.exception('Pipeline reconciliation unavailable')
+        return jsonify({'ok': False, 'error': 'reconciliation_unavailable'}), 503
+
+
 @app.route('/pipeline/product-status-snapshots', methods=['GET', 'POST'])
 def product_status_snapshots_route():
     """Owner view and explicit capture for immutable product status history."""
@@ -2171,7 +2195,25 @@ def _apply_supplier_price_gate(catalog,store):
 def shop_api():
     preview = request.args.get("preview") == "1"
     try:
-        return jsonify(shop_source(preview))
+        catalog = shop_source(preview)
+        settings = catalog.get("settings") or {}
+        products = []
+        for product in catalog.get("products") or []:
+            regular = int(product.get("regular") or 0)
+            price = int(product.get("ceiling") or regular)
+            products.append({
+                "product_id": product.get("product_id") or "",
+                "name": product.get("name") or "",
+                "category": product.get("category") or "",
+                "regular_price": regular,
+                "price": price,
+                "current_discount": (regular - price) / regular if regular > 0 else 0.0,
+                "stock_status": product.get("stock_status") or "Available",
+            })
+        return jsonify({
+            "products": products,
+            "settings": {"discount_target": int(settings.get("unlock_target") or 0)},
+        })
     except Exception:
         logger.exception("Shop catalog failed")
         return jsonify({"status": "error", "products": [], "settings": {}}), 500
@@ -2188,7 +2230,17 @@ def cart_api():
     try:
         catalog = shop_source(preview)
         unlock = int(catalog["settings"]["unlock_target"])
-        return jsonify(resolve_quote(catalog["products"], lines, unlock))
+        quote = resolve_quote(catalog["products"], lines, unlock)
+        quote["lines"] = [{
+            "product_id": line.get("product_id") or "",
+            "name": line.get("name") or "",
+            "qty": int(line.get("qty") or 0),
+            "regular_price": int(line.get("regular") or 0),
+            "price": int(line.get("unit_price") or 0),
+            "discount": float(line.get("discount_rate") or 0),
+            "discount_amount": int(line.get("discount_amount") or 0),
+        } for line in quote.get("lines") or []]
+        return jsonify(quote)
     except Exception:
         logger.exception("Cart quote failed")
         return jsonify({"status": "error"}), 500

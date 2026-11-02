@@ -34,9 +34,9 @@ class Handoffs:
                 id TEXT PRIMARY KEY, kind TEXT NOT NULL, payload TEXT NOT NULL,
                 state TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
                 available REAL NOT NULL, lease TEXT, expires REAL,
-                result TEXT, error TEXT);
+                result TEXT, error TEXT, created_at REAL, updated_at REAL);
                 CREATE TABLE IF NOT EXISTS inbox (
-                id TEXT PRIMARY KEY, payload TEXT NOT NULL, batch_id TEXT);
+                id TEXT PRIMARY KEY, payload TEXT NOT NULL, batch_id TEXT, received_at REAL);
                 CREATE TABLE IF NOT EXISTS publication_holds (
                 hold_id TEXT PRIMARY KEY, reason TEXT NOT NULL, created_at REAL NOT NULL);
                 CREATE TABLE IF NOT EXISTS publication_hold_resolutions (
@@ -51,7 +51,34 @@ class Handoffs:
                 CREATE TABLE IF NOT EXISTS sheet_projection_state (
                 singleton INTEGER PRIMARY KEY CHECK(singleton=1), observed_digest TEXT NOT NULL DEFAULT '',
                 published_digest TEXT NOT NULL DEFAULT '', job_id TEXT);''')
+            self._ensure_column(db, 'jobs', 'created_at', 'REAL')
+            self._ensure_column(db, 'jobs', 'updated_at', 'REAL')
+            self._ensure_column(db, 'inbox', 'received_at', 'REAL')
+            db.executescript('''
+                CREATE TRIGGER IF NOT EXISTS jobs_set_timestamps_after_insert
+                AFTER INSERT ON jobs
+                WHEN NEW.created_at IS NULL OR NEW.updated_at IS NULL
+                BEGIN
+                    UPDATE jobs SET
+                        created_at=COALESCE(NEW.created_at,(julianday('now')-2440587.5)*86400.0),
+                        updated_at=COALESCE(NEW.updated_at,(julianday('now')-2440587.5)*86400.0)
+                    WHERE id=NEW.id;
+                END;
+                CREATE TRIGGER IF NOT EXISTS jobs_update_timestamp
+                AFTER UPDATE ON jobs
+                WHEN NEW.updated_at IS OLD.updated_at
+                BEGIN
+                    UPDATE jobs SET updated_at=(julianday('now')-2440587.5)*86400.0
+                    WHERE id=NEW.id;
+                END;
+            ''')
         os.chmod(self.path, 0o600)
+
+    @staticmethod
+    def _ensure_column(db, table, name, definition):
+        columns = {str(row['name']) for row in db.execute(f'PRAGMA table_info({table})')}
+        if name not in columns:
+            db.execute(f'ALTER TABLE {table} ADD COLUMN {name} {definition}')
 
     @contextmanager
     def connect(self):
@@ -107,6 +134,75 @@ class Handoffs:
                                   ('waiting_reference','waiting_publication','failed','needs_review')),
             'items':items,
         }
+
+    def reconciliation_receipts(self, *, limit=200):
+        """Return source identifiers and queue outcomes without exposing message text."""
+        limit = max(1, min(int(limit), 500))
+        with self.connect() as db:
+            receipts = db.execute('''SELECT id,payload,batch_id,received_at FROM inbox
+                ORDER BY rowid DESC LIMIT ?''', (limit,)).fetchall()
+            jobs = db.execute('''SELECT id,kind,state,attempts,error,result,payload,created_at,updated_at
+                FROM jobs WHERE kind IN ('batch','publish') ORDER BY rowid DESC''').fetchall()
+            total = db.execute('SELECT COUNT(*) AS count FROM inbox').fetchone()['count']
+
+        jobs_by_id = {}
+        publication_by_batch = {}
+        publication_by_decision = {}
+        for row in jobs:
+            item = dict(row)
+            item['payload'] = json.loads(item['payload']) if item['payload'] else {}
+            item['result'] = json.loads(item['result']) if item['result'] else {}
+            jobs_by_id[item['id']] = item
+            batch_id = str(item['payload'].get('batch_id') or '')
+            if item['kind'] == 'publish' and batch_id and batch_id not in publication_by_batch:
+                publication_by_batch[batch_id] = item
+            decision_id = str(item['payload'].get('decision_id') or '')
+            if item['kind'] == 'publish' and decision_id and decision_id not in publication_by_decision:
+                publication_by_decision[decision_id] = {
+                    'state': item['state'], 'attempts': int(item.get('attempts') or 0),
+                    'error': item.get('error') or '', 'created_at': item.get('created_at'),
+                    'updated_at': item.get('updated_at'),
+                    'pushed': bool(item['result'].get('pushed')),
+                    'count': int(item['result'].get('count') or 0),
+                }
+
+        items = []
+        for row in receipts:
+            source = json.loads(row['payload']) if row['payload'] else {}
+            batch_job_id = str(row['batch_id'] or '')
+            batch_job = jobs_by_id.get(batch_job_id)
+            batch_payload = (batch_job or {}).get('payload') or {}
+            batch_id = str(batch_payload.get('batch_id') or '')
+            publication = publication_by_batch.get(batch_id) or {}
+            batch_result = (batch_job or {}).get('result') or {}
+            publish_result = publication.get('result') or {}
+            items.append({
+                'receipt_id': str(row['id']),
+                'message_id': str(source.get('id') or ''),
+                'channel': str(source.get('channel_username') or source.get('channel') or ''),
+                'source_timestamp': str(source.get('timestamp') or ''),
+                'received_at': row['received_at'],
+                'batch_id': batch_id,
+                'batch_job_id': batch_job_id,
+                'batch_state': (batch_job or {}).get('state') or 'unbatched',
+                'batch_attempts': int((batch_job or {}).get('attempts') or 0),
+                'batch_error': (batch_job or {}).get('error') or '',
+                'batch_created_at': (batch_job or {}).get('created_at'),
+                'batch_updated_at': (batch_job or {}).get('updated_at'),
+                'expected_messages': int(batch_result.get('expected_count') or batch_payload.get('expected_count') or 0),
+                'processed_messages': int(batch_result.get('processed_messages') or 0),
+                'extraction_state': str(batch_result.get('extraction_status') or ''),
+                'rollback': bool(batch_result.get('rollback')),
+                'publication_state': publication.get('state') or 'not_queued',
+                'publication_attempts': int(publication.get('attempts') or 0),
+                'publication_error': publication.get('error') or '',
+                'publication_created_at': publication.get('created_at'),
+                'publication_updated_at': publication.get('updated_at'),
+                'publication_pushed': bool(publish_result.get('pushed')),
+                'publication_count': int(publish_result.get('count') or 0),
+            })
+        return {'receipts': items, 'total_receipts': int(total), 'truncated': int(total) > len(items),
+                'publication_by_decision': publication_by_decision}
 
     def resolve_publication_hold(self, hold_id, *, expected_reason, actor_id, note, resume_batch=False):
         """Record human reconciliation; optionally authorize the same batch to replay."""
@@ -363,7 +459,8 @@ class Handoffs:
             raise ValueError('Source message identity required')
         key = hashlib.sha256(self.encode(identity).encode()).hexdigest()
         with self.connect() as db:
-            db.execute('INSERT OR IGNORE INTO inbox VALUES (?,?,NULL)', (key,self.encode(message)))
+            db.execute('INSERT OR IGNORE INTO inbox(id,payload,batch_id,received_at) VALUES (?,?,NULL,?)',
+                       (key,self.encode(message),time.time()))
         return key
 
     def batch(self, limit=100):

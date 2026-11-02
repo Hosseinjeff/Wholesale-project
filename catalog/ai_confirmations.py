@@ -52,6 +52,25 @@ class AIConfirmationLedger:
                                   (limit,)).fetchall()
         return [self._decode(row) for row in rows]
 
+    def history_for_cases(self, case_ids, *, per_case=10, total_limit=2000):
+        identifiers = list(dict.fromkeys(str(value) for value in case_ids if value))
+        if not identifiers:
+            return {}
+        per_case = max(1, min(int(per_case), 50))
+        total_limit = max(per_case, min(int(total_limit), 5000))
+        placeholders = ','.join('?' for _ in identifiers)
+        with self.connect() as db:
+            rows = db.execute(f'''SELECT * FROM ai_confirmation_decisions
+                WHERE case_id IN ({placeholders}) ORDER BY created_at DESC LIMIT ?''',
+                (*identifiers, total_limit)).fetchall()
+        grouped = {}
+        for row in rows:
+            case_id = str(row['case_id'])
+            history = grouped.setdefault(case_id, [])
+            if len(history) < per_case:
+                history.append(self._decode(row))
+        return grouped
+
     def latest(self, case_id):
         rows = self.history(case_id, 1)
         return rows[0] if rows else None
@@ -199,6 +218,8 @@ def _as_case(offer, ledger, *, include_decided=False):
         'packaging': str(offer.get('Packaging') or ''),
         'stock_status': stock_status,
         'reference_match_state': str(offer.get('Reference Match State') or ''),
+        'reference_match_id': str(offer.get('Reference Match ID') or ''),
+        'reference_price_role_hint': str(offer.get('Reference Price Role Hint') or ''),
         'previous_decision_id': latest['decision_id'] if latest else None,
     }
 
@@ -260,6 +281,12 @@ def review_cases(store, ledger, *, include_history=False, limit=200):
             case = _as_case(pair[0], ledger, include_decided=True)
             if case:
                 recent.append({**case, 'decision': decision})
+    histories = ledger.history_for_cases(
+        [item['case_id'] for item in cases] + [item['case_id'] for item in recent], per_case=10)
+    for item in cases:
+        item['decision_history'] = histories.get(item['case_id'], [])
+    for item in recent:
+        item['decision_history'] = histories.get(item['case_id'], [])
     return cases[:limit], recent[:limit]
 
 

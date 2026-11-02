@@ -1,4 +1,33 @@
-# Whole-pipeline readiness — 2026-10-31
+# Whole-pipeline readiness — checkpoints through 2026-11-02
+
+## Current audit review — 2026-11-02
+
+The November 2 audit supersedes the October 31 catalog counts as a description of the
+current public storefront. A read-only check found one WooCommerce Store API product,
+marked purchasable and in stock, and one product from Railway `/api/shop`. This verifies
+current public visibility for that product; it does not trace a supplier receipt through
+approval and publication.
+
+The live Railway `/api/shop` response also exposed internal price-band and margin-policy
+fields. The source now returns only customer-facing product prices, stock state, and
+discount progress; WordPress storefront markup and localized data no longer contain
+internal price floors or ceilings. These source changes are not evidence of a production
+fix until the release is deployed and read back.
+
+The November 2 audit identified bulk decision previews/history, labelled AI accuracy
+measurement, and receipt-to-publication reconciliation as priorities. The reconciliation
+implementation adds a read-only owner report joining durable receipts, MessageData,
+Offers, Products, publication jobs, and WooCommerce visibility. Historical receipts do
+not have durable receive timestamps, so latency measures apply only to new receipts after
+the schema update. AI field accuracy remains unmeasured until an owner-labelled corpus is
+provided and evaluated.
+
+Private queue counts and review decisions were not rechecked during this public audit.
+The October 31 counts below are historical and must not be treated as November 2 queue
+measurements. No production products, review decisions, orders, or payment records were
+changed during the audit.
+
+## Historical live product setup audit — 2026-10-31
 
 **Current state — 2026-10-31:** The public storefront remains live, and the owner product
 pipeline menu was streamlined in commit `62173404ece9e09a2348c19429e451559d73c688`.

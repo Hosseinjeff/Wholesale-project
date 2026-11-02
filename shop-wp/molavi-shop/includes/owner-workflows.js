@@ -50,6 +50,7 @@
             safe_cell_writer_unavailable: 'نوشتن امن روی این سلول در دسترس نیست.',
             write_unconfirmed: 'تغییر شیت تأیید نشد؛ دوباره بررسی کنید.',
             resolution_failed: 'ثبت تصمیم تعارض ناموفق بود؛ وضعیت را تازه کنید.',
+            reconciliation_unavailable: 'گزارش تطبیق موقتاً در دسترس نیست؛ وضعیت اتصال شیت و فروشگاه را بررسی کنید.',
             reextraction_active: 'یک بازاستخراج دیگر هنوز در صف یا در حال اجراست؛ ابتدا وضعیت همان اجرا را پیگیری کنید.',
             reextraction_preview_changed: 'فهرست پیام‌ها تغییر کرده است؛ تعداد تازه را بررسی و دوباره شروع کنید.',
             no_reextraction_messages: 'پیامی برای بازاستخراج در این گروه پیدا نشد.',
@@ -272,6 +273,89 @@
                 if (ops.items_truncated) details.appendChild(notice('همه کارها در این فهرست جا نشده‌اند؛ شمارش بالا تعداد کل صف را نشان می‌دهد.', 'warning'));
                 content.appendChild(details);
             }
+            const reconciliation = node('section', null, 'card');
+            reconciliation.appendChild(node('h2', 'تطبیق رسید تا فروشگاه'));
+            reconciliation.appendChild(node('p', 'گزارش فقط‌خواندنی، پیام دریافتی را به وضعیت صف، استخراج، تصمیم، ردیف کالا و وضعیت قابل مشاهده در ووکامرس وصل می‌کند. متن پیام‌ها نمایش داده نمی‌شود.'));
+            const reconcile = node('button', 'ساخت گزارش تطبیق', 'button button-secondary');
+            reconcile.type = 'button';
+            const report = node('div');
+            reconcile.addEventListener('click', async () => {
+                reconcile.disabled = true;
+                report.replaceChildren(node('p', 'در حال خواندن صف، شیت و فروشگاه…'));
+                try {
+                    const url = new URL('/pipeline/reconciliation?limit=200', config.apiUrl).toString();
+                    const data = await request('GET', undefined, url);
+                    const summary = data.summary || {};
+                    const validation = data.validation || {};
+                    const content = node('div');
+                    content.appendChild(node('p', `رسیدها: ${summary.receipts || 0} · ردیف‌های پیام در شیت: ${summary.message_data || 0} · پیشنهادهای استخراج‌شده: ${summary.offers || 0} · موارد نیازمند بررسی: ${summary.offers_needing_review || 0} · کالاهای فعلی: ${summary.products || 0}`));
+                    content.appendChild(node('p', `رسیدهای با انتشار کامل: ${summary.publication_done || 0} · رسیدهای در انتظار/خطای انتشار: ${summary.publication_pending || 0} · SKU پیدا‌نشده: ${summary.woo_missing || 0} · کالاهای غیرقابل خرید یا توقف ناسازگار: ${summary.woo_blocked || 0}`));
+                    const wooLabels = {checked:'بررسی شد',truncated:'بخشی از فروشگاه بررسی شد',unavailable:'فروشگاه پاسخ نداد',not_configured:'نشانی فروشگاه تنظیم نیست'};
+                    content.appendChild(node('p', `وضعیت API فروشگاه: ${wooLabels[validation.woo_state] || validation.woo_state || 'نامشخص'} · کالاهای Woo: ${validation.woo_product_count || 0} · رسیدهای نمایش‌داده‌شده: ${validation.receipt_rows_shown || 0}/${validation.total_receipts || 0} · زمان گزارش: ${data.generated_at || ''}`));
+                    if (validation.ai_accuracy_note) content.appendChild(notice(validation.ai_accuracy_note, 'info'));
+                    const receiptRows = Array.isArray(data.receipts) ? data.receipts : [];
+                    const stateLabels = {queued:'در صف',running:'در حال اجرا',waiting_reference:'انتظار تصمیم مرجع',waiting_publication:'انتظار انتشار',failed:'ناموفق',needs_review:'نیازمند بررسی',done:'انجام شد',unbatched:'هنوز دسته‌بندی نشده',not_queued:'هنوز صف انتشار ندارد'};
+                    const aiLabels = {pending_ai:'در انتظار هوش مصنوعی',needs_confirmation:'نیازمند تأیید',ai_processed:'استخراج شد',not_product:'کالا نیست',not_in_sheets:'در شیت ثبت نشده'};
+                    const wooStateLabels = {purchasable:'قابل خرید',not_visible:'در فروشگاه پیدا نشد',not_purchasable:'نمایش داده شده، خرید بسته است',supplier_out_of_stock:'ناموجود نزد تأمین‌کننده',held:'متوقف و غیرقابل خرید',held_but_purchasable:'هشدار: کالای متوقف قابل خرید است',not_checked:'وضعیت بررسی نشد',not_checked_catalog_truncated:'صفحه‌بندی فروشگاه ناقص بود',no_catalog_projection:'ردیف انتشار در شیت موجود نیست'};
+                    if (!receiptRows.length) content.appendChild(node('p', 'رسید دریافتی برای نمایش وجود ندارد.'));
+                    else {
+                        const table = node('table', null, 'widefat striped');
+                        const head = node('thead'); const heading = node('tr');
+                        ['شناسه پیام', 'کانال', 'دریافت', 'صف / استخراج', 'پیشنهاد / بررسی', 'کالا / قیمت پایه', 'انتشار / Woo', 'جزئیات ردیابی'].forEach(label => heading.appendChild(node('th', label)));
+                        head.appendChild(heading); table.appendChild(head);
+                        const body = node('tbody');
+                        receiptRows.forEach(item => {
+                            const row = node('tr');
+                            const productStates = (item.product_statuses || []).map(value => ({imported:'تأییدشده',needs_review:'نیازمند بررسی',not_product:'کالا نیست',skipped:'کنارگذاشته‌شده'}[value] || value));
+                            const actualWoo = (item.woo_states || []).map(value => wooStateLabels[value] || value);
+                            [item.message_id || '', item.channel || '', item.received_at || 'قدیمی؛ زمان دریافت ثبت نشده',
+                                `${stateLabels[item.batch_state] || item.batch_state} · ${aiLabels[item.extraction_state] || item.extraction_state}`,
+                                `${item.offers || 0} · ${item.offers_needing_review || 0}`,
+                                `${(productStates.join('، ') || 'بدون ردیف فعلی')} · ${item.price_order_checks || 0}/${item.product_count || 0} قیمت تأمین‌کننده پایین‌تر از مصرف`,
+                                `${stateLabels[item.publication_state] || item.publication_state} · تلاش ${item.publication_attempts || 0}${item.publication_pushed ? ' · ثبت شیت تأیید شد' : ''}${actualWoo.length ? ' · ' + actualWoo.join('، ') : ''}${item.publication_error ? ' · خطا: ' + item.publication_error : ''}`]
+                                .forEach(value => row.appendChild(node('td', value)));
+                            const traceCell = node('td');
+                            const trace = document.createElement('details');
+                            const traceSummary = item.product_details && item.product_details.length
+                                ? `نمایش ${item.product_details.length} ردیف کالا`
+                                : 'نمایش وضعیت دریافت و صف';
+                            trace.appendChild(node('summary', traceSummary));
+                            if (item.batch_attempts || item.batch_error) {
+                                trace.appendChild(node('p', `تلاش استخراج: ${item.batch_attempts || 0}${item.batch_error ? ' · خطا: ' + item.batch_error : ''}`));
+                            }
+                            const productDetails = Array.isArray(item.product_details) ? item.product_details : [];
+                            if (productDetails.length) {
+                                productDetails.forEach(product => {
+                                    const productCard = node('section', null, 'molavi-reconcile-product');
+                                    productCard.appendChild(node('strong', product.name || product.product_id || 'کالای بدون نام'));
+                                    productCard.appendChild(node('p', `وضعیت: ${product.status || 'ثبت‌نشده'} · شناسه: ${product.product_id || 'نامشخص'} · SKU فروشگاه: ${product.woo_sku || 'نامشخص'} · ووکامرس: ${wooStateLabels[product.woo_state] || product.woo_state || 'نامشخص'}`));
+                                    productCard.appendChild(node('p', `قیمت تأمین‌کننده: ${amount(product.supplier_price)} · مبنا: ${product.price_basis || 'نامشخص'} · قیمت مصرف: ${amount(product.customer_price)} · تعداد بسته: ${product.package_count || 'نامشخص'}${product.package_price ? ' · قیمت بسته: ' + amount(product.package_price) : ''}`));
+                                    if (product.reference_match_id || product.reference_approval_state || product.reference_price_change_percent) {
+                                        productCard.appendChild(node('p', `مرجع: ${product.reference_match_id || 'تطبیق ثبت نشده'} · تأیید: ${product.reference_approval_state || 'ثبت نشده'} · تغییر قیمت مرجع: ${product.reference_price_change_percent || 'ثبت نشده'}`));
+                                    }
+                                    const sourceLink = safeSourceLink(product.source_post_url);
+                                    if (sourceLink) productCard.appendChild(sourceLink);
+                                    trace.appendChild(productCard);
+                                });
+                            } else {
+                                trace.appendChild(node('p', 'برای این رسید هنوز ردیف کالای فعلی به دست نیامده است.'));
+                            }
+                            traceCell.appendChild(trace);
+                            row.appendChild(traceCell);
+                            body.appendChild(row);
+                        });
+                        table.appendChild(body);
+                        content.appendChild(table);
+                        if (validation.receipt_rows_truncated) content.appendChild(notice('فقط ۲۰۰ رسید اخیر نمایش داده شد؛ شمار کل رسیدها بالاتر است.', 'warning'));
+                        if (validation.state !== 'checked') content.appendChild(notice('این گزارش بخشی است: اتصال یا صفحه‌بندی Woo کامل تأیید نشد. وضعیت‌های ناموجود را به‌عنوان خطای قطعی تفسیر نکنید.', 'warning'));
+                    }
+                    report.replaceChildren(content);
+                } catch (error) {
+                    report.replaceChildren(notice(errorText(error.message), 'error'));
+                } finally { reconcile.disabled = false; }
+            });
+            reconciliation.append(reconcile, report);
+            content.appendChild(reconciliation);
             board.replaceChildren(node('h2', 'وضعیت پردازش'), content);
         } catch (error) {
             board.replaceChildren(node('h2', 'وضعیت پردازش'), notice(errorText(error.message), 'error'));
@@ -308,7 +392,26 @@
             const details = document.createElement('details'); details.appendChild(node('summary', 'متن اصلی پیام تأمین‌کننده'));
             details.appendChild(node('pre', item.original_message)); card.appendChild(details);
         }
-        if (item.decision) card.appendChild(node('p', `تصمیم قبلی: ${item.decision.choice || ''} · ${item.decision.note || ''}`));
+        if (item.decision) {
+            const choiceLabels = {confirm:'تأیید کالا',not_product:'کالا نیست'};
+            card.appendChild(node('p', `آخرین تصمیم: ${choiceLabels[item.decision.choice] || item.decision.choice || ''} · ${item.decision.note || ''}`));
+            if (item.decision.choice === 'not_product') {
+                card.appendChild(notice('این ردّ قابل بازگشت است: مشخصات را اصلاح کنید و با ثبت یادداشت، کالا را دوباره تأیید کنید. تصمیم قبلی در تاریخچه می‌ماند.', 'warning'));
+            }
+        }
+        if (Array.isArray(item.decision_history) && item.decision_history.length) {
+            const history = document.createElement('details');
+            history.appendChild(node('summary', `تاریخچه تصمیم‌ها (${item.decision_history.length})`));
+            const list = document.createElement('ol');
+            item.decision_history.forEach(decision => {
+                const choice = {confirm:'تأیید کالا',not_product:'کالا نیست'}[decision.choice] || decision.choice || 'تصمیم';
+                const stamp = Number(decision.created_at) > 0
+                    ? new Date(Number(decision.created_at) * 1000).toLocaleString('fa-IR') : '';
+                list.appendChild(node('li', `${stamp} · ${choice} · ${decision.actor_id || ''} · ${decision.note || ''}`));
+            });
+            history.appendChild(list);
+            card.appendChild(history);
+        }
         const fields = item.decision && item.decision.fields || {};
         const role = fields.price_role || item.price_type || '';
         const isPackage = ['pack', 'package', 'carton'].includes(String(role).toLowerCase());
@@ -337,7 +440,10 @@
             form.appendChild(checkLabel);
         }
         form.appendChild(field('یادداشت مالک (اختیاری برای رد کالا)', 'note', item.decision && item.decision.note || '', 'textarea', { maxLength: 1000 }));
-        const confirm = node('button', item.decision ? 'ثبت اصلاح و تأیید دوباره' : 'تأیید مشخصات استخراج‌شده', 'button button-primary');
+        const confirmLabel = item.decision && item.decision.choice === 'not_product'
+            ? 'بازگردانی به کالا و تأیید مشخصات'
+            : item.decision ? 'ثبت اصلاح و تأیید دوباره' : 'تأیید مشخصات استخراج‌شده';
+        const confirm = node('button', confirmLabel, 'button button-primary');
         confirm.type = 'submit'; confirm.value = 'confirm';
         const notProduct = node('button', 'این مورد کالا نیست', 'button');
         notProduct.type = 'submit'; notProduct.value = 'not_product'; notProduct.formNoValidate = true;
@@ -522,9 +628,10 @@
                 selectAllLabel.append(selectAll, document.createTextNode(' انتخاب همه موارد باز'));
                 const count = node('span', 'انتخاب‌شده: ۰');
                 const dismiss = node('button', 'ردّ انتخاب‌شده‌ها به‌عنوان «کالا نیست»', 'button');
+                const preview = node('div', null, 'molavi-bulk-preview');
                 dismiss.type = 'button';
                 dismiss.disabled = true;
-                toolbar.append(selectAllLabel, count, dismiss);
+                toolbar.append(selectAllLabel, count, dismiss, preview);
                 root.appendChild(toolbar);
                 const updateSelection = () => {
                     const selectedCount = selected.size;
@@ -532,6 +639,23 @@
                     dismiss.disabled = !selectedCount || Boolean(data.publication_held);
                     selectAll.checked = selectedCount === openCases.length;
                     selectAll.indeterminate = selectedCount > 0 && selectedCount < openCases.length;
+                    preview.replaceChildren();
+                    if (!selectedCount) {
+                        preview.appendChild(node('p', 'برای پیش‌نمایش پیام‌ها و اثر تصمیم، موردها را انتخاب کنید.'));
+                        return;
+                    }
+                    preview.appendChild(node('strong', `پیش‌نمایش ${selectedCount} مورد انتخاب‌شده`));
+                    const list = document.createElement('ul');
+                    [...selected.values()].forEach(item => {
+                        const previewRoleLabels = {unit:'هر واحد',single:'هر واحد',per_unit:'هر واحد',pack:'هر بسته',package:'هر بسته',carton:'هر کارتن'};
+                        const role = previewRoleLabels[String(item.price_type || '').toLowerCase()] || 'مبنای قیمت نامشخص';
+                        const reference = item.reference_match_id
+                            ? `${item.reference_match_state || 'تطبیق ثبت‌شده'} (${item.reference_match_id})`
+                            : item.reference_match_state || 'بدون تطبیق مرجع ثبت‌شده';
+                        list.appendChild(node('li', `${item.product_name || 'کالای بدون نام'} · ${item.channel || 'کانال نامشخص'} · ${amount(item.detected_price || item.sale_price)} · ${role} · مرجع: ${reference}`));
+                    });
+                    preview.appendChild(list);
+                    preview.appendChild(node('p', 'اثر تصمیم: قیمت یا متن پیام تغییر نمی‌کند؛ پیشنهاد به «کالا نیست» تبدیل می‌شود، فهرست کالا دوباره ساخته و همگام‌سازی فروشگاه در صف قرار می‌گیرد. برای بازگردانی، از تاریخچه همان مورد استفاده کنید.'));
                 };
                 selectAll.addEventListener('change', () => {
                     selected.clear();
@@ -544,7 +668,7 @@
                 });
                 dismiss.addEventListener('click', async () => {
                     const items = [...selected.values()];
-                    if (!items.length || !window.confirm(`قرار است ${items.length} مورد انتخاب‌شده به‌عنوان «کالا نیست» ثبت شوند. متن پیام‌های اصلی حذف نمی‌شود و یادداشت اجباری نیست. ادامه می‌دهید؟`)) return;
+                    if (!items.length || !window.confirm(`پیش‌نمایش تأیید نهایی\n\n${items.length} پیشنهاد به‌عنوان «کالا نیست» ثبت می‌شود. هیچ مبلغی تأیید یا ویرایش نمی‌شود و پیام اصلی حذف نخواهد شد. فهرست کالا بازسازی و انتشار در صف قرار می‌گیرد. تصمیم هر مورد در تاریخچه می‌ماند و قابل بازبینی است. ادامه می‌دهید؟`)) return;
                     dismiss.disabled = true;
                     try {
                         const receipt = await request('POST', {action:'dismiss_cases',note:'',cases:items.map(item => ({

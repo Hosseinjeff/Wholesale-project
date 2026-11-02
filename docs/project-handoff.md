@@ -128,9 +128,11 @@ their completion through Sheets and publication was not confirmed; the current q
 still requires owner review and failure recovery. Do not mark the integrated workflow
 complete until the catalog handoff and recovery path are verified.
 
-The user also referenced an “Auditer” ChatGPT conversation for findings. Its `read_thread`
-connector was not available in this workspace, so repository audit records were used for
-this pass and that conversation's findings remain to be reconciled when supplied.
+The user supplied the November 2 “MolaviSale — Wholesale Operations Audit” text directly.
+Its current priorities and verification limits are recorded in
+[`pipeline-readiness.md`](pipeline-readiness.md). Treat October 31 queue and catalog counts
+below as historical; the November 2 public check found one purchasable, in-stock Woo
+product, but private queue lineage remains unverified.
 
 ## Reference acquisition history — D-008 (superseded by D-036)
 

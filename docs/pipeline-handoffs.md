@@ -1,5 +1,37 @@
 # Whole-flow handoff implementation record — 2026-10-26 onward (Asia/Tehran)
 
+## November 2 audit response — receipt reconciliation and review safeguards
+
+The operations dashboard now offers an owner-only, read-only receipt reconciliation
+report. It joins durable intake receipts to `MessageData`, extracted/reviewed `Offers`,
+current `Products`, publication jobs, and the public Woo Store API. Per-product details
+include status, supplier and customer prices, unit/package basis, reference approval and
+price-change evidence, Woo SKU/visibility, and the original supplier post link. The
+report does not show source message text or alter queues, Sheets, or WooCommerce. Older
+receipts have no receive timestamp; new receipts acquire timestamps after the database
+migration. The report marks missing Woo rows as unchecked when the catalog read is
+unavailable or truncated.
+
+Bulk dismissal now previews each selected offer's price, unit/package basis, reference
+match and the publication/status effects. Individual decision history is visible, and a
+prior “not a product” decision can be superseded by a new reviewed confirmation. The
+historical decision remains in the ledger.
+
+`tools/evaluate_supplier_extraction.py` measures exact product identity, source price,
+price basis, package count and extra products against a private owner-labelled JSONL
+corpus. It makes one Gemini request per case and prints aggregate results only. It has not
+been run because no labelled corpus was supplied; AI accuracy remains unmeasured.
+
+The public Railway `/api/shop` and `/api/cart` now return customer quote fields only. The
+WordPress storefront no longer serializes internal discount floors/ceilings or margin
+curve parameters into page markup or localized JavaScript. The server remains the source
+for live cart prices.
+
+The November 2 source changes are released to `main` and production via the release
+workflow recorded in `site-change-workflow.md`; deployment and public response checks are
+recorded there after rollout. No product, order, queue decision, or payment record was
+modified during release.
+
 ## WooCommerce-native product and order context — deployed 2026-11-01
 
 Owner workflow context is now surfaced directly in WooCommerce. The Products list shows
@@ -90,7 +122,7 @@ The WordPress panel at plugin commit `6448f09` checks whether the running backen
 AI-only extraction and gives a specific missing-key notice when appropriate. No supplier
 messages have been re-extracted yet.
 
-## Current live product setup — 2026-10-31
+## Historical live product setup — 2026-10-31 (superseded by November 2 public check)
 
 The streamlined owner pipeline screens are deployed from commit
 `62173404ece9e09a2348c19429e451559d73c688` (Railway deployment

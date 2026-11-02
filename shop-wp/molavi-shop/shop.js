@@ -49,33 +49,18 @@
         else delete qtys[id];
         paint(localQuote());
         if (removedForMinimum) showStatus("با کاهش از حداقل خرید " + digits(min) + " عدد، محصول از سبد حذف شد و قیمت‌ها دوباره محاسبه می‌شوند.");
+        else showStatus("در حال به‌روزرسانی قیمت سبد…");
         sync();
     });
 
     function localQuote() {
-        var units = {};
-        var progressTotal = 0;
-        var progressCount = 0;
-        var seen = {};
-        Object.keys(catalog).forEach(function (id) { seen[id] = true; });
-        document.querySelectorAll("[data-molavi-price]").forEach(function (node) {
-            var id = node.getAttribute("data-product");
-            if (id) seen[id] = true;
+        return Object.assign({}, lastQuote, {
+            units: lastQuote.units || {},
+            qtys: Object.assign({}, qtys),
+            buyer_type: buyerType,
+            invalid_lines: invalidLines(qtys),
+            switch_suggestion: suggestion(qtys)
         });
-        Object.keys(seen).forEach(function (id) {
-            var row = rowOf(id);
-            if (row) {
-                var priced = unitOf(row, Number(qtys[id] || 0));
-                units[id] = priced.price;
-                if (Number(row.discountable) === 1 && Number(qtys[id] || 0) > 0) {
-                    progressTotal += priced.progress * Number(qtys[id] || 0);
-                    progressCount += Number(qtys[id] || 0);
-                }
-            }
-        });
-        return { units: units, qtys: qtys, buyer_type: buyerType,
-            progress: progressCount ? progressTotal / progressCount : 0,
-            invalid_lines: invalidLines(qtys), switch_suggestion: suggestion(qtys) };
     }
 
     function rowOf(id) {
@@ -83,7 +68,6 @@
             var publicRow = catalog[id];
             var currentUnit = buyerType === "shop" ? Number(publicRow.shop_unit) : Number(publicRow.household_unit);
             var currentThreshold = buyerType === "shop" ? Number(publicRow.shop_threshold_units) : Number(publicRow.household_threshold_units);
-            var currentRatio = buyerType === "shop" ? Number(publicRow.shop_cap_ratio) : Number(publicRow.household_cap_ratio);
             return {
                 name: publicRow.name || "",
                 image: publicRow.image || "",
@@ -91,14 +75,7 @@
                 householdUnit: Number(publicRow.household_unit) || 1,
                 shopUnit: Number(publicRow.shop_unit) || 1,
                 packSize: Number(publicRow.pack_size) || 1,
-                thresholdUnits: currentThreshold || 1,
-                capRatio: Number.isFinite(currentRatio) ? currentRatio : (buyerType === "household" ? .5 : 1),
-                shelf: Number(publicRow.shelf) || 0,
-                sale: Number(publicRow.fixed) || 0,
-                floor: Number(publicRow.floor) || 0,
-                ceiling: Number(publicRow.ceiling) || 0,
-                max: Number(publicRow.max) || 0,
-                discountable: Number(publicRow.discountable) === 1 ? 1 : 0
+                thresholdUnits: currentThreshold || 1
             };
         }
         var node = document.querySelector('[data-molavi-price][data-product="' + cssEscape(id) + '"]');
@@ -111,41 +88,8 @@
             min: profileMin || Number(node.getAttribute("data-min")) || 1,
             householdUnit: Number(node.getAttribute("data-household-min")) || 1,
             shopUnit: Number(node.getAttribute("data-shop-min")) || 1,
-            thresholdUnits: 1,
-            capRatio: buyerType === "household" ? .5 : 1,
-            shelf: Number(node.getAttribute("data-shelf")) || 0,
-            sale: Number(node.getAttribute("data-fixed-price")) || 0,
-            floor: Number(node.getAttribute("data-floor")) || 0,
-            ceiling: Number(node.getAttribute("data-ceiling")) || 0,
-            max: 0,
-            discountable: node.getAttribute("data-discountable") === "1" ? 1 : 0
+            thresholdUnits: 1
         };
-    }
-
-    function unitOf(row, quantity) {
-        var shelf = Number(row.shelf) || 0;
-        var sale = Number(row.sale) || 0;
-        if (!(shelf > 0)) return { price: sale, progress: 1 };
-        var capRatio = Math.max(0, Math.min(1, Number(row.capRatio) || 0));
-        var maxDiscount = Math.max(0, shelf - (Number(row.floor) || 0));
-        var floor = Math.max(Number(row.floor) || 0, Math.min(shelf, Math.ceil(shelf - maxDiscount * capRatio - 1e-8)));
-        var ceiling = Math.max(floor, Math.min(shelf, Number(row.ceiling) || shelf));
-        var orderUnit = Math.max(1, Number(row.min) || 1);
-        var thresholdUnits = Math.max(1, Number(row.thresholdUnits) || 1);
-        var progress = Math.min(1, Math.max(0, Number(quantity) || 0) / (orderUnit * thresholdUnits));
-        var unit = halfUp(ceiling + (floor - ceiling) * progress);
-        var low = Math.min(floor, ceiling);
-        var high = Math.min(Math.max(floor, ceiling, low), shelf);
-        if (unit < low) unit = low;
-        if (unit > high) unit = high;
-        return { price: unit, progress: progress };
-    }
-
-    function halfUp(value) {
-        var nearest = Math.round(value * 1e8) / 1e8;
-        var whole = Math.trunc(nearest);
-        if (nearest - whole >= 0.5 - 1e-8) return whole + 1;
-        return whole;
     }
 
     function invalidLines(sourceQtys) {
@@ -237,6 +181,7 @@
         buyerType = requested;
         updateBuyerControls();
         paint(localQuote());
+        showStatus("در حال محاسبه قیمت‌های این نوع خرید…");
         var body = new FormData();
         body.append("nonce", molaviShop.nonce);
         body.append("buyer_type", requested);
@@ -256,6 +201,7 @@
                 }
                 paint(payload.data.quote);
                 showBuyerFeedback(payload.data.quote);
+                showStatus("");
             })
             .catch(function () {
                 buyerType = previous;
@@ -275,6 +221,7 @@
         var item = (lastQuote.invalid_lines || []).find(function (line) { return String(line.product_id) === String(id); });
         if (item) qtys[id] = Number(item.needed_quantity) || Number(row.min) || 1;
         paint(localQuote());
+        showStatus("در حال به‌روزرسانی قیمت سبد…");
         sync();
     });
 

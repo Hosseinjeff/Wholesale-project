@@ -120,14 +120,6 @@ add_action('wp_enqueue_scripts', static function (): void {
             'shop_unit' => (int) $row['shop_unit'],
             'household_threshold_units' => (int) $row['household_threshold_units'],
             'shop_threshold_units' => (int) $row['shop_threshold_units'],
-            'household_cap_ratio' => (float) $row['household_cap_ratio'],
-            'shop_cap_ratio' => (float) $row['shop_cap_ratio'],
-            'shelf' => (int) $row['shelf'],
-            'fixed' => (int) $row['shelf'] > 0 ? 0 : molavi_unit_price($row, 0.0),
-            'floor' => (int) $row['floor'],
-            'ceiling' => (int) $row['ceiling'],
-            'max' => (float) $row['max'],
-            'discountable' => !empty($row['discountable']) ? 1 : 0,
         ];
     }
     $quote = molavi_quote();
