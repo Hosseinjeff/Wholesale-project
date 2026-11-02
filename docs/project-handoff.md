@@ -1,22 +1,16 @@
 # MolaviSale — whole-workflow handoff
 
-Snapshot 4.64. Updated 2026-11-02, Asia/Tehran. The canonical roleplay decisions are in
+Snapshot 4.65. Updated 2026-11-02, Asia/Tehran. The canonical roleplay decisions are in
 `roleplay-state.json`; current live evidence and release gates are in
 `pipeline-readiness.md` and `pipeline-readiness-evidence.json`.
 
 ## Owner review flow and conflict recovery — D-044
 
-The WordPress plugin UI is deployed at commit `78b3188ed0b377bf9a573ccec158cee516f7d334`.
-It presents source details, processing reasons, bulk retry, and direct conflict choices;
-the plugin includes a WordPress review table and separate pending/outcome audit events,
-but live table creation and writes have not been verified.
-The Railway API changes are in `main`, but production is still on commit `8e2ae9a` and
-does not yet return batch source details or accept the bulk-retry request. The plugin
-therefore disables retries when the source is unavailable; conflict choices include a
-compatible audit note. Railway's automatic review rejected reconnecting the existing
-service to the same `main` repository to trigger a build, so rollout remains incomplete
-pending an approved in-place deployment path. No Railway source settings or data changed.
-The live admin click-through is pending.
+The WordPress plugin UI was deployed and its changed PHP, JavaScript, and CSS files were read back from cPanel at commit 78b3188ed0b377bf9a573ccec158cee516f7d334. It presents source details, processing reasons, bulk retry, and direct conflict choices. Its WordPress review-table migration and audit-write path are installed, but live table creation and writes still need an authenticated admin check.
+
+Railway is now connected to Hosseinjeff/Wholesale-project on main, with automatic deployment on pushes. Production deployment 1ff80683-d0cf-4b4c-938d-a08426be5d8b succeeded from commit 4020da234f62e4483eddf169c9bf3fd062335878. The service is online with one running replica, no warnings or pending work, and /health reports healthy. The API now supplies publication source context and accepts the selected-batch retry action; repeated same-choice conflict decisions remain idempotent.
+
+The public storefront was fetched successfully at https://molavisale.ir/ and rendered one product card. A full interactive buyer flow and the owner/admin click-through are not yet verified. The browser profile has no saved WordPress sign-in, so the admin/database verification is waiting on the user to save that session.
 
 ## Current data ownership and conflict direction — D-043, 2026-11-02
 

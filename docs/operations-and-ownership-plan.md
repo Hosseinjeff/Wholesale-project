@@ -95,8 +95,11 @@ cross-system transactions.
 D-044 implements the two owner-review paths in that policy with one-click conflict
 choices and a bulk, one-time batch retry. The WordPress plugin stores bounded source
 snapshots plus separate pending/outcome events; live table creation and writes remain
-unverified. The live queue and execution receipts remain in Railway for now; broader
-record migration is still open under D-043.
+unverified until an authenticated WordPress admin check. Railway deployment
+1ff80683-d0cf-4b4c-938d-a08426be5d8b is live from commit
+4020da234f62e4483eddf169c9bf3fd062335878, and the public storefront and /health endpoint
+were fetched successfully on 2026-11-02. The live queue and execution receipts remain in
+Railway for now; broader record migration is still open under D-043.
 
 D-043 sets WordPress/WooCommerce as the preferred persistent home for product and
 business records wherever supported. It does not move data by itself: the present

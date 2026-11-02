@@ -4,16 +4,17 @@
 
 ### Dashboard review rollout status — 2026-11-02
 
-The owner-review UI and its WordPress table migration/write path are on `main`; the
-plugin uploader verified commit `78b3188ed0b377bf9a573ccec158cee516f7d334`. Table
-creation and writes were not verified. The UI is compatible with the
-currently live conflict endpoint and disables blind batch retry when the API omits its
-source context. The required Railway API change is also on `main`, but production still
-runs `8e2ae9a32d4abc3c66e0b0ba06cf514db8d07f9d`; no new build is pending. Reconnecting
-the existing service to its same repository was rejected by Railway's automatic review
-because it would mutate live source configuration across environments. No source
-settings or database rows were changed. Approval is needed before using that path; until
-then the source-linked publication review is not fully active.
+The owner-review plugin files were read-back verified from cPanel at commit
+78b3188ed0b377bf9a573ccec158cee516f7d334. Its WordPress table migration and write path
+are installed; live table creation and writes still need an authenticated admin check.
+
+Railway production is connected to Hosseinjeff/Wholesale-project on main, with automatic
+deploys enabled. Deployment 1ff80683-d0cf-4b4c-938d-a08426be5d8b succeeded from commit
+4020da234f62e4483eddf169c9bf3fd062335878. The service is online, one replica is running,
+there are no warnings, failures, or pending changes, and /health reports healthy. The
+source-linked publication context and bulk retry endpoint are live. The public shop
+loads; owner/admin click-through remains pending because the browser profile has no
+saved WordPress sign-in.
 
 The operations dashboard now offers an owner-only, read-only receipt reconciliation
 report. It joins durable intake receipts to `MessageData`, extracted/reviewed `Offers`,
