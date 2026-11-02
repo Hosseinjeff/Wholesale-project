@@ -294,7 +294,7 @@ class GeminiExtractionTests(unittest.TestCase):
         self.assertEqual(product['weight'], '')
         self.assertFalse(product['needs_review'])
 
-    def test_per_kilo_labels_and_source_backed_multiline_names_are_preserved(self):
+    def test_per_kilo_labels_and_source_backed_measurements_are_preserved(self):
         examples = (
             ('برنج ایرانی', 'کیسه های ۱۰ کیلوگرمی', 'کیلویی', 450000, '10 کیلوگرم'),
             ('لواشک پذیرایی به بین', 'بسته های یک کیلویی', 'هر کیلو', 250000, '1 کیلوگرم'),
@@ -306,11 +306,26 @@ class GeminiExtractionTests(unittest.TestCase):
                     'name': f'{title}\n\n{package_line}', 'unit_price': price,
                     'currency': 'IRT', 'confidence': 0.99,
                 }], ensure_ascii=False), content, '@supplier')[0]
-                self.assertEqual(product['name'], f'{title}\n{package_line}')
+                self.assertEqual(product['name'], title)
                 self.assertEqual(product['weight'], weight)
                 self.assertEqual(product['sale_price'], price)
                 self.assertEqual(product['price_type'], 'unit')
                 self.assertFalse(product['needs_review'])
+
+    def test_quality_packaging_and_price_lines_do_not_become_product_name(self):
+        title = 'برنج طارم هاشمی مازندارن'
+        content = (
+            f'{title}\nدرجه کیفی عالی\nکیسه های ۱۰ کیلوگرمی\n'
+            'قیمت فروش ما : کیلویی۴۵۰/۰۰۰ تومان'
+        )
+        product = parse_message_products(json.dumps([{
+            'name': content, 'unit_price': 450000, 'currency': 'IRT', 'confidence': 0.99,
+        }], ensure_ascii=False), content, '@supplier')[0]
+        self.assertEqual(product['name'], title)
+        self.assertEqual(product['weight'], '10 کیلوگرم')
+        self.assertEqual(product['sale_price'], 450000)
+        self.assertEqual(product['price_type'], 'unit')
+        self.assertFalse(product['needs_review'])
 
     def test_unlabeled_amount_does_not_gain_per_kilo_basis_from_pack_size(self):
         title = 'برنج ایرانی'

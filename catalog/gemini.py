@@ -252,6 +252,7 @@ def _source_title_context(source_title, content, source_titles=(), ambiguous=Fal
     context = [lines[start]]
     detail_terms = re.compile(
         r'(?:\bدر\s*(?:کارتن|کارتون|باکس|بسته)|عدد|تعداد|تایی|ع|طعم|رنگ|'
+        r'درجه|کیفی(?:ت)?|عالی|ویژه|اصالت|'
         r'لیتری|گرمی|میل|مصرف|فروش|قیمت|دونه|دانه|واحد|باکس|کارتن|بسته)', re.I)
     footer = re.compile(r'(?:https?://|آدرس|شعبه\s*[۱۲12]?|ثبت\s*سفارش|خرید\s*(?:آنلاین|حضوری))', re.I)
     for index in range(start + 1, len(lines)):
@@ -332,27 +333,11 @@ def _product(item, content, channel, source_titles=()):
     source_context = _source_title_context(
         source_title, content, source_titles, ambiguous_source_title)
     if source_title:
-        submitted_name = name
         name, source_volume, source_weight = source_title
         explicit_volume = source_volume
         explicit_weight = source_weight
-        # Gemini sometimes puts a source-backed package line into the product
-        # name on a separate line. Keep those details when every line maps to
-        # exactly one source line; this also lets literal package measurements
-        # survive as structured attributes without trusting model-only text.
-        submitted_lines = [line.strip() for line in submitted_name.splitlines() if line.strip()]
-        source_lines = [line.strip() for line in str(content or '').splitlines() if line.strip()]
-        if len(submitted_lines) > 1:
-            display_lines = []
-            for submitted_line in submitted_lines:
-                matches = [line for line in source_lines
-                           if _title_identity(line) == _title_identity(submitted_line)]
-                if len(matches) != 1:
-                    display_lines = []
-                    break
-                display_lines.append(matches[0])
-            if display_lines and _title_identity(display_lines[0]) == _title_identity(name):
-                name = '\n'.join(display_lines)
+        # Keep the product title concise and recover size/count from its source
+        # context instead of appending packaging, quality, or price lines to it.
         for kind in ('volume', 'weight'):
             if extract_measurement(name, kind):
                 if kind == 'volume':
