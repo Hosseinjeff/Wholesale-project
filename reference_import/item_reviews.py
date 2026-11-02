@@ -317,9 +317,13 @@ def review_cases(sheet_store, snapshot, ledger, *, include_decided=False, includ
             continue
         case_id = review_case_id(offer_id, snapshot_id)
         decision = ledger.get(case_id)
-        decision_projected = bool(
+        decision_marker_matches = bool(
             decision and str(product.get('Reference Decision ID') or '') == str(decision.get('decision_id') or '')
         )
+        product_status = str(product.get('Status') or '').strip().lower()
+        decision_projected = bool(decision_marker_matches and not (
+            decision.get('choice') == 'no_match' and product_status != 'needs_review'
+        ))
         if decision and decision_projected and not include_decided:
             continue
         attrs = offer_attributes(offer)
@@ -344,6 +348,12 @@ def review_cases(sheet_store, snapshot, ledger, *, include_decided=False, includ
             'candidates': (ranked_candidates(attrs, snapshot.get('rows') or [], limit=12)
                            if include_candidates else []),
             'projection_pending': bool(decision and not decision_projected),
+            'projection_pending_reason': (
+                'decision_not_projected' if decision and not decision_marker_matches
+                else 'product_not_held' if decision and decision.get('choice') == 'no_match'
+                    and product_status != 'needs_review'
+                else ''
+            ),
             'decision': decision,
         })
     return cases

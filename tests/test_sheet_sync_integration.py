@@ -294,6 +294,58 @@ class SheetSyncIntegrationTests(unittest.TestCase):
         self.assertIsNone(repeated.get_json()['publish_job'])
         self.assertEqual(cell(self.store, field), server_value)
 
+    def test_reference_decision_is_included_when_rechecking_server_conflict_value(self):
+        import app as server
+        from catalog.sync import _restore_current_book
+        from reference_import.item_reviews import ItemReviewLedger, review_case_id
+        from reference_import.snapshots import ReferenceStore
+
+        reference_path = str(Path(self.temp.name) / 'reference.sqlite')
+        reference_store = ReferenceStore(reference_path, owner_ids=['wp:7'])
+        with reference_store._connect() as db:
+            db.execute('INSERT INTO reference_active VALUES (1,?)', ('snapshot-A',))
+        product_rows = self.store.read('Products')
+        product_headers = product_rows[0]
+        product = product_rows[1]
+        offer_id = product[product_headers.index('Latest Offer ID')]
+        case_id = review_case_id(offer_id, 'snapshot-A')
+        ledger = ItemReviewLedger(reference_path, owner_ids=['wp:7'])
+        decision = ledger.decide(case_id=case_id, offer_id=offer_id, snapshot_id='snapshot-A',
+            signature='synthetic-signature', choice='match', reference_id='R-1', price_role='unit',
+            actor_id='wp:7', note='Owner confirmed the reference item')
+
+        env = {'PIPELINE_DB_PATH': self.db_path, 'REFERENCE_STORE_PATH': reference_path,
+               'REFERENCE_OWNER_IDS': 'wp:7', 'REFERENCE_BRIDGE_TOKEN': TOKEN}
+        with patch.dict(os.environ, env):
+            _restore_current_book(self.store, [(product[product_headers.index('Product Name')],
+                                                product[product_headers.index('Channel Username')])])
+
+        product_rows = self.store.read('Products')
+        product_headers = product_rows[0]
+        product = product_rows[1]
+        self.assertEqual(product[product_headers.index('Reference Decision ID')], decision['decision_id'])
+        self.assertEqual(product[product_headers.index('Reference Approval State')], 'owner_approved')
+        conflict_id = 'sheet:reference-approval-state'
+        self.store.write_cells('Products', 2, product_headers, {'Reference Approval State': ''})
+        source_revision = self.store.read('Offers')[-1][self.store.read('Offers')[0].index('Offer ID')]
+        self.queue.record_sheet_conflict({'conflict_id': conflict_id,
+            'product_id': product[product_headers.index('Product ID')],
+            'product_name': product[product_headers.index('Product Name')],
+            'channel': product[product_headers.index('Channel Username')],
+            'field': 'Reference Approval State', 'source_revision': source_revision,
+            'base': 'needs_review', 'server': 'owner_approved', 'sheet': ''})
+
+        headers = {'X-Molavi-Reference-Token': TOKEN, 'X-Molavi-Actor': 'wp:7'}
+        with patch.object(server, 'USE_SHEETS', True), patch.object(server, 'build_store', return_value=self.store), \
+                patch.object(server, 'handoff_queue', return_value=self.queue), patch.dict(os.environ, env):
+            response = server.app.test_client().post('/pipeline/sheet-conflicts', headers=headers, json={
+                'conflict_id': conflict_id, 'choice': 'server', 'note': 'Apply current approved reference state',
+            })
+
+        self.assertEqual(response.status_code, 200, response.get_json())
+        self.assertEqual(cell(self.store, 'Reference Approval State'), 'owner_approved')
+        self.assertEqual(self.queue.get_sheet_conflict(conflict_id)['choice'], 'server')
+
     def test_last_updated_server_value_uses_the_latest_offer_import_timestamp(self):
         import app as server
         from catalog.sync import SHEET_SERVER_OWNED_FIELDS

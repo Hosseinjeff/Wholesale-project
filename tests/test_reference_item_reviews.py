@@ -102,6 +102,14 @@ class ReferenceItemReviewTests(unittest.TestCase):
         self.assertTrue(pending[0]['projection_pending'])
         self.assertEqual(pending[0]['decision']['decision_id'],decision['decision_id'])
 
+        product_headers=self.sheet.read('Products')[0]
+        self.sheet.write_cells('Products',2,product_headers,{
+            'Reference Decision ID':decision['decision_id'],'Status':'imported'})
+        still_pending=review_cases(self.sheet,self.snapshot,self.ledger)
+        self.assertEqual(len(still_pending),1)
+        self.assertTrue(still_pending[0]['projection_pending'])
+        self.assertEqual(still_pending[0]['projection_pending_reason'],'product_not_held')
+
         with patch.dict(os.environ,{'REFERENCE_STORE_PATH':str(self.path),'REFERENCE_OWNER_IDS':'wp:7',
                                     'PIPELINE_DB_PATH':''}):
             _restore_current_book(self.sheet,[('چای سبز','@supplier')])

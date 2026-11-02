@@ -1540,7 +1540,10 @@ def sheet_conflicts_route():
             'preserve':'Preserve the existing canonical Sheet value for this immutable identity field.',
         }[choice]
         from catalog.sheet_reconcile import field_values_equal
-        from catalog.sync import _cell,_find_product_row_by_id,_fresh_read,_offers_for_product,_product_from_offers,_product_row,_message_from_offer,_records,_read_sheet_if_present
+        from catalog.sync import (_active_reference_snapshot_id, _apply_reference_item_review,
+            _cell, _find_product_row_by_id, _fresh_read, _offers_for_product,
+            _product_from_offers, _product_row, _message_from_offer, _records,
+            _read_sheet_if_present, _reference_item_review_ledger)
         try:
             with queue.publication_lock():
                 conflict=queue.get_sheet_conflict(conflict_id)
@@ -1584,6 +1587,9 @@ def sheet_conflicts_route():
                 if not matching or str(matching[-1].get('Offer ID') or '')!=conflict['source_revision']:
                     return jsonify({'ok':False,'error':'source_changed'}),409
                 server_product=_product_from_offers(matching)
+                review_ledger=_reference_item_review_ledger()
+                _apply_reference_item_review(server_product,matching[-1],review_ledger,
+                    _active_reference_snapshot_id(review_ledger))
                 current_server_row=_product_row(headers,server_product,_message_from_offer(matching[-1]))
                 current_server=_cell(current_server_row,headers,conflict['field'])
                 if conflict['field']=='Last Updated':
