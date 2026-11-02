@@ -6,11 +6,29 @@ Snapshot 4.65. Updated 2026-11-02, Asia/Tehran. The canonical roleplay decisions
 
 ## Owner review flow and conflict recovery — D-044
 
-The WordPress plugin UI was deployed and its changed PHP, JavaScript, and CSS files were read back from cPanel at commit 78b3188ed0b377bf9a573ccec158cee516f7d334. It presents source details, processing reasons, bulk retry, and direct conflict choices. The WordPress review-table migration and audit-write path are now verified through authenticated admin requests. Both owner pages returned HTTP 200 with their localized configuration; Railway returned 2 publication holds and 7 Sheet conflicts, and the WordPress review-store AJAX endpoint confirmed all 9 observed context records stored. No conflict decision or batch retry was submitted.
+The WordPress plugin UI was deployed and its changed PHP, JavaScript, and CSS files
+were read back from cPanel at commit
+78b3188ed0b377bf9a573ccec158cee516f7d334. It presents source details, processing
+reasons, bulk retry, and direct conflict choices. Authenticated WordPress requests
+loaded both owner pages with HTTP 200 and their localized configuration. Railway
+returned 2 publication holds and 7 Sheet conflicts; the review-store AJAX endpoint
+confirmed all 9 observed context records stored. No owner decision or retry was
+submitted.
 
-Railway is now connected to Hosseinjeff/Wholesale-project on main, with automatic deployment on pushes. Production deployment 1ff80683-d0cf-4b4c-938d-a08426be5d8b succeeded from commit 4020da234f62e4483eddf169c9bf3fd062335878. The service is online with one running replica, no warnings or pending work, and /health reports healthy. The API now supplies publication source context and accepts the selected-batch retry action; repeated same-choice conflict decisions remain idempotent.
+Railway is connected to Hosseinjeff/Wholesale-project on main, with automatic
+deployment on pushes. Production deployment 1ff80683-d0cf-4b4c-938d-a08426be5d8b
+succeeded from commit 4020da234f62e4483eddf169c9bf3fd062335878. The service is online
+with one running replica, no warnings or pending work, and /health reports healthy.
+The API supplies publication source context and accepts selected-batch retries;
+repeated same-choice conflict decisions are idempotent.
 
-The public storefront was fetched successfully at https://molavisale.ir/ and rendered one product card. Its extracted text also contains the no-match empty-state sentence, so interactive filtering and the full buyer flow still need visual validation. Owner pages were validated through authenticated requests; a screenshot-based browser click-through has not been captured.
+A read-only live browser pass verified the homepage product card and image, product
+detail route, category filter, and sort controls. The browser report claimed the detail
+page showed the product as out of stock, but WooCommerce product 33 returned
+is_purchasable=true and is_in_stock=true; the product page source has the instock body
+class and no outofstock class, so that mismatch was not reproduced. No stock, cart, or
+order data changed. Checkout was not tested. A screenshot of the owner pages was not
+captured.
 
 ## Current data ownership and conflict direction — D-043, 2026-11-02
 

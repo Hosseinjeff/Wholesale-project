@@ -94,11 +94,22 @@ cross-system transactions.
 
 D-044 implements the two owner-review paths in that policy with one-click conflict
 choices and a bulk, one-time batch retry. The WordPress plugin stores bounded source
-snapshots plus separate pending/outcome events; The WordPress review-table migration and audit-write path are now verified through authenticated admin requests. Both owner pages returned HTTP 200 with their localized configuration; Railway returned 2 publication holds and 7 Sheet conflicts, and the WordPress review-store AJAX endpoint confirmed all 9 observed context records stored. No conflict decision or batch retry was submitted. Railway deployment
-1ff80683-d0cf-4b4c-938d-a08426be5d8b is live from commit
-4020da234f62e4483eddf169c9bf3fd062335878, and the public storefront and /health endpoint
-were fetched successfully on 2026-11-02. The live queue and execution receipts remain in
-Railway for now; broader record migration is still open under D-043.
+snapshots plus separate pending/outcome events. Both WordPress owner pages loaded with
+HTTP 200 and their localized configuration. Railway returned 2 publication holds and
+7 Sheet conflicts; the review-store AJAX endpoint confirmed all 9 observed context
+records stored. No owner decision or retry was submitted.
+
+Railway deployment 1ff80683-d0cf-4b4c-938d-a08426be5d8b is live from commit
+4020da234f62e4483eddf169c9bf3fd062335878, and /health reported healthy on 2026-11-02.
+A read-only live browser pass verified the homepage product card and image, product
+detail route, category filter, and sort controls. The browser report claimed the detail
+page showed the product as out of stock, but WooCommerce product 33 returned
+is_purchasable=true and is_in_stock=true; the product page source has the instock body
+class and no outofstock class, so that mismatch was not reproduced. No stock, cart, or
+order data changed. Checkout was not tested.
+
+The live queue and execution receipts remain in Railway for now; broader record
+migration is still open under D-043.
 
 D-043 sets WordPress/WooCommerce as the preferred persistent home for product and
 business records wherever supported. It does not move data by itself: the present
