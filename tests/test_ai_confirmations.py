@@ -108,6 +108,23 @@ class AIConfirmationTests(unittest.TestCase):
         cases = review_cases(self.store, self.ledger)
         self.assertTrue(all('variant_group_id' not in item for item in cases))
 
+    def test_identical_reextractions_from_one_source_post_share_one_review_decision(self):
+        repeated = dict(self.source, **{
+            'Offer ID':'reextract:run-2:msg-2:0', 'Message ID':'msg-2',
+            'Batch ID':'reextract:run-2', 'Import Timestamp':'2026-10-28T11:00:00Z',
+        })
+        self.store.append('Offers', [_row_from_map(OFFER_HEADERS, repeated)])
+        cases = review_cases(self.store, self.ledger)
+        self.assertEqual(len(cases), 1)
+        case = cases[0]
+        self.assertEqual(case['duplicate_count'], 2)
+
+        decision = self.ledger.decide(case_id=case['case_id'], offer_id=case['offer_id'],
+            signature=case['signature'], choice='confirm', fields=self.package_fields(),
+            actor_id='wp:7', note='Verified once against the linked supplier post')
+        apply_decision(self.store, self.ledger, case, decision)
+        self.assertEqual(review_cases(self.store, self.ledger), [])
+
     def test_unpriced_variants_are_not_grouped_as_same_price(self):
         first = dict(self.source, **{'Offer ID':'batch-1:msg-1:1', 'Product Name':'Juice Peach',
             'Variation Type':'Peach', 'Sale Price':0, 'Package Price':0, 'Detected Price':0})
@@ -230,6 +247,40 @@ class AIConfirmationRouteTests(unittest.TestCase):
                 self.assertEqual(client.post('/pipeline/ai-confirmations',json=payload,
                     headers={**headers,'X-Molavi-Reference-Token':'bad'}).status_code,401)
             server.USE_SHEETS = old_sheets
+
+    def test_historical_confirmation_keeps_unknown_stock_explicit(self):
+        from importlib import import_module
+        server = import_module('app')
+        with tempfile.TemporaryDirectory() as tmp:
+            path = str(Path(tmp) / 'pipeline.sqlite')
+            store = MemoryStore(); store.ensure('Offers', OFFER_HEADERS); store.ensure('Products', PRODUCT_HEADERS)
+            source = {'Offer ID':'reextract:run:message:0','Product Name':'Beans',
+                'Channel':'telegram','Channel Username':'@supplier','Sale Price':0,
+                'Detected Price':100000,'Actual Price':150000,'Price Type':'needs_review',
+                'Currency':'IRT','Status':'needs_review','Review Reason':'Re-extraction result awaiting owner review',
+                'Stock Status':'Unknown','Package Count':12,'Min Qty':1,'Message ID':'message',
+                'Batch ID':'reextract:run','Message Timestamp':'2026-10-28T10:00:00Z',
+                'Source Post URL':'https://t.me/supplier/1','Import Timestamp':'2026-10-28T10:01:00Z',
+                'Original Message':'Beans, 100000 toman'}
+            store.append('Offers', [_row_from_map(OFFER_HEADERS, source)])
+            ledger = AIConfirmationLedger(path)
+            case = review_cases(store, ledger)[0]
+            payload = {'case_id':case['case_id'],'offer_id':case['offer_id'],'signature':case['signature'],
+                'choice':'confirm','fields':{'price_role':'unit','sale_price':100000,'actual_price':150000,
+                    'package_count':12,'min_qty':1,'stock_status':'Unknown'},
+                'note':'Checked the current supplier post; stock was not stated.',
+                'expected_decision_id':None,'source_current_verified':True}
+            with patch.dict(os.environ, {'PIPELINE_DB_PATH':path,'REFERENCE_BRIDGE_TOKEN':'x'*40,
+                    'REFERENCE_OWNER_IDS':'wp:7'}), patch.object(server,'USE_SHEETS',True), \
+                    patch.object(server,'build_store',return_value=store), \
+                    patch.object(server,'ensure_telegram_webhook',return_value=None):
+                client=server.app.test_client()
+                response=client.post('/pipeline/ai-confirmations',json=payload,
+                    headers={'X-Molavi-Reference-Token':'x'*40,'X-Molavi-Actor':'wp:7'})
+                self.assertEqual(response.status_code,200,response.get_json())
+                decision=ledger.latest(case['case_id'])
+                self.assertIn('موجودی همچنان نامشخص است',decision['note'])
+                self.assertNotIn('وضعیت موجودی با منبع فعلی بررسی شد',decision['note'])
 
 
 if __name__ == '__main__':

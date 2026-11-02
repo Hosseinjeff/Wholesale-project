@@ -171,6 +171,7 @@
                 reference_price_role_hint:String(context.reference_price_role_hint || '').slice(0, 120),
                 historical_reextract:Boolean(context.historical_reextract),
                 previous_decision_id:String(context.previous_decision_id || '').slice(0, 64),
+                duplicate_count:Math.max(1, Math.min(100, Number(context.duplicate_count) || 1)),
                 decision:decisionSnapshot(context.decision),
                 decision_history:Array.isArray(context.decision_history)
                     ? context.decision_history.slice(-10).map(decisionSnapshot).filter(Boolean) : [],
@@ -914,6 +915,9 @@
             card.appendChild(selection);
         }
         card.appendChild(node('h2', item.product_name || 'کالای بدون نام'));
+        if (Number(item.duplicate_count) > 1) {
+            card.appendChild(notice(`این پیشنهاد از همان پیام ${new Intl.NumberFormat('fa-IR').format(item.duplicate_count)} بار استخراج شده است؛ یک تصمیم همه نسخه‌های تکراری را از صف بررسی کنار می‌گذارد.`, 'info'));
+        }
         const extractedAttributes = [];
         const displayAttributes = aiProductAttributes(item);
         if (relatedItems.length === 1 && displayAttributes.variationType) extractedAttributes.push(`طعم/مدل: ${displayAttributes.variationType}`);
@@ -981,7 +985,7 @@
             const checkLabel = node('label', null, 'molavi-reextract-current-check');
             currentPriceVerified = document.createElement('input');
             currentPriceVerified.type = 'checkbox';
-            checkLabel.append(currentPriceVerified, document.createTextNode(' قیمت و موجودی را از منبع فعلی دوباره بررسی کردم.'));
+            checkLabel.append(currentPriceVerified, document.createTextNode(' قیمت را در پست فعلی بررسی کردم؛ اگر موجودی ذکر نشده، نامشخص می‌ماند.'));
             card.appendChild(checkLabel);
         }
         const addQuickConfirm = (selectedRole, label) => {
@@ -1069,7 +1073,7 @@
             event.preventDefault();
             if (!form.reportValidity()) return;
             if (item.historical_reextract && !currentPriceVerified.checked) {
-                errorBox('پیش از تأیید، تازگی قیمت و موجودی را در منبع فعلی بررسی کنید.', card);
+                errorBox('پیش از تأیید، قیمت را در پست فعلی بررسی کنید؛ موجودی فقط با تصریح منبع قابل تأیید است.', card);
                 return;
             }
             const payload = {

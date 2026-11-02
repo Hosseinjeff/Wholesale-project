@@ -2172,7 +2172,10 @@ def ai_confirmations_route():
                 return jsonify({'ok':False,'error':'reextraction_price_not_verified'}),400
             decision_note=body['note'].strip()
             if body['choice']=='confirm' and case.get('historical_reextract'):
-                decision_note='تازگی قیمت و موجودی با منبع فعلی بررسی شد. '+decision_note
+                if body['fields']['stock_status'] == 'Unknown':
+                    decision_note='قیمت با منبع فعلی بررسی شد؛ موجودی همچنان نامشخص است. '+decision_note
+                else:
+                    decision_note='قیمت و موجودی با منبع فعلی بررسی شد. '+decision_note
             decision = ledger.decide(case_id=case['case_id'], offer_id=case['offer_id'],
                 signature=case['signature'], choice=body['choice'], fields=body['fields'],
                 actor_id=actor, note=decision_note,

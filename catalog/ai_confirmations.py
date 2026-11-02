@@ -10,6 +10,7 @@ import time
 import unicodedata
 from contextlib import contextmanager
 from pathlib import Path
+from urllib.parse import urlsplit
 
 
 class ConfirmationConflict(ValueError):
@@ -292,11 +293,50 @@ def find_case(store, ledger, case_id, offer_id):
     return _as_case(source, ledger, include_decided=True)
 
 
+def _duplicate_source_offer_key(offer):
+    """Group repeat extractions of the same product from one public source post."""
+    source_url = str(offer.get('Source Post URL') or '').strip()
+    try:
+        parsed = urlsplit(source_url)
+    except ValueError:
+        return None
+    host = (parsed.hostname or '').lower()
+    path = re.sub(r'^/s(?=/)', '', parsed.path).rstrip('/')
+    if (parsed.scheme.lower() != 'https' or host not in {'t.me', 'www.t.me'}
+            or not re.fullmatch(r'/[^/]+/\d+', path)):
+        return None
+    canonical_url = f'https://t.me{path}'
+    digits = str.maketrans('۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩', '01234567890123456789')
+
+    def normalized(value):
+        return ' '.join(unicodedata.normalize('NFKC', str(value or '')).translate(digits).split()).casefold()
+
+    title = normalized(offer.get('Product Name'))
+    original = normalized(offer.get('Original Message'))
+    if not title or not original:
+        return None
+    identity = [
+        canonical_url, title, original,
+        normalized(offer.get('Channel Username')), normalized(offer.get('Channel')),
+        normalized(offer.get('Review Reason')),
+        normalized(offer.get('Sale Price')), normalized(offer.get('Detected Price')),
+        normalized(offer.get('Actual Price') or offer.get('Consumer Price')),
+        normalized(offer.get('Package Price')), normalized(offer.get('Package Count')),
+        normalized(offer.get('Min Qty')), normalized(offer.get('Price Type')),
+        normalized(offer.get('Currency')), normalized(offer.get('Packaging')),
+        normalized(offer.get('Volume')), normalized(offer.get('Weight')),
+        normalized(offer.get('Brand')), normalized(offer.get('Category')),
+        normalized(offer.get('Variation Type')), normalized(offer.get('Stock Status')),
+    ]
+    return hashlib.sha256(_stable(identity)).hexdigest()
+
+
 def review_cases(store, ledger, *, include_history=False, limit=200):
     from catalog.sync import _records, _read_sheet_if_present
     raw = _read_sheet_if_present(store, 'Offers')
     _, offers = _records(raw)
     cases = []
+    source_duplicates = {}
     all_by_offer = {}
     reextracted_messages={
         (str(offer.get('Message ID') or ''),str(offer.get('Channel Username') or ''))
@@ -311,10 +351,28 @@ def review_cases(store, ledger, *, include_history=False, limit=200):
         marker=(str(offer.get('Message ID') or ''),str(offer.get('Channel Username') or ''))
         superseded=(marker in reextracted_messages
                     and not str(offer.get('Batch ID') or '').startswith('reextract:'))
-        case = None if superseded else _as_case(offer, ledger)
+        case = None if superseded else _as_case(offer, ledger, include_decided=True)
         if case:
-            cases.append(case)
+            latest_decision = ledger.latest(case['case_id'])
+            decided = bool(latest_decision and latest_decision['signature'] == case['signature'])
+            duplicate_key = _duplicate_source_offer_key(offer)
+            if duplicate_key:
+                source_duplicates.setdefault(duplicate_key, []).append((case, decided))
+            elif not decided:
+                cases.append(case)
         all_by_offer[offer_id] = (offer, latest)
+    for duplicates in source_duplicates.values():
+        # A single accepted decision covers exact repeated extraction rows from the same
+        # public post. Keep the raw source rows untouched and avoid repeated owner cards.
+        if any(decided for _, decided in duplicates):
+            continue
+        pending = [case for case, decided in duplicates if not decided]
+        if not pending:
+            continue
+        case = pending[-1]
+        if len(duplicates) > 1:
+            case['duplicate_count'] = len(duplicates)
+        cases.append(case)
     cases.sort(key=lambda row: (row['message_timestamp'], row['offer_id']), reverse=True)
     _annotate_variant_groups(cases)
     if not include_history:
