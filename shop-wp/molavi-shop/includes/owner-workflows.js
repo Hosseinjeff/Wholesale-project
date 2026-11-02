@@ -757,28 +757,71 @@
         };
     }
 
+    function aiProductAttributes(item) {
+        const title = String(item.product_name || '');
+        const variantMatch = title.match(/(?:با\s*)?(?:طعم|مزه)\s*[:：]?\s*([^،,؛;\n]+)/i);
+        const inferredVariant = variantMatch
+            ? variantMatch[1].split(/\s+(?:قیمت|price|تومان|تومن|ریال|تعداد)\b/i)[0].trim()
+            : '';
+        const volumeMatch = title.match(/[\d۰-۹٠-٩]+(?:[.,/٫][\d۰-۹٠-٩]+)?\s*(?:میلی\s*[\u200c\s]*لیتر|میلیلیتر|میل|مل|ml|cc|لیتر|ل)(?![\w])/i);
+        const packagingMatch = title.match(/تترا[\s\u200c-]*پک|\btetra[\s-]*pack\b|\btetrapak\b/i);
+        const explicitPackaging = packagingMatch ? 'تتراپک' : '';
+        const modelPackaging = String(item.packaging || '');
+        return {
+            variationType: String(item.variation_type || inferredVariant).trim(),
+            volume: String(item.volume || (volumeMatch && volumeMatch[0].replace(/\s+/g, ' ')) || ''),
+            weight: String(item.weight || ''),
+            packaging: explicitPackaging && !modelPackaging.includes(explicitPackaging)
+                ? [explicitPackaging, modelPackaging].filter(Boolean).join(' · ')
+                : modelPackaging || explicitPackaging,
+            brand: String(item.brand || ''),
+            category: String(item.category || '')
+        };
+    }
+
+    function aiVariantBaseName(item, attributes = aiProductAttributes(item)) {
+        let name = String(item.product_name || '');
+        const variant = attributes.variationType;
+        if (variant) {
+            const escaped = variant.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            name = name.replace(new RegExp(`(?:با\\s*)?(?:طعم|مزه)\\s*[:：]?\\s*${escaped}`, 'iu'), ' ');
+            name = name.replace(new RegExp(`(^|[\\s،,])${escaped}(?=$|[\\s،,])`, 'giu'), '$1 ');
+        }
+        return name.normalize('NFKC').toLowerCase().replace(/[،,؛;:()[\]{}]/g, ' ').replace(/\s+/g, ' ').trim();
+    }
+
     function aiCaseGroupTerms(item) {
+        const attributes = aiProductAttributes(item);
         return JSON.stringify([
             item.channel, item.source_channel, item.batch_id, item.message_id,
             item.reason, item.sale_price,
             item.detected_price, item.actual_price, item.package_price,
             item.package_count, item.min_qty, item.price_type, item.currency,
-            item.packaging, item.stock_status, Boolean(item.historical_reextract),
+            attributes.packaging, attributes.volume, attributes.weight,
+            attributes.brand, attributes.category,
+            item.stock_status, Boolean(item.historical_reextract),
             item.reference_match_state, item.reference_match_id,
-            item.reference_price_role_hint
+            item.reference_price_role_hint, item.previous_decision_id
         ]);
     }
 
     function groupAiVariantCases(cases) {
         const buckets = new Map();
         cases.forEach(item => {
-            const canGroup = item.variant_group_id && item.variation_type;
-            const key = canGroup ? `variant:${item.variant_group_id}` : `single:${item.case_id}`;
+            const attributes = aiProductAttributes(item);
+            const source = [item.channel, item.message_id, item.batch_id];
+            const hasSupplierPrice = normalizedAiInteger(item.detected_price)
+                || normalizedAiInteger(item.sale_price) || normalizedAiInteger(item.package_price);
+            const canGroup = hasSupplierPrice && (item.variation_type || attributes.variationType);
+            const localKey = canGroup && source.every(Boolean) && aiVariantBaseName(item, attributes)
+                ? JSON.stringify([source, aiVariantBaseName(item, attributes), aiCaseGroupTerms(item)]) : '';
+            const key = hasSupplierPrice && item.variant_group_id ? `variant:${item.variant_group_id}`
+                : localKey ? `local:${localKey}` : `single:${item.case_id}`;
             if (!buckets.has(key)) buckets.set(key, []);
             buckets.get(key).push(item);
         });
         return [...buckets.values()].flatMap(items => {
-            if (items.length < 2 || new Set(items.map(item => String(item.variation_type || '').trim().toLowerCase())).size !== items.length
+            if (items.length < 2 || new Set(items.map(item => aiProductAttributes(item).variationType.toLocaleLowerCase())).size !== items.length
                 || new Set(items.map(aiCaseGroupTerms)).size !== 1) {
                 return items.map(item => [item]);
             }
@@ -867,17 +910,33 @@
             card.appendChild(selection);
         }
         card.appendChild(node('h2', item.product_name || 'کالای بدون نام'));
+        const extractedAttributes = [];
+        const displayAttributes = aiProductAttributes(item);
+        if (relatedItems.length === 1 && displayAttributes.variationType) extractedAttributes.push(`طعم/مدل: ${displayAttributes.variationType}`);
+        if (displayAttributes.volume) extractedAttributes.push(`حجم: ${displayAttributes.volume}`);
+        if (displayAttributes.weight) extractedAttributes.push(`وزن: ${displayAttributes.weight}`);
+        if (displayAttributes.packaging) extractedAttributes.push(`بسته‌بندی: ${displayAttributes.packaging}`);
+        if (displayAttributes.brand) extractedAttributes.push(`برند: ${displayAttributes.brand}`);
+        if (displayAttributes.category) extractedAttributes.push(`دسته: ${displayAttributes.category}`);
+        if (extractedAttributes.length) {
+            const attributes = node('div', null, 'molavi-ai-product-attributes');
+            extractedAttributes.forEach(value => attributes.appendChild(node('span', value)));
+            card.appendChild(attributes);
+        }
         if (relatedItems.length > 1) {
             card.appendChild(node('p', `انواع هم‌قیمت از یک پیام (${relatedItems.length} مورد)`));
             const variants = node('ul', null, 'molavi-ai-variant-list');
-            relatedItems.forEach(row => variants.appendChild(node('li', `${row.variation_type || row.product_name || 'نوع نامشخص'}${row.product_name && row.product_name !== item.product_name ? ` · ${row.product_name}` : ''}`)));
+            relatedItems.forEach(row => variants.appendChild(node('li', `${aiProductAttributes(row).variationType || row.product_name || 'نوع نامشخص'}${row.product_name && row.product_name !== item.product_name ? ` · ${row.product_name}` : ''}`)));
             card.appendChild(variants);
         }
         const roleLabels = {unit: 'هر واحد', single: 'هر واحد', per_unit: 'هر واحد',
             pack: 'هر بسته', package: 'هر بسته', carton: 'هر کارتن'};
         const roleLabel = roleLabels[String(item.price_type || '').toLowerCase()]
             || 'مبنای هر واحد یا بسته هنوز مشخص نیست';
-        card.appendChild(node('p', `تأمین‌کننده: ${item.channel || 'نامشخص'} · مبلغ فروش تأمین‌کننده: ${amount(item.detected_price || item.sale_price)} · مبنا: ${roleLabel}`));
+        const detectedSupplierPrice = normalizedAiInteger(item.detected_price) || normalizedAiInteger(item.sale_price);
+        const packagePrice = normalizedAiInteger(item.package_price);
+        const visibleSupplierPrice = detectedSupplierPrice || packagePrice;
+        card.appendChild(node('p', `تأمین‌کننده: ${item.channel || 'نامشخص'} · مبلغ فروش تأمین‌کننده: ${visibleSupplierPrice ? amount(visibleSupplierPrice) : 'در پیام پیدا نشد'} · مبنا: ${roleLabel}`));
         card.appendChild(node('p', `دلیل بررسی: ${item.reason || 'نیازمند بررسی'} · حداقل خرید: ${item.min_qty || 'ثبت نشده'}`));
         if (item.message_timestamp) card.appendChild(node('p', `زمان پیام منبع: ${item.message_timestamp}`));
         const originalPost = safeSourceLink(item.source_post_url);
@@ -996,9 +1055,13 @@
         confirm.disabled = !contextStored || !decisionsEnabled;
         confirm.textContent = relatedItems.length > 1 ? `ثبت اصلاح برای هر ${relatedItems.length} نوع` : confirmLabel;
         form.append(confirm);
-        edit.appendChild(form);
-        card.appendChild(edit);
-        form.addEventListener('submit', async event => {
+        if (visibleSupplierPrice) {
+            edit.appendChild(form);
+            card.appendChild(edit);
+        } else {
+            card.appendChild(notice('قیمت تأمین‌کننده در پیام وجود ندارد؛ حجم و طعم مشخص است، اما بدون مبلغ نمی‌توان این پیشنهاد را تأیید یا منتشر کرد. این مورد تا رسیدن قیمت باز می‌ماند.', 'warning'));
+        }
+        if (visibleSupplierPrice) form.addEventListener('submit', async event => {
             event.preventDefault();
             if (!form.reportValidity()) return;
             if (item.historical_reextract && !currentPriceVerified.checked) {

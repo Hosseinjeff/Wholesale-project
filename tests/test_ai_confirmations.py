@@ -84,6 +84,13 @@ class AIConfirmationTests(unittest.TestCase):
         other_case = next(item for item in cases if item['offer_id'] == other_message['Offer ID'])
         self.assertNotIn('variant_group_id', other_case)
 
+        other_size = dict(self.source, **{'Offer ID':'batch-1:msg-1:4', 'Product Name':'Tuna Mint',
+            'Variation Type':'Mint', 'Volume':'220 میل'})
+        self.store.append('Offers', [_row_from_map(OFFER_HEADERS, other_size)])
+        cases = review_cases(self.store, self.ledger)
+        size_case = next(item for item in cases if item['offer_id'] == other_size['Offer ID'])
+        self.assertNotIn('variant_group_id', size_case)
+
         changed = dict(self.source, **{'Offer ID':'batch-1:msg-1:3', 'Product Name':'Tuna Chili',
                                        'Variation Type':'Chili', 'Sale Price':250000})
         self.store.append('Offers', [_row_from_map(OFFER_HEADERS, changed)])
@@ -96,6 +103,16 @@ class AIConfirmationTests(unittest.TestCase):
                                      'Variation Type':'Lemon'})
         second = dict(self.source, **{'Offer ID':'batch-1:msg-1:2', 'Product Name':'Tuna Lemon',
                                       'Variation Type':'Lemon'})
+        self.store.append('Offers', [
+            _row_from_map(OFFER_HEADERS, first), _row_from_map(OFFER_HEADERS, second)])
+        cases = review_cases(self.store, self.ledger)
+        self.assertTrue(all('variant_group_id' not in item for item in cases))
+
+    def test_unpriced_variants_are_not_grouped_as_same_price(self):
+        first = dict(self.source, **{'Offer ID':'batch-1:msg-1:1', 'Product Name':'Juice Peach',
+            'Variation Type':'Peach', 'Sale Price':0, 'Package Price':0, 'Detected Price':0})
+        second = dict(self.source, **{'Offer ID':'batch-1:msg-1:2', 'Product Name':'Juice Apple',
+            'Variation Type':'Apple', 'Sale Price':0, 'Package Price':0, 'Detected Price':0})
         self.store.append('Offers', [
             _row_from_map(OFFER_HEADERS, first), _row_from_map(OFFER_HEADERS, second)])
         cases = review_cases(self.store, self.ledger)

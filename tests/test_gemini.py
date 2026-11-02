@@ -294,6 +294,30 @@ class GeminiExtractionTests(unittest.TestCase):
         self.assertEqual(product['weight'], '')
         self.assertFalse(product['needs_review'])
 
+    def test_peach_tetrapak_title_is_structured_without_treating_volume_as_price(self):
+        title = 'آبمیوه تتراپک سون،۲۲۰ میلی لیتر طعم هلو'
+        product = parse_message_products(json.dumps([{
+            'name': title, 'brand': 'سون', 'variant': '', 'packaging': '',
+            'sale_price': 220, 'consumer_price': None, 'unit_price': 220,
+            'package_price': None, 'currency': 'IRT', 'confidence': 0.99,
+        }], ensure_ascii=False), title, '@supplier')[0]
+        self.assertEqual(product['name'], title)
+        self.assertEqual(product['brand'], 'سون')
+        self.assertEqual(product['variation_type'], 'هلو')
+        self.assertEqual(product['volume'], '220 میل')
+        self.assertEqual(product['packaging'], 'تتراپک')
+        self.assertEqual(product['sale_price'], 0)
+        self.assertEqual(product['detected_price'], 0)
+        self.assertTrue(product['needs_review'])
+        self.assertIn('supplier unit price is missing', product['review_reason'])
+
+        priced = parse_message_products(json.dumps([{
+            'name': title, 'unit_price': 220, 'currency': 'IRT', 'confidence': 0.99,
+        }], ensure_ascii=False), title + '\nقیمت تکی: ۲۲۰ تومان', '@supplier')[0]
+        self.assertEqual(priced['sale_price'], 220)
+        self.assertEqual(priced['price_type'], 'unit')
+        self.assertFalse(priced['needs_review'])
+
     def test_per_kilo_labels_and_source_backed_measurements_are_preserved(self):
         examples = (
             ('برنج ایرانی', 'کیسه های ۱۰ کیلوگرمی', 'کیلویی', 450000, '10 کیلوگرم'),
@@ -447,6 +471,10 @@ class GeminiExtractionTests(unittest.TestCase):
         self.assertIn('Missing optional brand, category, description or stock details', prompt)
         self.assertIn('Confidence measures these critical fields only', prompt)
         prompt = ' '.join(prompt.split())
+        self.assertIn('`۲۲۰ میلی لیتر` is volume 220 ml, not a price of 220', prompt)
+        self.assertIn('`طعم هلو` is variant `هلو`', prompt)
+        self.assertIn('`تتراپک` is packaging', prompt)
+        self.assertIn('do not ask the owner to confirm the flavor or volume', prompt)
         self.assertIn('All source channels are wholesalers', prompt)
         self.assertIn('single unlabeled amount is the supplier sale amount', prompt)
 

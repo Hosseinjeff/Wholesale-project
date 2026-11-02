@@ -209,7 +209,11 @@ def _as_case(offer, ledger, *, include_decided=False):
         'message_timestamp': str(offer.get('Message Timestamp') or ''),
         'source_post_url': str(offer.get('Source Post URL') or ''),
         'original_message': str(offer.get('Original Message') or ''),
+        'brand': str(offer.get('Brand') or ''),
+        'category': str(offer.get('Category') or ''),
         'variation_type': str(offer.get('Variation Type') or ''),
+        'volume': str(offer.get('Volume') or ''),
+        'weight': str(offer.get('Weight') or ''),
         'reason': reason,
         'sale_price': offer.get('Sale Price') or '',
         'detected_price': offer.get('Detected Price') or offer.get('Sale Price') or '',
@@ -248,12 +252,16 @@ def _annotate_variant_groups(cases):
         case.pop('variant_group_id', None)
         variant = _variant_text(case.get('variation_type'))
         source = (case.get('channel'), case.get('message_id'), case.get('batch_id'))
-        if not variant or not all(source) or not _variant_base_name(case):
+        digits = str.maketrans('۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩', '01234567890123456789')
+        has_price = any(int(re.sub(r'\D', '', str(case.get(key) or '').translate(digits)) or '0') > 0
+                        for key in ('sale_price', 'detected_price', 'package_price'))
+        if not variant or not all(source) or not _variant_base_name(case) or not has_price:
             continue
         terms = tuple(case.get(key) for key in (
             'source_channel', 'reason', 'sale_price', 'detected_price', 'actual_price',
             'package_price', 'package_count', 'min_qty', 'price_type', 'currency',
-            'packaging', 'stock_status', 'historical_reextract',
+            'packaging', 'volume', 'weight', 'brand', 'category',
+            'stock_status', 'historical_reextract',
             'reference_match_state', 'reference_match_id', 'reference_price_role_hint',
             'previous_decision_id',
         ))
