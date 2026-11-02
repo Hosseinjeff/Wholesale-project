@@ -1,8 +1,42 @@
 # MolaviSale — whole-workflow handoff
 
-Snapshot 4.65. Updated 2026-11-02, Asia/Tehran. The canonical roleplay decisions are in
+Snapshot 4.66. Updated 2026-11-02, Asia/Tehran. The canonical roleplay decisions are in
 `roleplay-state.json`; current live evidence and release gates are in
 `pipeline-readiness.md` and `pipeline-readiness-evidence.json`.
+
+## Product extraction and WP review persistence — 2026-11-02
+
+Railway deployment `ce182584-7a2c-4812-ac97-fef8e9517d8f` succeeded from commit
+`3c0464ec1aae196d84b12636b82d74c494e394ba`; `/health` returned HTTP 200. The
+companion WordPress plugin changes are deployed and read back from cPanel at commits
+`16edb3a03c7e5bac85af480cdc21cec429bd5015` and
+`3c0464ec1aae196d84b12636b82d74c494e394ba`.
+
+AI review cases now return their supplier post URL, and WordPress stores bounded source
+context, price/packaging fields, previous decisions, and decision history in its local
+review table. Each decision is recorded as pending in WordPress before Railway is asked
+to change a case, then updated with the server receipt. Authenticated live checks returned
+HTTP 200 for the AI dashboard and API; the WP database confirmed 123 case-context records
+stored, with 26 source links available. The WP page, `/`, `/shop/`, Woo Store API, Railway
+health, operations, holds, conflicts, and reconciliation endpoints all returned HTTP 200.
+
+One remaining pending saved message was re-extracted after the title fix. Its result was
+staged for review only; the extracted product title is `بلک ولف یک لیتری،۱۲ عددی`, while
+the price basis remains uncertain. Current re-extraction inventory is 21 available, 0
+pending, 64 already staged, 668 owner-dismissed, 5 preserved as not-product, and 266 with
+no text. There are 123 open AI review cases and no recent owner decisions. The new result
+was not approved or published because its historical price/stock and unit-vs-package
+basis are not confirmed.
+
+No publication holds or Sheet conflicts remain. The live operations queue still contains
+180 failed jobs (178 publish jobs with generic `RuntimeError`, 2 batch jobs with
+`JobConflict`), alongside 703 cancelled and 517 done. These old jobs were not blindly
+replayed. The read-only reconciliation reports 109 receipts, 189 offers, 143 offers
+needing review, 78 receipt-linked products, 36 publication-done receipts, and 68 failed
+publication receipts. Its current Woo check finds one purchasable, in-stock product and
+no missing or blocked product among the receipt-linked products. This confirms the
+service and storefront are up; the owner-review backlog and opaque historical queue
+failures remain open work.
 
 ## Owner review flow and conflict recovery — D-044
 

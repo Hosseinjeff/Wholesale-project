@@ -2,6 +2,16 @@
 
 Updated: 2026-11-02, Asia/Tehran
 
+## Latest live deployment — 2026-11-02
+
+Railway deployment `ce182584-7a2c-4812-ac97-fef8e9517d8f` succeeded from commit
+`3c0464ec1aae196d84b12636b82d74c494e394ba`. The WordPress uploader deployed and read
+back the owner workflow JavaScript at that commit; the related PHP files were already
+verified from commit `16edb3a03c7e5bac85af480cdc21cec429bd5015`. Live owner API and page
+checks returned HTTP 200, and the AI review-store AJAX endpoint confirmed WordPress
+database writes for 123 cases. See `pipeline-readiness.md` for current queue counts and
+the remaining review/failure backlog.
+
 ## Source of truth
 
 - WordPress plugin source lives in `shop-wp/molavi-shop/` in this repository.

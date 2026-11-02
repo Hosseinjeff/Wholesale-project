@@ -1,5 +1,38 @@
 # Whole-pipeline readiness — checkpoints through 2026-11-02
 
+## Live recovery checkpoint — 2026-11-02
+
+Railway commit `3c0464ec1aae196d84b12636b82d74c494e394ba` is deployed successfully as
+`ce182584-7a2c-4812-ac97-fef8e9517d8f`. WordPress plugin code from the same revision is
+deployed and read back from cPanel. `/`, `/shop/`, the authenticated AI owner page,
+Railway `/health`, and the owner operations, holds, Sheet-conflicts, AI review, and
+reconciliation APIs return HTTP 200. The public Woo Store API returns one purchasable,
+in-stock product; its detail route also returns HTTP 200.
+
+The owner AI page now returns supplier post links and source messages, and mirrors its
+case context and decision history into the WordPress review database. The live WordPress
+AJAX receipt confirmed 123 case-context records stored (26 cases include source URLs).
+The pending saved-message inventory contained one item; it was re-extracted successfully
+and staged for owner review, with no automatic publication. Afterward the inventory was
+21 available, 0 pending, 64 already staged, 668 dismissed by the owner, 5 preserved as
+not-product, and 266 without text. There are 123 open AI review cases and no recent owner
+decisions. The new staged offer still lacks a confirmed unit/package price basis and
+current stock verification, so it remains held.
+
+The two previously visible Sheet conflicts were resolved with the Railway/server value,
+following the owner's conflict rule. There are now zero open conflicts and zero
+publication holds. The durable queue still shows 180 failed jobs: 178 publish jobs with
+generic `RuntimeError` state and 2 batch jobs with `JobConflict`; it also shows 703
+cancelled and 517 done. These historical failures were not replayed because their stored
+records do not preserve the underlying exception detail. The 109-receipt reconciliation
+shows 189 offers, 143 offers needing review, 78 receipt-linked products, 36 completed
+publication receipts, and 68 failed publication receipts. The current Woo check reports
+no missing or blocked product among those receipt-linked products.
+
+Infrastructure and the public site are healthy, while the owner-review backlog and old
+failed jobs remain unresolved. AI extraction accuracy has not been measured against an
+owner-labelled corpus; no open AI cases were approved or rejected during this checkpoint.
+
 ## Current audit review — 2026-11-02
 
 The November 2 audit supersedes the October 31 catalog counts as a description of the
