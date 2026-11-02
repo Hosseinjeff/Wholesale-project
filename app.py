@@ -2016,14 +2016,15 @@ def ai_confirmations_route():
                 outcomes={}
                 products_found=0
                 offers_written=0
-                open_cases_remaining=0
                 for item in status['items']:
                     result=item.get('result') or {}
                     outcome=str(result.get('status') or item.get('state') or 'unknown')
                     outcomes[outcome]=outcomes.get(outcome,0)+1
                     products_found+=int(result.get('products_found') or 0)
                     offers_written+=int(result.get('offers_written') or result.get('staged_offers') or 0)
-                    open_cases_remaining+=int(result.get('open_cases_remaining') or 0)
+                # Per-message snapshots overlap when identical products occur in several
+                # source posts. Report the live queue once instead of summing those snapshots.
+                open_cases_remaining=len(review_cases(store, ledger, limit=1000))
                 publication=queue.get(f'publish:ai-reextraction:{run_id}')
                 publication_state=str(publication.get('state') or '') if publication else ''
                 response=jsonify({'ok':True,'run_id':status['run_id'],'state':status['state'],

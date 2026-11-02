@@ -296,6 +296,54 @@ class AIConfirmationTests(unittest.TestCase):
 
 
 class AIConfirmationRouteTests(unittest.TestCase):
+    def test_reextraction_run_reports_live_queue_not_overlapping_source_snapshots(self):
+        from importlib import import_module
+        server = import_module('app')
+        with tempfile.TemporaryDirectory() as tmp:
+            path = str(Path(tmp) / 'pipeline.sqlite')
+            store = MemoryStore(); store.ensure('Offers', OFFER_HEADERS)
+            for index in range(2):
+                source = {
+                    'Offer ID':f'batch-{index}:message-{index}:0',
+                    'Product Name':f'Beans {index}', 'Channel':'telegram',
+                    'Channel Username':'@supplier', 'Status':'needs_review',
+                    'Review Reason':'low confidence', 'Message ID':f'message-{index}',
+                    'Batch ID':f'batch-{index}', 'Message Timestamp':'2026-10-28T10:00:00Z',
+                    'Original Message':f'Beans {index}, 100000 toman',
+                }
+                store.append('Offers', [_row_from_map(OFFER_HEADERS, source)])
+
+            status = {
+                'run_id':'a' * 32, 'state':'complete', 'total':2, 'completed':2,
+                'counts':{'done':2}, 'scope':'open_cases', 'case_count':2,
+                'digest':'b' * 64,
+                'items':[
+                    {'state':'done','result':{'status':'reprocessed','products_found':1,
+                        'offers_written':1,'open_cases_remaining':2}},
+                    {'state':'done','result':{'status':'reprocessed','products_found':1,
+                        'offers_written':1,'open_cases_remaining':2}},
+                ],
+            }
+
+            class Queue:
+                def __init__(self, db_path):
+                    self.path = db_path
+                def reextraction_status(self, run_id):
+                    return status if run_id == status['run_id'] else None
+                def get(self, job_id):
+                    return {'state':'done','result':{'ok':True,'pushed':True}}
+
+            queue = Queue(path)
+            with patch.dict(os.environ, {'PIPELINE_DB_PATH':path,'REFERENCE_BRIDGE_TOKEN':'x'*40,
+                    'REFERENCE_OWNER_IDS':'wp:7'}), patch.object(server,'USE_SHEETS',True), \
+                    patch.object(server,'build_store',return_value=store), \
+                    patch.object(server,'handoff_queue',return_value=queue):
+                client = server.app.test_client()
+                response = client.get('/pipeline/ai-confirmations?reextract=run&run_id=' + status['run_id'],
+                    headers={'X-Molavi-Reference-Token':'x'*40,'X-Molavi-Actor':'wp:7'})
+                self.assertEqual(response.status_code,200,response.get_json())
+                self.assertEqual(response.get_json()['open_cases_remaining'],2)
+
     def test_owner_route_returns_receipt_and_enqueues_projection(self):
         from importlib import import_module
         server = import_module('app')
