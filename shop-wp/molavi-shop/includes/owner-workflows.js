@@ -54,6 +54,10 @@
             review_store_failed: 'ثبت اطلاعات بررسی در پایگاه داده وردپرس ناموفق بود؛ تصمیم ارسال نشد.',
             invalid_records: 'ثبت اطلاعات بررسی معتبر نبود؛ صفحه را تازه کنید.',
             reconciliation_unavailable: 'گزارش تطبیق موقتاً در دسترس نیست؛ وضعیت اتصال شیت و فروشگاه را بررسی کنید.',
+            backlog_changed: 'صف هنگام اجرا تغییر کرد؛ صفحه را تازه کنید و وضعیت جدید را بررسی کنید.',
+            catalog_projection_changed: 'شیت هنگام همگام‌سازی تغییر کرد؛ همگام‌سازی تازه در صف قرار گرفت و خطاها باز ماندند.',
+            catalog_sync_incomplete: 'همگام‌سازی کامل نشد؛ تلاش‌های قبلی باز ماندند تا دوباره بررسی شوند.',
+            backlog_reconcile_unavailable: 'تطبیق خطاهای قدیمی موقتاً انجام نشد؛ صف را تازه کنید و دوباره بررسی کنید.',
             reextraction_active: 'یک بازاستخراج دیگر هنوز در صف یا در حال اجراست؛ ابتدا وضعیت همان اجرا را پیگیری کنید.',
             reextraction_preview_changed: 'فهرست پیام‌ها تغییر کرده است؛ تعداد تازه را بررسی و دوباره شروع کنید.',
             no_reextraction_messages: 'پیامی برای بازاستخراج در این گروه پیدا نشد.',
@@ -388,6 +392,7 @@
 
         const formatCount = value => new Intl.NumberFormat('fa-IR').format(value);
         let actionPlanRequest = 0;
+        let backlogCard = null;
         function renderActionPlan(ops, queueSummary) {
             const counts = ops.by_state || {};
             const operationsCount = key => {
@@ -420,6 +425,13 @@
                 tasks.push({ key:'failed_jobs', title:'بررسی خطاهای پردازش', count:Math.floor(failed),
                     detail:'جزئیات فنی را باز کنید تا خطاهای صف را ببینید.' });
             }
+            const publicationIds = Array.isArray(ops.failed_publication_ids) ? ops.failed_publication_ids : [];
+            const batchIds = Array.isArray(ops.failed_batch_ids) ? ops.failed_batch_ids : [];
+            if (publicationIds.length || batchIds.length) {
+                tasks.unshift({ key:'publication_backlog', title:'پاک‌سازی تلاش‌های قدیمی انتشار',
+                    count:publicationIds.length + batchIds.length,
+                    detail:'یک همگام‌سازی کامل انجام می‌شود؛ فقط کارهایی بسته می‌شوند که نتیجه‌شان تأیید شود.' });
+            }
             const tabCounts = {
                 'molavi-publication-holds': operationsCount('publication_holds'),
                 'molavi-sheet-conflicts': operationsCount('sheet_conflicts'),
@@ -451,6 +463,11 @@
                 return;
             }
             const openTask = task => {
+                if (task.key === 'publication_backlog' && backlogCard) {
+                    board.open = true;
+                    backlogCard.scrollIntoView({ behavior:'smooth', block:'center' });
+                    return;
+                }
                 if (task.slug) {
                     const entry = entries.find(item => item.slug === task.slug);
                     if (entry) { activate(entry.index); entry.tab.focus(); }
@@ -520,6 +537,72 @@
             const content = node('div');
             content.appendChild(node('p', `در صف: ${ops.actionable_count || 0} · نیازمند توجه: ${ops.attention_count || 0} · توقف انتشار: ${ops.publication_holds || 0} · تعارض شیت: ${ops.sheet_conflicts || 0}`));
             content.appendChild(node('p', `صف: ${counts.queued || 0} · در حال اجرا: ${counts.running || 0} · انتظار مرجع: ${counts.waiting_reference || 0} · انتظار رفع توقف انتشار: ${counts.waiting_publication || 0} · خطا: ${counts.failed || 0} · نیازمند بررسی: ${counts.needs_review || 0}`));
+            const failedPublicationIds = Array.isArray(ops.failed_publication_ids) ? ops.failed_publication_ids : [];
+            const failedBatchIds = Array.isArray(ops.failed_batch_ids) ? ops.failed_batch_ids : [];
+            backlogCard = null;
+            if (failedPublicationIds.length || failedBatchIds.length) {
+                backlogCard = node('section', null, 'card');
+                backlogCard.appendChild(node('h2', 'پاک‌سازی خطاهای قدیمی انتشار'));
+                backlogCard.appendChild(node('p', `${formatCount(failedPublicationIds.length)} تلاش انتشار و ${formatCount(failedBatchIds.length)} رسید دسته با خطای تعارض ثبت شده است.`));
+                backlogCard.appendChild(node('p', 'یک بار فهرست فعلی کالاها از شیت در ووکامرس همگام می‌شود. تلاش‌های انتشار فقط پس از موفقیت کامل و ثابت‌ماندن شیت بسته می‌شوند؛ دسته‌ها فقط وقتی بسته می‌شوند که همه پیام‌هایشان در شیت تأیید شود.'));
+                const reconcileButton = node('button', 'همگام‌سازی و بستن خطاهای قابل تأیید', 'button button-primary');
+                reconcileButton.type = 'button';
+                reconcileButton.disabled = !config.reviewStoreUrl || !config.reviewStoreNonce;
+                if (reconcileButton.disabled) {
+                    backlogCard.appendChild(notice('ثبت رسید در پایگاه داده وردپرس آماده نیست؛ هیچ تغییری ارسال نمی‌شود.', 'warning'));
+                }
+                reconcileButton.addEventListener('click', async () => {
+                    if (!window.confirm('فهرست فعلی شیت یک بار در ووکامرس همگام شود و فقط خطاهای قابل تأیید بسته شوند؟')) return;
+                    reconcileButton.disabled = true;
+                    const eventId = reviewEventId('publication_backlog', 'current');
+                    const context = {
+                        failed_publication_ids:failedPublicationIds,
+                        failed_batch_ids:failedBatchIds,
+                        queue_counts:counts,
+                        observed_at:new Date().toISOString()
+                    };
+                    const decision = {action:'sync_current_catalog_and_reconcile_failed_receipts',
+                        note:'Owner authorized one current Sheet-to-Woo catalog sync; reconcile only matching failed receipts.'};
+                    const endpoint = new URL('/pipeline/reconcile-publication-backlog', config.apiUrl).toString();
+                    try {
+                        await persistOwnerReviews([reviewRecord(eventId, 'publication_backlog', 'failed-publication-backlog',
+                            'pending', context, decision)]);
+                        const receipt = await request('POST', {expected_publish_ids:failedPublicationIds,
+                            expected_batch_ids:failedBatchIds}, endpoint);
+                        const catalog = receipt.catalog_sync || {};
+                        if (!/^[a-f0-9]{64}$/.test(receipt.sheet_digest || '')
+                            || receipt.failed_publications_reconciled !== failedPublicationIds.length
+                            || !Array.isArray(receipt.failed_publication_ids)
+                            || receipt.failed_publication_ids.length !== failedPublicationIds.length
+                            || !Array.isArray(receipt.batch_job_ids_reconciled)
+                            || !Array.isArray(receipt.batch_job_ids_left_open)
+                            || receipt.batch_jobs_reconciled !== receipt.batch_job_ids_reconciled.length
+                            || Number(catalog.images_left || 0) !== 0) throw new Error('invalid_receipt');
+                        let localWarning = '';
+                        try {
+                            await persistOwnerReviews([reviewRecord(eventId, 'publication_backlog', 'failed-publication-backlog',
+                                'accepted', context, decision, receipt)]);
+                        } catch (_error) { localWarning = ' اقدام در سرور انجام شد، اما رسید وردپرس هنوز در انتظار ثبت است.'; }
+                        const summary = `همگام‌سازی کامل شد؛ ${formatCount(receipt.failed_publications_reconciled)} خطای انتشار بسته شد و ${formatCount(receipt.batch_jobs_reconciled)} دسته تأییدشده ثبت شد.`
+                            + (receipt.batch_job_ids_left_open.length ? ` ${formatCount(receipt.batch_job_ids_left_open.length)} دسته به‌دلیل نبود تطبیق کامل باز ماند.` : '')
+                            + localWarning;
+                        await dashboard();
+                        const freshBoard = root.querySelector('.molavi-next-action');
+                        if (freshBoard) freshBoard.prepend(notice(summary, localWarning || receipt.batch_job_ids_left_open.length ? 'warning' : 'success'));
+                    } catch (error) {
+                        try {
+                            await persistOwnerReviews([reviewRecord(eventId, 'publication_backlog', 'failed-publication-backlog',
+                                error.remoteRejected ? 'failed' : 'pending', context, decision,
+                                {error:String(error.message || 'request_failed'), request_status:error.requestStatus || null})]);
+                        } catch (_ignored) {}
+                        await dashboard();
+                        const freshBoard = root.querySelector('.molavi-next-action');
+                        if (freshBoard) freshBoard.prepend(notice(errorText(error.message), 'warning'));
+                    }
+                });
+                backlogCard.appendChild(reconcileButton);
+                content.appendChild(backlogCard);
+            }
             const items = Array.isArray(ops.items) ? ops.items : [];
             if (!items.length) content.appendChild(node('p', 'کار متوقف‌شده یا خطاداری در صف نیست.'));
             else {

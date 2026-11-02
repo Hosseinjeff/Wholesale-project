@@ -183,6 +183,82 @@ class Handoffs:
             'items':items,
         }
 
+    def failed_backlog_snapshot(self):
+        """Return IDs for the only failed job classes eligible for sync reconciliation."""
+        with self.connect() as db:
+            publications = db.execute(
+                "SELECT id FROM jobs WHERE kind='publish' AND state='failed' ORDER BY id"
+            ).fetchall()
+            batches = db.execute(
+                "SELECT id FROM jobs WHERE kind='batch' AND state='failed' AND error='JobConflict' ORDER BY id"
+            ).fetchall()
+        return {
+            'publication_ids': [str(row['id']) for row in publications],
+            'batch_ids': [str(row['id']) for row in batches],
+        }
+
+    def reconcile_failed_backlog(self, publication_ids, batch_ids, *, actor_id, sheet_digest, sync_result):
+        """Atomically close exact failed receipts covered by a complete sync and source audit."""
+        selections=((publication_ids,'publish:',500,'invalid failed publication selection'),
+                    (batch_ids,'batch:',100,'invalid failed batch selection'))
+        for job_ids,prefix,limit,error in selections:
+            if (not isinstance(job_ids,list) or len(job_ids)>limit
+                    or any(not isinstance(item,str) or not item.startswith(prefix) or len(item)>300
+                           for item in job_ids)
+                    or len(set(job_ids))!=len(job_ids)):
+                raise ValueError(error)
+        if not isinstance(actor_id, str) or not actor_id.strip() or len(actor_id) > 300:
+            raise ValueError('owner actor required')
+        try:
+            images_left = int(sync_result.get('images_left') or 0) if isinstance(sync_result, dict) else -1
+        except (TypeError, ValueError, OverflowError):
+            images_left = -1
+        if (not isinstance(sheet_digest, str) or not re.fullmatch(r'[a-f0-9]{64}', sheet_digest)
+                or not isinstance(sync_result, dict) or sync_result.get('ok') is not True
+                or sync_result.get('pushed') is not True or images_left != 0):
+            raise ValueError('successful complete catalog sync required')
+        if not publication_ids and not batch_ids:
+            return {'publication_ids':[],'batch_ids':[]}
+        summary = {key: sync_result.get(key) for key in ('count', 'created', 'updated', 'hidden', 'attached', 'images_left')}
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            publication_rows=[]
+            if publication_ids:
+                marks=','.join('?' for _ in publication_ids)
+                publication_rows=db.execute(f"SELECT id,error FROM jobs WHERE id IN ({marks}) AND kind='publish' AND state='failed'",
+                    tuple(publication_ids)).fetchall()
+            batch_rows=[]
+            if batch_ids:
+                marks=','.join('?' for _ in batch_ids)
+                batch_rows=db.execute(f"SELECT id,error FROM jobs WHERE id IN ({marks}) AND kind='batch' AND state='failed' AND error='JobConflict'",
+                    tuple(batch_ids)).fetchall()
+            if ({str(row['id']) for row in publication_rows} != set(publication_ids)
+                    or {str(row['id']) for row in batch_rows} != set(batch_ids)):
+                raise JobConflict('failed publication backlog changed during reconciliation')
+            reconciled_at = time.time()
+            for row in publication_rows:
+                receipt = {
+                    'ok': True, 'pushed': True, 'superseded_by_catalog_sync': True,
+                    'reconciled_at': reconciled_at, 'actor_id': actor_id,
+                    'sheet_digest': sheet_digest, 'previous_error': str(row['error'] or ''),
+                    'sync': summary,
+                }
+                db.execute("""UPDATE jobs SET state='done',result=?,error=NULL,lease=NULL,expires=NULL,updated_at=?
+                    WHERE id=? AND kind='publish' AND state='failed'""",
+                    (self.encode(receipt), reconciled_at, str(row['id'])))
+            for row in batch_rows:
+                receipt = {
+                    'ok': True, 'reconciled_after_catalog_sync': True,
+                    'source_rows_verified': True, 'reconciled_at': reconciled_at,
+                    'actor_id': actor_id, 'sheet_digest': sheet_digest,
+                    'previous_error': str(row['error'] or ''), 'sync': summary,
+                }
+                db.execute("""UPDATE jobs SET state='done',result=?,error=NULL,lease=NULL,expires=NULL,updated_at=?
+                    WHERE id=? AND kind='batch' AND state='failed' AND error='JobConflict'""",
+                    (self.encode(receipt), reconciled_at, str(row['id'])))
+        return {'publication_ids':[str(row['id']) for row in publication_rows],
+                'batch_ids':[str(row['id']) for row in batch_rows]}
+
     def reconciliation_receipts(self, *, limit=200):
         """Return source identifiers and queue outcomes without exposing message text."""
         limit = max(1, min(int(limit), 500))

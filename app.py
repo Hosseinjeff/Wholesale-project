@@ -903,9 +903,156 @@ def operations_dashboard_route():
     summary['items_truncated']=len(summary['items'])<summary['actionable_count']
     summary['publication_holds']=len(queue.publication_holds())
     summary['sheet_conflicts']=len(queue.sheet_sync_conflicts(state='open'))
+    backlog=queue.failed_backlog_snapshot()
+    summary['failed_publication_ids']=backlog['publication_ids']
+    summary['failed_batch_ids']=backlog['batch_ids']
     response=jsonify({'ok':True,'operations':summary})
     response.headers['Cache-Control']='no-store'
     return response
+
+
+def _batch_sources_reconciled(store, queue, job_id):
+    """Prove a failed batch already left complete, reviewable source rows in Sheets."""
+    if not isinstance(job_id, str) or not job_id.startswith('batch:'):
+        return False
+    batch_id=job_id[len('batch:'):]
+    context=queue.publication_hold_context(batch_id)
+    sources=context.get('messages') or []
+    try:
+        expected=int(context.get('expected_messages') or 0)
+    except (TypeError,ValueError,OverflowError):
+        return False
+    if (context.get('batch_state')!='failed' or context.get('batch_error')!='JobConflict'
+            or not sources or expected!=len(sources)):
+        return False
+    from catalog.ai_confirmations import review_case_id
+    from catalog.sync import _ai_review_reason,_fresh_read,_records
+    _,message_rows=_records(_fresh_read(store,'MessageData'))
+    _,offer_rows=_records(_fresh_read(store,'Offers'))
+    for source in sources:
+        message_id=str(source.get('message_id') or '')
+        channel=str(source.get('channel') or '')
+        matches=[row for row in message_rows
+            if str(row.get('ID') or '')==message_id
+            and str(row.get('Channel Username') or '')==channel
+            and str(row.get('Batch ID') or '')==batch_id]
+        if len(matches)>1:
+            return False
+        if not matches:
+            source_offers=[offer for offer in offer_rows
+                if str(offer.get('Message ID') or '')==message_id
+                and str(offer.get('Channel Username') or '')==channel
+                and str(offer.get('Batch ID') or '')==batch_id]
+            if (not source_offers or any(not _ai_review_reason(offer)
+                    or not str(offer.get('Offer ID') or '').strip() for offer in source_offers)):
+                return False
+            continue
+        row=matches[0]
+        ai_state=str(row.get('AI Status') or '').strip().lower()
+        if (ai_state not in {'needs_confirmation','ai_processed','not_product'}
+                or not str(row.get('AI Processed At') or '').strip()):
+            return False
+        if ai_state=='needs_confirmation':
+            try:
+                case_ids=json.loads(str(row.get('AI Review Case IDs') or '[]'))
+            except (TypeError,ValueError):
+                case_ids=[]
+            offer_cases={review_case_id(str(offer.get('Offer ID') or ''))
+                for offer in offer_rows
+                if str(offer.get('Message ID') or '')==message_id
+                and str(offer.get('Channel Username') or '')==channel
+                and str(offer.get('Batch ID') or '')==batch_id
+                and _ai_review_reason(offer)}
+            if (not isinstance(case_ids,list) or not case_ids
+                    or any(not isinstance(case_id,str) or not case_id for case_id in case_ids)
+                    or set(case_ids)!=offer_cases):
+                return False
+    return True
+
+
+@app.route('/pipeline/reconcile-publication-backlog', methods=['POST','OPTIONS'])
+def reconcile_publication_backlog_route():
+    """One current Sheet→Woo sync safely supersedes old publish failures and verified batch conflicts."""
+    if request.method=='OPTIONS':
+        return '',204
+    token=os.getenv('REFERENCE_BRIDGE_TOKEN') or ''
+    owners={value.strip() for value in (os.getenv('REFERENCE_OWNER_IDS') or '').split(',') if value.strip()}
+    queue=handoff_queue()
+    if not USE_SHEETS or queue is None or len(token)<32 or not owners:
+        return jsonify({'ok':False,'error':'unconfigured'}),503
+    actor,auth_error=_owner_api_actor('owner:/pipeline/operations-dashboard',token,owners)
+    if auth_error:
+        return jsonify({'ok':False,'error':'unauthorized' if auth_error==401 else 'owner_required'}),auth_error
+    body=request.get_json(silent=True)
+    if (not isinstance(body,dict) or set(body)!={'expected_publish_ids','expected_batch_ids'}
+            or not isinstance(body.get('expected_publish_ids'),list)
+            or not isinstance(body.get('expected_batch_ids'),list)):
+        return jsonify({'ok':False,'error':'invalid_body'}),400
+    publish_ids=body['expected_publish_ids']
+    batch_ids=body['expected_batch_ids']
+    if (len(publish_ids)>500 or len(batch_ids)>100
+            or any(not isinstance(item,str) or not item.startswith('publish:') or len(item)>300 for item in publish_ids)
+            or any(not isinstance(item,str) or not item.startswith('batch:') or len(item)>300 for item in batch_ids)
+            or len(set(publish_ids))!=len(publish_ids) or len(set(batch_ids))!=len(batch_ids)
+            or not publish_ids and not batch_ids):
+        return jsonify({'ok':False,'error':'invalid_body'}),400
+    try:
+        with queue.publication_lock():
+            if queue.publication_holds():
+                return jsonify({'ok':False,'error':'publication_held_for_review'}),409
+            snapshot=queue.failed_backlog_snapshot()
+            if (set(snapshot['publication_ids'])!=set(publish_ids)
+                    or set(snapshot['batch_ids'])!=set(batch_ids)):
+                return jsonify({'ok':False,'error':'backlog_changed'}),409
+            store=build_store()
+            from catalog.sheet_projection import sheet_projection_digest
+            digest_before=sheet_projection_digest(store)
+            sync=publish_shop(store,max_rounds=12)
+            try:
+                images_left=int(sync.get('images_left') or 0)
+            except (TypeError,ValueError,OverflowError):
+                images_left=-1
+            if sync.get('ok') is not True or sync.get('pushed') is not True or images_left!=0:
+                return jsonify({'ok':False,'error':'catalog_sync_incomplete',
+                    'images_left':max(0,images_left) if images_left>=0 else None}),502
+            digest_after=sheet_projection_digest(store)
+            if digest_after!=digest_before:
+                queue.enqueue_sheet_projection(digest_after)
+                return jsonify({'ok':False,'error':'catalog_projection_changed',
+                    'current_projection_queued':True}),409
+            latest=queue.failed_backlog_snapshot()
+            if (set(latest['publication_ids'])!=set(publish_ids)
+                    or set(latest['batch_ids'])!=set(batch_ids)):
+                return jsonify({'ok':False,'error':'backlog_changed'}),409
+            queue.mark_sheet_projection_published(digest_after)
+            reconciled_batches=[]
+            for job_id in batch_ids:
+                try:
+                    if _batch_sources_reconciled(store,queue,job_id):
+                        reconciled_batches.append(job_id)
+                except Exception:
+                    logger.exception('Failed batch source verification deferred for %s',job_id)
+            reconciled=queue.reconcile_failed_backlog(
+                publish_ids,reconciled_batches,actor_id=actor,sheet_digest=digest_after,sync_result=sync)
+            reconciled_publications=reconciled['publication_ids']
+            reconciled_batches=reconciled['batch_ids']
+            unresolved_batches=sorted(set(batch_ids)-set(reconciled_batches))
+        response=jsonify({
+            'ok':True,'sheet_digest':digest_after,
+            'catalog_sync':{key:sync.get(key) for key in ('count','created','updated','hidden','attached','images_left')},
+            'failed_publications_reconciled':len(reconciled_publications),
+            'failed_publication_ids':reconciled_publications,
+            'batch_jobs_reconciled':len(reconciled_batches),
+            'batch_job_ids_reconciled':reconciled_batches,
+            'batch_job_ids_left_open':unresolved_batches,
+        })
+        response.headers['Cache-Control']='no-store'
+        return response
+    except JobConflict:
+        return jsonify({'ok':False,'error':'backlog_changed'}),409
+    except Exception:
+        logger.exception('Failed publication backlog reconciliation failed')
+        return jsonify({'ok':False,'error':'backlog_reconcile_unavailable'}),503
 
 
 @app.route('/pipeline/reconciliation', methods=['GET'])
@@ -1622,6 +1769,7 @@ def reference_snapshots_browser_cors(response):
         '/reference/decisions',
         '/reference/item-reviews',
         '/pipeline/operations-dashboard',
+        '/pipeline/reconcile-publication-backlog',
         '/pipeline/product-status-snapshots',
         '/pipeline/ai-confirmations',
         '/pipeline/publication-holds',
