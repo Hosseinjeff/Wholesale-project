@@ -1543,6 +1543,7 @@ def sheet_conflicts_route():
         from catalog.sync import (_active_reference_snapshot_id, _apply_reference_item_review,
             _cell, _find_product_row_by_id, _fresh_read, _offers_for_product,
             _product_from_offers, _product_row, _message_from_offer, _records,
+            _restore_current_book,
             _read_sheet_if_present, _reference_item_review_ledger)
         try:
             with queue.publication_lock():
@@ -1584,8 +1585,14 @@ def sheet_conflicts_route():
                 offers_rows=_read_sheet_if_present(store,'Offers')
                 _,offer_records=_records(offers_rows)
                 matching=_offers_for_product(offer_records,conflict['product_name'],conflict['channel'])
-                if not matching or str(matching[-1].get('Offer ID') or '')!=conflict['source_revision']:
+                if not matching:
                     return jsonify({'ok':False,'error':'source_changed'}),409
+                if str(matching[-1].get('Offer ID') or '')!=conflict['source_revision']:
+                    # A stale conflict cannot be dismissed against its old offer. Rebuild
+                    # this product from the latest source so reconciliation supersedes the
+                    # obsolete card and exposes any still-current conflict on the next GET.
+                    _restore_current_book(store, [(conflict['product_name'], conflict['channel'])])
+                    return jsonify({'ok':False,'error':'source_changed','refreshed':True}),409
                 server_product=_product_from_offers(matching)
                 review_ledger=_reference_item_review_ledger()
                 _apply_reference_item_review(server_product,matching[-1],review_ledger,

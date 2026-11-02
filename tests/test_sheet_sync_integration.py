@@ -137,6 +137,39 @@ class SheetSyncIntegrationTests(unittest.TestCase):
         self.assertEqual(self.queue.get_sheet_conflict(old_conflict['conflict_id'])['state'], 'superseded')
         self.assertEqual(cell(self.store, 'Consumer Price'), 69000)
 
+    def test_stale_conflict_resolution_refreshes_and_supersedes_obsolete_card(self):
+        import app as server
+        rows = self.store.read('Products')
+        headers, product = rows[0], rows[1]
+        product_id = product[headers.index('Product ID')]
+        product_name = product[headers.index('Product Name')]
+        channel = product[headers.index('Channel Username')]
+        edit_cell(self.store, 'Consumer Price', 68000)
+        conflict_id = 'sheet:stale-source-revision'
+        self.queue.record_sheet_conflict({
+            'conflict_id': conflict_id, 'product_id': product_id,
+            'product_name': product_name, 'channel': channel,
+            'field': 'Consumer Price', 'source_revision': 'obsolete-offer-revision',
+            'base': 65000, 'server': 70000, 'sheet': 68000,
+        })
+
+        env = {'PIPELINE_DB_PATH': self.db_path, 'REFERENCE_OWNER_IDS': 'wp:7',
+               'REFERENCE_BRIDGE_TOKEN': TOKEN}
+        headers = {'X-Molavi-Reference-Token': TOKEN, 'X-Molavi-Actor': 'wp:7'}
+        with patch.dict(os.environ, env), patch.object(server, 'USE_SHEETS', True), \
+                patch.object(server, 'build_store', return_value=self.store), \
+                patch.object(server, 'handoff_queue', return_value=self.queue):
+            response = server.app.test_client().post('/pipeline/sheet-conflicts',
+                headers=headers, json={'conflict_id': conflict_id, 'choice': 'server',
+                                       'note': 'Apply current source after refreshing stale conflict'})
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.get_json()['error'], 'source_changed')
+        self.assertTrue(response.get_json()['refreshed'])
+        self.assertEqual(self.queue.get_sheet_conflict(conflict_id)['state'], 'superseded')
+        self.assertEqual(self.queue.sheet_sync_conflicts(), [])
+        self.assertEqual(cell(self.store, 'Consumer Price'), 65000)
+
     def test_edit_between_fresh_read_and_write_is_kept_and_flagged(self):
         read_fresh = self.store.read_fresh
         reads = 0
