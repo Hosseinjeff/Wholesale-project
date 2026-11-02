@@ -508,6 +508,16 @@ ref_assert(strpos($workflow_js,'conflictValue')!==false
     && strpos($workflow_js,'receipt.sheet_preserved !== true')!==false
     && strpos($workflow_js,'ارسال اصلاح دستی شیت به فروشگاه')!==false,
     'sheet conflict hides manual overrides for server-owned fields and accepts their server sync receipt');
+$workflow_config_data=wp_scripts()->get_data('molavi-owner-workflows','data');
+$workflow_config_matches=[];
+$has_workflow_config=is_string($workflow_config_data)
+    && preg_match_all('/var molaviOwnerWorkflow = (\{.*?\});/s',$workflow_config_data,$workflow_config_matches);
+$workflow_config=$has_workflow_config ? json_decode(end($workflow_config_matches[1]),true) : null;
+ref_assert(is_array($workflow_config)
+    && str_starts_with((string)($workflow_config['reviewStoreUrl'] ?? ''),'/')
+    && str_starts_with((string)($workflow_config['pipelineUrl'] ?? ''),'/')
+    && str_starts_with((string)($workflow_config['pageUrls']['molavi-sheet-conflicts'] ?? ''),'/'),
+    'owner review and navigation URLs stay on the active admin origin');
 $conflict_request=molavi_sheet_conflicts_request('POST',['conflict_id'=>'sheet:synthetic-conflict','choice'=>'sheet','note'=>'keep sheet edit']);
 ref_assert(!is_wp_error($conflict_request) && $conflict_request['conflict_id']==='sheet:synthetic-conflict', 'sheet conflict resolution requires matching server receipt');
 $http_mode='queue';ob_start();molavi_paid_orders_screen();$orders_html=ob_get_clean();

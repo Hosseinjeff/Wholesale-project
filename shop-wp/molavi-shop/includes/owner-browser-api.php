@@ -16,6 +16,10 @@ function molavi_owner_workflow_pages(): array {
     ];
 }
 
+function molavi_owner_workflow_relative_admin_url(string $path): string {
+    return wp_make_link_relative(admin_url($path));
+}
+
 function molavi_owner_workflow_page_urls(): array {
     $pages = [
         'molavi-operations', 'molavi-ai-confirmations', 'molavi-reference-items',
@@ -25,7 +29,7 @@ function molavi_owner_workflow_page_urls(): array {
     ];
     $urls = [];
     foreach ($pages as $page) {
-        $urls[$page] = admin_url('admin.php?page=' . $page);
+        $urls[$page] = molavi_owner_workflow_relative_admin_url('admin.php?page=' . $page);
     }
     return $urls;
 }
@@ -71,15 +75,15 @@ add_action('admin_enqueue_scripts', static function (): void {
         'page' => $page,
         'apiUrl' => rtrim($base, '/') . $pages[$page][0],
         'token' => $token,
-        'pipelineUrl' => admin_url('admin.php?page=molavi-operations'),
+        'pipelineUrl' => molavi_owner_workflow_relative_admin_url('admin.php?page=molavi-operations'),
         'pageUrls' => molavi_owner_workflow_page_urls(),
     ];
     if ($page === 'molavi-operations') {
-        $browserConfig['queueSummaryUrl'] = admin_url('admin-ajax.php');
+        $browserConfig['queueSummaryUrl'] = molavi_owner_workflow_relative_admin_url('admin-ajax.php');
         $browserConfig['queueSummaryNonce'] = wp_create_nonce('molavi_operations_queue_summary');
     }
     if (in_array($page, ['molavi-publication-holds','molavi-sheet-conflicts'], true)) {
-        $browserConfig['reviewStoreUrl'] = admin_url('admin-ajax.php');
+        $browserConfig['reviewStoreUrl'] = molavi_owner_workflow_relative_admin_url('admin-ajax.php');
         $browserConfig['reviewStoreNonce'] = wp_create_nonce('molavi_owner_review_store');
     }
     wp_localize_script('molavi-owner-workflows', 'molaviOwnerWorkflow', $browserConfig);
