@@ -87,7 +87,7 @@ class ReferenceItemReviewTests(unittest.TestCase):
         self.assertEqual(offers[1][offer_headers.index('Review Reason')],'reference: multiple_candidates')
         self.assertEqual(offers[1][offer_headers.index('Status')],'needs_review')
 
-    def test_no_match_closes_case_without_unblocking_and_bad_actor_or_revision_rejected(self):
+    def test_no_match_stays_visible_until_projection_is_verified_and_never_unblocks(self):
         case=review_cases(self.sheet,self.snapshot,self.ledger)[0]
         with self.assertRaises(PermissionError):
             self.ledger.decide(case_id=case['case_id'],offer_id=case['offer_id'],
@@ -97,7 +97,18 @@ class ReferenceItemReviewTests(unittest.TestCase):
             snapshot_id=case['snapshot_id'],signature=case['signature'],choice='no_match',
             reference_id='',price_role='unresolved',actor_id='wp:7',note='No reliable match')
         self.assertEqual(decision['choice'],'no_match')
+        pending=review_cases(self.sheet,self.snapshot,self.ledger)
+        self.assertEqual(len(pending),1)
+        self.assertTrue(pending[0]['projection_pending'])
+        self.assertEqual(pending[0]['decision']['decision_id'],decision['decision_id'])
+
+        with patch.dict(os.environ,{'REFERENCE_STORE_PATH':str(self.path),'REFERENCE_OWNER_IDS':'wp:7',
+                                    'PIPELINE_DB_PATH':''}):
+            _restore_current_book(self.sheet,[('چای سبز','@supplier')])
         self.assertEqual(review_cases(self.sheet,self.snapshot,self.ledger),[])
+        product_headers=self.sheet.read('Products')[0]
+        product=self.sheet.read('Products')[1]
+        self.assertEqual(product[product_headers.index('Status')],'needs_review')
         self.assertEqual(self.ledger.overrides('snapshot-A'),{})
         with self.assertRaises(ItemReviewConflict):
             self.ledger.decide(case_id=case['case_id'],offer_id=case['offer_id'],

@@ -291,7 +291,7 @@ class ItemReviewLedger:
         return output
 
 
-def review_cases(sheet_store, snapshot, ledger, *, include_decided=False):
+def review_cases(sheet_store, snapshot, ledger, *, include_decided=False, include_candidates=True):
     """Build owner cases only for current Products rows and the active snapshot."""
     from catalog.sync import _fresh_read, _records
     snapshot_id = str(snapshot.get('snapshot_id') or '')
@@ -317,7 +317,10 @@ def review_cases(sheet_store, snapshot, ledger, *, include_decided=False):
             continue
         case_id = review_case_id(offer_id, snapshot_id)
         decision = ledger.get(case_id)
-        if decision and not include_decided:
+        decision_projected = bool(
+            decision and str(product.get('Reference Decision ID') or '') == str(decision.get('decision_id') or '')
+        )
+        if decision and decision_projected and not include_decided:
             continue
         attrs = offer_attributes(offer)
         cases.append({
@@ -338,7 +341,9 @@ def review_cases(sheet_store, snapshot, ledger, *, include_decided=False):
                 'source_snapshot_id': str(product.get('Reference Snapshot ID') or ''),
             } if due_update else None,
             'attributes': attrs, 'signature': product_signature(attrs),
-            'candidates': ranked_candidates(attrs, snapshot.get('rows') or [], limit=12),
+            'candidates': (ranked_candidates(attrs, snapshot.get('rows') or [], limit=12)
+                           if include_candidates else []),
+            'projection_pending': bool(decision and not decision_projected),
             'decision': decision,
         })
     return cases

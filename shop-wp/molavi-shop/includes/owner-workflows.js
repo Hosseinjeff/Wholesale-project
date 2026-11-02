@@ -1382,6 +1382,77 @@
         if (originalPost) card.appendChild(originalPost);
         if (item.decision) card.appendChild(node('p', `تصمیم فعلی: ${item.decision.choice || ''} · مرجع: ${item.decision.reference_id || 'ندارد'} · نقش: ${item.decision.price_role || ''} · ${item.decision.note || ''}`));
         const form = document.createElement('form');
+        async function submitChoice(choice, submitter, retryStoredDecision = false) {
+            const previous = item.decision || {};
+            const referenceId = retryStoredDecision
+                ? (previous.choice === 'match' ? String(previous.reference_id || '') : '')
+                : (choice === 'match' ? selectedReferenceId : '');
+            const payload = {
+                case_id: item.case_id, offer_id: item.offer_id, snapshot_id: item.snapshot_id,
+                choice: retryStoredDecision ? previous.choice : choice,
+                reference_id: referenceId,
+                price_role: retryStoredDecision ? String(previous.price_role || 'unresolved')
+                    : (choice === 'match' ? selectedPriceRole : 'unresolved'),
+                note: retryStoredDecision ? String(previous.note || '')
+                    : (choice === 'match' ? 'مالک تطبیق پیشنهادی را از پنل بررسی تأیید کرد.' : 'مالک تأیید کرد که پیشنهادهای فعلی تطبیق ندارند.'),
+                expected_decision_id: retryStoredDecision ? previous.decision_id
+                    : (previous.decision_id || null)
+            };
+            if (payload.choice === 'match' && (!payload.reference_id || !['unit', 'package'].includes(payload.price_role))) {
+                errorBox('تصمیم قبلی برای تطبیق کامل نیست؛ مورد باز می‌ماند.', card);
+                return;
+            }
+            const eventId = retryStoredDecision
+                ? `decision:reference_item:${item.case_id}:${previous.decision_id}`
+                : reviewEventId('reference_item', item.case_id);
+            const decision = {...payload};
+            const controls = Array.from(form.querySelectorAll('button'));
+            controls.forEach(button => { button.disabled = true; });
+            try {
+                await persistOwnerReviews([reviewRecord(eventId, 'reference_item', item.case_id,
+                    'pending', item, decision)]);
+                const receipt = await request('POST', payload);
+                if (receipt.case_id !== payload.case_id || receipt.offer_id !== payload.offer_id
+                    || receipt.snapshot_id !== payload.snapshot_id || receipt.choice !== payload.choice
+                    || !/^[a-f0-9]{64}$/.test(receipt.decision_id || '')
+                    || !['imported', 'needs_review', 'held_for_review', 'pending_verification'].includes(receipt.projection_state)
+                    || (payload.choice === 'no_match' && !['held_for_review', 'pending_verification'].includes(receipt.projection_state))
+                    || (payload.choice === 'match' && receipt.projection_state === 'held_for_review')) {
+                    throw new Error('invalid_receipt');
+                }
+                try {
+                    await persistOwnerReviews([reviewRecord(eventId, 'reference_item', item.case_id,
+                        'accepted', item, decision, receipt)]);
+                } catch (_error) {
+                    await referenceItems('تصمیم در سرویس ثبت شد، اما رسید وردپرس هنوز همگام نشده است.', 'warning');
+                    return;
+                }
+                if (receipt.projection_state === 'pending_verification') {
+                    await referenceItems('تصمیم ذخیره شد؛ ثبت آن در فهرست کالاها هنوز تأیید نشده و مورد برای تکمیل باز می‌ماند.', 'warning');
+                } else {
+                    await referenceItems('تصمیم تطبیق ثبت شد.', 'success');
+                }
+            } catch (error) {
+                try {
+                    await persistOwnerReviews([reviewRecord(eventId, 'reference_item', item.case_id,
+                        error.remoteRejected ? 'failed' : 'pending', item, decision,
+                        {error:String(error.message || 'request_failed'), request_status:error.requestStatus || null})]);
+                } catch (_ignored) {}
+                errorBox(errorText(error.message), card);
+                controls.forEach(button => { button.disabled = false; });
+                if (submitter) submitter.disabled = false;
+            }
+        }
+        if (item.projection_pending && item.decision) {
+            card.appendChild(notice('تصمیم در سرور ذخیره شده، اما ثبت آن در فهرست کالاها هنوز تأیید نشده است. برای تکمیل همان تصمیم، این دکمه را بزنید.', 'warning'));
+            const retry = node('button', 'تکمیل ثبت تصمیم قبلی', 'button button-primary');
+            retry.type = 'button';
+            retry.disabled = !contextStored;
+            retry.addEventListener('click', () => submitChoice(item.decision.choice, retry, true));
+            form.appendChild(retry);
+            card.appendChild(form);
+            return card;
+        }
         const candidateRows = (item.candidates || []).filter(row => row && row.reference_id);
         const currentReference = item.decision && item.decision.reference_id
             || (item.reference_update && item.reference_update.reference_id) || '';
@@ -1440,49 +1511,11 @@
             event.preventDefault();
             const choice = event.submitter && event.submitter.value;
             if (!['match', 'no_match'].includes(choice) || !contextStored) return;
-            const referenceId = choice === 'match' ? selectedReferenceId : '';
-            if (choice === 'match' && (!referenceId || !selectedPriceRole)) {
+            if (choice === 'match' && (!selectedReferenceId || !selectedPriceRole)) {
                 errorBox('یک پیشنهاد مرجع و نقش قیمت را با دکمه‌ها انتخاب کنید.', card);
                 return;
             }
-            const payload = {
-                case_id: item.case_id, offer_id: item.offer_id, snapshot_id: item.snapshot_id,
-                choice, reference_id: referenceId,
-                price_role: choice === 'match' ? selectedPriceRole : 'unresolved',
-                note: choice === 'match' ? 'مالک تطبیق پیشنهادی را از پنل بررسی تأیید کرد.' : 'مالک تأیید کرد که پیشنهادهای فعلی تطبیق ندارند.',
-                expected_decision_id: item.decision && item.decision.decision_id || null
-            };
-            const eventId = reviewEventId('reference_item', item.case_id);
-            const decision = {...payload};
-            match.disabled = true; noMatch.disabled = true;
-            try {
-                await persistOwnerReviews([reviewRecord(eventId, 'reference_item', item.case_id,
-                    'pending', item, decision)]);
-                const receipt = await request('POST', payload);
-                if (receipt.case_id !== payload.case_id || receipt.offer_id !== payload.offer_id
-                    || receipt.snapshot_id !== payload.snapshot_id || receipt.choice !== choice
-                    || !/^[a-f0-9]{64}$/.test(receipt.decision_id || '')
-                    || !['imported', 'needs_review', 'held_for_review'].includes(receipt.projection_state)
-                    || (choice === 'no_match' && receipt.projection_state !== 'held_for_review')
-                    || (choice === 'match' && receipt.projection_state === 'held_for_review')) {
-                    throw new Error('invalid_receipt');
-                }
-                try {
-                    await persistOwnerReviews([reviewRecord(eventId, 'reference_item', item.case_id,
-                        'accepted', item, decision, receipt)]);
-                } catch (_error) {
-                    await referenceItems('تصمیم در سرویس ثبت شد، اما رسید وردپرس هنوز همگام نشده است.', 'warning');
-                    return;
-                }
-                await referenceItems('تصمیم تطبیق ثبت شد.', 'success');
-            } catch (error) {
-                try {
-                    await persistOwnerReviews([reviewRecord(eventId, 'reference_item', item.case_id,
-                        error.remoteRejected ? 'failed' : 'pending', item, decision,
-                        {error:String(error.message || 'request_failed'), request_status:error.requestStatus || null})]);
-                } catch (_ignored) {}
-                errorBox(errorText(error.message), card); match.disabled = false; noMatch.disabled = false;
-            }
+            submitChoice(choice, event.submitter);
         });
         card.appendChild(form);
         return card;

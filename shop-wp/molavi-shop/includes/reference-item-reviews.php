@@ -18,7 +18,8 @@ function molavi_reference_item_review_request(string $method, ?array $payload = 
     $response=wp_safe_remote_request(rtrim($base,'/') . '/reference/item-reviews', $args);
     if (is_wp_error($response)) { return new WP_Error('offline', 'ارتباط با سرور برقرار نشد.'); }
     $body=json_decode(wp_remote_retrieve_body($response), true);
-    if (wp_remote_retrieve_response_code($response)!==200 || !is_array($body) || ($body['ok'] ?? false)!==true) {
+    $status=wp_remote_retrieve_response_code($response);
+    if (!in_array($status,[200,202],true) || !is_array($body) || ($body['ok'] ?? false)!==true) {
         return new WP_Error('failed', 'بررسی ثبت نشد. صفحه را تازه کنید و دوباره بررسی کنید.');
     }
     if ($method==='GET' && (!is_array($body['cases'] ?? null) || !is_array($body['recent_decisions'] ?? null)
@@ -31,13 +32,14 @@ function molavi_reference_item_review_request(string $method, ?array $payload = 
             || ($body['snapshot_id'] ?? null)!==$payload['snapshot_id']
             || ($body['choice'] ?? null)!==$payload['choice']
             || !preg_match('/^[a-f0-9]{64}$/', (string)($body['decision_id'] ?? ''))
-            || !in_array($body['projection_state'] ?? '', ['imported','needs_review','held_for_review'], true)) {
+            || !in_array($body['projection_state'] ?? '', ['imported','needs_review','held_for_review','pending_verification'], true)) {
             return new WP_Error('receipt', 'تأیید سرور با بررسی ارسالی مطابقت ندارد.');
         }
         if ($payload['choice']==='match' && $body['projection_state']==='held_for_review') {
             return new WP_Error('receipt', 'وضعیت انتشار کالا تأیید نشد.');
         }
-        if ($payload['choice']==='no_match' && $body['projection_state']!=='held_for_review') {
+        if ($payload['choice']==='no_match'
+            && !in_array($body['projection_state'],['held_for_review','pending_verification'],true)) {
             return new WP_Error('receipt', 'کالای بدون مرجع باید در بررسی بماند.');
         }
     }

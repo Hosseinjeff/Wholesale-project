@@ -2202,7 +2202,7 @@ def reference_item_reviews_route():
     from reference_import.snapshots import ReferenceStore
     from reference_import.item_reviews import (ItemReviewConflict, ItemReviewLedger,
         review_cases, review_case_id)
-    from reference_import.matching import package_count
+    from reference_import.matching import package_count, ranked_candidates
     from reference_import.importer import normalize_name
     from reference_import.workflow import active_reference_use
     from datetime import datetime, timezone
@@ -2227,9 +2227,15 @@ def reference_item_reviews_route():
         sheet_store = build_store()
         ledger = ItemReviewLedger(path, owner_ids=owners)
         if request.method == 'GET':
-            all_cases = review_cases(sheet_store, snapshot, ledger, include_decided=True)
-            cases = [row for row in all_cases if not row.get('decision')]
-            recent_decisions = sorted((row for row in all_cases if row.get('decision')),
+            all_cases = review_cases(sheet_store, snapshot, ledger, include_decided=True,
+                                     include_candidates=False)
+            cases = [row for row in all_cases
+                     if not row.get('decision') or row.get('projection_pending')]
+            for row in cases:
+                row['candidates'] = ranked_candidates(
+                    row.get('attributes') or {}, snapshot.get('rows') or [], limit=12)
+            recent_decisions = sorted((row for row in all_cases
+                                       if row.get('decision') and not row.get('projection_pending')),
                 key=lambda row: str((row.get('decision') or {}).get('created_at') or ''), reverse=True)[:50]
             response = jsonify({'ok': True, 'reference_state': eligibility,
                                 'cases': cases, 'recent_decisions': recent_decisions})
@@ -2250,7 +2256,8 @@ def reference_item_reviews_route():
             return jsonify({'ok': False, 'error': 'invalid_fields'}), 400
         if body['snapshot_id'] != snapshot['snapshot_id']:
             return jsonify({'ok': False, 'error': 'stale_snapshot'}), 409
-        current = next((row for row in review_cases(sheet_store, snapshot, ledger, include_decided=True)
+        current = next((row for row in review_cases(sheet_store, snapshot, ledger, include_decided=True,
+                                                     include_candidates=False)
                         if row['case_id'] == body['case_id']), None)
         if (not current or current['offer_id'] != body['offer_id']
                 or current['snapshot_id'] != body['snapshot_id']):
@@ -2297,14 +2304,26 @@ def reference_item_reviews_route():
             projected = next((row for row in products
                 if str(row.get('Latest Offer ID') or '') == current['offer_id']), None)
             if not projected or str(projected.get('Reference Decision ID') or '') != decision['decision_id']:
-                return jsonify({'ok': False, 'error': 'projection_unverified'}), 503
+                result = {'ok': True, 'case_id': current['case_id'], 'offer_id': current['offer_id'],
+                          'snapshot_id': current['snapshot_id'], 'choice': decision['choice'],
+                          'decision_id': decision['decision_id'], 'price_role': decision['price_role'],
+                          'projection_state': 'pending_verification', 'publish_job': None}
+                response = jsonify(result)
+                response.headers['Cache-Control'] = 'no-store'
+                return response, 202
             if body['choice'] == 'match':
                 projection_state = str(projected.get('Status') or '').lower()
                 if projection_state == 'needs_review':
                     projection_state = 'needs_review'
             else:
                 if str(projected.get('Status') or '').lower() != 'needs_review':
-                    return jsonify({'ok': False, 'error': 'hold_unverified'}), 503
+                    result = {'ok': True, 'case_id': current['case_id'], 'offer_id': current['offer_id'],
+                              'snapshot_id': current['snapshot_id'], 'choice': decision['choice'],
+                              'decision_id': decision['decision_id'], 'price_role': decision['price_role'],
+                              'projection_state': 'pending_verification', 'publish_job': None}
+                    response = jsonify(result)
+                    response.headers['Cache-Control'] = 'no-store'
+                    return response, 202
             publish_job = queue.enqueue_sheet_projection(sheet_projection_digest(sheet_store))
             try:
                 from catalog.product_status import capture_from_store

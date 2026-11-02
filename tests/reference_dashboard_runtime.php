@@ -590,6 +590,11 @@ ref_assert(is_array($reference_workflow)
     && is_string($reference_workflow['reviewStoreNonce'] ?? null)
     && $reference_workflow['reviewStoreNonce']!=='',
     'reference-match decisions have a same-origin WordPress audit-store capability');
+$reference_item_php=file_get_contents('/plugin/includes/reference-item-reviews.php');
+ref_assert(strpos($workflow_js,'item.projection_pending && item.decision')!==false
+    && strpos($workflow_js,'تکمیل ثبت تصمیم قبلی')!==false
+    && strpos($reference_item_php,'pending_verification')!==false,
+    'a saved reference decision with an unverified sheet projection stays visible and can be retried');
 $conflict_request=molavi_sheet_conflicts_request('POST',['conflict_id'=>'sheet:synthetic-conflict','choice'=>'sheet','note'=>'keep sheet edit']);
 ref_assert(!is_wp_error($conflict_request) && $conflict_request['conflict_id']==='sheet:synthetic-conflict', 'sheet conflict resolution requires matching server receipt');
 $http_mode='queue';ob_start();molavi_paid_orders_screen();$orders_html=ob_get_clean();
