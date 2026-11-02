@@ -500,7 +500,7 @@ class Handoffs:
             counts[state]=counts.get(state,0)+1
             payload=json.loads(row['payload'])
             result=json.loads(row['result']) if row['result'] else None
-            items.append({'state':state,'error':row['error'] or '',
+            items.append({'job_id':row['id'],'state':state,'error':row['error'] or '',
                           'result':result})
         total=len(items)
         complete=(counts.get('done',0)+counts.get('failed',0)+counts.get('needs_review',0)

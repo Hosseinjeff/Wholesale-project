@@ -80,6 +80,38 @@ class OwnerWorkflowBrowserAPITests(unittest.TestCase):
             self.assertEqual(decisions.status_code, 200, decisions.get_json())
             self.assertEqual(decisions.get_json()['events'], [])
 
+    def test_reextraction_start_dispatches_jobs_without_waiting_for_a_new_webhook(self):
+        import app as server
+        from catalog.extract import MESSAGE_HEADERS, OFFER_HEADERS, PRODUCT_HEADERS
+        from catalog.sync import MemoryStore, _row_from_map
+        queue = Handoffs(self.db_path)
+        store = MemoryStore()
+        store.ensure('MessageData', MESSAGE_HEADERS)
+        store.ensure('Offers', OFFER_HEADERS)
+        store.ensure('Products', PRODUCT_HEADERS)
+        message = {
+            'ID': 'message-1', 'Channel': 'telegram', 'Channel Username': '@supplier',
+            'Content': 'چای سبز\nقیمت تکی: ۴۰٬۰۰۰ تومان', 'Batch ID': 'batch-1',
+            'AI Status': 'needs_confirmation',
+        }
+        store.append('MessageData', [_row_from_map(MESSAGE_HEADERS, message)])
+        env = {'PIPELINE_DB_PATH': self.db_path, 'REFERENCE_STORE_PATH': self.reference_path,
+               'REFERENCE_OWNER_IDS': 'wp:7', 'REFERENCE_BRIDGE_TOKEN': self.secret,
+               'GOOGLE_API_KEY': 'test-api-key'}
+        with patch.dict(os.environ, env), patch.object(server, 'USE_SHEETS', True), \
+                patch.object(server, 'handoff_queue', return_value=queue), \
+                patch.object(server, 'build_store', return_value=store), \
+                patch.object(server.threading, 'Thread') as worker:
+            response = server.app.test_client().post('/pipeline/ai-confirmations', json={
+                'action': 'start_reextraction', 'scope': 'pending', 'expected_count': 1,
+            }, headers={'Authorization': 'Bearer ' + owner_token(
+                self.secret, scope='owner:/pipeline/ai-confirmations')})
+        self.assertEqual(response.status_code, 202, response.get_json())
+        self.assertEqual(response.get_json()['queued'], 1)
+        worker.assert_called_once()
+        self.assertEqual(worker.call_args.kwargs.get('target'), server._drain_reextraction_run)
+        worker.return_value.start.assert_called_once()
+
     def test_item_review_empty_reference_state_has_complete_response_shape(self):
         import app as server
         queue = Handoffs(self.db_path)

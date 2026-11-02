@@ -332,6 +332,24 @@ def run_durable_handoff(queue, job_id=None):
                          reextract=reextract)
 
 
+def _drain_reextraction_run(queue, run_id):
+    """Run the selected saved-message jobs without waiting for another webhook."""
+    status=queue.reextraction_status(run_id)
+    if not status:
+        return
+    for item in status['items']:
+        if item.get('state')!='queued':
+            continue
+        try:
+            run_durable_handoff(queue,item.get('job_id'))
+        except Exception:
+            logger.exception('Saved-message re-extraction worker failed for run %s',run_id)
+    status=queue.reextraction_status(run_id)
+    if status:
+        logger.info('Saved-message re-extraction run %s finished %s/%s jobs; states=%s',
+                    run_id,status['completed'],status['total'],status['counts'])
+
+
 batch_manager = None
 
 def extract_forward_data(message):
@@ -1973,6 +1991,8 @@ def ai_confirmations_route():
                 if str(exc).startswith('re-extraction run already active:'):
                     return jsonify({'ok':False,'error':'reextraction_active'}),409
                 return jsonify({'ok':False,'error':'reextraction_conflict'}),409
+            threading.Thread(target=_drain_reextraction_run,args=(queue,run_id),
+                             name='owner-saved-message-reextract',daemon=True).start()
             response=jsonify({'ok':True,'run_id':run_id,'queued':queued,'scope':body['scope']})
             response.headers['Cache-Control']='no-store'
             return response,202
