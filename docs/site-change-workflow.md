@@ -5,12 +5,14 @@ Updated: 2026-11-02, Asia/Tehran
 ## Latest live deployment — 2026-11-02
 
 Railway deployment `ce182584-7a2c-4812-ac97-fef8e9517d8f` succeeded from commit
-`3c0464ec1aae196d84b12636b82d74c494e394ba`. The WordPress uploader deployed and read
-back the owner workflow JavaScript at that commit; the related PHP files were already
-verified from commit `16edb3a03c7e5bac85af480cdc21cec429bd5015`. Live owner API and page
-checks returned HTTP 200, and the AI review-store AJAX endpoint confirmed WordPress
-database writes for 123 cases. See `pipeline-readiness.md` for current queue counts and
-the remaining review/failure backlog.
+`3c0464ec1aae196d84b12636b82d74c494e394ba`; `/health` returned HTTP 200. The latest
+WordPress plugin deployment is commit `dea080c531170e1fd90f384d7335fc2eca724b5c`; cPanel
+read-back verified the changed owner workflow JavaScript and CSS. The new extraction
+adapter and review fields are pushed to `main`, but the Railway production service still
+runs `3c0464e`. Its source currently has no branch attached and no staged changes, so the
+prompt and backend response changes are not live yet. The WordPress UI includes local
+title parsing for the flavor, volume and Tetra Pak format while the API is pending.
+See `pipeline-readiness.md` for the earlier queue snapshot and outstanding backlog.
 
 ## Source of truth
 
@@ -26,25 +28,22 @@ the remaining review/failure backlog.
 ## Deploying plugin code
 
 Most recent WordPress plugin deployment: commit
-78b3188ed0b377bf9a573ccec158cee516f7d334 (2026-11-02). The uploader changed and
-read back the affected PHP, JavaScript, and CSS files. The plugin includes the
-owner-review interface, WordPress review-table migration, and audit-write path.
-Authenticated WordPress requests loaded both owner pages with HTTP 200 and their
-localized configuration. Railway returned 2 publication holds and 7 Sheet conflicts;
-the review-store AJAX endpoint confirmed all 9 observed context records stored. No
-owner decision or retry was submitted.
+`dea080c531170e1fd90f384d7335fc2eca724b5c` (2026-11-02). The uploader changed and
+read back `includes/owner-workflows.js` and `includes/owner-workflows.css`; no host
+normalization was reported. Cards now surface explicit flavor, volume and packaging,
+offer button-first decisions, and combine variants only when source, price, size,
+packaging and review terms match. An unpriced title stays pending without exposing an
+empty edit form. The extraction adapter also recovers explicit Persian flavor and pack
+format labels, preserves the model's brand field, and rejects a measurement-only number
+as a supplier price unless the source contains a separate amount. Focused tests passed.
 
-The companion Railway API is live in production. The existing service is connected
-to Hosseinjeff/Wholesale-project on main and automatically deploys pushes. Deployment
-1ff80683-d0cf-4b4c-938d-a08426be5d8b succeeded from commit
-4020da234f62e4483eddf169c9bf3fd062335878. Production is online with one running
-replica, no warnings or pending work, and /health reports healthy. The public shop's
-product card, image, detail route, category filter, and sort controls passed a read-only
-browser check. The browser report claimed the detail page showed the product as out of
-stock, but WooCommerce product 33 returned is_purchasable=true and is_in_stock=true;
-the product page source has the instock body class and no outofstock class, so that
-mismatch was not reproduced. No stock, cart, or order data changed. Checkout and a
-screenshot of the owner pages remain unchecked.
+Railway read-back after the push shows the production `Wholesale-project` service on
+successful deployment `ce182584-7a2c-4812-ac97-fef8e9517d8f`, commit
+`3c0464ec1aae196d84b12636b82d74c494e394ba`, with one replica and no staged changes.
+The source is the expected GitHub repository but has no branch attached. A previous
+automatic approval review rejected changing this live source to follow moving `main`;
+no alternate source change was attempted. The new extraction prompt and backend grouping
+therefore remain pushed but undeployed until that source change is approved.
 
 The cPanel uploader is `tools/deploy_wordpress_plugin.py`. It accepts a Git ref
 before the plugin changes, and only deploys tracked PHP, JavaScript and CSS files
