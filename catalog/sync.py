@@ -649,6 +649,7 @@ def _finalize_batch(store: MemoryStore | GoogleSheetStore, payload: dict[str, An
         "expected_count": expected,
         "written_count": written,
         "extraction_status": extraction["status"],
+        "extraction_error": str(extraction.get("error") or ""),
         "processed_messages": extraction["processed"],
         "rollback": bool(extraction.get("rollback")),
         "saved": desk.get("saved") or [],

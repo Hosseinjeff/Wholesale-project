@@ -1,5 +1,6 @@
 """End-to-end tests for live Product-sheet edits and owner conflict review."""
 import os
+import re
 import tempfile
 import unittest
 from datetime import datetime, timezone
@@ -34,6 +35,22 @@ def edit_cell(store, field, value):
     store.write_cells('Products', 2, rows[0], {field: value})
 
 
+def synthetic_extract(content, _channel):
+    digits = str(content).translate(str.maketrans('۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩', '01234567890123456789'))
+    def price(label, fallback):
+        match = re.search(label + r'\s*:\s*([0-9,]+)', digits)
+        return int(match.group(1).replace(',', '')) if match else fallback
+    sale = price('دونه ای', 52000)
+    consumer = price('قیمت مصرف', 65000)
+    package = price('قیمت هر باکس', 1250000)
+    return [{
+        'name':'کنسرو ماهی ۱۸۰ گرمی تاپ','sale_price':sale,'price':sale,
+        'actual_price':consumer,'consumer_price':consumer,'package_price':package,
+        'package_count':24,'price_type':'unit','currency':'IRT',
+        'stock_status':'Available','confidence':0.99,'extraction_confidence':0.99,
+    }]
+
+
 class SheetSyncIntegrationTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -41,6 +58,9 @@ class SheetSyncIntegrationTests(unittest.TestCase):
         self.db_path = str(Path(self.temp.name) / 'pipeline.sqlite')
         self.queue = Handoffs(self.db_path)
         self.store = MemoryStore()
+        extraction = patch('catalog.sync._extract_supplier_products', side_effect=synthetic_extract)
+        extraction.start()
+        self.addCleanup(extraction.stop)
         self.env = patch.dict(os.environ, {'PIPELINE_DB_PATH': self.db_path})
         self.env.start()
         self.addCleanup(self.env.stop)
@@ -155,6 +175,31 @@ class SheetSyncIntegrationTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(cell(self.store, 'Consumer Price'), 70000)
+
+    def test_repeating_the_same_sheet_conflict_resolution_returns_the_original_receipt(self):
+        edit_cell(self.store, 'Consumer Price', 68000)
+        import_offer(self.store, 'batch-2', 'post-2', '۷۰,۰۰۰')
+        conflict = next(item for item in self.queue.sheet_sync_conflicts()
+                        if item['field'] == 'Consumer Price')
+        import app
+        env = {'PIPELINE_DB_PATH': self.db_path, 'REFERENCE_OWNER_IDS': 'wp:7',
+               'REFERENCE_BRIDGE_TOKEN': TOKEN}
+        headers = {'X-Molavi-Reference-Token': TOKEN, 'X-Molavi-Actor': 'wp:7'}
+        with patch.dict(os.environ, env), patch.object(app, 'USE_SHEETS', True), \
+                patch.object(app, 'build_store', return_value=self.store):
+            client = app.app.test_client()
+            first = client.post('/pipeline/sheet-conflicts', headers=headers, json={
+                'conflict_id': conflict['conflict_id'], 'choice': 'server', 'note': '',
+            })
+            second = client.post('/pipeline/sheet-conflicts', headers=headers, json={
+                'conflict_id': conflict['conflict_id'], 'choice': 'server', 'note': '',
+            })
+        self.assertEqual(first.status_code, 200, first.get_json())
+        self.assertEqual(second.status_code, 200, second.get_json())
+        self.assertTrue(second.get_json()['idempotent'])
+        self.assertEqual(first.get_json()['publish_job'], second.get_json()['publish_job'])
+        self.assertEqual(cell(self.store, 'Consumer Price'), 70000)
+        self.assertEqual(self.queue.get_sheet_conflict(conflict['conflict_id'])['state'], 'resolved')
 
     def test_dashboard_resolution_refuses_a_sheet_edit_seen_before_write(self):
         edit_cell(self.store, 'Consumer Price', 68000)

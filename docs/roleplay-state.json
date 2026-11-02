@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "snapshot_version": "4.63-wordpress-data-residency-conflict-precedence",
+  "snapshot_version": "4.64-owner-review-context-simplified-actions",
   "updated_at_local_date": "2026-11-02",
   "timezone": "Asia/Tehran",
   "shared_brief_url": "https://www.molavisale.ir/molavi-workflow-e73014a831.html",
@@ -89,7 +89,8 @@
     "D-040",
     "D-041",
     "D-042",
-    "D-043"
+    "D-043",
+    "D-044"
   ],
   "working_proposal_ids": [
     "P-01",
@@ -421,10 +422,10 @@
   "implementation_progress": {
     "python_tests_passed": 268,
     "isolated_wordpress_assertions_passed": 104,
-    "operations_dashboard": "WordPress users 1 and 2 are both allowlisted in protected WordPress and Railway configuration. The simplified reference snapshot page uses a signed browser bridge; user 1's owner page and wp:1/wp:2 read-only snapshot requests return HTTP 200. A synthetic DOM render check passed; screenshot-based visual review and other owner screens remain unverified.",
+    "operations_dashboard": "The owner workspace prioritizes the next open task. Publication holds now show linked source posts, context and stop reason with one bulk retry; Sheet conflicts have explicit Railway-default and manual-Sheet-to-Woo actions with idempotent retries. The WordPress plugin stores bounded context and pending/outcome audit events for these two screens. Live admin click-through remains unverified.",
     "supplier_out_of_stock_projection": "explicit supplier-unavailable rows are excluded from server quotes and projected unavailable to Woo; owned-stock and alternate-supplier eligibility remain unconnected",
     "reference_publication_recovery": "persistent cross-process publication hold, coordinated reference activation lock, private Woo owner review and audited explicit replay; legacy/GAS writers bypassing these server locks still require cutover control",
-    "bidirectional_sheet_conflict_logic": "Three-way reconciliation; server-computed changes win by default; confirmed manual Sheet overrides publish to WooCommerce; truly simultaneous changes remain owner-reviewed because the Sheets API lacks reliable per-cell editor attribution; current data source split has not been migrated",
+    "bidirectional_sheet_conflict_logic": "Three-way reconciliation; server-computed changes win by default; confirmed manual Sheet overrides publish to WooCommerce; truly simultaneous changes remain owner-reviewed because the Sheets API lacks reliable per-cell editor attribution; owner context/decision events for the review screen are stored in WordPress, while the processing ledger and broader data migration remain on Railway",
     "delivery_and_price_age_rules": "7/14-day source-revision checks now gate server quotes and Woo purchasability; owner dashboard logs manual verification and queues guarded republish; delivery method is synthetic-tested but not configured live",
     "production_deployed": true,
     "railway_context": "Existing production project identified; separate FollowUP-bot pending approval untouched",
@@ -494,6 +495,7 @@
     "No Woo payment methods are enabled. Connected checkout/payment callback, a live order and fulfillment have not been verified.",
     "Bilateral Products-sheet edits/conflicts and legacy/GAS writer cutover remain unverified; the server worker reads two current products from Sheets.",
     "Paid-order inventory/workflow remains in persistent Railway SQLite and is not mirrored to Sheets; clearance and near-cost alert behavior still needs connected review.",
-    "D-043: WordPress/WooCommerce is the preferred persistent home for product and business data, but Railway SQLite still holds durable intake/jobs and operational ledgers; no migration has occurred."
+    "D-043: WordPress/WooCommerce is the preferred persistent home for product and business data, but Railway SQLite still holds durable intake/jobs and operational ledgers; no broad migration has occurred.",
+    "D-044: Publication-hold and Sheet-conflict screens mirror bounded review context and outcome events into WordPress. Railway still owns and executes the queue; live admin click-through remains unverified."
   ]
 }

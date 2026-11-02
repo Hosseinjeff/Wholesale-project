@@ -1,8 +1,19 @@
 # MolaviSale — whole-workflow handoff
 
-Snapshot 4.63. Updated 2026-11-02, Asia/Tehran. The canonical roleplay decisions are in
+Snapshot 4.64. Updated 2026-11-02, Asia/Tehran. The canonical roleplay decisions are in
 `roleplay-state.json`; current live evidence and release gates are in
 `pipeline-readiness.md` and `pipeline-readiness-evidence.json`.
+
+## Owner review flow and conflict recovery — D-044
+
+The publication review now shows the source messages, post links, processing counts,
+and stop reason on each batch card, with a single action to retry selected batches.
+Sheet conflicts show the current Railway-computed value alongside the current Sheet
+value and provide direct actions to keep Railway's value or send an owner-made Sheet
+edit to WooCommerce. Repeating the same conflict choice is safe, and stale lists refresh.
+The WordPress plugin stores bounded review context and separate pending/outcome audit
+events for these two paths. Railway still runs the queue and broader data migration is
+not complete. The live admin click-through is pending.
 
 ## Current data ownership and conflict direction — D-043, 2026-11-02
 

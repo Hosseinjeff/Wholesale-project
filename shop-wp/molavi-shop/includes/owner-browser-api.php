@@ -78,6 +78,10 @@ add_action('admin_enqueue_scripts', static function (): void {
         $browserConfig['queueSummaryUrl'] = admin_url('admin-ajax.php');
         $browserConfig['queueSummaryNonce'] = wp_create_nonce('molavi_operations_queue_summary');
     }
+    if (in_array($page, ['molavi-publication-holds','molavi-sheet-conflicts'], true)) {
+        $browserConfig['reviewStoreUrl'] = admin_url('admin-ajax.php');
+        $browserConfig['reviewStoreNonce'] = wp_create_nonce('molavi_owner_review_store');
+    }
     wp_localize_script('molavi-owner-workflows', 'molaviOwnerWorkflow', $browserConfig);
 });
 

@@ -80,6 +80,60 @@ class GuardTests(unittest.TestCase):
 if __name__=='__main__':unittest.main()
 
 class GuardRecoveryTests(unittest.TestCase):
+ def test_publication_hold_lists_bounded_source_context_for_the_owner(self):
+  import os,app
+  from unittest.mock import patch
+  with tempfile.TemporaryDirectory() as directory:
+   path=str(Path(directory)/'queue.sqlite');queue=Handoffs(path)
+   queue.put('batch','context-1',{'batch_id':'context-1','expected_count':1,'messages':[{
+    'id':'7317','channel_username':'@bonakdarjavan','timestamp':'2026-11-02T13:01:00Z',
+    'url':'https://t.me/bonakdarjavan/7317','content':'supplier source text','chat_id':'private-chat'}]})
+   with queue.connect() as db:
+    db.execute("UPDATE jobs SET state='needs_review',result=? WHERE id='batch:context-1'",
+     (queue.encode({'expected_count':1,'written_count':1,'processed_messages':0,
+      'extraction_status':'error','extraction_error':'ai_extraction_failed','rollback':True}),))
+   queue.hold_publication('context-1','batch_unverified')
+   env={'PIPELINE_DB_PATH':path,'REFERENCE_OWNER_IDS':'wp:7',
+        'REFERENCE_BRIDGE_TOKEN':'synthetic-reference-token-1234567890'}
+   headers={'X-Molavi-Reference-Token':env['REFERENCE_BRIDGE_TOKEN'],'X-Molavi-Actor':'wp:7'}
+   with patch.dict(os.environ,env),patch.object(app,'ensure_telegram_webhook'):
+    data=app.app.test_client().get('/pipeline/publication-holds',headers=headers).get_json()
+   context=data['holds'][0]['context']
+   self.assertEqual(context['processing_error'],'ai_extraction_failed')
+   self.assertEqual(context['messages'][0]['message_id'],'7317')
+   self.assertEqual(context['messages'][0]['content'],'supplier source text')
+   self.assertNotIn('chat_id',repr(context))
+
+ def test_bulk_publication_hold_retry_is_atomic_and_audited(self):
+  import os,app
+  from unittest.mock import patch
+  with tempfile.TemporaryDirectory() as directory:
+   path=str(Path(directory)/'queue.sqlite');queue=Handoffs(path)
+   for hold_id in ('batch-a','batch-b'):
+    queue.hold_publication(hold_id,'batch_unverified')
+    queue.put('batch',hold_id,{'batch_id':hold_id,'messages':[]})
+    with queue.connect() as db:db.execute("UPDATE jobs SET state='needs_review' WHERE id=?",('batch:'+hold_id,))
+   pending=queue.put('publish','pending',{'batch_id':'batch-a'})
+   with queue.connect() as db:db.execute("UPDATE jobs SET state='waiting_publication' WHERE id=?",(pending,))
+   env={'PIPELINE_DB_PATH':path,'REFERENCE_OWNER_IDS':'wp:7',
+        'REFERENCE_BRIDGE_TOKEN':'synthetic-reference-token-1234567890'}
+   headers={'X-Molavi-Reference-Token':env['REFERENCE_BRIDGE_TOKEN'],'X-Molavi-Actor':'wp:7'}
+   body={'action':'resume_selected','holds':[
+    {'hold_id':'batch-a','expected_reason':'batch_unverified'},
+    {'hold_id':'batch-b','expected_reason':'batch_unverified'}]}
+   with patch.dict(os.environ,env),patch.object(app,'ensure_telegram_webhook'):
+    response=app.app.test_client().post('/pipeline/publication-holds',headers=headers,json=body)
+   self.assertEqual(response.status_code,200,response.get_json())
+   self.assertEqual(response.get_json()['resumed_count'],2)
+   self.assertEqual(queue.publication_holds(),[])
+   self.assertEqual(queue.get('batch:batch-a')['state'],'queued')
+   self.assertEqual(queue.get('batch:batch-b')['state'],'queued')
+   self.assertEqual(queue.get(pending)['state'],'queued')
+   with queue.connect() as db:
+    rows=db.execute('SELECT actor_id,note FROM publication_hold_resolutions ORDER BY hold_id').fetchall()
+   self.assertEqual([row['actor_id'] for row in rows],['wp:7','wp:7'])
+   self.assertTrue(all('authorized one batch retry' in row['note'] for row in rows))
+
  def test_owner_resolution_is_audited_and_requires_current_reason(self):
   import os,app
   from unittest.mock import patch

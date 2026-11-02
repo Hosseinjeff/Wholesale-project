@@ -111,6 +111,53 @@ class Handoffs:
         with self.connect() as db:
             return [dict(r) for r in db.execute('SELECT * FROM publication_holds ORDER BY created_at')]
 
+    def publication_hold_context(self, hold_id):
+        """Return bounded, owner-review context for the source batch behind a hold."""
+        if not isinstance(hold_id, str) or not hold_id or len(hold_id) > 100:
+            return {'messages': []}
+        with self.connect() as db:
+            row = db.execute('''SELECT id,payload,state,attempts,error,result,created_at,updated_at
+                FROM jobs WHERE id=? AND kind='batch' ''', ('batch:' + hold_id,)).fetchone()
+        if not row:
+            return {'messages': []}
+        payload = json.loads(row['payload']) if row['payload'] else {}
+        result = json.loads(row['result']) if row['result'] else {}
+        if not isinstance(payload, dict):
+            payload = {}
+        if not isinstance(result, dict):
+            result = {}
+        source_messages = payload.get('messages')
+        if not isinstance(source_messages, list):
+            source_messages = []
+        messages = []
+        for source in source_messages[:100]:
+            if not isinstance(source, dict):
+                continue
+            content = str(source.get('content') or '')
+            messages.append({
+                'message_id': str(source.get('id') or '')[:100],
+                'channel': str(source.get('channel_username') or source.get('channel') or '')[:200],
+                'source_timestamp': str(source.get('timestamp') or '')[:100],
+                'source_url': str(source.get('url') or '')[:1000],
+                'content': content[:1800],
+                'content_truncated': len(content) > 1800,
+                'has_media': bool(source.get('has_media')),
+                'media_type': str(source.get('media_type') or '')[:80],
+            })
+        return {
+            'batch_state': str(row['state'] or ''),
+            'batch_attempts': int(row['attempts'] or 0),
+            'batch_error': str(row['error'] or '')[:300],
+            'created_at': row['created_at'],
+            'expected_messages': int(result.get('expected_count') or payload.get('expected_count') or len(messages)),
+            'written_messages': int(result.get('written_count') or 0),
+            'processed_messages': int(result.get('processed_messages') or 0),
+            'extraction_state': str(result.get('extraction_status') or ''),
+            'processing_error': str(result.get('extraction_error') or '')[:300],
+            'rollback': bool(result.get('rollback')),
+            'messages': messages,
+        }
+
     def operations_snapshot(self, *, limit=100, now=None):
         """Return owner-safe queue metadata without exposing payloads or results."""
         limit=max(1,min(int(limit),200))
@@ -226,6 +273,45 @@ class Handoffs:
             db.execute('INSERT INTO publication_hold_resolutions VALUES (NULL,?,?,?,?,?)',
                        (hold_id,expected_reason,actor_id,note,time.time()))
             db.execute('DELETE FROM publication_holds WHERE hold_id=?',(hold_id,))
+
+    def resolve_publication_holds(self, holds, *, actor_id, note):
+        """Atomically authorize one replay for a selected set of held batches."""
+        if (not isinstance(holds, list) or not holds or len(holds) > 100
+                or not isinstance(actor_id, str) or not actor_id.strip()
+                or not isinstance(note, str) or not note.strip() or len(note) > 1000):
+            raise ValueError('valid batch reviews required')
+        prepared=[]
+        seen=set()
+        for item in holds:
+            if (not isinstance(item, dict) or set(item) != {'hold_id','expected_reason'}
+                    or not isinstance(item['hold_id'],str) or not item['hold_id']
+                    or len(item['hold_id'])>100 or not isinstance(item['expected_reason'],str)
+                    or not item['expected_reason'] or len(item['expected_reason'])>300
+                    or item['hold_id'] in seen):
+                raise ValueError('invalid batch review selection')
+            seen.add(item['hold_id'])
+            prepared.append(item)
+        now=time.time()
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            for item in prepared:
+                hold=db.execute('SELECT reason FROM publication_holds WHERE hold_id=?',
+                                (item['hold_id'],)).fetchone()
+                job=db.execute('SELECT state FROM jobs WHERE id=?',
+                               ('batch:'+item['hold_id'],)).fetchone()
+                if not hold or hold['reason']!=item['expected_reason']:
+                    raise JobConflict('publication hold changed or already resolved')
+                if not job or job['state']!='needs_review':
+                    raise JobConflict('batch must reach review state before replay')
+            for item in prepared:
+                db.execute("""UPDATE jobs SET state='queued',available=?,lease=NULL,expires=NULL,error=NULL
+                    WHERE id=? AND state='needs_review'""",(now,'batch:'+item['hold_id']))
+                db.execute('INSERT INTO publication_hold_resolutions VALUES (NULL,?,?,?,?,?)',
+                           (item['hold_id'],item['expected_reason'],actor_id,note.strip(),now))
+                db.execute('DELETE FROM publication_holds WHERE hold_id=?',(item['hold_id'],))
+            db.execute("""UPDATE jobs SET state='queued',available=?,lease=NULL,expires=NULL,error=NULL
+                WHERE kind='publish' AND state='waiting_publication'""",(now,))
+        return [item['hold_id'] for item in prepared]
 
     def record_sheet_conflict(self, conflict):
         required=('conflict_id','product_id','product_name','channel','field','source_revision')

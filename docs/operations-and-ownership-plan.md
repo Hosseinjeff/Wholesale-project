@@ -92,6 +92,12 @@ and require owner review. The dashboard now labels Railway and WooCommerce expli
 Google Sheets does not provide reliable per-cell editor attribution or atomic
 cross-system transactions.
 
+D-044 implements the two owner-review paths in that policy with one-click conflict
+choices and a bulk, one-time batch retry. WordPress stores bounded source snapshots
+plus separate pending/outcome events before and after those actions. The live queue
+and execution receipts remain in Railway for now; broader record migration is still
+open under D-043.
+
 D-043 sets WordPress/WooCommerce as the preferred persistent home for product and
 business records wherever supported. It does not move data by itself: the present
 Products Sheet, Railway job/inbox payloads, conflict ledger, and procurement/inventory

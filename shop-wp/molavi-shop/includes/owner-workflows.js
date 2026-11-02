@@ -50,6 +50,9 @@
             safe_cell_writer_unavailable: 'نوشتن امن روی این سلول در دسترس نیست.',
             write_unconfirmed: 'تغییر شیت تأیید نشد؛ دوباره بررسی کنید.',
             resolution_failed: 'ثبت تصمیم تعارض ناموفق بود؛ وضعیت را تازه کنید.',
+            publication_hold_changed: 'وضعیت دسته تغییر کرده؛ فهرست تازه شد تا دوباره بررسی کنید.',
+            review_store_failed: 'ثبت اطلاعات بررسی در پایگاه داده وردپرس ناموفق بود؛ تصمیم ارسال نشد.',
+            invalid_records: 'ثبت اطلاعات بررسی معتبر نبود؛ صفحه را تازه کنید.',
             reconciliation_unavailable: 'گزارش تطبیق موقتاً در دسترس نیست؛ وضعیت اتصال شیت و فروشگاه را بررسی کنید.',
             reextraction_active: 'یک بازاستخراج دیگر هنوز در صف یا در حال اجراست؛ ابتدا وضعیت همان اجرا را پیگیری کنید.',
             reextraction_preview_changed: 'فهرست پیام‌ها تغییر کرده است؛ تعداد تازه را بررسی و دوباره شروع کنید.',
@@ -98,6 +101,67 @@
             throw new Error('queue_summary_unavailable');
         }
         return body.data.queues;
+    }
+
+    function reviewEventId(type, id) {
+        const suffix = window.crypto && typeof window.crypto.randomUUID === 'function'
+            ? window.crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2);
+        return `decision:${type}:${id}:${suffix}`;
+    }
+
+    function reviewRecord(eventId, type, id, state, context, decision = {}, receipt = {}) {
+        return {event_id:eventId, review_type:type, review_id:id, state,
+            context:context || {}, decision:decision || {}, receipt:receipt || {}};
+    }
+
+    function storedReviewContext(type, context) {
+        if (type !== 'publication_hold' || !context || !Array.isArray(context.messages)) return context || {};
+        return {...context, messages:context.messages.map(source => {
+            const content = String(source.content || '');
+            const characters = Array.from(content);
+            return {
+                message_id:String(source.message_id || '').slice(0, 100),
+                channel:String(source.channel || '').slice(0, 100),
+                source_timestamp:String(source.source_timestamp || '').slice(0, 60),
+                source_url:String(source.source_url || '').slice(0, 500),
+                content:characters.slice(0, 300).join(''),
+                content_truncated:Boolean(source.content_truncated || characters.length > 300),
+                has_media:Boolean(source.has_media),
+                media_type:String(source.media_type || '').slice(0, 40)
+            };
+        })};
+    }
+
+    async function persistOwnerReviews(records) {
+        if (!config.reviewStoreUrl || !config.reviewStoreNonce || !Array.isArray(records) || !records.length) {
+            throw new Error('review_store_failed');
+        }
+        const batches = [];
+        let current = [];
+        let currentBytes = 2;
+        for (const record of records) {
+            const bytes = new TextEncoder().encode(JSON.stringify(record)).length + 1;
+            if (bytes > 450000) throw new Error('review_store_failed');
+            if (current.length && (current.length >= 100 || currentBytes + bytes > 450000)) {
+                batches.push(current); current = []; currentBytes = 2;
+            }
+            current.push(record); currentBytes += bytes;
+        }
+        if (current.length) batches.push(current);
+        for (const batch of batches) {
+            const response = await fetch(config.reviewStoreUrl, {
+                method:'POST', mode:'same-origin', credentials:'same-origin', cache:'no-store',
+                headers:{'Content-Type':'application/x-www-form-urlencoded; charset=UTF-8'},
+                body:new URLSearchParams({action:'molavi_owner_review_store', nonce:config.reviewStoreNonce,
+                    records:JSON.stringify(batch)}).toString()
+            });
+            const body = await response.json().catch(() => null);
+            if (!response.ok || !body || body.success !== true
+                || !body.data || body.data.stored !== batch.length) {
+                throw new Error(body && body.data && body.data.code || 'review_store_failed');
+            }
+        }
+        return {stored:records.length};
     }
 
     function shell(title, description) {
@@ -1082,7 +1146,7 @@
     }
 
     async function publicationHolds(message = '', messageKind = 'info') {
-        shell('بررسی توقف انتشار', 'ثبت بررسی همان دسته را برای پردازش مجدد صف می‌کند و انتشارهای منتظر را از سر می‌گیرد. پیش از ثبت، دلیل توقف و داده‌های مرتبط را بررسی کنید.');
+        shell('بررسی و تلاش دوباره', 'پیام‌های اصلی و دلیل توقف را همین‌جا ببینید. دسته‌های انتخاب‌شده با یک اقدام برای یک بار پردازش دوباره صف می‌شوند؛ شرح جداگانه برای هر دسته لازم نیست.');
         if (message) root.appendChild(notice(message, messageKind));
         try {
             const data = await request();
@@ -1094,7 +1158,69 @@
                 batch_unverified: 'نتیجه پردازش نیاز به بررسی دارد.',
                 batch_write_unverified: 'ثبت اطلاعات کامل تأیید نشد.'
             };
-            for (const hold of holds) {
+            const contextRecords = holds.map(hold => reviewRecord(
+                `context:publication_hold:${hold.hold_id}`, 'publication_hold', hold.hold_id,
+                'observed', storedReviewContext('publication_hold', hold.context || {reason:hold.reason, created_at:hold.created_at})
+            ));
+            let contextStored = true;
+            if (contextRecords.length) {
+                try { await persistOwnerReviews(contextRecords); }
+                catch (_error) { contextStored = false; root.appendChild(notice('جزئیات این دسته در صفحه نمایش داده می‌شود، اما ذخیرهٔ آن در پایگاه داده وردپرس تأیید نشد؛ تا ذخیرهٔ اطلاعات، پردازش دوباره غیرفعال است.', 'warning')); }
+            }
+            const checks = new Map();
+            const toolbar = node('div', null, 'molavi-bulk-dismiss');
+            const retrySelected = node('button', 'پردازش دوبارهٔ دسته‌های انتخاب‌شده', 'button button-primary');
+            retrySelected.type = 'button';
+            const selectionCount = node('span', '');
+            toolbar.append(retrySelected, selectionCount);
+            const updateSelection = () => {
+                const count = [...checks.values()].filter(Boolean).length;
+                selectionCount.textContent = `انتخاب‌شده: ${new Intl.NumberFormat('fa-IR').format(count)}`;
+                retrySelected.disabled = count < 1 || count > 100 || !contextStored;
+                retrySelected.textContent = !contextStored
+                    ? 'ذخیرهٔ جزئیات در وردپرس ناموفق بود'
+                    : count > 100
+                    ? 'حداکثر ۱۰۰ دسته را انتخاب کنید'
+                    : `پردازش دوبارهٔ ${new Intl.NumberFormat('fa-IR').format(count)} دسته`;
+            };
+            if (holds.length) root.appendChild(toolbar);
+            retrySelected.addEventListener('click', async () => {
+                const selected = holds.filter(hold => checks.get(hold.hold_id));
+                if (!selected.length || selected.length > 100) return;
+                retrySelected.disabled = true;
+                const eventIds = new Map(selected.map(hold => [hold.hold_id,
+                    reviewEventId('publication_hold', hold.hold_id)]));
+                const decisions = selected.map(hold => reviewRecord(eventIds.get(hold.hold_id),
+                    'publication_hold', hold.hold_id, 'pending', {},
+                    {action:'retry_once', expected_reason:hold.reason, attempt_id:eventIds.get(hold.hold_id)}));
+                try {
+                    await persistOwnerReviews(decisions);
+                    const receipt = await request('POST', {action:'resume_selected',holds:selected.map(hold => ({
+                        hold_id:hold.hold_id, expected_reason:hold.reason
+                    }))});
+                    if (receipt.resumed_count !== selected.length || !Array.isArray(receipt.resumed_hold_ids)
+                        || receipt.resumed_hold_ids.length !== selected.length) throw new Error('invalid_receipt');
+                    let localWarning = '';
+                    try {
+                        await persistOwnerReviews(selected.map(hold => reviewRecord(
+                            reviewEventId('publication_hold', hold.hold_id),
+                            'publication_hold', hold.hold_id, 'accepted', {},
+                            {action:'retry_once', expected_reason:hold.reason, attempt_id:eventIds.get(hold.hold_id)}, receipt)));
+                    } catch (_error) { localWarning = ' وضعیت ثبت محلی در وردپرس در انتظار همگام‌سازی است.'; }
+                    await publicationHolds(`${receipt.resumed_count} دسته برای یک بار پردازش دوباره صف شد.${localWarning}`,
+                        localWarning ? 'warning' : 'success');
+                } catch (error) {
+                    try {
+                        await persistOwnerReviews(selected.map(hold => reviewRecord(
+                            reviewEventId('publication_hold', hold.hold_id),
+                            'publication_hold', hold.hold_id, 'failed', {},
+                            {action:'retry_once', expected_reason:hold.reason, attempt_id:eventIds.get(hold.hold_id)}, {error:error.message})));
+                    } catch (_ignored) {}
+                    await publicationHolds(errorText(error.message), 'warning');
+                }
+            });
+            updateSelection();
+        for (const [holdIndex, hold] of holds.entries()) {
                 const card = node('section', null, 'card');
                 card.appendChild(node('h2', reasons[hold.reason] || 'این دسته نیاز به بررسی دارد.'));
                 const rawTime = hold.created_at;
@@ -1102,24 +1228,54 @@
                     : (Number.isFinite(Number(rawTime)) ? Number(rawTime) * 1000 : new Date(rawTime).getTime());
                 const timeLabel = Number.isFinite(parsedTime) ? new Date(parsedTime).toLocaleString() : 'نامشخص';
                 card.appendChild(node('p', `شناسه دسته: ${hold.hold_id || ''} · زمان ثبت: ${timeLabel}`));
-                const form = document.createElement('form');
-                form.appendChild(field('شرح بررسی و تطبیق', 'note', '', 'textarea', { required: true, maxLength: 1000 }));
-                const submit = node('button', 'ثبت بررسی و اجازه پردازش مجدد', 'button button-primary');
-                submit.type = 'submit'; form.appendChild(submit);
-                form.addEventListener('submit', async event => {
-                    event.preventDefault();
-                    if (!form.reportValidity()) return;
-                    if (!window.confirm('این کار دسته را برای پردازش مجدد صف می‌کند و انتشارهای منتظر را دوباره به صف برمی‌گرداند. ادامه می‌دهید؟')) return;
-                    submit.disabled = true;
-                    try {
-                        const receipt = await request('POST', {hold_id: hold.hold_id,
-                            expected_reason: hold.reason, note: form.elements.note.value.trim(), resume_batch: true});
-                        if (receipt.hold_id !== hold.hold_id || receipt.batch_resumed !== true) throw new Error('invalid_receipt');
-                        await publicationHolds('دسته برای پردازش مجدد صف شد.', 'success');
-                    } catch (error) { errorBox(errorText(error.message), card); submit.disabled = false; }
-                });
-                card.appendChild(form); root.appendChild(card);
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox'; checkbox.checked = holdIndex < 100;
+                checkbox.addEventListener('change', () => { checks.set(hold.hold_id, checkbox.checked); updateSelection(); });
+                checks.set(hold.hold_id, checkbox.checked);
+                const selectLabel = node('label', 'این دسته را برای یک بار پردازش دوباره انتخاب کن', 'molavi-hold-select');
+                selectLabel.prepend(checkbox); card.appendChild(selectLabel);
+                const context = hold.context && typeof hold.context === 'object' ? hold.context : {};
+                const processingErrors = {
+                    ai_extraction_failed: 'استخراج هوش مصنوعی برای یکی از پیام‌ها ناموفق شد.',
+                    ingestion_incomplete: 'همه پیام‌های دسته در جدول دریافت ثبت نشدند.'
+                };
+                const statusLabels = {needs_review:'نیازمند بررسی',failed:'ناموفق',queued:'در صف',done:'انجام‌شده',running:'در حال اجرا'};
+                const stats = `وضعیت: ${statusLabels[context.batch_state] || context.batch_state || 'نامشخص'} · پیام‌های ثبت‌شده: ${context.written_messages || 0}/${context.expected_messages || 0} · پیام‌های پردازش‌شده: ${context.processed_messages || 0}`;
+                card.appendChild(node('p', stats));
+                if (context.processing_error || context.batch_error) {
+                    const code = context.processing_error || context.batch_error;
+                    card.appendChild(notice(processingErrors[code] || `دلیل فنی: ${code}`, 'warning'));
+                }
+                if (context.rollback) card.appendChild(node('p', 'تغییرهای کاتالوگ این دسته بازگردانده شدند؛ انتشار این دسته انجام نشده است.'));
+                const messages = Array.isArray(context.messages) ? context.messages : [];
+                card.appendChild(node('h3', `پیام‌های مبدأ این دسته (${messages.length})`));
+                if (!messages.length) card.appendChild(notice('اطلاعات پیام‌های این دسته در صف موجود نیست؛ شناسه را برای جست‌وجو در گزارش تطبیق باز کنید.', 'warning'));
+                for (const source of messages) {
+                    const item = node('div', null, 'molavi-review-source');
+                    item.appendChild(node('strong', `${source.channel || 'کانال نامشخص'} · پیام ${source.message_id || 'بدون شناسه'}`));
+                    if (source.source_timestamp) item.appendChild(node('p', `زمان پیام: ${source.source_timestamp}`));
+                    let sourceUrl = source.source_url || '';
+                    if (!sourceUrl && /^\d+$/.test(String(source.message_id || ''))) {
+                        const username = String(source.channel || '').replace(/^@/, '');
+                        if (/^[A-Za-z0-9_]{5,}$/.test(username)) sourceUrl = `https://t.me/${username}/${source.message_id}`;
+                    }
+                    const sourceLink = safeSourceLink(sourceUrl);
+                    if (sourceLink) item.appendChild(sourceLink);
+                    if (source.content) {
+                        const excerpt = source.content.length > 260 ? source.content.slice(0, 260) + '…' : source.content;
+                        item.appendChild(node('p', excerpt, 'molavi-source-excerpt'));
+                        const fullText = document.createElement('details');
+                        fullText.appendChild(node('summary', source.content_truncated ? 'نمایش متن ذخیره‌شده (بخشی از متن)' : 'نمایش متن کامل پیام'));
+                        const textBody = node('pre', source.content, 'molavi-source-message');
+                        fullText.appendChild(textBody); item.appendChild(fullText);
+                    } else if (source.has_media) {
+                        item.appendChild(node('p', `این پیام رسانه دارد${source.media_type ? ` (${source.media_type})` : ''}؛ متن جداگانه ثبت نشده است.`));
+                    } else item.appendChild(node('p', 'متن پیام در رسید این دسته ثبت نشده است.'));
+                    card.appendChild(item);
+                }
+                root.appendChild(card);
             }
+            updateSelection();
         } catch (error) { root.appendChild(notice(errorText(error.message), 'error')); }
     }
 
@@ -1177,48 +1333,69 @@
     }
 
     async function sheetConflicts(message = '', messageKind = 'info') {
-        shell('تعارض‌های اطلاعات کالا', 'مقدار Railway از آخرین پیشنهاد تأمین‌کننده ساخته می‌شود و پیش‌فرض است. اگر این سلول را دستی در شیت اصلاح کرده‌اید، گزینه شیت مقدار فعلی را در WooCommerce منتشر می‌کند.');
+        shell('تعارض‌های اطلاعات کالا', 'پیش‌فرض مقدار محاسبه‌شدهٔ Railway است. فقط اگر سلول شیت را دستی تغییر داده‌اید، همان اصلاح را به فروشگاه WordPress بفرستید؛ یادداشت و تأیید اضافه لازم نیست.');
         if (message) root.appendChild(notice(message, messageKind));
         try {
             const data = await request();
             const conflicts = Array.isArray(data.conflicts) ? data.conflicts : [];
+            let contextStored = true;
+            if (conflicts.length) {
+                try {
+                    await persistOwnerReviews(conflicts.map(conflict => reviewRecord(
+                        `context:sheet_conflict:${conflict.conflict_id}`, 'sheet_conflict', conflict.conflict_id,
+                        'observed', storedReviewContext('sheet_conflict', conflict)
+                    )));
+                } catch (_error) {
+                    contextStored = false;
+                    root.appendChild(notice('تعارض‌ها نمایش داده می‌شوند، اما ثبت محلی آن‌ها در پایگاه داده وردپرس تأیید نشد؛ تا رفع این خطا تصمیم تازه‌ای ثبت نمی‌شود.', 'error'));
+                }
+            }
             if (!conflicts.length) root.appendChild(node('p', 'تعارض بازی در انتظار بررسی نیست.'));
             for (const conflict of conflicts) {
                 const card = node('section', null, 'card');
                 card.appendChild(node('h2', conflict.product_name || 'کالای بدون نام'));
                 card.appendChild(node('p', `تأمین‌کننده: ${conflict.channel || 'نامشخص'} · فیلد: ${conflict.field || 'نامشخص'}`));
                 for (const [label, key] of [['آخرین مقدار هماهنگ‌شده', 'base'],
-                    ['مقدار پردازش‌شده در Railway', 'server'], ['مقدار فعلی شیت', 'sheet']]) {
+                    ['مقدار محاسبه‌شده در Railway', 'server'], ['مقدار فعلی شیت', 'sheet']]) {
                     card.appendChild(node('p', `${label}: ${conflictValue(conflict[key])}`));
                 }
-                const form = document.createElement('form');
-                form.appendChild(field('یادداشت بررسی و دلیل انتخاب', 'note', '', 'textarea', {required: true, maxLength: 1000}));
-                const chooseServer = node('button', 'پذیرفتن مقدار Railway (پیش‌فرض)', 'button button-primary');
-                chooseServer.type = 'submit'; chooseServer.value = 'server';
-                const chooseSheet = node('button', 'استفاده از اصلاح دستی شیت', 'button button-secondary');
-                chooseSheet.type = 'submit'; chooseSheet.value = 'sheet';
-                form.append(chooseServer, chooseSheet);
-                form.addEventListener('submit', async event => {
-                    event.preventDefault();
-                    const choice = event.submitter && event.submitter.value;
-                    if (!['server', 'sheet'].includes(choice) || !form.reportValidity()) return;
-                    const confirmation = choice === 'sheet'
-                        ? 'تأیید می‌کنید این فیلد را دستی در شیت اصلاح کرده‌اید؟ مقدار فعلی شیت برای انتشار در WooCommerce صف می‌شود؛ متن و سابقه پیشنهاد تأمین‌کننده تغییر نمی‌کند.'
-                        : 'مقدار پردازش‌شده در Railway جایگزین مقدار شیت می‌شود و انتشار کالا در WooCommerce صف می‌شود. ادامه می‌دهید؟';
-                    if (!window.confirm(confirmation)) return;
+                const actions = node('div', null, 'molavi-reextract-actions');
+                const chooseServer = node('button', 'اعمال مقدار فعلی Railway', 'button button-primary');
+                chooseServer.type = 'button';
+                const chooseSheet = node('button', 'ارسال اصلاح دستی شیت به فروشگاه', 'button button-secondary');
+                chooseSheet.type = 'button';
+                chooseServer.disabled = !contextStored; chooseSheet.disabled = !contextStored;
+                const submitChoice = async choice => {
                     chooseServer.disabled = true; chooseSheet.disabled = true;
+                    const eventId = reviewEventId('sheet_conflict', conflict.conflict_id);
+                    const decision = {choice, attempt_id:eventId, note:choice === 'server'
+                        ? 'Auto: keep the current server-computed value.'
+                        : 'Owner confirmed this was a manual Sheet edit; publish it to WordPress.'};
                     try {
-                        const receipt = await request('POST', {conflict_id: conflict.conflict_id,
-                            choice, note: form.elements.note.value.trim()});
+                        await persistOwnerReviews([reviewRecord(eventId, 'sheet_conflict', conflict.conflict_id,
+                            'pending', {}, decision)]);
+                        const receipt = await request('POST', {conflict_id: conflict.conflict_id, choice, note:''});
                         if (receipt.conflict_id !== conflict.conflict_id || receipt.choice !== choice
                             || !receipt.publish_job) throw new Error('invalid_receipt');
-                        await sheetConflicts('تصمیم ثبت شد و انتشار کالا به صف رفت.', 'success');
+                        let localWarning = '';
+                        try {
+                            await persistOwnerReviews([reviewRecord(reviewEventId('sheet_conflict', conflict.conflict_id),
+                                'sheet_conflict', conflict.conflict_id, 'accepted', {}, decision, receipt)]);
+                        } catch (_error) { localWarning = ' تصمیم در سرویس ثبت شد، اما وضعیت محلی وردپرس در انتظار همگام‌سازی است.'; }
+                        await sheetConflicts(`تصمیم ثبت شد و انتشار به صف رفت.${localWarning}`,
+                            localWarning ? 'warning' : 'success');
                     } catch (error) {
-                        errorBox(errorText(error.message), card);
-                        chooseServer.disabled = false; chooseSheet.disabled = false;
+                        try {
+                            await persistOwnerReviews([reviewRecord(reviewEventId('sheet_conflict', conflict.conflict_id),
+                                'sheet_conflict', conflict.conflict_id, 'failed', {}, decision, {error:error.message})]);
+                        } catch (_ignored) {}
+                        await sheetConflicts(`${errorText(error.message)} فهرست تعارض‌ها تازه شد؛ موردهای باقی‌مانده را دوباره بررسی کنید.`, 'warning');
                     }
-                });
-                card.appendChild(form); root.appendChild(card);
+                };
+                chooseServer.addEventListener('click', () => submitChoice('server'));
+                chooseSheet.addEventListener('click', () => submitChoice('sheet'));
+                actions.append(chooseServer, chooseSheet);
+                card.appendChild(actions); root.appendChild(card);
             }
         } catch (error) { root.appendChild(notice(errorText(error.message), 'error')); }
     }

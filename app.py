@@ -748,9 +748,28 @@ def publication_holds_route():
     if auth_error:
         return jsonify({"ok": False, "error": "unauthorized" if auth_error == 401 else "owner_required"}), auth_error
     if request.method == "GET":
-        result = {"ok": True, "holds": queue.publication_holds()}
+        holds = queue.publication_holds()
+        for hold in holds:
+            hold['context'] = queue.publication_hold_context(str(hold.get('hold_id') or ''))
+        result = {"ok": True, "holds": holds}
     else:
         body = request.get_json(silent=True)
+        if isinstance(body, dict) and body.get('action') == 'resume_selected':
+            if set(body) != {'action','holds'} or not isinstance(body.get('holds'),list):
+                return jsonify({'ok':False,'error':'invalid_body'}),400
+            try:
+                with queue.publication_lock():
+                    resumed=queue.resolve_publication_holds(body['holds'],actor_id=actor,
+                        note='Owner reviewed the linked source messages and authorized one batch retry.')
+            except JobConflict:
+                return jsonify({'ok':False,'error':'publication_hold_changed'}),409
+            except ValueError:
+                return jsonify({'ok':False,'error':'invalid_body'}),400
+            result={'ok':True,'resumed_count':len(resumed),'resumed_hold_ids':resumed,
+                    'batch_resumed':True}
+            response=jsonify(result)
+            response.headers['Cache-Control']='no-store'
+            return response
         if (not isinstance(body, dict) or set(body) != {"hold_id", "expected_reason", "note", "resume_batch"}
                 or body.get('resume_batch') is not True):
             return jsonify({"ok": False, "error": "invalid_body"}), 400
@@ -1259,14 +1278,29 @@ def sheet_conflicts_route():
             return jsonify({'ok':False,'error':'invalid_body'}),400
         conflict_id,choice,note=body.get('conflict_id'),body.get('choice'),body.get('note')
         if (not isinstance(conflict_id,str) or not conflict_id.startswith('sheet:') or len(conflict_id)>80 or
-                choice not in ('server','sheet') or not isinstance(note,str) or not note.strip() or len(note)>1000):
+                choice not in ('server','sheet') or not isinstance(note,str) or len(note)>1000):
             return jsonify({'ok':False,'error':'invalid_body'}),400
+        note=note.strip() or (
+            'Owner selected the current server-derived value under the server-first conflict policy.'
+            if choice=='server' else
+            'Owner confirmed that the current Sheet cell was manually edited.'
+        )
         from catalog.sheet_reconcile import field_values_equal
         from catalog.sync import _cell,_find_product_row_by_id,_fresh_read,_offers_for_product,_product_from_offers,_product_row,_message_from_offer,_records,_read_sheet_if_present
         try:
             with queue.publication_lock():
                 conflict=queue.get_sheet_conflict(conflict_id)
-                if not conflict or conflict['state']!='open':return jsonify({'ok':False,'error':'conflict_changed'}),409
+                if not conflict:return jsonify({'ok':False,'error':'conflict_changed'}),409
+                if conflict['state']=='resolved' and conflict.get('choice')==choice:
+                    # A browser retry after a lost response should acknowledge the
+                    # original decision instead of presenting a false failure.
+                    publish_job=queue.put('publish','sheet-conflict:'+conflict_id,
+                        {'conflict_id':conflict_id,'product_id':conflict['product_id']})
+                    response=jsonify({'ok':True,'conflict_id':conflict_id,'choice':choice,
+                        'publish_job':publish_job,'idempotent':True})
+                    response.headers['Cache-Control']='no-store'
+                    return response
+                if conflict['state']!='open':return jsonify({'ok':False,'error':'conflict_changed'}),409
                 if conflict['field'] in SHEET_PROVENANCE_FIELDS:
                     return jsonify({'ok':False,'error':'field_read_only'}),409
                 store=build_store()

@@ -731,3 +731,21 @@ Do not record suggested options, silence, or previously inferred preferences as 
 - Conflict-screen wording was deployed from `main` commit
   `a80e20865ea4f196956f41a4d9743f6f74c992f6`; the WordPress uploader verified the
   changed JavaScript by read-back. No product, order, or Sheet records were modified.
+
+### D-044 — Make owner review actionable and keep review context in WordPress
+
+- Publication-hold cards must identify the source supplier messages, show the reason
+  processing stopped, and provide a safe link to each original post. The owner can
+  retry a selected group in one audited action; the retry remains a one-time queue
+  replay and does not count as approval to publish an unrelated product.
+- Sheet conflict cards show the base, current Railway-computed value, and Sheet value.
+  The default action applies Railway's computed value. The alternate action is only
+  for a Sheet edit the owner made manually and publishes that value to WooCommerce.
+  Repeating the same choice after a lost response is idempotent; stale cards refresh.
+- The WordPress database stores bounded source/context snapshots and distinct pending
+  and outcome audit events for these two review screens. Railway still executes and
+  owns the processing queue; this targeted mirror does not complete the broader D-043
+  migration of product, intake, conflict, order, inventory, or workflow records.
+- Remove per-card notes and duplicate confirmation where a direct, explicit choice is
+  already clear. Keep a bulk action, visible source details, and refresh the list after
+  decisions so the next required action is apparent.
