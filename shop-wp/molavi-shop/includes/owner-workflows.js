@@ -1177,7 +1177,7 @@
     }
 
     async function sheetConflicts(message = '', messageKind = 'info') {
-        shell('تعارض‌های اطلاعات کالا', 'هر دو مقدار نگهداری شده‌اند. با بررسی منبع، مقدار شیت یا سرور را برای همان فیلد انتخاب کنید.');
+        shell('تعارض‌های اطلاعات کالا', 'مقدار Railway از آخرین پیشنهاد تأمین‌کننده ساخته می‌شود و پیش‌فرض است. اگر این سلول را دستی در شیت اصلاح کرده‌اید، گزینه شیت مقدار فعلی را در WooCommerce منتشر می‌کند.');
         if (message) root.appendChild(notice(message, messageKind));
         try {
             const data = await request();
@@ -1187,21 +1187,25 @@
                 const card = node('section', null, 'card');
                 card.appendChild(node('h2', conflict.product_name || 'کالای بدون نام'));
                 card.appendChild(node('p', `تأمین‌کننده: ${conflict.channel || 'نامشخص'} · فیلد: ${conflict.field || 'نامشخص'}`));
-                for (const [label, key] of [['مقدار پایه', 'base'], ['مقدار سرور', 'server'], ['مقدار شیت', 'sheet']]) {
+                for (const [label, key] of [['آخرین مقدار هماهنگ‌شده', 'base'],
+                    ['مقدار پردازش‌شده در Railway', 'server'], ['مقدار فعلی شیت', 'sheet']]) {
                     card.appendChild(node('p', `${label}: ${conflictValue(conflict[key])}`));
                 }
                 const form = document.createElement('form');
                 form.appendChild(field('یادداشت بررسی و دلیل انتخاب', 'note', '', 'textarea', {required: true, maxLength: 1000}));
-                const chooseServer = node('button', 'انتخاب مقدار سرور', 'button');
+                const chooseServer = node('button', 'پذیرفتن مقدار Railway (پیش‌فرض)', 'button button-primary');
                 chooseServer.type = 'submit'; chooseServer.value = 'server';
-                const chooseSheet = node('button', 'انتخاب مقدار شیت', 'button button-primary');
+                const chooseSheet = node('button', 'استفاده از اصلاح دستی شیت', 'button button-secondary');
                 chooseSheet.type = 'submit'; chooseSheet.value = 'sheet';
                 form.append(chooseServer, chooseSheet);
                 form.addEventListener('submit', async event => {
                     event.preventDefault();
                     const choice = event.submitter && event.submitter.value;
                     if (!['server', 'sheet'].includes(choice) || !form.reportValidity()) return;
-                    if (!window.confirm('انتخاب شما مقدار فیلد را تعیین می‌کند و انتشار کالا را صف می‌کند. ادامه می‌دهید؟')) return;
+                    const confirmation = choice === 'sheet'
+                        ? 'تأیید می‌کنید این فیلد را دستی در شیت اصلاح کرده‌اید؟ مقدار فعلی شیت برای انتشار در WooCommerce صف می‌شود؛ متن و سابقه پیشنهاد تأمین‌کننده تغییر نمی‌کند.'
+                        : 'مقدار پردازش‌شده در Railway جایگزین مقدار شیت می‌شود و انتشار کالا در WooCommerce صف می‌شود. ادامه می‌دهید؟';
+                    if (!window.confirm(confirmation)) return;
                     chooseServer.disabled = true; chooseSheet.disabled = true;
                     try {
                         const receipt = await request('POST', {conflict_id: conflict.conflict_id,

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "snapshot_version": "4.55-woocommerce-reference-api-candidate-staged",
-  "updated_at_local_date": "2026-10-30",
+  "snapshot_version": "4.63-wordpress-data-residency-conflict-precedence",
+  "updated_at_local_date": "2026-11-02",
   "timezone": "Asia/Tehran",
   "shared_brief_url": "https://www.molavisale.ir/molavi-workflow-e73014a831.html",
   "shared_markdown_url": "https://www.molavisale.ir/molavi-workflow-e73014a831.md",
@@ -82,7 +82,14 @@
     "D-033",
     "D-034",
     "D-035",
-    "D-036"
+    "D-036",
+    "D-037",
+    "D-038",
+    "D-039",
+    "D-040",
+    "D-041",
+    "D-042",
+    "D-043"
   ],
   "working_proposal_ids": [
     "P-01",
@@ -398,14 +405,18 @@
     "user_confirmed": true,
     "editable_fields": "All normalized Products data fields; IDs, raw supplier posts, source timestamps and import/offer provenance remain protected",
     "operational_record": "Products sheet row is read by server catalog and quote paths; Offers and MessageData remain append-only source evidence",
-    "conflict_policy": "Preserve both versions and flag conflict for user review",
-    "authoritative_writer": "Per-field three-way reconciliation; owner choice for simultaneous conflicting edits",
+    "conflict_policy": "Railway-computed value wins by default; an owner-confirmed manual Sheet edit must be published to WooCommerce; simultaneous unattributed changes stay held for owner choice",
+    "authoritative_writer": "WordPress/WooCommerce is the preferred persistent home where supported; Products Sheet remains the operational row until an audited migration; Railway is processing plus minimal queue/retry metadata",
     "resolution_surface": "Existing private WordPress/WooCommerce operator dashboard",
     "implementation_verified": true,
     "worker_projection_poll_seconds": 60,
     "live_sheet_and_automatic_edit_feed_verified": false,
     "read_only_live_sheet_check": "Railway service-account reader and /api/shop returned two current Products rows. Direct owner edits, conflict receipts and automatic publication cadence remain unverified.",
-    "conflict_policy_confirmed": true
+    "conflict_policy_confirmed": true,
+    "current_server_term": "Value computed by the Railway app from the latest supplier offer in Sheets Offers; not a WordPress value",
+    "data_residency_preference": "Keep persistent product and business data in WordPress/WooCommerce as much as practical; avoid duplicate record masters on Railway",
+    "per_cell_editor_attribution_available": false,
+    "wordpress_migration_complete": false
   },
   "implementation_progress": {
     "python_tests_passed": 268,
@@ -413,7 +424,7 @@
     "operations_dashboard": "WordPress users 1 and 2 are both allowlisted in protected WordPress and Railway configuration. The simplified reference snapshot page uses a signed browser bridge; user 1's owner page and wp:1/wp:2 read-only snapshot requests return HTTP 200. A synthetic DOM render check passed; screenshot-based visual review and other owner screens remain unverified.",
     "supplier_out_of_stock_projection": "explicit supplier-unavailable rows are excluded from server quotes and projected unavailable to Woo; owned-stock and alternate-supplier eligibility remain unconnected",
     "reference_publication_recovery": "persistent cross-process publication hold, coordinated reference activation lock, private Woo owner review and audited explicit replay; legacy/GAS writers bypassing these server locks still require cutover control",
-    "bidirectional_sheet_conflict_logic": "all normalized non-provenance Products columns; source-aware three-way reconciliation; durable owner review in Woo dashboard; conflicted products blocked from server quotes and Woo projection; supervised worker polls Products/Shop every 60 seconds by default and queues Woo publication; live staging remains unverified",
+    "bidirectional_sheet_conflict_logic": "Three-way reconciliation; server-computed changes win by default; confirmed manual Sheet overrides publish to WooCommerce; truly simultaneous changes remain owner-reviewed because the Sheets API lacks reliable per-cell editor attribution; current data source split has not been migrated",
     "delivery_and_price_age_rules": "7/14-day source-revision checks now gate server quotes and Woo purchasability; owner dashboard logs manual verification and queues guarded republish; delivery method is synthetic-tested but not configured live",
     "production_deployed": true,
     "railway_context": "Existing production project identified; separate FollowUP-bot pending approval untouched",
@@ -482,6 +493,7 @@
     "Reference snapshots are reachable through the owner-browser bridge for both allowlisted users 1 and 2. User 1's owner page and both API actors were verified; the simplified UI has a synthetic DOM render check. Screenshot-based visual review and other owner dashboards remain unverified; the earlier PHP-to-Railway transport issue does not apply to this snapshots page.",
     "No Woo payment methods are enabled. Connected checkout/payment callback, a live order and fulfillment have not been verified.",
     "Bilateral Products-sheet edits/conflicts and legacy/GAS writer cutover remain unverified; the server worker reads two current products from Sheets.",
-    "Paid-order inventory/workflow remains in persistent Railway SQLite and is not mirrored to Sheets; clearance and near-cost alert behavior still needs connected review."
+    "Paid-order inventory/workflow remains in persistent Railway SQLite and is not mirrored to Sheets; clearance and near-cost alert behavior still needs connected review.",
+    "D-043: WordPress/WooCommerce is the preferred persistent home for product and business data, but Railway SQLite still holds durable intake/jobs and operational ledgers; no migration has occurred."
   ]
 }

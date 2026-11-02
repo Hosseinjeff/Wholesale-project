@@ -702,3 +702,28 @@ Do not record suggested options, silence, or previously inferred preferences as 
   Railway deployment `226ab34b-7b10-4512-b275-8c6105b59a5b` reached `SUCCESS` and
   `/health` returned HTTP 200. The WordPress uploader read back all changed plugin
   files successfully. Live customer/admin click-through remains unverified.
+
+### D-043 — Prefer WordPress data residency and clarify Sheet conflict precedence
+
+- User wants persistent product and business data kept in WordPress/WooCommerce as
+  much as practical, with Railway kept lean and used primarily for processing. This is
+  the target for future data ownership and migration work; it does not claim the current
+  data has already moved.
+- In the current conflict code, “server” means the product value computed by the
+  Railway app from the latest supplier offer in the Sheets `Offers` log. `Products` in
+  Sheets is still the operational row; WooCommerce receives a published projection.
+  Railway SQLite holds durable intake/jobs, conflict metadata and some operational
+  ledgers. The conflict screen must name Railway and WooCommerce explicitly.
+- The Railway-computed value is the default when reconciling a conflict. A value the
+  owner deliberately edited in the Sheet must instead be published to WooCommerce.
+  The current Sheets API path does not provide reliable per-cell editor attribution;
+  a true simultaneous divergence therefore remains held for explicit owner choice.
+  Choosing the Sheet value means “I manually edited this cell; publish it to Woo,” and
+  leaves the append-only supplier offer evidence unchanged.
+- This supersedes D-030's owner-choice-as-the-only-described-policy while retaining its
+  preservation of both values for ambiguous simultaneous edits. Existing automatic
+  one-sided reconciliation remains: server-only changes update the Sheet, and
+  Sheet-only edits are published through the guarded Woo projection worker.
+- No data was migrated as part of this decision. Move durable business records to
+  WordPress only through an audited, reversible migration; retain only the queue and
+  retry metadata Railway needs to process work.

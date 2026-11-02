@@ -27,6 +27,7 @@ whole flow. Household first, small retailer second. Use sample data throughout a
 
 - Required GAS execution moves to the server; preserve the recovered original export.
 - Primary input is supplier messages forwarded to the existing bot, saved with provenance. The user may directly correct supplier/stock data in Sheets; supported updates must flow both ways (D-029).
+- D-043: Prefer WordPress/WooCommerce for persistent product and business records wherever supported; keep Railway lean as the processing service with only the durable queue/retry metadata it needs. Current Sheets and Railway records have not been migrated.
 - Rezvan Pakhsh reference products come from its WooCommerce Store API, not its PDF.
   Preserve the full title, SKU and category; convert IRR prices to toman; infer package,
   set, volume and weight details only from explicit titles or API attributes. Stage a
@@ -58,7 +59,6 @@ whole flow. Household first, small retailer second. Use sample data throughout a
 | Question | Recommended proposal, not confirmed | Why it changes the plan |
 |---|---|---|
 | Operating model | Customer buys from MolaviSale; suppliers supply it; MolaviSale coordinates fulfillment | Determines customer responsibility, supplier split, support and refund ownership |
-| Record ownership and conflict policy | All normalized Products data columns are editable (D-034); source/provenance identity is protected; divergent field edits wait for an owner choice. WooCommerce orders remain the recommended order authority | Preserves existing Sheet editing while avoiding lost corrections and conflicting masters |
 | Checkout access policy | Guest checkout with name/mobile/address; account/email optional (D-025). Direct payment and full payment before procurement confirmed | Secure order status/recovery and communication channel remain to design |
 
 Initial delivery area is now Tehran and delivery is owner-arranged (D-016). Specify
@@ -95,25 +95,27 @@ and parity validation. Do not leave two active customer order paths by accident.
 
 ## Bidirectional Sheets editing — confirmed requirement
 
-Changes made by the server and supported manual changes made in Sheets must both
+Changes made by Railway and supported manual changes made in Sheets must both
 propagate. D-034 confirms every normalized Products data column is editable; source
 IDs, original posts, timestamps and import/offer provenance remain protected.
-Products is the operational row read by the server; Offers/MessageData retain
+Products is the operational row read by Railway; Offers/MessageData retain
 supplier evidence. On supplier updates the local adapter compares source baseline,
-new server value and current Sheet value. It writes an untouched field, preserves a
-Sheet-only correction, or holds both divergent values for owner review. A server
-update must not silently erase a Sheet edit.
+new Railway-computed value and current Sheet value. It writes an untouched field,
+preserves a Sheet-only correction, or holds both divergent values for owner review.
+A Railway update must not silently erase a Sheet edit.
 
-Confirmed D-030 conflict path: detect divergent changes since the last synchronized
-version, preserve both values, flag the affected row/task for user review and wait
-for an authorized resolution. The local private Woo dashboard records a choice and
-note; open conflicts hold the product from quotes and publication. Do not silently
-use “last writer wins”. Sheets APIs do not provide an atomic cross-system
-transaction; local writes reread current cells and record detected races.
+Confirmed D-030 conflict path, clarified by D-043: detect divergent changes since the
+last synchronized version and preserve both values. The Railway-computed value is the
+default; when the owner confirms that a Sheet cell was manually edited, publish that
+Sheet value to WooCommerce. The private Woo dashboard records the choice and note;
+open conflicts hold the product from quotes and publication. Sheets APIs do not
+provide per-cell editor attribution or an atomic cross-system transaction, so truly
+simultaneous edits stay held until the manual Sheet edit is confirmed.
 
 Accept on connected staging: edit a supplier package count in Sheets and see the
-validated correction reflected in server/pricing/Woo; update the server and see
-Sheets reflect it; simultaneous edits surface a conflict without losing either;
+validated correction reflected in Railway-computed pricing and Woo; update the
+Railway-computed value and see Sheets reflect it; simultaneous edits surface a
+conflict without losing either;
 retries/outage, row reorder, duplicate messages and unsupported edits remain visible
 and recoverable. Local synthetic tests now cover every editable Products field,
 the Sheet REST batch write, owner conflict choices and quote/Woo holds. Connected

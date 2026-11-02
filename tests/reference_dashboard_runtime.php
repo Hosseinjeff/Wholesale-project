@@ -501,7 +501,10 @@ ob_start();molavi_sheet_conflicts_screen();$conflict_html=ob_get_clean();
 ref_assert(strpos($conflict_html,'id="molavi-owner-workflow"')!==false, 'sheet conflict page mounts the scoped owner UI');
 ref_assert(strpos($conflict_html,MOLAVI_REFERENCE_BRIDGE_TOKEN)===false, 'sheet conflict page never exposes the bridge secret');
 ref_assert(strpos($workflow_js,'conflictValue')!==false && strpos($workflow_js,"choice, note: form.elements.note.value.trim()")!==false
-    && strpos($workflow_js,'window.confirm')!==false, 'sheet conflict choices are escaped, noted and confirmed');
+    && strpos($workflow_js,'window.confirm')!==false
+    && strpos($workflow_js,'پذیرفتن مقدار Railway (پیش‌فرض)')!==false
+    && strpos($workflow_js,'استفاده از اصلاح دستی شیت')!==false,
+    'sheet conflict defaults to the Railway value and calls out manual Sheet overrides');
 $conflict_request=molavi_sheet_conflicts_request('POST',['conflict_id'=>'sheet:synthetic-conflict','choice'=>'sheet','note'=>'keep sheet edit']);
 ref_assert(!is_wp_error($conflict_request) && $conflict_request['conflict_id']==='sheet:synthetic-conflict', 'sheet conflict resolution requires matching server receipt');
 $http_mode='queue';ob_start();molavi_paid_orders_screen();$orders_html=ob_get_clean();

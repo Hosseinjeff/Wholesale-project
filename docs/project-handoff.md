@@ -1,8 +1,26 @@
 # MolaviSale — whole-workflow handoff
 
-Snapshot 4.62. Updated 2026-11-01, Asia/Tehran. The canonical roleplay decisions are in
+Snapshot 4.63. Updated 2026-11-02, Asia/Tehran. The canonical roleplay decisions are in
 `roleplay-state.json`; current live evidence and release gates are in
 `pipeline-readiness.md` and `pipeline-readiness-evidence.json`.
+
+## Current data ownership and conflict direction — D-043, 2026-11-02
+
+The user wants WordPress/WooCommerce to hold persistent product and business data as
+much as practical and wants Railway kept lean as a processing service. In the current
+Sheets conflict code, “server” means the value Railway computes from the latest supplier
+offer in the Sheets `Offers` log; it does not mean WordPress. `Products` in Sheets is
+still the operational row, and WooCommerce receives its published projection. Railway
+SQLite currently stores durable intake/jobs, conflict values, and some procurement and
+inventory workflow records.
+
+Server-computed changes win by default. An owner-confirmed manual Sheet edit must be
+published to WooCommerce. When both sides have changed and the Sheet edit cannot be
+attributed, keep both values held for the owner to confirm; the Sheets API does not
+provide reliable per-cell editor attribution. The conflict screen now names Railway
+and WooCommerce and labels the manual Sheet override explicitly. This does not move
+data by itself: migrate durable records to WordPress only through an audited,
+reversible path, leaving Railway with processing and the queue/retry metadata it needs.
 
 ## Reference-linked approvals and buyer-profile order flow — deployed on main
 
@@ -571,8 +589,9 @@ Existing work remains local/uncommitted; no production changes were made.
 Master plan v3.4 links operations-and-ownership-plan.md, which covers roles, order
 lifecycle, paid shortages, fulfillment/aftercare, record ownership, reconciliation
 and connected-staging replays. User-requested whole-plan execution remains the target.
-Server/Woo/Sheets authority is a recommendation and is not yet selected; direct Sheets
-editing behavior is material. Clearance loss approval and aftercare terms also remain
+Server/Woo/Sheets authority was a recommendation at that historical planning
+checkpoint. D-043 above records the user's later WordPress data-residency preference
+and the current conflict precedence. Clearance loss approval and aftercare terms remain
 open. Existing production and mockup constraints remain unchanged.
 
 ### Planning update — D-029 bilateral Sheets editing
@@ -580,9 +599,10 @@ open. Existing production and mockup constraints remain unchanged.
 User may directly edit supplier/stock data in Sheets and requires two-way updates.
 Master plan v3.5 and operations-and-ownership-plan.md preserve this operational
 workflow. Proposed conflict handling keeps both values for authorized review;
-exact record authority/conflict policy is not yet selected. Do not silently convert
-Sheets to one-way reports or assume Google Sheets offers atomic cross-system
-transactions. Test direct Sheet edits, server updates and races in staging.
+exact record authority/conflict policy was not yet selected at that checkpoint. Do not
+silently convert Sheets to one-way reports or assume Google Sheets offers atomic
+cross-system transactions. This historical undecided status is superseded by D-043.
+Test direct Sheet edits, Railway-computed updates and races in staging.
 
 ### Planning update — D-030 synchronization conflicts
 
@@ -688,9 +708,9 @@ service was changed.
 
 User confirmed every normalized product-data column in Products may be edited in
 Sheets. IDs, original supplier posts, source timestamps and import/offer provenance
-remain protected. Products is the operational row read by server catalog/quote paths;
+remain protected. Products is the operational row read by Railway catalog/quote paths;
 Offers and MessageData remain append-only evidence. On a supplier update, three-way
-field reconciliation preserves Sheet-only edits, writes server-only changes, and
+field reconciliation preserves Sheet-only edits, writes Railway-only changes, and
 stores concurrent/invalid edits for review. The existing WooCommerce dashboard now
 shows both values and requires an owner choice plus note. An unresolved conflict
 removes its product from server quotes and holds its Woo projection. New source/value

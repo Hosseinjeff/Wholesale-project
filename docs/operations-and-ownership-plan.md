@@ -62,32 +62,42 @@ without explicit customer approval. Record decision, approved totals and settlem
 separately; do not mark a refund complete until its actual payment/refund receipt is
 verified. Exact substitute matching, refund mechanism/time and contact method remain open.
 
-## Record ownership and bidirectional Sheets — user-confirmed editing
+## Record ownership and bidirectional Sheets — current path and D-043 target
 
-| Data | Recommended authoritative record | Connected surfaces |
+| Data | Preferred persistent home | Current implementation |
 |---|---|---|
-| Supplier messages, offer history, reference snapshots, review, purchasing and inventory lots | Server-controlled persistent ledger/operations service | Preserve raw/normalized records and intended Sheets workflow; review/edit commands propagate with audit and receipts |
-| Pricing settings, product identity, release/availability and quote versions | Server pricing/catalog contract | Sheets and MolaviShop/Woo projections; explicitly define permitted operator overrides and sync direction |
-| Customer orders, accepted totals, payment records and fulfillment | WooCommerce using supported CRUD/HPOS-compatible APIs | Server/Sheets reporting and tasks linked by order ID; no second order master |
-| Owner price-age/reference decisions and pipeline exceptions | Server durable workflow, with authorized WordPress actions | The existing dashboard plugin; failed actions remain visible |
+| Supplier messages, offer history, reference snapshots, review, purchasing and inventory lots | WordPress/WooCommerce records where practical; keep one durable copy of source evidence and preserve provenance | MessageData/Offers/Products live in Sheets; Railway SQLite also stores durable intake/jobs and some workflow ledgers; migration is incomplete |
+| Pricing settings, product identity, release/availability and quote versions | WordPress/WooCommerce as the persistent catalog home; Sheets remains a supported manual input until a safe migration replaces it | Products in Sheets is the current operational row; Railway computes and projects it to WooCommerce |
+| Customer orders, accepted totals, payment records and fulfillment | WooCommerce for customer order/payment records; WordPress for related business state where supported | WooCommerce owns orders; Railway SQLite currently holds related fulfillment/procurement workflow state |
+| Owner price-age/reference decisions and pipeline exceptions | WordPress for durable owner-facing business records where practical | Actions appear in the private Woo dashboard; several ledgers and queue receipts remain on Railway |
 
 D-029/D-034: user may directly edit all normalized product-data fields in Sheets
 and needs updates in both directions. Products is the current operational row read
-by the server; Offers and MessageData remain append-only source evidence. Product
+by Railway; Offers and MessageData remain append-only source evidence. Product
 IDs, original supplier posts, source timestamps, import/batch/offer identity and
-other provenance fields are protected. Server updates flow into untouched Product
+other provenance fields are protected. Railway-computed updates flow into untouched Product
 cells; Sheet-only edits remain effective; concurrent edits are held for the owner
 to choose in the existing WordPress dashboard. This local adapter is tested with
 MemoryStore and synthetic WordPress. A supervised worker polls Products/Shop every
 60 seconds by default and queues Woo publication; live Sheet access/cadence remain
 unverified.
 
-D-030 confirms preserving both conflicting values and flagging them for user review.
-The local field queue uses stable conflict IDs, source revision/value checks, owner
-choice and audit note; an open conflict blocks quotes and Woo publication. Newer
-source/value observations retire obsolete conflicts. Direct Sheet edits still need
-field-level review in connected staging; actual Sheets revision/transaction
-limitations must be accounted for rather than claiming atomic cross-system updates.
+D-043 clarifies the meaning and precedence: the current “server” value is computed by
+Railway from the latest supplier offer, not read from WordPress. That computed value is
+the default and is written to an unchanged Sheet cell. A deliberate manual Sheet edit
+must be published to WooCommerce; selecting the Sheet option records that the owner
+made that edit and queues the Woo projection without rewriting the append-only offer.
+When both sides changed and the Sheet edit cannot be attributed, preserve both values
+and require owner review. The dashboard now labels Railway and WooCommerce explicitly.
+Google Sheets does not provide reliable per-cell editor attribution or atomic
+cross-system transactions.
+
+D-043 sets WordPress/WooCommerce as the preferred persistent home for product and
+business records wherever supported. It does not move data by itself: the present
+Products Sheet, Railway job/inbox payloads, conflict ledger, and procurement/inventory
+workflow state must be inventoried and migrated through an audited, reversible path.
+Keep Railway limited to processing plus the queue/retry metadata it needs, and do not
+create duplicate product, order, or source-message masters during migration.
 Test row reorder, same-field races, invalid edits, retry and server-outage recovery
 in connected staging.
 Competing recovered GAS Inventory log and current Offers/Products/Items must be
