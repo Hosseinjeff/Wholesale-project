@@ -2,6 +2,19 @@
 
 ## November 2 audit response — receipt reconciliation and review safeguards
 
+### Dashboard review rollout status — 2026-11-02
+
+The owner-review UI and its WordPress table migration/write path are on `main`; the
+plugin uploader verified commit `78b3188ed0b377bf9a573ccec158cee516f7d334`. Table
+creation and writes were not verified. The UI is compatible with the
+currently live conflict endpoint and disables blind batch retry when the API omits its
+source context. The required Railway API change is also on `main`, but production still
+runs `8e2ae9a32d4abc3c66e0b0ba06cf514db8d07f9d`; no new build is pending. Reconnecting
+the existing service to its same repository was rejected by Railway's automatic review
+because it would mutate live source configuration across environments. No source
+settings or database rows were changed. Approval is needed before using that path; until
+then the source-linked publication review is not fully active.
+
 The operations dashboard now offers an owner-only, read-only receipt reconciliation
 report. It joins durable intake receipts to `MessageData`, extracted/reviewed `Offers`,
 current `Products`, publication jobs, and the public Woo Store API. Per-product details

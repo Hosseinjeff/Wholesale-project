@@ -15,6 +15,18 @@ Updated: 2026-11-02, Asia/Tehran
 
 ## Deploying plugin code
 
+Most recent WordPress plugin deployment: commit `78b3188ed0b377bf9a573ccec158cee516f7d334`
+(2026-11-02). The uploader changed and read back `includes/owner-workflows.js` with no
+host normalization. This compatibility update keeps the conflict action's audit note
+accepted by the current Railway API and disables batch retry when source details are
+missing. The plugin also includes a WordPress review-table migration and write path;
+live table creation and writes were not verified. The companion Railway API changes are pushed on `main` but are not live yet;
+production remains on commit `8e2ae9a32d4abc3c66e0b0ba06cf514db8d07f9d` and reports
+healthy. Railway's automatic review rejected reconnecting the existing service to the
+same repository to trigger deployment because that action changes live source settings
+across environments. No Railway source settings or production data changed. Source
+context and bulk retry will become active after an approved deployment path.
+
 The cPanel uploader is `tools/deploy_wordpress_plugin.py`. It accepts a Git ref
 before the plugin changes, and only deploys tracked PHP, JavaScript and CSS files
 under `shop-wp/molavi-shop/` that changed since that ref.

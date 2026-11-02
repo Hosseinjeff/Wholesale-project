@@ -422,7 +422,7 @@
   "implementation_progress": {
     "python_tests_passed": 268,
     "isolated_wordpress_assertions_passed": 104,
-    "operations_dashboard": "The owner workspace prioritizes the next open task. Publication holds now show linked source posts, context and stop reason with one bulk retry; Sheet conflicts have explicit Railway-default and manual-Sheet-to-Woo actions with idempotent retries. The WordPress plugin stores bounded context and pending/outcome audit events for these two screens. Live admin click-through remains unverified.",
+    "operations_dashboard": "The WordPress review UI is deployed at 78b3188; publication cards expose source fields when the API supplies them, conflict actions include the current server-required audit note, and no-context retries are disabled. The plugin contains a WordPress review-table migration/write path, but live DB creation and writes are unverified. Railway production remains on 8e2ae9a, so source-linked bulk retry is awaiting backend deployment; live admin click-through remains unverified.",
     "supplier_out_of_stock_projection": "explicit supplier-unavailable rows are excluded from server quotes and projected unavailable to Woo; owned-stock and alternate-supplier eligibility remain unconnected",
     "reference_publication_recovery": "persistent cross-process publication hold, coordinated reference activation lock, private Woo owner review and audited explicit replay; legacy/GAS writers bypassing these server locks still require cutover control",
     "bidirectional_sheet_conflict_logic": "Three-way reconciliation; server-computed changes win by default; confirmed manual Sheet overrides publish to WooCommerce; truly simultaneous changes remain owner-reviewed because the Sheets API lacks reliable per-cell editor attribution; owner context/decision events for the review screen are stored in WordPress, while the processing ledger and broader data migration remain on Railway",
@@ -445,7 +445,8 @@
     "reference_refresh": "The previous scheduled PDF refresh failed with extraction_batch_row_count_mismatch_page_15_left before staging a new candidate. Two older 10-row PDF/Gemini snapshots have unverified coverage and remain inactive. Fresh Woo API snapshot 4bf9d367c07dcf1af29e4fc61dfb1eddcb23cbbc4db3ffcdeb63fc987e80f7a9 is staged with 3,895/3,895 rows, 39/39 pages and verified coverage. It is inactive; no ReferencePrices write occurred.",
     "deployed_commit": "3d8a7d2b7eb1f74b7ed72257730d0627f6949a07",
     "supervised_worker": "Railway deployment f87efd11-381c-4195-b82e-ce26263b78be succeeded with the 500 MB /data volume attached; web and pipeline-worker started; free-plan sleep remains enabled.",
-    "live_site_incident": "2026-10-28/29: Fresh WordPress uses h434558_Salesman and existing MolaviShop/Woo. Two live Sheet products use customer-facing IRT prices with supplier cost private. The site is public; no payment method is enabled. The user-created admin login works. Original site files are preserved outside public_html; legacy catalog/orders/media were not restored."
+    "live_site_incident": "2026-10-28/29: Fresh WordPress uses h434558_Salesman and existing MolaviShop/Woo. Two live Sheet products use customer-facing IRT prices with supplier cost private. The site is public; no payment method is enabled. The user-created admin login works. Original site files are preserved outside public_html; legacy catalog/orders/media were not restored.",
+    "owner_review_rollout": "WordPress plugin files were read-back verified at 78b3188ed0b377bf9a573ccec158cee516f7d334; live DB table creation and writes were not verified. Railway production remains on 8e2ae9a32d4abc3c66e0b0ba06cf514db8d07f9d with no new deployment pending; automatic review rejected reconnecting the same repository because it would mutate live source configuration across environments."
   },
   "site_integration_requirement": {
     "coordination_with_existing_plugins": true,
@@ -496,6 +497,6 @@
     "Bilateral Products-sheet edits/conflicts and legacy/GAS writer cutover remain unverified; the server worker reads two current products from Sheets.",
     "Paid-order inventory/workflow remains in persistent Railway SQLite and is not mirrored to Sheets; clearance and near-cost alert behavior still needs connected review.",
     "D-043: WordPress/WooCommerce is the preferred persistent home for product and business data, but Railway SQLite still holds durable intake/jobs and operational ledgers; no broad migration has occurred.",
-    "D-044: Publication-hold and Sheet-conflict screens mirror bounded review context and outcome events into WordPress. Railway still owns and executes the queue; live admin click-through remains unverified."
+    "D-044: WordPress plugin UX and its local review-store code are deployed, but live table creation/writes and the Railway API changes for publication source context and bulk retries are unverified; source-linked publication review awaits an approved deployment path."
   ]
 }

@@ -6,14 +6,17 @@ Snapshot 4.64. Updated 2026-11-02, Asia/Tehran. The canonical roleplay decisions
 
 ## Owner review flow and conflict recovery — D-044
 
-The publication review now shows the source messages, post links, processing counts,
-and stop reason on each batch card, with a single action to retry selected batches.
-Sheet conflicts show the current Railway-computed value alongside the current Sheet
-value and provide direct actions to keep Railway's value or send an owner-made Sheet
-edit to WooCommerce. Repeating the same conflict choice is safe, and stale lists refresh.
-The WordPress plugin stores bounded review context and separate pending/outcome audit
-events for these two paths. Railway still runs the queue and broader data migration is
-not complete. The live admin click-through is pending.
+The WordPress plugin UI is deployed at commit `78b3188ed0b377bf9a573ccec158cee516f7d334`.
+It presents source details, processing reasons, bulk retry, and direct conflict choices;
+the plugin includes a WordPress review table and separate pending/outcome audit events,
+but live table creation and writes have not been verified.
+The Railway API changes are in `main`, but production is still on commit `8e2ae9a` and
+does not yet return batch source details or accept the bulk-retry request. The plugin
+therefore disables retries when the source is unavailable; conflict choices include a
+compatible audit note. Railway's automatic review rejected reconnecting the existing
+service to the same `main` repository to trigger a build, so rollout remains incomplete
+pending an approved in-place deployment path. No Railway source settings or data changed.
+The live admin click-through is pending.
 
 ## Current data ownership and conflict direction — D-043, 2026-11-02
 
