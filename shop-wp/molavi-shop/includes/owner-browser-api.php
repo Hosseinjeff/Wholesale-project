@@ -79,8 +79,22 @@ add_action('admin_enqueue_scripts', static function (): void {
         'pageUrls' => molavi_owner_workflow_page_urls(),
     ];
     if ($page === 'molavi-operations') {
-        $browserConfig['queueSummaryUrl'] = molavi_owner_workflow_relative_admin_url('admin-ajax.php');
-        $browserConfig['queueSummaryNonce'] = wp_create_nonce('molavi_operations_queue_summary');
+        $queueSources = [
+            'reference_items' => ['/reference/item-reviews', 'owner:/reference/item-reviews', 'cases'],
+            'ai_confirmations' => ['/pipeline/ai-confirmations', 'owner:/pipeline/ai-confirmations', 'cases'],
+            'reference_decisions' => ['/reference/decisions', 'owner:/reference/decisions', 'events'],
+            'supplier_prices' => ['/pipeline/supplier-price-evidence', 'owner:/pipeline/supplier-price-evidence', 'offers'],
+        ];
+        $browserConfig['queueSummaryApis'] = [];
+        foreach ($queueSources as $key=>$source) {
+            $scopedToken = molavi_owner_workflow_token($source[1]);
+            if ($scopedToken === '') { continue; }
+            $browserConfig['queueSummaryApis'][$key] = [
+                'url'=>rtrim($base, '/') . $source[0],
+                'token'=>$scopedToken,
+                'rows_key'=>$source[2],
+            ];
+        }
     }
     if (in_array($page, ['molavi-operations','molavi-publication-holds','molavi-sheet-conflicts','molavi-ai-confirmations'], true)) {
         $browserConfig['reviewStoreUrl'] = molavi_owner_workflow_relative_admin_url('admin-ajax.php');

@@ -647,21 +647,13 @@ ref_assert(strpos($workflow_js,'molavi-next-action-list')!==false
     && strpos($workflow_js,'molavi-owner-workflow-updated')!==false,
     'pipeline hub shows the next owner action and refreshes counts after a decision');
 $workflow_api_php=file_get_contents('/plugin/includes/owner-browser-api.php');
-ref_assert(strpos($workflow_api_php,'queueSummaryUrl')!==false
-    && strpos($workflow_api_php,'wp_create_nonce(\'molavi_operations_queue_summary\')')!==false,
-    'dashboard summary uses a same-origin nonce instead of exposing extra API capabilities');
-$queue_summary=molavi_operations_dashboard_queue_summary();
-ref_assert($queue_summary['reference_items']['status']==='ok'
-    && $queue_summary['reference_items']['count']===1
-    && $queue_summary['ai_confirmations']['count']===1
-    && $queue_summary['reference_decisions']['count']===1
-    && $queue_summary['supplier_prices']['count']===1,
-    'dashboard summary returns counts only for open owner queues');
-$http_mode='offline';
-$unavailable_summary=molavi_operations_dashboard_queue_summary();
-ref_assert($unavailable_summary['ai_confirmations']['status']==='unavailable'
-    && $unavailable_summary['ai_confirmations']['count']===null,
-    'dashboard never reports a failed queue read as an empty queue');
+ref_assert(strpos($workflow_api_php,'queueSummaryApis')!==false
+    && strpos($workflow_api_php,'owner:/pipeline/ai-confirmations')!==false
+    && strpos($workflow_api_php,'owner:/reference/item-reviews')!==false,
+    'dashboard exposes only short-lived route-scoped queue-count capabilities');
+ref_assert(strpos($workflow_js,'Object.entries(sources).map')!==false
+    && strpos($workflow_js,'Promise.all')!==false
+    && strpos($workflow_js,'status:\'unavailable\', count:null')!==false,
+    'dashboard reads queue counts in parallel and keeps failed reads visibly unavailable');
 wp_set_current_user($other);
 ref_assert(is_wp_error(molavi_operations_dashboard_request()), 'non-owner cannot read unified operations dashboard');
-ref_assert(is_wp_error(molavi_operations_dashboard_queue_summary()), 'non-owner cannot read the owner queue summary');

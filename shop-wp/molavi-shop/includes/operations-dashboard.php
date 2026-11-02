@@ -7,39 +7,6 @@ function molavi_operations_dashboard_request() {
     return molavi_pipeline_request('/pipeline/operations-dashboard', 'GET');
 }
 
-/** Return counts only so the start screen can order owner work without exposing source records. */
-function molavi_operations_dashboard_queue_summary() {
-    if (!molavi_reference_owner()) { return new WP_Error('owner', 'دسترسی مجاز نیست.'); }
-    $sources = [
-        'reference_items' => ['/reference/item-reviews', 'cases'],
-        'ai_confirmations' => ['/pipeline/ai-confirmations', 'cases'],
-        'reference_decisions' => ['/reference/decisions', 'events'],
-        'supplier_prices' => ['/pipeline/supplier-price-evidence', 'offers'],
-    ];
-    $summary = [];
-    foreach ($sources as $key=>$source) {
-        [$path, $rowsKey] = $source;
-        $result = molavi_pipeline_request($path, 'GET');
-        $rows = is_array($result) ? ($result[$rowsKey] ?? null) : null;
-        $summary[$key] = is_array($rows)
-            ? ['status'=>'ok', 'count'=>count($rows)]
-            : ['status'=>'unavailable', 'count'=>null];
-    }
-    return $summary;
-}
-
-add_action('wp_ajax_molavi_operations_queue_summary', static function (): void {
-    check_ajax_referer('molavi_operations_queue_summary', 'nonce');
-    if (!molavi_reference_owner()) {
-        wp_send_json_error(['code'=>'owner_required'], 403);
-    }
-    $summary = molavi_operations_dashboard_queue_summary();
-    if (is_wp_error($summary)) {
-        wp_send_json_error(['code'=>'queue_summary_unavailable'], 503);
-    }
-    wp_send_json_success(['queues'=>$summary]);
-});
-
 add_action('admin_menu', static function (): void {
     if (!molavi_reference_owner()) { return; }
     add_submenu_page('woocommerce', 'خط لوله مولوی‌سل', 'خط لوله مولوی‌سل',

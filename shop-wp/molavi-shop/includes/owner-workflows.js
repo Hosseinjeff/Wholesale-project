@@ -95,20 +95,24 @@
     }
 
     async function requestQueueSummary() {
-        if (!config.queueSummaryUrl || !config.queueSummaryNonce) throw new Error('queue_summary_unavailable');
-        const response = await fetch(config.queueSummaryUrl, {
-            method: 'POST', mode: 'same-origin', credentials: 'same-origin', cache: 'no-store',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
-            body: new URLSearchParams({
-                action: 'molavi_operations_queue_summary',
-                nonce: config.queueSummaryNonce
-            }).toString()
-        });
-        const body = await response.json().catch(() => null);
-        if (!response.ok || !body || body.success !== true || !body.data || !body.data.queues) {
-            throw new Error('queue_summary_unavailable');
-        }
-        return body.data.queues;
+        const sources = config.queueSummaryApis;
+        if (!sources || !Object.keys(sources).length) throw new Error('queue_summary_unavailable');
+        const results = await Promise.all(Object.entries(sources).map(async ([key, source]) => {
+            try {
+                const response = await fetch(source.url, {
+                    method:'GET', mode:'cors', cache:'no-store',
+                    headers:{ Authorization:'Bearer ' + source.token }
+                });
+                const body = await response.json().catch(() => null);
+                const rows = body && body.ok === true ? body[source.rows_key] : null;
+                return [key, response.ok && Array.isArray(rows)
+                    ? {status:'ok', count:rows.length}
+                    : {status:'unavailable', count:null}];
+            } catch (_error) {
+                return [key, {status:'unavailable', count:null}];
+            }
+        }));
+        return Object.fromEntries(results);
     }
 
     function reviewEventId(type, id) {
