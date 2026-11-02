@@ -4,8 +4,10 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import time
+import unicodedata
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -207,6 +209,7 @@ def _as_case(offer, ledger, *, include_decided=False):
         'message_timestamp': str(offer.get('Message Timestamp') or ''),
         'source_post_url': str(offer.get('Source Post URL') or ''),
         'original_message': str(offer.get('Original Message') or ''),
+        'variation_type': str(offer.get('Variation Type') or ''),
         'reason': reason,
         'sale_price': offer.get('Sale Price') or '',
         'detected_price': offer.get('Detected Price') or offer.get('Sale Price') or '',
@@ -223,6 +226,47 @@ def _as_case(offer, ledger, *, include_decided=False):
         'reference_price_role_hint': str(offer.get('Reference Price Role Hint') or ''),
         'previous_decision_id': latest['decision_id'] if latest else None,
     }
+
+
+def _variant_text(value):
+    value = unicodedata.normalize('NFKC', str(value or '')).casefold()
+    return ' '.join(re.findall(r'\w+', value, flags=re.UNICODE))
+
+
+def _variant_base_name(case):
+    name = _variant_text(case.get('product_name'))
+    variant = _variant_text(case.get('variation_type'))
+    if variant:
+        name = re.sub(r'(?<!\w)' + re.escape(variant) + r'(?!\w)', ' ', name)
+    return ' '.join(name.split())
+
+
+def _annotate_variant_groups(cases):
+    """Expose a group only for distinct variants sharing source and exact offer terms."""
+    groups = {}
+    for case in cases:
+        case.pop('variant_group_id', None)
+        variant = _variant_text(case.get('variation_type'))
+        source = (case.get('channel'), case.get('message_id'), case.get('batch_id'))
+        if not variant or not all(source) or not _variant_base_name(case):
+            continue
+        terms = tuple(case.get(key) for key in (
+            'source_channel', 'reason', 'sale_price', 'detected_price', 'actual_price',
+            'package_price', 'package_count', 'min_qty', 'price_type', 'currency',
+            'packaging', 'stock_status', 'historical_reextract',
+            'reference_match_state', 'reference_match_id', 'reference_price_role_hint',
+            'previous_decision_id',
+        ))
+        group_key = (source, _variant_base_name(case), terms)
+        groups.setdefault(group_key, []).append((case, variant))
+
+    for group_key, members in groups.items():
+        variants = {variant for _, variant in members}
+        if len(members) < 2 or len(variants) < 2:
+            continue
+        group_id = hashlib.sha256(_stable(group_key)).hexdigest()
+        for case, _ in members:
+            case['variant_group_id'] = group_id
 
 
 def find_case(store, ledger, case_id, offer_id):
@@ -264,6 +308,7 @@ def review_cases(store, ledger, *, include_history=False, limit=200):
             cases.append(case)
         all_by_offer[offer_id] = (offer, latest)
     cases.sort(key=lambda row: (row['message_timestamp'], row['offer_id']), reverse=True)
+    _annotate_variant_groups(cases)
     if not include_history:
         return cases[:limit]
     recent = []
@@ -284,6 +329,7 @@ def review_cases(store, ledger, *, include_history=False, limit=200):
                 recent.append({**case, 'decision': decision})
     histories = ledger.history_for_cases(
         [item['case_id'] for item in cases] + [item['case_id'] for item in recent], per_case=10)
+    _annotate_variant_groups(recent)
     for item in cases:
         item['decision_history'] = histories.get(item['case_id'], [])
     for item in recent:

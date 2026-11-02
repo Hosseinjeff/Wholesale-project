@@ -63,6 +63,44 @@ class AIConfirmationTests(unittest.TestCase):
         cases = review_cases(self.store, self.ledger)
         self.assertEqual([item['offer_id'] for item in cases], [self.source['Offer ID']])
 
+    def test_same_source_variants_group_only_when_review_terms_match(self):
+        first = dict(self.source, **{'Offer ID':'batch-1:msg-1:1', 'Product Name':'Tuna Lemon',
+                                     'Variation Type':'Lemon'})
+        second = dict(self.source, **{'Offer ID':'batch-1:msg-1:2', 'Product Name':'Tuna Herb',
+                                      'Variation Type':'Herb'})
+        self.store.append('Offers', [
+            _row_from_map(OFFER_HEADERS, first), _row_from_map(OFFER_HEADERS, second)])
+        cases = review_cases(self.store, self.ledger)
+        self.assertEqual(len(cases), 3)
+        first_case = next(item for item in cases if item['offer_id'] == first['Offer ID'])
+        second_case = next(item for item in cases if item['offer_id'] == second['Offer ID'])
+        self.assertEqual(first_case['variation_type'], 'Lemon')
+        self.assertEqual(first_case['variant_group_id'], second_case['variant_group_id'])
+
+        other_message = dict(self.source, **{'Offer ID':'batch-2:msg-2:0', 'Product Name':'Tuna Mint',
+            'Variation Type':'Mint', 'Message ID':'msg-2', 'Batch ID':'batch-2'})
+        self.store.append('Offers', [_row_from_map(OFFER_HEADERS, other_message)])
+        cases = review_cases(self.store, self.ledger)
+        other_case = next(item for item in cases if item['offer_id'] == other_message['Offer ID'])
+        self.assertNotIn('variant_group_id', other_case)
+
+        changed = dict(self.source, **{'Offer ID':'batch-1:msg-1:3', 'Product Name':'Tuna Chili',
+                                       'Variation Type':'Chili', 'Sale Price':250000})
+        self.store.append('Offers', [_row_from_map(OFFER_HEADERS, changed)])
+        cases = review_cases(self.store, self.ledger)
+        changed_case = next(item for item in cases if item['offer_id'] == changed['Offer ID'])
+        self.assertNotIn('variant_group_id', changed_case)
+
+    def test_duplicate_variation_labels_are_not_grouped(self):
+        first = dict(self.source, **{'Offer ID':'batch-1:msg-1:1', 'Product Name':'Tuna Lemon',
+                                     'Variation Type':'Lemon'})
+        second = dict(self.source, **{'Offer ID':'batch-1:msg-1:2', 'Product Name':'Tuna Lemon',
+                                      'Variation Type':'Lemon'})
+        self.store.append('Offers', [
+            _row_from_map(OFFER_HEADERS, first), _row_from_map(OFFER_HEADERS, second)])
+        cases = review_cases(self.store, self.ledger)
+        self.assertTrue(all('variant_group_id' not in item for item in cases))
+
     def test_decision_is_durable_idempotent_and_compare_and_set(self):
         first = self.decision(fields=self.package_fields())
         retry = self.decision(fields=self.package_fields())

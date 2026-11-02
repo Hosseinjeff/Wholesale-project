@@ -719,18 +719,160 @@
         return value === '' ? '' : Number.parseInt(value, 10);
     }
 
-    function aiCaseCard(item, onSelect = null, contextStored = true, decisionsEnabled = true) {
+    const aiDecisionNote = 'مالک مشخصات استخراج‌شده را از پنل بررسی تأیید کرد.';
+
+    function normalizedAiInteger(value) {
+        const digits = String(value === null || value === undefined ? '' : value)
+            .replace(/[۰-۹]/g, digit => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(digit)))
+            .replace(/[٠-٩]/g, digit => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)))
+            .replace(/[٬,\s]/g, '');
+        const number = Number(digits);
+        return Number.isSafeInteger(number) && number > 0 ? number : '';
+    }
+
+    function aiPriceRole(item) {
+        const fields = item.decision && item.decision.fields || {};
+        const role = String(fields.price_role || item.price_type || item.reference_price_role_hint || '').toLowerCase();
+        if (['unit', 'single', 'per_unit'].includes(role)) return 'unit';
+        if (['pack', 'package', 'carton'].includes(role)) return 'package';
+        return '';
+    }
+
+    function aiDecisionFields(item, role) {
+        const fields = item.decision && item.decision.fields || {};
+        const packageRole = role === 'package';
+        const salePrice = normalizedAiInteger(fields.sale_price)
+            || normalizedAiInteger(packageRole && item.package_price ? item.package_price : '')
+            || normalizedAiInteger(item.sale_price)
+            || normalizedAiInteger(item.detected_price);
+        const packageCount = normalizedAiInteger(fields.package_count) || normalizedAiInteger(item.package_count);
+        if (!salePrice || (packageRole && !packageCount)) return null;
+        return {
+            price_role: role,
+            sale_price: salePrice,
+            actual_price: normalizedAiInteger(fields.actual_price ?? item.actual_price),
+            package_count: packageCount,
+            min_qty: normalizedAiInteger(fields.min_qty ?? item.min_qty),
+            stock_status: fields.stock_status || item.stock_status || 'Unknown'
+        };
+    }
+
+    function aiCaseGroupTerms(item) {
+        return JSON.stringify([
+            item.channel, item.source_channel, item.batch_id, item.message_id,
+            item.reason, item.sale_price,
+            item.detected_price, item.actual_price, item.package_price,
+            item.package_count, item.min_qty, item.price_type, item.currency,
+            item.packaging, item.stock_status, Boolean(item.historical_reextract),
+            item.reference_match_state, item.reference_match_id,
+            item.reference_price_role_hint
+        ]);
+    }
+
+    function groupAiVariantCases(cases) {
+        const buckets = new Map();
+        cases.forEach(item => {
+            const canGroup = item.variant_group_id && item.variation_type;
+            const key = canGroup ? `variant:${item.variant_group_id}` : `single:${item.case_id}`;
+            if (!buckets.has(key)) buckets.set(key, []);
+            buckets.get(key).push(item);
+        });
+        return [...buckets.values()].flatMap(items => {
+            if (items.length < 2 || new Set(items.map(item => String(item.variation_type || '').trim().toLowerCase())).size !== items.length
+                || new Set(items.map(aiCaseGroupTerms)).size !== 1) {
+                return items.map(item => [item]);
+            }
+            return [items];
+        });
+    }
+
+    async function submitAiCaseDecisions(items, choice, fields, card, controls, sourceVerified = false) {
+        if (!items.length) return;
+        const note = choice === 'confirm' ? aiDecisionNote : '';
+        const requests = items.map(item => {
+            const payload = {
+                case_id: item.case_id, offer_id: item.offer_id, signature: item.signature,
+                choice, note, expected_decision_id: item.previous_decision_id || null,
+                source_current_verified: Boolean(item.historical_reextract && choice === 'confirm' && sourceVerified),
+                fields: choice === 'confirm' ? {...fields} : {}
+            };
+            return {item, payload, eventId: reviewEventId('ai_confirmation', item.offer_id),
+                context: storedReviewContext('ai_confirmation', item)};
+        });
+        const priorDisabled = controls.map(button => button.disabled);
+        controls.forEach(button => { button.disabled = true; });
+        try {
+            await persistOwnerReviews(requests.map(({item, payload, eventId, context}) => reviewRecord(
+                eventId, 'ai_confirmation', item.case_id, 'pending', context,
+                {choice, offer_id:item.offer_id, signature:item.signature,
+                    expected_decision_id:payload.expected_decision_id, note,
+                    source_current_verified:payload.source_current_verified, fields:payload.fields}
+            )));
+        } catch (_error) {
+            errorBox('تصمیم در پایگاه داده وردپرس ذخیره نشد؛ هیچ تغییری برای این موارد ارسال نشد.', card);
+            controls.forEach((button, index) => { button.disabled = priorDisabled[index]; });
+            return;
+        }
+
+        let accepted = 0;
+        let failed = 0;
+        let localWarning = false;
+        let firstError = '';
+        for (const {item, payload, eventId, context} of requests) {
+            const decision = {choice, offer_id:item.offer_id, signature:item.signature,
+                expected_decision_id:payload.expected_decision_id, note,
+                source_current_verified:payload.source_current_verified, fields:payload.fields};
+            let receipt;
+            try {
+                receipt = await request('POST', payload);
+                if (receipt.case_id !== payload.case_id || receipt.offer_id !== payload.offer_id
+                    || receipt.signature !== payload.signature || receipt.choice !== choice
+                    || !/^[a-f0-9]{64}$/.test(receipt.decision_id || '')
+                    || !['imported', 'needs_review', 'not_product'].includes(receipt.projection_state)
+                    || typeof receipt.publish_job !== 'string' || !receipt.publish_job) {
+                    throw new Error('invalid_receipt');
+                }
+            } catch (error) {
+                failed += 1;
+                firstError = firstError || errorText(error.message);
+                const state = error.remoteRejected ? 'failed' : 'pending';
+                try {
+                    await persistOwnerReviews([reviewRecord(eventId, 'ai_confirmation', item.case_id,
+                        state, context, decision, {error:String(error.message || 'request_failed'),
+                            request_status:error.requestStatus || null})]);
+                } catch (_ignored) { localWarning = true; }
+                continue;
+            }
+            accepted += 1;
+            try {
+                await persistOwnerReviews([reviewRecord(eventId, 'ai_confirmation', item.case_id,
+                    'accepted', context, decision, receipt)]);
+            } catch (_error) { localWarning = true; }
+        }
+        const label = choice === 'confirm' ? 'تأیید شد' : 'به‌عنوان «کالا نیست» ثبت شد';
+        const summary = `${accepted} از ${items.length} مورد ${label}${failed ? `؛ ${failed} مورد ناموفق ماند${firstError ? ` (${firstError})` : ''}` : ''}${localWarning ? ' رسید محلی وردپرس به همگام‌سازی نیاز دارد.' : ''}`;
+        await aiConfirmations(summary, failed || localWarning ? 'warning' : 'success');
+    }
+
+    function aiCaseCard(item, onSelect = null, contextStored = true, decisionsEnabled = true, relatedItems = [item]) {
         const card = node('section', null, 'card');
+        if (relatedItems.length > 1) card.classList.add('molavi-ai-variant-group');
         if (typeof onSelect === 'function') {
             const selection = node('label', null, 'molavi-ai-case-select');
             const checkbox = document.createElement('input');
             checkbox.type = 'checkbox';
             checkbox.disabled = !contextStored;
-            checkbox.addEventListener('change', () => onSelect(item, checkbox.checked, checkbox));
+            checkbox.addEventListener('change', () => relatedItems.forEach(row => onSelect(row, checkbox.checked, checkbox)));
             selection.append(checkbox, document.createTextNode(' انتخاب برای رد گروهی'));
             card.appendChild(selection);
         }
         card.appendChild(node('h2', item.product_name || 'کالای بدون نام'));
+        if (relatedItems.length > 1) {
+            card.appendChild(node('p', `انواع هم‌قیمت از یک پیام (${relatedItems.length} مورد)`));
+            const variants = node('ul', null, 'molavi-ai-variant-list');
+            relatedItems.forEach(row => variants.appendChild(node('li', `${row.variation_type || row.product_name || 'نوع نامشخص'}${row.product_name && row.product_name !== item.product_name ? ` · ${row.product_name}` : ''}`)));
+            card.appendChild(variants);
+        }
         const roleLabels = {unit: 'هر واحد', single: 'هر واحد', per_unit: 'هر واحد',
             pack: 'هر بسته', package: 'هر بسته', carton: 'هر کارتن'};
         const roleLabel = roleLabels[String(item.price_type || '').toLowerCase()]
@@ -766,9 +908,68 @@
             card.appendChild(history);
         }
         const fields = item.decision && item.decision.fields || {};
-        const role = fields.price_role || item.price_type || '';
+        const role = aiPriceRole(item);
         const isPackage = ['pack', 'package', 'carton'].includes(String(role).toLowerCase());
         const price = fields.sale_price ?? (isPackage && item.package_price ? item.package_price : (item.sale_price || item.detected_price || ''));
+        const quickActions = node('div', null, 'molavi-ai-quick-actions');
+        const quickButtons = [];
+        let currentPriceVerified = null;
+        if (item.historical_reextract) {
+            const checkLabel = node('label', null, 'molavi-reextract-current-check');
+            currentPriceVerified = document.createElement('input');
+            currentPriceVerified.type = 'checkbox';
+            checkLabel.append(currentPriceVerified, document.createTextNode(' قیمت و موجودی را از منبع فعلی دوباره بررسی کردم.'));
+            card.appendChild(checkLabel);
+        }
+        const addQuickConfirm = (selectedRole, label) => {
+            const selectedFields = aiDecisionFields(item, selectedRole);
+            const button = node('button', label, 'button button-primary');
+            button.type = 'button';
+            button.dataset.priceRole = selectedRole;
+            button.disabled = !contextStored || !decisionsEnabled || !selectedFields
+                || Boolean(item.historical_reextract && !currentPriceVerified.checked);
+            button.addEventListener('click', () => submitAiCaseDecisions(relatedItems, 'confirm', selectedFields,
+                card, quickButtons, !item.historical_reextract || currentPriceVerified.checked));
+            quickActions.appendChild(button);
+            quickButtons.push(button);
+            return button;
+        };
+        const quickRole = role || (item.decision && item.decision.fields && item.decision.fields.price_role) || '';
+        if (quickRole) {
+            const quickLabel = relatedItems.length > 1
+                ? `تأیید هر ${relatedItems.length} نوع با قیمت ${amount(aiDecisionFields(item, quickRole)?.sale_price || price)} · ${quickRole === 'package' ? 'بسته' : 'واحد'}`
+                : `تأیید با همین مشخصات · ${quickRole === 'package' ? 'قیمت بسته' : 'قیمت واحد'}`;
+            addQuickConfirm(quickRole, quickLabel);
+        } else {
+            addQuickConfirm('unit', `تأیید ${relatedItems.length > 1 ? 'همه انواع' : 'کالا'} به‌عنوان قیمت هر واحد`);
+            const packageButton = addQuickConfirm('package', `تأیید ${relatedItems.length > 1 ? 'همه انواع' : 'کالا'} به‌عنوان قیمت بسته`);
+            if (!aiDecisionFields(item, 'package')) {
+                packageButton.disabled = true;
+                packageButton.title = 'تعداد داخل بسته در داده استخراج‌شده موجود نیست.';
+            }
+        }
+        if (currentPriceVerified) currentPriceVerified.addEventListener('change', () => {
+            quickButtons.forEach(button => {
+                if (button.dataset.choice === 'not_product') {
+                    button.disabled = !contextStored || !decisionsEnabled;
+                    return;
+                }
+                button.disabled = !contextStored || !decisionsEnabled
+                    || !aiDecisionFields(item, button.dataset.priceRole)
+                    || !currentPriceVerified.checked;
+            });
+        });
+        const notProduct = node('button', relatedItems.length > 1
+            ? `ردّ هر ${relatedItems.length} نوع؛ کالا نیست` : 'این مورد کالا نیست', 'button');
+        notProduct.type = 'button';
+        notProduct.dataset.choice = 'not_product';
+        notProduct.disabled = !contextStored || !decisionsEnabled;
+        notProduct.addEventListener('click', () => submitAiCaseDecisions(relatedItems, 'not_product', {}, card,
+            quickButtons));
+        quickActions.appendChild(notProduct);
+        quickButtons.push(notProduct);
+        card.appendChild(quickActions);
+
         const form = document.createElement('form');
         const row1 = node('p');
         row1.appendChild(field('نقش قیمت', 'price_role', role === 'unit' ? 'unit' : (isPackage ? 'package' : ''), 'select', {
@@ -784,101 +985,42 @@
         form.appendChild(field('وضعیت موجودی تأمین‌کننده', 'stock_status', fields.stock_status || item.stock_status || 'Unknown', 'select', {
             choices: [['Available', 'موجود'], ['Out of Stock', 'ناموجود'], ['Unknown', 'نامشخص']]
         }));
-        let currentPriceVerified = null;
-        if (item.historical_reextract) {
-            const checkLabel = node('label', null, 'molavi-reextract-current-check');
-            currentPriceVerified = document.createElement('input');
-            currentPriceVerified.type = 'checkbox';
-            checkLabel.append(currentPriceVerified, document.createTextNode(' قیمت و موجودی را با تأمین‌کننده یا منبع فعلی دوباره بررسی کردم.'));
-            form.appendChild(checkLabel);
-        }
-        form.appendChild(field('یادداشت مالک (اختیاری برای رد کالا)', 'note', item.decision && item.decision.note || '', 'textarea', { maxLength: 1000 }));
+        const edit = document.createElement('details');
+        edit.className = 'molavi-ai-manual-edit';
+        edit.appendChild(node('summary', 'اصلاح دستی؛ فقط اگر داده استخراج‌شده اشتباه است'));
         const confirmLabel = item.decision && item.decision.choice === 'not_product'
             ? 'بازگردانی به کالا و تأیید مشخصات'
             : item.decision ? 'ثبت اصلاح و تأیید دوباره' : 'تأیید مشخصات استخراج‌شده';
         const confirm = node('button', confirmLabel, 'button button-primary');
         confirm.type = 'submit'; confirm.value = 'confirm';
-        const notProduct = node('button', 'این مورد کالا نیست', 'button');
-        notProduct.type = 'submit'; notProduct.value = 'not_product'; notProduct.formNoValidate = true;
         confirm.disabled = !contextStored || !decisionsEnabled;
-        notProduct.disabled = !contextStored || !decisionsEnabled;
-        form.append(confirm, notProduct);
+        confirm.textContent = relatedItems.length > 1 ? `ثبت اصلاح برای هر ${relatedItems.length} نوع` : confirmLabel;
+        form.append(confirm);
+        edit.appendChild(form);
+        card.appendChild(edit);
         form.addEventListener('submit', async event => {
             event.preventDefault();
-            const choice = event.submitter && event.submitter.value;
-            if (!['confirm', 'not_product'].includes(choice)) return;
-            if (choice === 'confirm' && !form.reportValidity()) return;
-            if (choice === 'confirm' && item.historical_reextract && !currentPriceVerified.checked) {
+            if (!form.reportValidity()) return;
+            if (item.historical_reextract && !currentPriceVerified.checked) {
                 errorBox('پیش از تأیید، تازگی قیمت و موجودی را در منبع فعلی بررسی کنید.', card);
                 return;
             }
-            if (choice === 'confirm' && !form.elements.note.value.trim()) { form.elements.note.reportValidity(); return; }
             const payload = {
                 case_id: item.case_id, offer_id: item.offer_id, signature: item.signature,
-                choice, note: form.elements.note.value, expected_decision_id: item.previous_decision_id || null,
-                source_current_verified: Boolean(item.historical_reextract && choice === 'confirm' && currentPriceVerified.checked),
-                fields: choice === 'confirm' ? {
+                choice: 'confirm', note: aiDecisionNote, expected_decision_id: item.previous_decision_id || null,
+                source_current_verified: Boolean(item.historical_reextract && currentPriceVerified.checked),
+                fields: {
                     price_role: form.elements.price_role.value,
                     sale_price: intValue(form, 'sale_price'),
                     actual_price: intValue(form, 'actual_price'),
                     package_count: intValue(form, 'package_count'),
                     min_qty: intValue(form, 'min_qty'),
                     stock_status: form.elements.stock_status.value
-                } : {}
-            };
-            const eventId = reviewEventId('ai_confirmation', item.offer_id);
-            const context = storedReviewContext('ai_confirmation', item);
-            const decision = {
-                choice, offer_id:item.offer_id, signature:item.signature,
-                expected_decision_id:payload.expected_decision_id, note:payload.note,
-                source_current_verified:payload.source_current_verified, fields:payload.fields
-            };
-            confirm.disabled = true; notProduct.disabled = true;
-            try {
-                await persistOwnerReviews([reviewRecord(eventId, 'ai_confirmation', item.case_id,
-                    'pending', context, decision)]);
-            } catch (_error) {
-                errorBox('جزئیات تصمیم در پایگاه داده وردپرس ذخیره نشد؛ هیچ درخواستی برای تغییر کالا ارسال نشد.', card);
-                confirm.disabled = !decisionsEnabled;
-                notProduct.disabled = !decisionsEnabled;
-                return;
-            }
-            let receipt;
-            try {
-                receipt = await request('POST', payload);
-                if (receipt.case_id !== payload.case_id || receipt.offer_id !== payload.offer_id
-                    || receipt.signature !== payload.signature || receipt.choice !== choice
-                    || !/^[a-f0-9]{64}$/.test(receipt.decision_id || '')
-                    || !['imported', 'needs_review', 'not_product'].includes(receipt.projection_state)
-                    || typeof receipt.publish_job !== 'string' || !receipt.publish_job) {
-                    throw new Error('invalid_receipt');
                 }
-            } catch (error) {
-                const state = error.remoteRejected ? 'failed' : 'pending';
-                const localReceipt = {error:String(error.message || 'request_failed'),
-                    request_status:error.requestStatus || null};
-                try {
-                    await persistOwnerReviews([reviewRecord(eventId, 'ai_confirmation', item.case_id,
-                        state, context, decision, localReceipt)]);
-                } catch (_ignored) {}
-                errorBox(error.remoteRejected
-                    ? errorText(error.message)
-                    : `${errorText(error.message)} پاسخ نهایی سرویس تأیید نشد؛ وضعیت محلی در انتظار بررسی باقی ماند.`, card);
-                confirm.disabled = !decisionsEnabled;
-                notProduct.disabled = !decisionsEnabled;
-                return;
-            }
-            let localWarning = '';
-            try {
-                await persistOwnerReviews([reviewRecord(eventId, 'ai_confirmation', item.case_id,
-                    'accepted', context, decision, receipt)]);
-            } catch (_error) {
-                localWarning = ' تصمیم در سرویس ثبت شد، اما رسید محلی وردپرس ذخیره نشد؛ مورد را دوباره بارگیری کنید تا وضعیت ثبت‌شده دیده شود.';
-            }
-            await aiConfirmations(`تصمیم ثبت شد و برای انتشار به صف رفت.${localWarning}`,
-                localWarning ? 'warning' : 'success');
+            };
+            await submitAiCaseDecisions(relatedItems, 'confirm', payload.fields, card,
+                [confirm, ...quickButtons], payload.source_current_verified);
         });
-        card.appendChild(form);
         return card;
     }
 
@@ -1146,12 +1288,12 @@
                         updateSelection();
                     }
                 });
-                openCases.forEach(item => root.appendChild(aiCaseCard(item, (row, checked, checkbox) => {
+                groupAiVariantCases(openCases).forEach(items => root.appendChild(aiCaseCard(items[0], (row, checked, checkbox) => {
                     caseCheckboxes.set(row.case_id, checkbox);
                     if (checked) selected.set(row.case_id, row);
                     else selected.delete(row.case_id);
                     updateSelection();
-                }, contextStored, decisionsEnabled)));
+                }, contextStored, decisionsEnabled, items)));
             }
             const seenCaseIds = new Set(openCases.map(item => item.case_id));
             recentCases.filter(item => !seenCaseIds.has(item.case_id))
@@ -1177,9 +1319,15 @@
         const currentReference = item.decision && item.decision.reference_id
             || (item.reference_update && item.reference_update.reference_id) || '';
         let selectedReferenceId = candidateRows.some(row => row.reference_id === currentReference) ? currentReference : '';
+        if (!selectedReferenceId && candidateRows.length && Number(candidateRows[0].score) >= 0.95) {
+            selectedReferenceId = candidateRows[0].reference_id;
+        }
+        const roleHint = String(item.decision && item.decision.price_role || item.price_role_hint || '').toLowerCase();
+        let selectedPriceRole = ['package', 'pack', 'carton'].includes(roleHint) ? 'package'
+            : ['unit', 'single', 'per_unit'].includes(roleHint) ? 'unit' : '';
         const candidates = node('div', null, 'molavi-reference-candidates');
         if (candidateRows.length) {
-            candidates.appendChild(node('p', 'پیشنهادهای احتمالی بر اساس شباهت؛ انتخاب شما برای تأیید ثبت می‌شود.'));
+            candidates.appendChild(node('p', 'یک پیشنهاد را انتخاب کنید؛ پیشنهاد با اطمینان بالا از قبل انتخاب شده است.'));
             candidateRows.slice(0, 6).forEach(row => {
                 const option = node('button', null, 'button molavi-reference-candidate');
                 option.type = 'button';
@@ -1190,32 +1338,31 @@
                 option.appendChild(node('span', `تکی: ${amount(row.unit_price)} · بسته: ${amount(row.package_price)}`));
                 option.addEventListener('click', () => {
                     selectedReferenceId = row.reference_id;
-                    manualReference.value = '';
                     candidates.querySelectorAll('.molavi-reference-candidate').forEach(button =>
                         button.setAttribute('aria-pressed', String(button === option)));
                 });
                 candidates.appendChild(option);
             });
         } else {
-            candidates.appendChild(node('p', 'پیشنهاد دقیقی پیدا نشد؛ نام دقیق یا شناسه کالا را دستی وارد کنید.'));
+            candidates.appendChild(node('p', 'پیشنهاد مرجع پیدا نشد؛ مورد را باز نگه دارید تا فهرست مرجع بهتر شود.'));
         }
         form.appendChild(candidates);
-        const manualReferenceField = field('یا نام دقیق یا شناسه مرجع را وارد کنید', 'reference_id',
-            currentReference && !selectedReferenceId ? currentReference : '', 'text', { maxLength: 300 });
-        const manualReference = manualReferenceField.querySelector('input');
-        manualReference.addEventListener('input', () => {
-            if (manualReference.value.trim()) {
-                selectedReferenceId = '';
-                candidates.querySelectorAll('.molavi-reference-candidate').forEach(button =>
-                    button.setAttribute('aria-pressed', 'false'));
-            }
+        const roles = node('div', null, 'molavi-reference-roles');
+        roles.appendChild(node('strong', 'این قیمت برای:'));
+        const roleButtons = [];
+        [['unit', 'یک واحد'], ['package', 'یک بسته / کارتن']].forEach(([value, label]) => {
+            const button = node('button', label, 'button molavi-reference-role');
+            button.type = 'button';
+            button.setAttribute('aria-pressed', String(value === selectedPriceRole));
+            button.addEventListener('click', () => {
+                selectedPriceRole = value;
+                roleButtons.forEach(option => option.setAttribute('aria-pressed', String(option === button)));
+            });
+            roleButtons.push(button);
+            roles.appendChild(button);
         });
-        form.appendChild(manualReferenceField);
-        form.appendChild(field('نقش قیمت', 'price_role', item.decision && item.decision.price_role || 'unit', 'select', {
-            choices: [['unit', 'قیمت هر واحد'], ['package', 'قیمت بسته / کارتن']]
-        }));
-        form.appendChild(field('یادداشت مالک', 'note', item.decision && item.decision.note || '', 'textarea', { required: true, maxLength: 1000 }));
-        const match = node('button', item.decision ? 'اصلاح تطبیق و نقش قیمت' : 'ثبت تطبیق و نقش قیمت', 'button button-primary');
+        form.appendChild(roles);
+        const match = node('button', item.decision ? 'ثبت اصلاح تطبیق' : 'تأیید پیشنهاد انتخاب‌شده', 'button button-primary');
         match.type = 'submit'; match.value = 'match';
         const noMatch = node('button', 'تأیید نبود تطبیق و نگه داشتن کالا در بررسی', 'button');
         noMatch.type = 'submit'; noMatch.value = 'no_match'; noMatch.formNoValidate = true;
@@ -1224,19 +1371,16 @@
             event.preventDefault();
             const choice = event.submitter && event.submitter.value;
             if (!['match', 'no_match'].includes(choice)) return;
-            if (choice === 'match' && !form.reportValidity()) return;
-            if (!form.elements.note.value.trim()) { form.elements.note.reportValidity(); return; }
-            const referenceId = choice === 'match'
-                ? (manualReference.value.trim() || selectedReferenceId) : '';
-            if (choice === 'match' && !referenceId) {
-                errorBox('یک کالای مرجع را از فهرست انتخاب کنید یا شناسه دقیق آن را وارد کنید.', card);
+            const referenceId = choice === 'match' ? selectedReferenceId : '';
+            if (choice === 'match' && (!referenceId || !selectedPriceRole)) {
+                errorBox('یک پیشنهاد مرجع و نقش قیمت را با دکمه‌ها انتخاب کنید.', card);
                 return;
             }
             const payload = {
                 case_id: item.case_id, offer_id: item.offer_id, snapshot_id: item.snapshot_id,
                 choice, reference_id: referenceId,
-                price_role: choice === 'match' ? form.elements.price_role.value : 'unresolved',
-                note: form.elements.note.value,
+                price_role: choice === 'match' ? selectedPriceRole : 'unresolved',
+                note: choice === 'match' ? 'مالک تطبیق پیشنهادی را از پنل بررسی تأیید کرد.' : 'مالک تأیید کرد که پیشنهادهای فعلی تطبیق ندارند.',
                 expected_decision_id: item.decision && item.decision.decision_id || null
             };
             match.disabled = true; noMatch.disabled = true;
@@ -1599,18 +1743,18 @@
                 card.appendChild(node('h2', offer.name || 'کالای بدون نام'));
                 card.appendChild(node('p', `تأمین‌کننده: ${offer.channel || 'نامشخص'} · قیمت ثبت‌شده: ${amount(offer.sale_price)}`));
                 card.appendChild(node('p', labels[offer.state] || labels.needs_review));
+                const sourceLink = safeSourceLink(offer.source_post_url);
+                if (sourceLink) card.appendChild(sourceLink);
                 const form = document.createElement('form');
-                form.appendChild(field('یادداشت بررسی منبع قیمت', 'note', '', 'textarea', {required: true, maxLength: 1000}));
                 const submit = node('button', 'قیمت تأمین‌کننده را بررسی کردم', 'button button-primary');
                 submit.type = 'submit'; form.appendChild(submit);
                 form.addEventListener('submit', async event => {
                     event.preventDefault();
-                    if (!form.reportValidity()) return;
-                    if (!window.confirm('ثبت این بررسی، تأیید می‌کند که منبع فعلی قیمت را بررسی کرده‌اید. ادامه می‌دهید؟')) return;
                     submit.disabled = true;
                     try {
                         const receipt = await request('POST', {product_id: offer.product_id,
-                            expected_revision: offer.source_revision, note: form.elements.note.value.trim()});
+                            expected_revision: offer.source_revision,
+                            note: 'مالک منبع فعلی قیمت را از پنل بررسی تأیید کرد.'});
                         if (receipt.product_id !== offer.product_id || receipt.source_revision !== offer.source_revision
                             || !receipt.verified_at || !receipt.publish_job) throw new Error('invalid_receipt');
                         await supplierPrices('بررسی قیمت ثبت و انتشار دوباره به صف فرستاده شد.', 'success');
