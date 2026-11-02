@@ -67,13 +67,18 @@ add_action('admin_enqueue_scripts', static function (): void {
         wp_enqueue_style('molavi-owner-workflows', plugins_url('owner-workflows.css', __FILE__), [],
             (string) filemtime($style));
     }
-    wp_localize_script('molavi-owner-workflows', 'molaviOwnerWorkflow', [
+    $browserConfig = [
         'page' => $page,
         'apiUrl' => rtrim($base, '/') . $pages[$page][0],
         'token' => $token,
         'pipelineUrl' => admin_url('admin.php?page=molavi-operations'),
         'pageUrls' => molavi_owner_workflow_page_urls(),
-    ]);
+    ];
+    if ($page === 'molavi-operations') {
+        $browserConfig['queueSummaryUrl'] = admin_url('admin-ajax.php');
+        $browserConfig['queueSummaryNonce'] = wp_create_nonce('molavi_operations_queue_summary');
+    }
+    wp_localize_script('molavi-owner-workflows', 'molaviOwnerWorkflow', $browserConfig);
 });
 
 function molavi_owner_workflow_mount(string $loading): void {

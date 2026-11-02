@@ -2,6 +2,15 @@
 #molavi-owner-workflow .molavi-workflow-heading { display:flex; align-items:center; justify-content:space-between; gap:1rem; }
 #molavi-owner-workflow .molavi-workflow-heading h1 { margin-block:.5rem; }
 #molavi-owner-workflow .card { box-sizing:border-box; padding:1rem; margin:1rem 0; border:1px solid #dcdcde; border-radius:8px; background:#fff; }
+#molavi-owner-workflow .molavi-next-action { border-inline-start:4px solid #2271b1; background:#f7fbff; }
+#molavi-owner-workflow .molavi-next-action h2 { margin-top:0; }
+#molavi-owner-workflow .molavi-next-action h3 { margin:.75rem 0 .4rem; }
+#molavi-owner-workflow .molavi-next-action-list { display:grid; gap:.5rem; margin:.5rem 0 0; padding-inline-start:1.5rem; }
+#molavi-owner-workflow .molavi-next-action-item { display:flex; align-items:center; justify-content:space-between; gap:.75rem; padding:.5rem 0; }
+#molavi-owner-workflow .molavi-technical-details > summary { padding:.1rem 0; }
+#molavi-owner-workflow .molavi-tab-count { display:inline-flex; align-items:center; justify-content:center; min-width:1.35rem; min-height:1.35rem; margin-inline-start:.4rem; padding:0 .35rem; border-radius:1rem; background:#dcdcde; color:#1d2327; font-size:.8em; font-weight:600; }
+#molavi-owner-workflow .molavi-admin-tab[aria-selected="true"] .molavi-tab-count { background:#dceeff; color:#135e96; }
+#molavi-owner-workflow .molavi-admin-tab .molavi-tab-count.is-unavailable { background:#fcf0e3; color:#8a4600; }
 #molavi-owner-workflow .molavi-admin-tabs { position:sticky; top:32px; z-index:10; display:flex; gap:.25rem; overflow-x:auto; white-space:nowrap; margin:1rem 0 0; padding:.35rem .35rem 0; border-bottom:1px solid #c3c4c7; background:#f0f0f1; scrollbar-width:thin; }
 #molavi-owner-workflow .molavi-admin-tab { flex:0 0 auto; margin:0; padding:.65rem .85rem; border:1px solid transparent; border-bottom:0; border-radius:6px 6px 0 0; background:transparent; color:#1d2327; cursor:pointer; font:inherit; }
 #molavi-owner-workflow .molavi-admin-tab:hover { background:#f6f7f7; color:#135e96; }
@@ -47,6 +56,8 @@
     #molavi-owner-workflow .card { padding:.75rem; }
     #molavi-owner-workflow .molavi-admin-tabpanel { min-height:70vh; padding:.5rem; }
     #molavi-owner-workflow .molavi-admin-tab-frame { min-height:70vh; }
+    #molavi-owner-workflow .molavi-next-action-item { align-items:flex-start; flex-direction:column; }
+    #molavi-owner-workflow .molavi-next-action-item .button { width:100%; }
     #molavi-owner-workflow label { width:100%; min-width:0; }
     #molavi-owner-workflow input,
     #molavi-owner-workflow select,

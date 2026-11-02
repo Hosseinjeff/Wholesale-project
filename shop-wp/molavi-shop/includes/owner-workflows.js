@@ -77,7 +77,27 @@
         if (!response.ok || !body || body.ok !== true) {
             throw new Error(body && typeof body.error === 'string' ? body.error : 'request_failed');
         }
+        if (method === 'POST' && window.parent !== window) {
+            window.parent.postMessage({ type: 'molavi-owner-workflow-updated' }, window.location.origin);
+        }
         return body;
+    }
+
+    async function requestQueueSummary() {
+        if (!config.queueSummaryUrl || !config.queueSummaryNonce) throw new Error('queue_summary_unavailable');
+        const response = await fetch(config.queueSummaryUrl, {
+            method: 'POST', mode: 'same-origin', credentials: 'same-origin', cache: 'no-store',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+            body: new URLSearchParams({
+                action: 'molavi_operations_queue_summary',
+                nonce: config.queueSummaryNonce
+            }).toString()
+        });
+        const body = await response.json().catch(() => null);
+        if (!response.ok || !body || body.success !== true || !body.data || !body.data.queues) {
+            throw new Error('queue_summary_unavailable');
+        }
+        return body.data.queues;
     }
 
     function shell(title, description) {
@@ -126,11 +146,14 @@
     }
 
     async function dashboard() {
-        shell('خط لوله مولوی‌سل', 'هر بخش را از نوار تب انتخاب کنید؛ محتوای همان بخش همین‌جا نمایش داده می‌شود.');
-        const board = node('div', null, 'card');
-        root.appendChild(board);
-        board.appendChild(node('h2', 'وضعیت پردازش'));
-        board.appendChild(node('p', 'در حال دریافت وضعیت کارهای صف…'));
+        shell('خط لوله مولوی‌سل', 'کارهای باز به‌ترتیب اولویت نمایش داده می‌شوند. از اولین مورد شروع کنید.');
+        const actionBoard = node('section', null, 'card molavi-next-action');
+        actionBoard.appendChild(node('h2', 'کار بعدی'));
+        actionBoard.appendChild(node('p', 'در حال بررسی صف‌های باز…'));
+        const board = document.createElement('details');
+        board.className = 'card molavi-technical-details';
+        board.appendChild(node('summary', 'جزئیات فنی صف و گزارش تطبیق'));
+        board.appendChild(node('p', 'برای بارگذاری وضعیت فنی صبر کنید…'));
         const sections = [
             ['molavi-ai-confirmations', 'استخراج کالا'],
             ['molavi-reference-snapshots', 'فهرست مرجع'],
@@ -158,7 +181,10 @@
             tab.setAttribute('aria-controls', id + '-panel');
             tab.setAttribute('aria-selected', 'false');
             tab.tabIndex = -1;
-            tab.textContent = title;
+            const tabLabel = node('span', title);
+            const badge = node('span', '', 'molavi-tab-count');
+            badge.hidden = true;
+            tab.append(tabLabel, badge);
 
             const panel = node('section', null, 'molavi-admin-tabpanel');
             panel.id = id + '-panel';
@@ -220,7 +246,7 @@
             });
             tabs.appendChild(tab);
             panels.appendChild(panel);
-            return { slug, id, tab, panel, frame, index };
+            return { slug, title, id, tab, badge, panel, frame, index };
         });
         function activate(index) {
             entries.forEach((entry, current) => {
@@ -236,13 +262,136 @@
             }
             window.history.replaceState(null, '', window.location.pathname + window.location.search + '#' + active.id);
         }
-        root.append(tabs, panels);
+        root.append(actionBoard, tabs, panels, board);
         const initialTab = window.location.hash.replace(/^#molavi-tab-/, '');
         const initialIndex = Math.max(0, entries.findIndex(entry => entry.slug === initialTab));
         activate(initialIndex);
+
+        const formatCount = value => new Intl.NumberFormat('fa-IR').format(value);
+        let actionPlanRequest = 0;
+        function renderActionPlan(ops, queueSummary) {
+            const counts = ops.by_state || {};
+            const operationsCount = key => {
+                const value = ops[key];
+                return value === null || value === undefined || value === '' || !Number.isFinite(Number(value))
+                    ? null : Math.max(0, Math.floor(Number(value)));
+            };
+            const queueCount = key => {
+                const item = queueSummary && queueSummary[key];
+                return !item || item.status !== 'ok' || !Number.isFinite(Number(item.count))
+                    ? null : Math.max(0, Math.floor(Number(item.count)));
+            };
+            const specifications = [
+                { key:'publication_holds', slug:'molavi-publication-holds', title:'بررسی توقف‌های انتشار',
+                    detail:'این دسته‌ها تا بررسی نتیجه، متوقف مانده‌اند.', count:operationsCount('publication_holds') },
+                { key:'sheet_conflicts', slug:'molavi-sheet-conflicts', title:'حل تعارض‌های شیت',
+                    detail:'برای هر مورد، مقدار درست را بر اساس منبع انتخاب کنید.', count:operationsCount('sheet_conflicts') },
+                { key:'reference_decisions', slug:'molavi-reference-decisions', title:'تصمیم درباره تازگی فهرست مرجع',
+                    detail:'تصمیم درباره نسخه قدیمی یا ناموفق، پردازش پیام‌ها را باز می‌کند.', count:queueCount('reference_decisions') },
+                { key:'reference_items', slug:'molavi-reference-items', title:'تطبیق پیشنهادها با کالاهای مرجع',
+                    detail:'برای هر پیشنهاد، کالای دقیق و مبنای قیمت را بررسی کنید.', count:queueCount('reference_items') },
+                { key:'ai_confirmations', slug:'molavi-ai-confirmations', title:'بررسی استخراج محصولات',
+                    detail:'قیمت و مشخصات را با متن اصلی تأمین‌کننده بسنجید.', count:queueCount('ai_confirmations') },
+                { key:'supplier_prices', slug:'molavi-supplier-prices', title:'بررسی تازگی قیمت تأمین‌کننده',
+                    detail:'فقط قیمت‌هایی را تأیید کنید که منبع فعلی‌شان را بررسی کرده‌اید.', count:queueCount('supplier_prices') }
+            ];
+            const tasks = specifications.filter(item => item.count === null || item.count > 0);
+            const failed = Number(counts.failed || 0);
+            if (Number.isFinite(failed) && failed > 0) {
+                tasks.push({ key:'failed_jobs', title:'بررسی خطاهای پردازش', count:Math.floor(failed),
+                    detail:'جزئیات فنی را باز کنید تا خطاهای صف را ببینید.' });
+            }
+            const tabCounts = {
+                'molavi-publication-holds': operationsCount('publication_holds'),
+                'molavi-sheet-conflicts': operationsCount('sheet_conflicts'),
+                'molavi-reference-decisions': queueCount('reference_decisions'),
+                'molavi-reference-items': queueCount('reference_items'),
+                'molavi-ai-confirmations': queueCount('ai_confirmations'),
+                'molavi-supplier-prices': queueCount('supplier_prices')
+            };
+            entries.forEach(entry => {
+                const count = tabCounts[entry.slug];
+                const unavailable = count === null || count === undefined;
+                const hasOpenItems = !unavailable && count > 0;
+                entry.badge.hidden = !unavailable && !hasOpenItems;
+                entry.badge.classList.toggle('is-unavailable', unavailable);
+                entry.badge.textContent = unavailable ? '!' : (hasOpenItems ? formatCount(count) : '');
+                entry.badge.setAttribute('aria-hidden', 'true');
+                entry.tab.setAttribute('aria-label', unavailable
+                    ? `${entry.title}، شمارش در دسترس نیست`
+                    : (hasOpenItems ? `${entry.title}، ${formatCount(count)} مورد باز` : entry.title));
+            });
+
+            actionBoard.replaceChildren(node('h2', 'کار بعدی'));
+            if (!tasks.length) {
+                const background = Number(counts.queued || 0) + Number(counts.running || 0)
+                    + Number(counts.waiting_reference || 0);
+                actionBoard.appendChild(node('p', background > 0
+                    ? `کار نیازمند بررسی نمایش‌داده‌شده‌ای باقی نمانده است. ${formatCount(background)} پیام در صف پردازش یا منتظر بررسی فهرست مرجع است.`
+                    : 'در حال حاضر کاری برای بررسی شما باقی نمانده است.'));
+                return;
+            }
+            const openTask = task => {
+                if (task.slug) {
+                    const entry = entries.find(item => item.slug === task.slug);
+                    if (entry) { activate(entry.index); entry.tab.focus(); }
+                    return;
+                }
+                board.open = true;
+                board.scrollIntoView({ behavior:'smooth', block:'start' });
+            };
+            const primary = tasks[0];
+            actionBoard.appendChild(node('h3', primary.count === null
+                ? `${primary.title} · شمارش در دسترس نیست`
+                : `${primary.title} · ${formatCount(primary.count)} مورد`));
+            actionBoard.appendChild(node('p', primary.detail));
+            const start = node('button', primary.count === null ? 'بررسی وضعیت' : 'شروع این بررسی', 'button button-primary');
+            start.type = 'button';
+            start.addEventListener('click', () => openTask(primary));
+            actionBoard.appendChild(start);
+            if (tasks.length > 1) {
+                actionBoard.appendChild(node('h3', 'بعد از آن'));
+                const list = node('ol', null, 'molavi-next-action-list');
+                tasks.slice(1).forEach(task => {
+                    const item = node('li', null, 'molavi-next-action-item');
+                    const description = node('span', task.count === null
+                        ? `${task.title} · شمارش در دسترس نیست`
+                        : `${task.title} · ${formatCount(task.count)} مورد`);
+                    item.appendChild(description);
+                    const button = node('button', task.slug ? 'باز کردن' : 'جزئیات فنی', 'button button-secondary');
+                    button.type = 'button';
+                    button.addEventListener('click', () => openTask(task));
+                    item.appendChild(button);
+                    list.appendChild(item);
+                });
+                actionBoard.appendChild(list);
+            }
+        }
+
+        async function refreshActionPlan() {
+            const version = ++actionPlanRequest;
+            try {
+                const [result, summary] = await Promise.all([
+                    request(), requestQueueSummary().catch(() => null)
+                ]);
+                const ops = result.operations || {};
+                if (version === actionPlanRequest) renderActionPlan(ops, summary);
+                return ops;
+            } catch (error) {
+                if (version === actionPlanRequest) throw error;
+                return {};
+            }
+        }
+        window.addEventListener('message', event => {
+            if (event.origin !== window.location.origin
+                    || !entries.some(entry => entry.frame.contentWindow === event.source)
+                    || !event.data || event.data.type !== 'molavi-owner-workflow-updated') return;
+            refreshActionPlan().catch(() => {
+                actionBoard.replaceChildren(node('h2', 'کار بعدی'), notice('وضعیت صف‌ها تازه نشد؛ صفحه را دوباره بارگذاری کنید.', 'warning'));
+            });
+        });
         try {
-            const result = await request();
-            const ops = result.operations || {};
+            const ops = await refreshActionPlan();
             const counts = ops.by_state || {};
             const stateLabels = {queued: 'در صف', running: 'در حال اجرا', waiting_reference: 'انتظار مرجع',
                 waiting_publication: 'انتظار رفع توقف انتشار', failed: 'خطا', needs_review: 'نیازمند بررسی'};
@@ -356,9 +505,10 @@
             });
             reconciliation.append(reconcile, report);
             content.appendChild(reconciliation);
-            board.replaceChildren(node('h2', 'وضعیت پردازش'), content);
+            board.replaceChildren(node('summary', 'جزئیات فنی صف و گزارش تطبیق'), content);
         } catch (error) {
-            board.replaceChildren(node('h2', 'وضعیت پردازش'), notice(errorText(error.message), 'error'));
+            board.replaceChildren(node('summary', 'جزئیات فنی صف و گزارش تطبیق'), notice(errorText(error.message), 'error'));
+            actionBoard.replaceChildren(node('h2', 'کار بعدی'), notice(errorText(error.message), 'error'));
         }
     }
 
