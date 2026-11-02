@@ -17,6 +17,7 @@ _ARABIC_DIGITS = str.maketrans('٠١٢٣٤٥٦٧٨٩', '0123456789')
 _UNIT_PRICE_LABEL = re.compile(
     r'(?:قیمت\s*(?:تکی|واحدی)|(?:دونه|دانه)\s*ای|'
     r'(?:هر\s*|قیمت\s*هر\s*)(?:عدد|دونه|دانه|واحد)|فی\s*(?:عدد|دونه|دانه)|'
+    r'هر\s*کیلو(?:گرم)?|کیلویی|کیلوئی|'
     r'\b(?:unit\s+price|price\s+per\s+(?:unit|item)|per[- ]?(?:unit|item))\b)', re.I)
 _PACKAGE_PRICE_LABEL = re.compile(
     r'(?:قیمت\s*(?:(?:هر\s*)?(?:یک\s*)?)?(?:باکس|کارتن|کارتون|بسته)(?:ی)?|'
@@ -169,8 +170,14 @@ def _explicit_piece_counts(value):
 
 def _source_title_evidence(name, content):
     """Recover a title only when one source line has the exact same base identity."""
-    identity = _title_identity(name)
-    if not identity:
+    identities = {_title_identity(name)}
+    # Treat only the first model line as a candidate product title. Later lines
+    # often contain packaging details, which also appear in the source and must
+    # not make the product title ambiguous.
+    first_line = next((part.strip() for part in str(name or '').splitlines() if part.strip()), '')
+    identities.add(_title_identity(first_line))
+    identities.discard('')
+    if not identities:
         return None, False
     matches = []
     for line in str(content or '').splitlines():
@@ -186,7 +193,7 @@ def _source_title_evidence(name, content):
             if prefix and re.search(r'\d', source_line[label_match.end():]):
                 candidates.append(prefix)
         for title in candidates:
-            if not title or _title_identity(title) != identity:
+            if not title or _title_identity(title) not in identities:
                 continue
             volume = extract_measurement(title, 'volume')
             weight = extract_measurement(title, 'weight')
@@ -325,15 +332,47 @@ def _product(item, content, channel, source_titles=()):
     source_context = _source_title_context(
         source_title, content, source_titles, ambiguous_source_title)
     if source_title:
+        submitted_name = name
         name, source_volume, source_weight = source_title
         explicit_volume = source_volume
         explicit_weight = source_weight
+        # Gemini sometimes puts a source-backed package line into the product
+        # name on a separate line. Keep those details when every line maps to
+        # exactly one source line; this also lets literal package measurements
+        # survive as structured attributes without trusting model-only text.
+        submitted_lines = [line.strip() for line in submitted_name.splitlines() if line.strip()]
+        source_lines = [line.strip() for line in str(content or '').splitlines() if line.strip()]
+        if len(submitted_lines) > 1:
+            display_lines = []
+            for submitted_line in submitted_lines:
+                matches = [line for line in source_lines
+                           if _title_identity(line) == _title_identity(submitted_line)]
+                if len(matches) != 1:
+                    display_lines = []
+                    break
+                display_lines.append(matches[0])
+            if display_lines and _title_identity(display_lines[0]) == _title_identity(name):
+                name = '\n'.join(display_lines)
+        for kind in ('volume', 'weight'):
+            if extract_measurement(name, kind):
+                if kind == 'volume':
+                    explicit_volume = extract_measurement(name, kind)
+                else:
+                    explicit_weight = extract_measurement(name, kind)
+                continue
+            contextual = {extract_measurement(line, kind) for line in source_context
+                          if extract_measurement(line, kind)}
+            if len(contextual) == 1:
+                if kind == 'volume':
+                    explicit_volume = next(iter(contextual))
+                else:
+                    explicit_weight = next(iter(contextual))
     elif ambiguous_source_title:
         measurement_review_reasons.append(
             'product title matches multiple source lines with the same base identity')
     for kind, explicit in (('volume', explicit_volume), ('weight', explicit_weight)):
         submitted = str(item.get(kind) or '').strip()
-        if submitted and measurement_signature(submitted, kind) != measurement_signature(name, kind):
+        if submitted and measurement_signature(submitted, kind) != measurement_signature(explicit, kind):
             # A unique matching source title is authoritative. The adapter returns its
             # deterministic measurement, so a conflicting model field is corrected
             # without sending a clear title back to owner review.

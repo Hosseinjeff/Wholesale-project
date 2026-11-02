@@ -112,10 +112,14 @@ def build_reconciliation_report(store, queue, *, site_url: str, limit: int = 200
         key = (_text(row.get('ID')), _text(row.get('Channel Username')), _text(row.get('Batch ID')))
         message_index.setdefault(key, []).append(row)
     product_by_id: dict[str, list[dict[str, Any]]] = {}
+    product_by_latest_offer: dict[str, list[dict[str, Any]]] = {}
     for row in products:
         product_id = _text(row.get('Product ID'))
         if product_id:
             product_by_id.setdefault(product_id, []).append(row)
+        latest_offer_id = _text(row.get('Latest Offer ID'))
+        if latest_offer_id:
+            product_by_latest_offer.setdefault(latest_offer_id, []).append(row)
 
     expected_by_source = {}
     for row in products:
@@ -150,12 +154,27 @@ def build_reconciliation_report(store, queue, *, site_url: str, limit: int = 200
         }
         matched_offers = _matching_offers(joined, offers)
         offer_ids = {_text(row.get('Offer ID')) for row in matched_offers if _text(row.get('Offer ID'))}
-        product_ids = {_text(row.get('Product ID')) for row in matched_offers if _text(row.get('Product ID'))}
-        current_products = [row for product_id in product_ids for row in product_by_id.get(product_id, [])]
+        legacy_product_ids = {_text(row.get('Product ID')) for row in matched_offers
+                              if _text(row.get('Product ID'))}
+        current_products_by_id = {}
+        for product_id in legacy_product_ids:
+            for product in product_by_id.get(product_id, []):
+                latest_offer_id = _text(product.get('Latest Offer ID'))
+                if not latest_offer_id or latest_offer_id in offer_ids:
+                    current_products_by_id[_text(product.get('Product ID'))] = product
+        # The operational Offers schema is append-only and has no Product ID
+        # column. Products points back to its current offer through Latest Offer ID.
+        # Join on that authoritative link so receipts still show their current
+        # product state, including owner-confirmed derived offers.
+        for offer_id in offer_ids:
+            for product in product_by_latest_offer.get(offer_id, []):
+                current_products_by_id[_text(product.get('Product ID'))] = product
+        current_products = list(current_products_by_id.values())
+        product_ids = {_text(row.get('Product ID')) for row in current_products
+                        if _text(row.get('Product ID'))}
         owner_decisions = [row for row in matched_offers if _text(row.get('Owner Decision ID'))]
-        current_offer_ids = {_text(row.get('Latest Offer ID')) for row in current_products}
-        current_products = [row for row in current_products
-                            if not current_offer_ids or _text(row.get('Latest Offer ID')) in offer_ids]
+        current_offer_ids = {_text(row.get('Latest Offer ID')) for row in current_products
+                             if _text(row.get('Latest Offer ID'))}
         offers_by_id = {_text(row.get('Offer ID')): row for row in matched_offers if _text(row.get('Offer ID'))}
         product_details = []
         for product in current_products:

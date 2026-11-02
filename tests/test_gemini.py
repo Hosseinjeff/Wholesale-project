@@ -294,6 +294,35 @@ class GeminiExtractionTests(unittest.TestCase):
         self.assertEqual(product['weight'], '')
         self.assertFalse(product['needs_review'])
 
+    def test_per_kilo_labels_and_source_backed_multiline_names_are_preserved(self):
+        examples = (
+            ('برنج ایرانی', 'کیسه های ۱۰ کیلوگرمی', 'کیلویی', 450000, '10 کیلوگرم'),
+            ('لواشک پذیرایی به بین', 'بسته های یک کیلویی', 'هر کیلو', 250000, '1 کیلوگرم'),
+        )
+        for title, package_line, label, price, weight in examples:
+            with self.subTest(title=title, label=label):
+                content = f'{title}\n{package_line}\nقیمت فروش ما: {label} {price:,} تومان'
+                product = parse_message_products(json.dumps([{
+                    'name': f'{title}\n\n{package_line}', 'unit_price': price,
+                    'currency': 'IRT', 'confidence': 0.99,
+                }], ensure_ascii=False), content, '@supplier')[0]
+                self.assertEqual(product['name'], f'{title}\n{package_line}')
+                self.assertEqual(product['weight'], weight)
+                self.assertEqual(product['sale_price'], price)
+                self.assertEqual(product['price_type'], 'unit')
+                self.assertFalse(product['needs_review'])
+
+    def test_unlabeled_amount_does_not_gain_per_kilo_basis_from_pack_size(self):
+        title = 'برنج ایرانی'
+        content = f'{title}\nکیسه های ۱۰ کیلوگرمی\n۴۵۰٬۰۰۰ تومان'
+        product = parse_message_products(json.dumps([{
+            'name': f'{title}\nکیسه های ۱۰ کیلوگرمی', 'unit_price': 450000,
+            'currency': 'IRT', 'confidence': 0.99,
+        }], ensure_ascii=False), content, '@supplier')[0]
+        self.assertEqual(product['price_type'], 'needs_review')
+        self.assertEqual(product['sale_price'], 0)
+        self.assertTrue(product['needs_review'])
+
     def test_explicit_source_measurement_corrects_model_value_without_review(self):
         title = 'آبلیمو مجید کوچک180گ(138ف)20ع***'
         product = parse_message_products(json.dumps([{
