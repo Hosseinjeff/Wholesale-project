@@ -199,7 +199,18 @@ add_filter('pre_http_request', static function ($pre, $args, $url) use (&$http_m
         return ['headers'=>[], 'body'=>wp_json_encode($body), 'response'=>['code'=>200,'message'=>'OK'], 'cookies'=>[]];
     }
     if (str_ends_with($url, '/reference/decisions')) {
-        return ['headers'=>[], 'body'=>wp_json_encode(['ok'=>true,'events'=>[$event]]),
+        if ($args['method'] === 'POST') {
+            $payload=json_decode($args['body'] ?? '{}',true);
+            $body=$http_mode === 'accepted'
+                ? ['ok'=>true,'event_id'=>$payload['event_id'],'choice'=>$payload['choice'],
+                    'snapshot_id'=>$payload['snapshot_id']]
+                : ['ok'=>true];
+        } else {
+            $body = $http_mode === 'missing'
+                ? ['ok'=>true,'events'=>[array_merge($event,['snapshot_id'=>null])]]
+                : ['ok'=>true,'events'=>[$event]];
+        }
+        return ['headers'=>[], 'body'=>wp_json_encode($body),
             'response'=>['code'=>200,'message'=>'OK'], 'cookies'=>[]];
     }
     if (str_ends_with($url, '/pipeline/publication-holds')) {
@@ -267,9 +278,35 @@ ref_assert(strpos($ai_html,'id="molavi-owner-workflow"')!==false,
     'AI extraction review mounts the owner-scoped browser workflow UI');
 ref_assert(strpos($ai_html,MOLAVI_REFERENCE_BRIDGE_TOKEN)===false,
     'AI review page does not expose the static bridge token');
- $workflow_js=file_get_contents(__DIR__ . '/../shop-wp/molavi-shop/includes/owner-workflows.js');
+$ai_review_context=['case_id'=>$ai_case['case_id'],'offer_id'=>$ai_case['offer_id'],
+    'original_message'=>$ai_case['original_message'],'product_name'=>$ai_case['product_name']];
+$ai_review_event=['event_id'=>'context:ai_confirmation:'.$ai_case['case_id'],
+    'review_type'=>'ai_confirmation','review_id'=>$ai_case['case_id'],'state'=>'observed',
+    'context'=>$ai_review_context];
+ref_assert(molavi_owner_review_store_write($ai_review_event),
+    'AI extraction context is stored in the WordPress review database');
+$ai_review_event['event_id']='decision:ai_confirmation:runtime-attempt';
+$ai_review_event['state']='pending';
+$ai_review_event['decision']=['choice'=>'confirm','offer_id'=>$ai_case['offer_id']];
+ref_assert(molavi_owner_review_store_write($ai_review_event),
+    'AI decision attempt is stored before an owner action is complete');
+$ai_review_event['state']='accepted';
+$ai_review_event['receipt']=['decision_id'=>str_repeat('f',64),'publish_job'=>'publish:runtime'];
+ref_assert(molavi_owner_review_store_write($ai_review_event),
+    'AI decision record can be updated with the accepted service receipt');
+global $wpdb;
+$ai_review_row=$wpdb->get_row($wpdb->prepare('SELECT * FROM '.molavi_owner_review_store_table().' WHERE event_id=%s',
+    'decision:ai_confirmation:runtime-attempt'),ARRAY_A);
+ref_assert($ai_review_row && $ai_review_row['state']==='accepted'
+    && json_decode($ai_review_row['receipt_json'],true)['publish_job']==='publish:runtime',
+    'WordPress retains the AI decision receipt alongside its source context');
+$workflow_js=file_get_contents('/plugin/includes/owner-workflows.js');
 ref_assert(strpos($workflow_js,'original_message')!==false && strpos($workflow_js,'expected_decision_id')!==false,
     'browser review UI displays source messages and submits optimistic decision revisions');
+ref_assert(strpos($workflow_js,'context:ai_confirmation:')!==false
+    && strpos($workflow_js,"'pending', context, decision")!==false
+    && strpos($workflow_js,"'accepted', context, decision, receipt")!==false,
+    'AI review saves context and pending/accepted receipts in WordPress during browser decisions');
 $ai_payload=['case_id'=>$ai_case['case_id'],'offer_id'=>$ai_case['offer_id'],
     'signature'=>$ai_case['signature'],'choice'=>'confirm','fields'=>[
         'price_role'=>'package','sale_price'=>120000,'actual_price'=>150000,
@@ -482,7 +519,10 @@ ref_prepare_owner_workflow_page('molavi-publication-holds');
 ob_start();molavi_publication_holds_screen();$holds_html=ob_get_clean();
 ref_assert(strpos($holds_html,'id="molavi-owner-workflow"')!==false, 'publication recovery mounts the scoped owner UI');
 ref_assert(strpos($holds_html,MOLAVI_REFERENCE_BRIDGE_TOKEN)===false, 'publication page never exposes the bridge secret');
-ref_assert(strpos($workflow_js,'resume_batch: true')!==false && strpos($workflow_js,'window.confirm')!==false, 'publication replay requires owner note and explicit confirmation');
+ref_assert(strpos($workflow_js,"action:'resume_selected'")!==false
+    && strpos($workflow_js,'selected.length > 100')!==false
+    && strpos($workflow_js,'retry_once')!==false,
+    'publication retry is limited to batches explicitly selected by the owner');
 ref_assert(strpos($workflow_js,'reconcileWithoutRetry')!==false
     && strpos($workflow_js,'resume_batch:false')!==false
     && strpos($workflow_js,'تطبیق و بستن توقف، بدون بازپردازش')!==false,
@@ -599,7 +639,7 @@ ref_assert(strpos($workflow_js,'molavi-next-action-list')!==false
     && strpos($workflow_js,'requestQueueSummary')!==false
     && strpos($workflow_js,'molavi-owner-workflow-updated')!==false,
     'pipeline hub shows the next owner action and refreshes counts after a decision');
-$workflow_api_php=file_get_contents(__DIR__ . '/../shop-wp/molavi-shop/includes/owner-browser-api.php');
+$workflow_api_php=file_get_contents('/plugin/includes/owner-browser-api.php');
 ref_assert(strpos($workflow_api_php,'queueSummaryUrl')!==false
     && strpos($workflow_api_php,'wp_create_nonce(\'molavi_operations_queue_summary\')')!==false,
     'dashboard summary uses a same-origin nonce instead of exposing extra API capabilities');

@@ -78,7 +78,11 @@
         const response = await fetch(url, options);
         const body = await response.json().catch(() => null);
         if (!response.ok || !body || body.ok !== true) {
-            throw new Error(body && typeof body.error === 'string' ? body.error : 'request_failed');
+            const error = new Error(body && typeof body.error === 'string' ? body.error : 'request_failed');
+            error.requestStatus = response.status;
+            error.remoteRejected = response.status >= 400 && response.status < 500
+                && Boolean(body && body.ok === false);
+            throw error;
         }
         if (method === 'POST' && window.parent !== window) {
             window.parent.postMessage({ type: 'molavi-owner-workflow-updated' }, window.location.origin);
@@ -115,6 +119,30 @@
     }
 
     function storedReviewContext(type, context) {
+        if (type === 'ai_confirmation' && context && typeof context === 'object') {
+            const source = String(context.original_message || '');
+            const characters = Array.from(source);
+            return {
+                case_id:String(context.case_id || '').slice(0, 120),
+                offer_id:String(context.offer_id || '').slice(0, 300),
+                message_id:String(context.message_id || '').slice(0, 100),
+                channel:String(context.channel || '').slice(0, 100),
+                message_timestamp:String(context.message_timestamp || '').slice(0, 60),
+                source_post_url:String(context.source_post_url || '').slice(0, 500),
+                product_name:String(context.product_name || '').slice(0, 1000),
+                reason:String(context.reason || '').slice(0, 2000),
+                sale_price:context.sale_price || '', detected_price:context.detected_price || '',
+                actual_price:context.actual_price || '', package_price:context.package_price || '',
+                package_count:context.package_count || '', min_qty:context.min_qty || '',
+                price_type:String(context.price_type || '').slice(0, 40),
+                packaging:String(context.packaging || '').slice(0, 300),
+                stock_status:String(context.stock_status || '').slice(0, 40),
+                reference_match_state:String(context.reference_match_state || '').slice(0, 120),
+                reference_match_id:String(context.reference_match_id || '').slice(0, 300),
+                original_message:characters.slice(0, 1000).join(''),
+                original_message_truncated:Boolean(source.length > 1000)
+            };
+        }
         if (type !== 'publication_hold' || !context || !Array.isArray(context.messages)) return context || {};
         return {...context, messages:context.messages.map(source => {
             const content = String(source.content || '');
@@ -581,12 +609,13 @@
         return value === '' ? '' : Number.parseInt(value, 10);
     }
 
-    function aiCaseCard(item, onSelect = null) {
+    function aiCaseCard(item, onSelect = null, contextStored = true, decisionsEnabled = true) {
         const card = node('section', null, 'card');
         if (typeof onSelect === 'function') {
             const selection = node('label', null, 'molavi-ai-case-select');
             const checkbox = document.createElement('input');
             checkbox.type = 'checkbox';
+            checkbox.disabled = !contextStored;
             checkbox.addEventListener('change', () => onSelect(item, checkbox.checked, checkbox));
             selection.append(checkbox, document.createTextNode(' انتخاب برای رد گروهی'));
             card.appendChild(selection);
@@ -661,6 +690,8 @@
         confirm.type = 'submit'; confirm.value = 'confirm';
         const notProduct = node('button', 'این مورد کالا نیست', 'button');
         notProduct.type = 'submit'; notProduct.value = 'not_product'; notProduct.formNoValidate = true;
+        confirm.disabled = !contextStored || !decisionsEnabled;
+        notProduct.disabled = !contextStored || !decisionsEnabled;
         form.append(confirm, notProduct);
         form.addEventListener('submit', async event => {
             event.preventDefault();
@@ -685,17 +716,57 @@
                     stock_status: form.elements.stock_status.value
                 } : {}
             };
+            const eventId = reviewEventId('ai_confirmation', item.offer_id);
+            const context = storedReviewContext('ai_confirmation', item);
+            const decision = {
+                choice, offer_id:item.offer_id, signature:item.signature,
+                expected_decision_id:payload.expected_decision_id, note:payload.note,
+                source_current_verified:payload.source_current_verified, fields:payload.fields
+            };
             confirm.disabled = true; notProduct.disabled = true;
             try {
-                const receipt = await request('POST', payload);
+                await persistOwnerReviews([reviewRecord(eventId, 'ai_confirmation', item.case_id,
+                    'pending', context, decision)]);
+            } catch (_error) {
+                errorBox('جزئیات تصمیم در پایگاه داده وردپرس ذخیره نشد؛ هیچ درخواستی برای تغییر کالا ارسال نشد.', card);
+                confirm.disabled = !decisionsEnabled;
+                notProduct.disabled = !decisionsEnabled;
+                return;
+            }
+            let receipt;
+            try {
+                receipt = await request('POST', payload);
                 if (receipt.case_id !== payload.case_id || receipt.offer_id !== payload.offer_id
                     || receipt.signature !== payload.signature || receipt.choice !== choice
                     || !/^[a-f0-9]{64}$/.test(receipt.decision_id || '')
-                    || !['imported', 'needs_review', 'not_product'].includes(receipt.projection_state)) {
+                    || !['imported', 'needs_review', 'not_product'].includes(receipt.projection_state)
+                    || typeof receipt.publish_job !== 'string' || !receipt.publish_job) {
                     throw new Error('invalid_receipt');
                 }
-                await aiConfirmations('تصمیم ثبت شد و برای انتشار به صف رفت.', 'success');
-            } catch (error) { errorBox(errorText(error.message), card); confirm.disabled = false; notProduct.disabled = false; }
+            } catch (error) {
+                const state = error.remoteRejected ? 'failed' : 'pending';
+                const localReceipt = {error:String(error.message || 'request_failed'),
+                    request_status:error.requestStatus || null};
+                try {
+                    await persistOwnerReviews([reviewRecord(eventId, 'ai_confirmation', item.case_id,
+                        state, context, decision, localReceipt)]);
+                } catch (_ignored) {}
+                errorBox(error.remoteRejected
+                    ? errorText(error.message)
+                    : `${errorText(error.message)} پاسخ نهایی سرویس تأیید نشد؛ وضعیت محلی در انتظار بررسی باقی ماند.`, card);
+                confirm.disabled = !decisionsEnabled;
+                notProduct.disabled = !decisionsEnabled;
+                return;
+            }
+            let localWarning = '';
+            try {
+                await persistOwnerReviews([reviewRecord(eventId, 'ai_confirmation', item.case_id,
+                    'accepted', context, decision, receipt)]);
+            } catch (_error) {
+                localWarning = ' تصمیم در سرویس ثبت شد، اما رسید محلی وردپرس ذخیره نشد؛ مورد را دوباره بارگیری کنید تا وضعیت ثبت‌شده دیده شود.';
+            }
+            await aiConfirmations(`تصمیم ثبت شد و برای انتشار به صف رفت.${localWarning}`,
+                localWarning ? 'warning' : 'success');
         });
         card.appendChild(form);
         return card;
@@ -832,6 +903,21 @@
             if (data.publication_held) root.appendChild(notice('توقف ایمنی انتشار فعال است؛ ابتدا آن را در بخش انتشار و بازیابی بررسی کنید.', 'warning'));
             const openCases = (data.cases || []).filter(item => item && item.case_id);
             const recentCases = (data.recent_decisions || []).filter(item => item && item.case_id);
+            const allCases = [...new Map([...openCases, ...recentCases]
+                .map(item => [item.case_id, item])).values()];
+            let contextStored = true;
+            if (allCases.length) {
+                try {
+                    await persistOwnerReviews(allCases.map(item => reviewRecord(
+                        `context:ai_confirmation:${item.case_id}`, 'ai_confirmation', item.case_id,
+                        'observed', storedReviewContext('ai_confirmation', item)
+                    )));
+                } catch (_error) {
+                    contextStored = false;
+                    root.appendChild(notice('موارد برای بررسی نمایش داده می‌شوند، اما ذخیرهٔ زمینهٔ آن‌ها در پایگاه داده وردپرس تأیید نشد؛ تا رفع خطا، تصمیم تازه‌ای ارسال نمی‌شود.', 'error'));
+                }
+            }
+            const decisionsEnabled = contextStored && !Boolean(data.publication_held);
             const selected = new Map();
             const caseCheckboxes = new Map();
             if (openCases.length) {
@@ -839,6 +925,7 @@
                 const selectAllLabel = node('label', null, 'molavi-bulk-select-all');
                 const selectAll = document.createElement('input');
                 selectAll.type = 'checkbox';
+                selectAll.disabled = !contextStored;
                 selectAllLabel.append(selectAll, document.createTextNode(' انتخاب همه موارد باز'));
                 const count = node('span', 'انتخاب‌شده: ۰');
                 const dismiss = node('button', 'ردّ انتخاب‌شده‌ها به‌عنوان «کالا نیست»', 'button');
@@ -850,7 +937,7 @@
                 const updateSelection = () => {
                     const selectedCount = selected.size;
                     count.textContent = `انتخاب‌شده: ${new Intl.NumberFormat('fa-IR').format(selectedCount)}`;
-                    dismiss.disabled = !selectedCount || Boolean(data.publication_held);
+                    dismiss.disabled = !selectedCount || !decisionsEnabled;
                     selectAll.checked = selectedCount === openCases.length;
                     selectAll.indeterminate = selectedCount > 0 && selectedCount < openCases.length;
                     preview.replaceChildren();
@@ -882,18 +969,69 @@
                 });
                 dismiss.addEventListener('click', async () => {
                     const items = [...selected.values()];
-                    if (!items.length || !window.confirm(`پیش‌نمایش تأیید نهایی\n\n${items.length} پیشنهاد به‌عنوان «کالا نیست» ثبت می‌شود. هیچ مبلغی تأیید یا ویرایش نمی‌شود و پیام اصلی حذف نخواهد شد. فهرست کالا بازسازی و انتشار در صف قرار می‌گیرد. تصمیم هر مورد در تاریخچه می‌ماند و قابل بازبینی است. ادامه می‌دهید؟`)) return;
+                    if (!items.length || !decisionsEnabled || !window.confirm(`پیش‌نمایش تأیید نهایی\n\n${items.length} پیشنهاد به‌عنوان «کالا نیست» ثبت می‌شود. هیچ مبلغی تأیید یا ویرایش نمی‌شود و پیام اصلی حذف نخواهد شد. فهرست کالا بازسازی و انتشار در صف قرار می‌گیرد. تصمیم هر مورد در تاریخچه می‌ماند و قابل بازبینی است. ادامه می‌دهید؟`)) return;
                     dismiss.disabled = true;
+                    const eventIds = new Map(items.map(item => [item.case_id,
+                        reviewEventId('ai_confirmation', item.offer_id)]));
+                    const pendingRecords = items.map(item => reviewRecord(eventIds.get(item.case_id),
+                        'ai_confirmation', item.case_id, 'pending',
+                        storedReviewContext('ai_confirmation', item),
+                        {choice:'not_product', offer_id:item.offer_id, signature:item.signature,
+                            expected_decision_id:item.previous_decision_id || null, note:''}));
+                    try {
+                        await persistOwnerReviews(pendingRecords);
+                    } catch (_error) {
+                        root.appendChild(notice('جزئیات تصمیم‌ها در وردپرس ذخیره نشد؛ درخواست رد گروهی ارسال نشد.', 'error'));
+                        updateSelection();
+                        return;
+                    }
                     try {
                         const receipt = await request('POST', {action:'dismiss_cases',note:'',cases:items.map(item => ({
                             case_id:item.case_id, offer_id:item.offer_id, signature:item.signature,
                             expected_decision_id:item.previous_decision_id || null
                         }))});
-                        if (receipt.requested !== items.length || !Array.isArray(receipt.failed)) throw new Error('invalid_receipt');
+                        if (receipt.requested !== items.length || !Array.isArray(receipt.failed)
+                            || !Array.isArray(receipt.dismissed) || receipt.dismissed_count !== receipt.dismissed.length) {
+                            throw new Error('invalid_receipt');
+                        }
                         const failedCount = receipt.failed.length;
-                        const summary = `${receipt.dismissed_count || 0} مورد رد شد${failedCount ? `؛ ${failedCount} مورد ناموفق ماند` : ''}.`;
-                        await aiConfirmations(summary, failedCount ? 'warning' : 'success');
+                        const dismissedById = new Map((receipt.dismissed || []).map(item => [item.case_id, item]));
+                        const failedById = new Map(receipt.failed.map(item => [item.case_id, item]));
+                        const completedIds = new Set([...dismissedById.keys(), ...failedById.keys()]);
+                        if (dismissedById.size !== receipt.dismissed.length
+                            || failedById.size !== receipt.failed.length
+                            || [...dismissedById.keys()].some(id => failedById.has(id))
+                            || completedIds.size !== items.length
+                            || items.some(item => !completedIds.has(item.case_id))
+                            || receipt.dismissed.some(item => !/^[a-f0-9]{64}$/.test(item.decision_id || '')
+                                || typeof item.publish_job !== 'string' || !item.publish_job)) {
+                            throw new Error('invalid_receipt');
+                        }
+                        let localWarning = '';
+                        try {
+                            await persistOwnerReviews(items.map(item => {
+                                const dismissedItem = dismissedById.get(item.case_id);
+                                const failedItem = failedById.get(item.case_id);
+                                return reviewRecord(eventIds.get(item.case_id), 'ai_confirmation',
+                                    item.case_id, dismissedItem ? 'accepted' : 'failed',
+                                    storedReviewContext('ai_confirmation', item),
+                                    {choice:'not_product', offer_id:item.offer_id, signature:item.signature,
+                                        expected_decision_id:item.previous_decision_id || null, note:''},
+                                    dismissedItem || {error:(failedItem && failedItem.error) || 'dismiss_failed'});
+                            }));
+                        } catch (_error) { localWarning = ' رسید تصمیم‌ها در وردپرس به‌روزرسانی نشد و در وضعیت محلی در انتظار همگام‌سازی است.'; }
+                        const summary = `${receipt.dismissed_count || 0} مورد رد شد${failedCount ? `؛ ${failedCount} مورد ناموفق ماند` : ''}.${localWarning}`;
+                        await aiConfirmations(summary, failedCount || localWarning ? 'warning' : 'success');
                     } catch (error) {
+                        const state = error.remoteRejected ? 'failed' : 'pending';
+                        try {
+                            await persistOwnerReviews(items.map(item => reviewRecord(eventIds.get(item.case_id),
+                                'ai_confirmation', item.case_id, state,
+                                storedReviewContext('ai_confirmation', item),
+                                {choice:'not_product', offer_id:item.offer_id, signature:item.signature,
+                                    expected_decision_id:item.previous_decision_id || null, note:''},
+                                {error:String(error.message || 'request_failed'), request_status:error.requestStatus || null})));
+                        } catch (_ignored) {}
                         root.appendChild(notice(errorText(error.message), 'error'));
                         updateSelection();
                     }
@@ -903,11 +1041,11 @@
                     if (checked) selected.set(row.case_id, row);
                     else selected.delete(row.case_id);
                     updateSelection();
-                })));
+                }, contextStored, decisionsEnabled)));
             }
             const seenCaseIds = new Set(openCases.map(item => item.case_id));
             recentCases.filter(item => !seenCaseIds.has(item.case_id))
-                .forEach(item => root.appendChild(aiCaseCard(item)));
+                .forEach(item => root.appendChild(aiCaseCard(item, null, contextStored, decisionsEnabled)));
             if (!openCases.length && !recentCases.length) root.appendChild(node('p', 'موردی برای بررسی وجود ندارد.'));
         } catch (error) { root.appendChild(notice(errorText(error.message), 'error')); }
     }
