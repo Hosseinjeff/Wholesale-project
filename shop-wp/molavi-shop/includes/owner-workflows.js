@@ -1228,13 +1228,14 @@
                     : (Number.isFinite(Number(rawTime)) ? Number(rawTime) * 1000 : new Date(rawTime).getTime());
                 const timeLabel = Number.isFinite(parsedTime) ? new Date(parsedTime).toLocaleString() : 'نامشخص';
                 card.appendChild(node('p', `شناسه دسته: ${hold.hold_id || ''} · زمان ثبت: ${timeLabel}`));
+                const context = hold.context && typeof hold.context === 'object' ? hold.context : {};
+                const messages = Array.isArray(context.messages) ? context.messages : [];
                 const checkbox = document.createElement('input');
-                checkbox.type = 'checkbox'; checkbox.checked = holdIndex < 100;
+                checkbox.type = 'checkbox'; checkbox.checked = holdIndex < 100 && messages.length > 0;
                 checkbox.addEventListener('change', () => { checks.set(hold.hold_id, checkbox.checked); updateSelection(); });
                 checks.set(hold.hold_id, checkbox.checked);
                 const selectLabel = node('label', 'این دسته را برای یک بار پردازش دوباره انتخاب کن', 'molavi-hold-select');
                 selectLabel.prepend(checkbox); card.appendChild(selectLabel);
-                const context = hold.context && typeof hold.context === 'object' ? hold.context : {};
                 const processingErrors = {
                     ai_extraction_failed: 'استخراج هوش مصنوعی برای یکی از پیام‌ها ناموفق شد.',
                     ingestion_incomplete: 'همه پیام‌های دسته در جدول دریافت ثبت نشدند.'
@@ -1247,9 +1248,8 @@
                     card.appendChild(notice(processingErrors[code] || `دلیل فنی: ${code}`, 'warning'));
                 }
                 if (context.rollback) card.appendChild(node('p', 'تغییرهای کاتالوگ این دسته بازگردانده شدند؛ انتشار این دسته انجام نشده است.'));
-                const messages = Array.isArray(context.messages) ? context.messages : [];
                 card.appendChild(node('h3', `پیام‌های مبدأ این دسته (${messages.length})`));
-                if (!messages.length) card.appendChild(notice('اطلاعات پیام‌های این دسته در صف موجود نیست؛ شناسه را برای جست‌وجو در گزارش تطبیق باز کنید.', 'warning'));
+                if (!messages.length) card.appendChild(notice('جزئیات پیام مبدأ از سرویس پردازش دریافت نشد؛ برای جلوگیری از پردازش دوبارهٔ دستهٔ نامشخص، این مورد تا نمایش جزئیات غیرفعال است.', 'warning'));
                 for (const source of messages) {
                     const item = node('div', null, 'molavi-review-source');
                     item.appendChild(node('strong', `${source.channel || 'کانال نامشخص'} · پیام ${source.message_id || 'بدون شناسه'}`));
@@ -1374,7 +1374,7 @@
                     try {
                         await persistOwnerReviews([reviewRecord(eventId, 'sheet_conflict', conflict.conflict_id,
                             'pending', {}, decision)]);
-                        const receipt = await request('POST', {conflict_id: conflict.conflict_id, choice, note:''});
+                        const receipt = await request('POST', {conflict_id: conflict.conflict_id, choice, note:decision.note});
                         if (receipt.conflict_id !== conflict.conflict_id || receipt.choice !== choice
                             || !receipt.publish_job) throw new Error('invalid_receipt');
                         let localWarning = '';
