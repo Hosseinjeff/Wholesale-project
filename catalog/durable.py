@@ -352,7 +352,7 @@ class Handoffs:
         return self._decode_sheet_conflict(dict(row)) if row else None
 
     def resolve_sheet_conflict(self, conflict_id, *, choice, actor_id, note):
-        if choice not in ('server','sheet') or not isinstance(actor_id,str) or not actor_id.strip():
+        if choice not in ('server','sheet','preserve') or not isinstance(actor_id,str) or not actor_id.strip():
             raise ValueError('valid conflict choice and actor required')
         if not isinstance(note,str) or not note.strip() or len(note)>1000:
             raise ValueError('conflict resolution note required')

@@ -231,6 +231,162 @@ class SheetSyncIntegrationTests(unittest.TestCase):
         self.assertEqual(cell(self.store, 'Consumer Price'), 69000)
         self.assertEqual(self.queue.get_sheet_conflict(conflict['conflict_id'])['state'], 'open')
 
+    def test_server_owned_provenance_conflict_syncs_to_sheet_without_publication(self):
+        import app as server
+        from catalog.sync import SHEET_PROVENANCE_FIELDS
+
+        field = 'Latest Offer ID'
+        self.assertIn(field, SHEET_PROVENANCE_FIELDS)
+        product_rows = self.store.read('Products')
+        product_headers = product_rows[0]
+        product = product_rows[1]
+        product_id = product[product_headers.index('Product ID')]
+        product_name = product[product_headers.index('Product Name')]
+        channel = product[product_headers.index('Channel Username')]
+        server_value = product[product_headers.index(field)]
+        offer_rows = self.store.read('Offers')
+        source_revision = offer_rows[-1][offer_rows[0].index('Offer ID')]
+        self.assertEqual(server_value, source_revision)
+
+        sheet_value = 'legacy-sheet-offer'
+        edit_cell(self.store, field, sheet_value)
+        conflict_id = 'sheet:server-owned-provenance'
+        self.queue.record_sheet_conflict({
+            'conflict_id': conflict_id, 'product_id': product_id, 'product_name': product_name,
+            'channel': channel, 'field': field, 'source_revision': source_revision,
+            'base': 'older-offer', 'server': server_value, 'sheet': sheet_value,
+        })
+
+        env = {'PIPELINE_DB_PATH': self.db_path, 'REFERENCE_OWNER_IDS': 'wp:7',
+               'REFERENCE_BRIDGE_TOKEN': TOKEN}
+        headers = {'X-Molavi-Reference-Token': TOKEN, 'X-Molavi-Actor': 'wp:7'}
+        with patch.dict(os.environ, env), patch.object(server, 'USE_SHEETS', True), \
+                patch.object(server, 'build_store', return_value=self.store), \
+                patch.object(server, 'handoff_queue', return_value=self.queue):
+            client = server.app.test_client()
+            listed = client.get('/pipeline/sheet-conflicts', headers=headers)
+            self.assertEqual(listed.status_code, 200, listed.get_json())
+            visible = next(item for item in listed.get_json()['conflicts']
+                           if item['conflict_id'] == conflict_id)
+            self.assertTrue(visible['server_owned'])
+
+            rejected = client.post('/pipeline/sheet-conflicts', headers=headers, json={
+                'conflict_id': conflict_id, 'choice': 'sheet', 'note': 'not allowed for metadata',
+            })
+            self.assertEqual(rejected.status_code, 409)
+            self.assertEqual(rejected.get_json()['error'], 'field_read_only')
+            self.assertEqual(cell(self.store, field), sheet_value)
+
+            accepted = client.post('/pipeline/sheet-conflicts', headers=headers, json={
+                'conflict_id': conflict_id, 'choice': 'server', 'note': '',
+            })
+            self.assertEqual(accepted.status_code, 200, accepted.get_json())
+            self.assertTrue(accepted.get_json()['server_owned'])
+            self.assertIsNone(accepted.get_json()['publish_job'])
+            self.assertEqual(cell(self.store, field), server_value)
+            self.assertEqual(self.queue.get_sheet_conflict(conflict_id)['state'], 'resolved')
+
+            repeated = client.post('/pipeline/sheet-conflicts', headers=headers, json={
+                'conflict_id': conflict_id, 'choice': 'server', 'note': '',
+            })
+        self.assertEqual(repeated.status_code, 200, repeated.get_json())
+        self.assertTrue(repeated.get_json()['idempotent'])
+        self.assertIsNone(repeated.get_json()['publish_job'])
+        self.assertEqual(cell(self.store, field), server_value)
+
+    def test_last_updated_server_value_uses_the_latest_offer_import_timestamp(self):
+        import app as server
+        from catalog.sync import SHEET_SERVER_OWNED_FIELDS
+
+        field = 'Last Updated'
+        self.assertIn(field, SHEET_SERVER_OWNED_FIELDS)
+        rows = self.store.read('Products')
+        headers = rows[0]
+        product = rows[1]
+        product_id = product[headers.index('Product ID')]
+        product_name = product[headers.index('Product Name')]
+        channel = product[headers.index('Channel Username')]
+        sheet_value = '2026-10-17T23:13:00.000Z'
+        edit_cell(self.store, field, sheet_value)
+        offer_rows = self.store.read('Offers')
+        offer_headers = offer_rows[0]
+        source_revision = offer_rows[-1][offer_headers.index('Offer ID')]
+        server_value = offer_rows[-1][offer_headers.index('Import Timestamp')]
+        conflict_id = 'sheet:last-updated-provenance'
+        self.queue.record_sheet_conflict({
+            'conflict_id': conflict_id, 'product_id': product_id, 'product_name': product_name,
+            'channel': channel, 'field': field, 'source_revision': source_revision,
+            'base': '2026-10-18T00:00:00.000Z', 'server': server_value, 'sheet': sheet_value,
+        })
+
+        env = {'PIPELINE_DB_PATH': self.db_path, 'REFERENCE_OWNER_IDS': 'wp:7',
+               'REFERENCE_BRIDGE_TOKEN': TOKEN}
+        headers = {'X-Molavi-Reference-Token': TOKEN, 'X-Molavi-Actor': 'wp:7'}
+        with patch.dict(os.environ, env), patch.object(server, 'USE_SHEETS', True), \
+                patch.object(server, 'build_store', return_value=self.store), \
+                patch.object(server, 'handoff_queue', return_value=self.queue):
+            response = server.app.test_client().post('/pipeline/sheet-conflicts', headers=headers, json={
+                'conflict_id': conflict_id, 'choice': 'server', 'note': '',
+            })
+        self.assertEqual(response.status_code, 200, response.get_json())
+        self.assertEqual(cell(self.store, field), server_value)
+        self.assertTrue(response.get_json()['server_owned'])
+        self.assertIsNone(response.get_json()['publish_job'])
+
+    def test_preserved_sheet_identity_field_can_be_dismissed_without_rewriting_it(self):
+        import app as server
+        from catalog.sync import SHEET_PRESERVED_FIELDS
+
+        field = 'Import Timestamp'
+        self.assertIn(field, SHEET_PRESERVED_FIELDS)
+        product_rows = self.store.read('Products')
+        product_headers = product_rows[0]
+        product = product_rows[1]
+        product_id = product[product_headers.index('Product ID')]
+        product_name = product[product_headers.index('Product Name')]
+        channel = product[product_headers.index('Channel Username')]
+        sheet_value = product[product_headers.index(field)]
+        offer_rows = self.store.read('Offers')
+        source_revision = offer_rows[-1][offer_rows[0].index('Offer ID')]
+        conflict_id = 'sheet:preserved-import-timestamp'
+        self.queue.record_sheet_conflict({
+            'conflict_id': conflict_id, 'product_id': product_id, 'product_name': product_name,
+            'channel': channel, 'field': field, 'source_revision': source_revision,
+            'base': 'older-import-time', 'server': 'new-import-time', 'sheet': sheet_value,
+        })
+
+        env = {'PIPELINE_DB_PATH': self.db_path, 'REFERENCE_OWNER_IDS': 'wp:7',
+               'REFERENCE_BRIDGE_TOKEN': TOKEN}
+        headers = {'X-Molavi-Reference-Token': TOKEN, 'X-Molavi-Actor': 'wp:7'}
+        with patch.dict(os.environ, env), patch.object(server, 'USE_SHEETS', True), \
+                patch.object(server, 'build_store', return_value=self.store), \
+                patch.object(server, 'handoff_queue', return_value=self.queue):
+            client = server.app.test_client()
+            listed = client.get('/pipeline/sheet-conflicts', headers=headers)
+            self.assertEqual(listed.status_code, 200, listed.get_json())
+            visible = next(item for item in listed.get_json()['conflicts']
+                           if item['conflict_id'] == conflict_id)
+            self.assertTrue(visible['sheet_preserved'])
+            self.assertFalse(visible['server_owned'])
+            rejected = client.post('/pipeline/sheet-conflicts', headers=headers, json={
+                'conflict_id': conflict_id, 'choice': 'server', 'note': 'do not replace import time',
+            })
+            self.assertEqual(rejected.status_code, 409)
+            accepted = client.post('/pipeline/sheet-conflicts', headers=headers, json={
+                'conflict_id': conflict_id, 'choice': 'preserve', 'note': '',
+            })
+            repeated = client.post('/pipeline/sheet-conflicts', headers=headers, json={
+                'conflict_id': conflict_id, 'choice': 'preserve', 'note': '',
+            })
+        self.assertEqual(accepted.status_code, 200, accepted.get_json())
+        self.assertTrue(accepted.get_json()['sheet_preserved'])
+        self.assertIsNone(accepted.get_json()['publish_job'])
+        self.assertEqual(repeated.status_code, 200, repeated.get_json())
+        self.assertTrue(repeated.get_json()['idempotent'])
+        self.assertIsNone(repeated.get_json()['publish_job'])
+        self.assertEqual(cell(self.store, field), sheet_value)
+        self.assertEqual(self.queue.get_sheet_conflict(conflict_id)['choice'], 'preserve')
+
 
 if __name__ == '__main__':
     unittest.main()

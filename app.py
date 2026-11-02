@@ -30,6 +30,8 @@ from catalog.sync import (
     refresh_buying_desk,
     release_idle_memory,
     SHEET_PROVENANCE_FIELDS,
+    SHEET_PRESERVED_FIELDS,
+    SHEET_SERVER_OWNED_FIELDS,
     resolve_prompt,
     reextract_saved_message,
     sheets_configured,
@@ -1271,38 +1273,53 @@ def sheet_conflicts_route():
     if auth_error:
         return jsonify({'ok':False,'error':'unauthorized' if auth_error==401 else 'owner_required'}),auth_error
     if request.method=='GET':
-        result={'ok':True,'conflicts':queue.sheet_sync_conflicts()}
+        conflicts=queue.sheet_sync_conflicts()
+        for conflict in conflicts:
+            conflict['server_owned']=conflict['field'] in SHEET_SERVER_OWNED_FIELDS
+            conflict['sheet_preserved']=conflict['field'] in SHEET_PRESERVED_FIELDS
+        result={'ok':True,'conflicts':conflicts}
     else:
         body=request.get_json(silent=True)
         if not isinstance(body,dict) or set(body)!={'conflict_id','choice','note'}:
             return jsonify({'ok':False,'error':'invalid_body'}),400
         conflict_id,choice,note=body.get('conflict_id'),body.get('choice'),body.get('note')
         if (not isinstance(conflict_id,str) or not conflict_id.startswith('sheet:') or len(conflict_id)>80 or
-                choice not in ('server','sheet') or not isinstance(note,str) or len(note)>1000):
+                choice not in ('server','sheet','preserve') or not isinstance(note,str) or len(note)>1000):
             return jsonify({'ok':False,'error':'invalid_body'}),400
-        note=note.strip() or (
-            'Owner selected the current server-derived value under the server-first conflict policy.'
-            if choice=='server' else
-            'Owner confirmed that the current Sheet cell was manually edited.'
-        )
+        note=note.strip() or {
+            'server':'Owner selected the current server-derived value under the server-first conflict policy.',
+            'sheet':'Owner confirmed that the current Sheet cell was manually edited.',
+            'preserve':'Preserve the existing canonical Sheet value for this immutable identity field.',
+        }[choice]
         from catalog.sheet_reconcile import field_values_equal
         from catalog.sync import _cell,_find_product_row_by_id,_fresh_read,_offers_for_product,_product_from_offers,_product_row,_message_from_offer,_records,_read_sheet_if_present
         try:
             with queue.publication_lock():
                 conflict=queue.get_sheet_conflict(conflict_id)
                 if not conflict:return jsonify({'ok':False,'error':'conflict_changed'}),409
+                server_owned=conflict['field'] in SHEET_SERVER_OWNED_FIELDS
+                sheet_preserved=conflict['field'] in SHEET_PRESERVED_FIELDS
+                if server_owned and choice!='server':
+                    return jsonify({'ok':False,'error':'field_read_only'}),409
+                if sheet_preserved and choice!='preserve':
+                    return jsonify({'ok':False,'error':'field_read_only'}),409
+                if choice=='preserve' and not sheet_preserved:
+                    return jsonify({'ok':False,'error':'field_read_only'}),409
+                if conflict['field'] in SHEET_PROVENANCE_FIELDS and not (server_owned or sheet_preserved):
+                    return jsonify({'ok':False,'error':'field_read_only'}),409
                 if conflict['state']=='resolved' and conflict.get('choice')==choice:
                     # A browser retry after a lost response should acknowledge the
                     # original decision instead of presenting a false failure.
-                    publish_job=queue.put('publish','sheet-conflict:'+conflict_id,
-                        {'conflict_id':conflict_id,'product_id':conflict['product_id']})
+                    publish_job=None
+                    if not server_owned and not sheet_preserved:
+                        publish_job=queue.put('publish','sheet-conflict:'+conflict_id,
+                            {'conflict_id':conflict_id,'product_id':conflict['product_id']})
                     response=jsonify({'ok':True,'conflict_id':conflict_id,'choice':choice,
-                        'publish_job':publish_job,'idempotent':True})
+                        'publish_job':publish_job,'server_owned':server_owned,
+                        'sheet_preserved':sheet_preserved,'idempotent':True})
                     response.headers['Cache-Control']='no-store'
                     return response
                 if conflict['state']!='open':return jsonify({'ok':False,'error':'conflict_changed'}),409
-                if conflict['field'] in SHEET_PROVENANCE_FIELDS:
-                    return jsonify({'ok':False,'error':'field_read_only'}),409
                 store=build_store()
                 products=_fresh_read(store,'Products')
                 if not products:return jsonify({'ok':False,'error':'sheet_unavailable'}),503
@@ -1321,11 +1338,14 @@ def sheet_conflicts_route():
                 server_product=_product_from_offers(matching)
                 current_server_row=_product_row(headers,server_product,_message_from_offer(matching[-1]))
                 current_server=_cell(current_server_row,headers,conflict['field'])
-                if not field_values_equal(conflict['field'],current_server,conflict['server']):
+                if conflict['field']=='Last Updated':
+                    current_server=str(matching[-1].get('Import Timestamp') or '')
+                if not sheet_preserved and not field_values_equal(conflict['field'],current_server,conflict['server']):
                     return jsonify({'ok':False,'error':'server_value_changed'}),409
                 if choice=='sheet' and not same_sheet:return jsonify({'ok':False,'error':'sheet_value_changed'}),409
                 if choice=='server' and not (same_sheet or already_server):
                     return jsonify({'ok':False,'error':'sheet_value_changed'}),409
+                if choice=='preserve' and not same_sheet:return jsonify({'ok':False,'error':'sheet_value_changed'}),409
                 # Re-read immediately before resolving/writing. Sheets has no CAS,
                 # but this narrows the lost-edit window and refuses observed changes.
                 prewrite=_fresh_read(store,'Products')
@@ -1341,6 +1361,8 @@ def sheet_conflicts_route():
                     return jsonify({'ok':False,'error':'sheet_value_changed'}),409
                 if choice=='server' and not (pre_same_sheet or pre_already_server):
                     return jsonify({'ok':False,'error':'sheet_value_changed'}),409
+                if choice=='preserve' and not pre_same_sheet:
+                    return jsonify({'ok':False,'error':'sheet_value_changed'}),409
                 if choice=='server' and not pre_already_server:
                     writer=getattr(store,'write_cells',None)
                     if not callable(writer):return jsonify({'ok':False,'error':'safe_cell_writer_unavailable'}),503
@@ -1352,14 +1374,17 @@ def sheet_conflicts_route():
                     if not field_values_equal(conflict['field'],_cell(checkrow,check_headers,conflict['field']),current_server):
                         return jsonify({'ok':False,'error':'write_unconfirmed'}),409
                 resolution=queue.resolve_sheet_conflict(conflict_id,choice=choice,actor_id=actor,note=note)
-                publish_job=queue.put('publish','sheet-conflict:'+conflict_id,
-                                      {'conflict_id':conflict_id,'product_id':conflict['product_id']})
+                publish_job=None
+                if not server_owned and not sheet_preserved:
+                    publish_job=queue.put('publish','sheet-conflict:'+conflict_id,
+                                          {'conflict_id':conflict_id,'product_id':conflict['product_id']})
         except ValueError:
             return jsonify({'ok':False,'error':'conflict_or_invalid'}),409
         except Exception:
             logger.exception('Sheet conflict resolution failed')
             return jsonify({'ok':False,'error':'resolution_failed'}),503
-        result={'ok':True,'conflict_id':conflict_id,'choice':resolution['choice'],'publish_job':publish_job}
+        result={'ok':True,'conflict_id':conflict_id,'choice':resolution['choice'],
+                'publish_job':publish_job,'server_owned':server_owned,'sheet_preserved':sheet_preserved}
     response=jsonify(result);response.headers['Cache-Control']='no-store';return response
 
 

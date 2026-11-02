@@ -1359,30 +1359,48 @@
                     ['مقدار محاسبه‌شده در Railway', 'server'], ['مقدار فعلی شیت', 'sheet']]) {
                     card.appendChild(node('p', `${label}: ${conflictValue(conflict[key])}`));
                 }
+                const serverOwned = conflict.server_owned === true;
+                const sheetPreserved = conflict.sheet_preserved === true;
+                const primaryChoice = sheetPreserved ? 'preserve' : 'server';
+                if (serverOwned) card.appendChild(notice('این فیلد سیستمی است؛ فقط مقدار Railway می‌تواند در شیت ثبت شود.', 'info'));
+                if (sheetPreserved) card.appendChild(notice('هویت و زمان ثبت اولیه حفظ می‌شود؛ این فیلد قابل اصلاح دستی نیست.', 'info'));
                 const actions = node('div', null, 'molavi-reextract-actions');
-                const chooseServer = node('button', 'اعمال مقدار فعلی Railway', 'button button-primary');
+                const chooseServer = node('button', sheetPreserved ? 'حفظ مقدار اصلی شیت'
+                    : serverOwned ? 'همگام‌سازی مقدار سیستمی از Railway'
+                    : 'اعمال مقدار فعلی Railway', 'button button-primary');
                 chooseServer.type = 'button';
                 const chooseSheet = node('button', 'ارسال اصلاح دستی شیت به فروشگاه', 'button button-secondary');
                 chooseSheet.type = 'button';
-                chooseServer.disabled = !contextStored; chooseSheet.disabled = !contextStored;
+                chooseServer.disabled = !contextStored;
+                chooseSheet.disabled = serverOwned || sheetPreserved || !contextStored;
                 const submitChoice = async choice => {
                     chooseServer.disabled = true; chooseSheet.disabled = true;
                     const eventId = reviewEventId('sheet_conflict', conflict.conflict_id);
                     const decision = {choice, attempt_id:eventId, note:choice === 'server'
-                        ? 'Auto: keep the current server-computed value.'
-                        : 'Owner confirmed this was a manual Sheet edit; publish it to WordPress.'};
+                        ? (serverOwned
+                            ? 'Synchronize this server-owned field back to the Sheet.'
+                            : 'Auto: keep the current server-computed value.')
+                        : choice === 'preserve'
+                            ? 'Preserve the existing canonical Sheet identity or import timestamp.'
+                            : 'Owner confirmed this was a manual Sheet edit; publish it to WordPress.'};
                     try {
                         await persistOwnerReviews([reviewRecord(eventId, 'sheet_conflict', conflict.conflict_id,
                             'pending', {}, decision)]);
                         const receipt = await request('POST', {conflict_id: conflict.conflict_id, choice, note:decision.note});
                         if (receipt.conflict_id !== conflict.conflict_id || receipt.choice !== choice
-                            || !receipt.publish_job) throw new Error('invalid_receipt');
+                            || (serverOwned ? receipt.server_owned !== true
+                                : sheetPreserved ? receipt.sheet_preserved !== true
+                                : !receipt.publish_job)) throw new Error('invalid_receipt');
                         let localWarning = '';
                         try {
                             await persistOwnerReviews([reviewRecord(reviewEventId('sheet_conflict', conflict.conflict_id),
                                 'sheet_conflict', conflict.conflict_id, 'accepted', {}, decision, receipt)]);
                         } catch (_error) { localWarning = ' تصمیم در سرویس ثبت شد، اما وضعیت محلی وردپرس در انتظار همگام‌سازی است.'; }
-                        await sheetConflicts(`تصمیم ثبت شد و انتشار به صف رفت.${localWarning}`,
+                        const successMessage = serverOwned
+                            ? 'مقدار سیستمی با مقدار Railway در شیت همگام شد.'
+                            : sheetPreserved ? 'مقدار اصلی شیت حفظ شد.'
+                            : 'تصمیم ثبت شد و انتشار به صف رفت.';
+                        await sheetConflicts(`${successMessage}${localWarning}`,
                             localWarning ? 'warning' : 'success');
                     } catch (error) {
                         try {
@@ -1392,9 +1410,10 @@
                         await sheetConflicts(`${errorText(error.message)} فهرست تعارض‌ها تازه شد؛ موردهای باقی‌مانده را دوباره بررسی کنید.`, 'warning');
                     }
                 };
-                chooseServer.addEventListener('click', () => submitChoice('server'));
+                chooseServer.addEventListener('click', () => submitChoice(primaryChoice));
                 chooseSheet.addEventListener('click', () => submitChoice('sheet'));
-                actions.append(chooseServer, chooseSheet);
+                actions.appendChild(chooseServer);
+                if (!serverOwned && !sheetPreserved) actions.appendChild(chooseSheet);
                 card.appendChild(actions); root.appendChild(card);
             }
         } catch (error) { root.appendChild(notice(errorText(error.message), 'error')); }

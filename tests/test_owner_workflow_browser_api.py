@@ -143,6 +143,8 @@ class OwnerWorkflowBrowserAPITests(unittest.TestCase):
         self.assertEqual(accepted.status_code, 200, accepted.get_json())
         self.assertEqual(accepted.headers.get('Access-Control-Allow-Origin'), origin)
         self.assertEqual(accepted.get_json()['conflicts'][0]['conflict_id'], 'sheet:review-1')
+        self.assertFalse(accepted.get_json()['conflicts'][0]['server_owned'])
+        self.assertFalse(accepted.get_json()['conflicts'][0]['sheet_preserved'])
 
 
 if __name__ == '__main__':

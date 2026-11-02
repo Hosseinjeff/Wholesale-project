@@ -61,6 +61,8 @@ SHEET_PROVENANCE_FIELDS={
     'Previous Sale Price','Previous Consumer Price','Price Changed At','Image File Unique ID',
     'Reference Snapshot ID','Reference Match ID','Reference Decision ID',
 }
+SHEET_PRESERVED_FIELDS=set(_PRESERVE_ON_UPDATE)
+SHEET_SERVER_OWNED_FIELDS=SHEET_PROVENANCE_FIELDS-SHEET_PRESERVED_FIELDS
 _SHEET_IMMUTABLE_FIELDS=SHEET_PROVENANCE_FIELDS
 
 
