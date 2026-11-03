@@ -2,7 +2,24 @@
 
 Updated: 2026-11-03, Asia/Tehran
 
-## Latest live deployment — 2026-11-03
+## Latest live deployment — 2026-11-03, 16:48 UTC
+
+Commit `dc0e3d4ffdc0aa17581bbabca7143cd8108e74bf` is live in the WordPress plugin and
+Railway backend. cPanel uploaded and read back `includes/admin-ajax-forms.js` and
+`includes/owner-browser-api.php` with no host normalization. The authenticated
+`molavi-operations` page returned HTTP 200, included the AJAX form handler, and the
+script asset returned HTTP 200. The handler submits owner-only `admin-post.php` forms
+with `fetch`, refreshes only the current admin content after a successful save, and
+shows inline errors without navigating away. Existing route-driven owner workflows
+continue to use their fetch interactions.
+
+Railway deployment `6dc4c738-1fbf-4ae9-8636-bd44fe761db3` succeeded from `main` at the
+same commit. The service has one running replica, its 500 MB `/data` volume is attached,
+both production services are online with no issues or pending work, and `/health` returned
+HTTP 200 with `healthy`. The prompt and title-scoped evidence update passed the three-post
+live smoke check recorded in [`ai-extraction-validation.md`](ai-extraction-validation.md).
+
+## Previous live deployment — 2026-11-03
 
 WordPress plugin commit `ad211aed122ee23ec84847534e512e9dd2670dc4` is deployed and verified
 by cPanel read-back. The shop template no longer loads the theme header/footer shell or its
@@ -41,10 +58,12 @@ validation details. Railway is online with one running replica and no pending wo
 ## Deploying plugin code
 
 Most recent WordPress plugin deployment: commit
-`ad211aed122ee23ec84847534e512e9dd2670dc4` (2026-11-03). The uploader changed and read
-back `includes/site-chrome.php`, `shop-template.php`, and `storefront.css`. cPanel inserted
-its documented charset marker after `<head>` in the standalone template and after `<header>`
-in the site-chrome partial; both exact changes were normalized and verified. The preceding
+`dc0e3d4ffdc0aa17581bbabca7143cd8108e74bf` (2026-11-03). The uploader changed and read
+back `includes/admin-ajax-forms.js` and `includes/owner-browser-api.php` with no host
+normalization. The preceding deployment at `ad211aed122ee23ec84847534e512e9dd2670dc4`
+changed and verified `includes/site-chrome.php`, `shop-template.php`, and `storefront.css`.
+cPanel inserted its documented charset marker after `<head>` in the standalone template and
+after `<header>` in the site-chrome partial; both exact changes were normalized and verified. The preceding
 deployment at `37fe2a73eaf034393f6d5dd15a7aff40e67f4fe3` uploaded and verified `molavi-shop.php`.
 The earlier deployment at
 `1e7f9d8734387ead1119bc6b61886b185b26b9ce` explicitly renders the shop header and removes
