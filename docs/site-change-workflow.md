@@ -4,15 +4,21 @@ Updated: 2026-11-03, Asia/Tehran
 
 ## Latest live deployment — 2026-11-03
 
-WordPress plugin commit `ee6e4b5cdc8ea56110386820e8f6c281c6a56518` is deployed and verified
-by cPanel read-back. It removes the duplicate Twenty Twenty-Five `#header` on the storefront,
-sets a clean shop title, and renders the storefront heading, buyer selector and per-product
-feedback/status areas. A public readback returned HTTP 200, 14 product cards, one buyer
-selector and 14 card feedback/status pairs; both title tags now say “فروشگاه مولوی‌سل”.
+WordPress plugin commit `37fe2a73eaf034393f6d5dd15a7aff40e67f4fe3` is deployed and verified
+by cPanel read-back. The storefront uses one plugin header, hides the legacy theme header,
+footer and separator lines, and keeps the buyer selector in both the product area and cart.
+Supplier names are removed from product cards, public excerpts and short descriptions. The
+browser check returned 14 cards, one visible header, two buyer selectors, no visible legacy
+chrome, and no supplier mentions on the checked product detail. Switching to store-owner mode
+updated both selectors; only the product with an invalid order step prompted for a fix. At
+390px, the page had no horizontal overflow and the cart drawer showed its buyer selector.
+The standard `/cart/` route uses the WooCommerce block cart, with no classic “Update cart”
+button. `node --check` and `git diff --check` passed. Desktop, mobile and product-detail
+screenshots were captured under `/tmp/molavi-*-final.png`.
 
 The preceding WordPress plugin deployment at `d08158589081fb6f026845d0d6984c0942c307ca`
-also verified the new owner-card price presentation and direct candidate links. The
-The Python backend changes are live from `main` commit `0492f62` on Railway deployment
+also verified the new owner-card price presentation and direct candidate links. The Python
+backend changes are live from `main` commit `0492f62` on Railway deployment
 `fcf76ec5-e566-4501-9a82-61df3c0beaba`. The five unique supplier posts in the validation
 exports produced seven products with no review holds. The explicit flavor list expanded
 into three product records; a five-flavor count without flavor names remained one product.
@@ -34,10 +40,12 @@ validation details. Railway is online with one running replica and no pending wo
 ## Deploying plugin code
 
 Most recent WordPress plugin deployment: commit
-`ee6e4b5cdc8ea56110386820e8f6c281c6a56518` (2026-11-03). The uploader changed and
-read back `includes/owner-workflows.js` and `includes/owner-workflows.css`; no host
-normalization was reported. It also changed `molavi-shop.php` and `storefront.css` to remove
-the duplicate theme heading and normalize the shop title. The prior plugin deployment at
+`37fe2a73eaf034393f6d5dd15a7aff40e67f4fe3` (2026-11-03). The uploader changed and read
+back `molavi-shop.php`; no host normalization was reported. The preceding deployment at
+`1e7f9d8734387ead1119bc6b61886b185b26b9ce` explicitly renders the shop header and removes
+the legacy theme chrome. The preceding storefront cleanup commit `3be4525f9394115e0533825c0c523bc524e8081a`
+uploaded seven plugin files for buyer selectors, supplier cleanup, cart feedback and stable
+card updates. The prior plugin deployment at
 `d08158589081fb6f026845d0d6984c0942c307ca` uploaded and verified the owner workflow JS/CSS,
 pricing/storefront renderer, shop JS and storefront CSS. Its cards show distinct supplier
 unit/carton prices and clickable reference suggestions with comparison details when the
