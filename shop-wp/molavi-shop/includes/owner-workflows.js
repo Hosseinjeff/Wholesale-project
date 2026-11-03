@@ -1011,6 +1011,67 @@
         return '';
     }
 
+    function aiSourceVariantLabel(item) {
+        const explicit = aiProductAttributes(item).variationType;
+        if (explicit) return explicit;
+        const source = String(item && item.original_message || '');
+        if (!source) return '';
+        const digits = value => String(value || '')
+            .replace(/[۰-۹]/g, digit => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(digit)))
+            .replace(/[٠-٩]/g, digit => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)))
+            .replace(/\D/g, '');
+        const expected = new Set([
+            digits(item.detected_price || item.sale_price),
+            digits(item.actual_price || item.consumer_price)
+        ].filter(Boolean));
+        if (!expected.size) return '';
+        const labels = new Set();
+        const linePattern = /(?:قیمت\s*)?(فروش\s+ما|مصرف\s*کننده)(?:\s+([^:：\n]+?))?\s*[:：]\s*([\d۰-۹٠-٩][\d۰-۹٠-٩\s٬,./٫]*)/giu;
+        for (const match of source.matchAll(linePattern)) {
+            const label = String(match[2] || '').trim().replace(/\s+/g, ' ');
+            if (label && expected.has(digits(match[3]))) labels.add(label);
+        }
+        return labels.size === 1 ? [...labels][0] : labels.size > 1 ? [...labels].join(' / ') : '';
+    }
+
+    function aiTelegramUsername(item) {
+        if (String(item && item.source_channel || '').toLowerCase() !== 'telegram') return '';
+        const username = String(item && (item.channel || item.channel_username) || '').trim().replace(/^@/, '');
+        return /^[A-Za-z0-9_]{5,32}$/.test(username) ? username : '';
+    }
+
+    function aiSourcePostUrl(item) {
+        const direct = String(item && item.source_post_url || '');
+        if (direct) return direct;
+        const username = aiTelegramUsername(item);
+        const messageId = String(item && item.message_id || '').trim();
+        if (!username || !/^\d+$/.test(messageId)) return '';
+        return `https://t.me/${username}/${messageId}`;
+    }
+
+    function aiSourceChannelUrl(item) {
+        const username = aiTelegramUsername(item);
+        return username ? `https://t.me/s/${username}` : '';
+    }
+
+    function formatSourceTimestamp(value) {
+        const raw = String(value || '').trim();
+        if (!raw) return '';
+        let date;
+        if (/^\d{9,13}$/.test(raw)) {
+            const timestamp = Number(raw);
+            date = new Date(timestamp > 1e12 ? timestamp : timestamp * 1000);
+        } else {
+            date = new Date(raw);
+        }
+        if (Number.isNaN(date.getTime())) return raw;
+        try {
+            return new Intl.DateTimeFormat('fa-IR', {
+                timeZone:'Asia/Tehran', dateStyle:'medium', timeStyle:'short'
+            }).format(date);
+        } catch (_error) { return date.toLocaleString('fa-IR'); }
+    }
+
     function aiDecisionFields(item, role) {
         const fields = item.decision && item.decision.fields || {};
         const packageRole = role === 'package';
@@ -1191,6 +1252,8 @@
             card.appendChild(selection);
         }
         card.appendChild(node('h2', item.product_name || 'کالای بدون نام'));
+        const sourceVariant = aiSourceVariantLabel(item);
+        if (sourceVariant) card.appendChild(node('p', `برچسب نوع در متن پیام: ${sourceVariant}`, 'molavi-ai-source-variant'));
         if (Number(item.duplicate_count) > 1) {
             card.appendChild(notice(`این پیشنهاد از همان پیام ${new Intl.NumberFormat('fa-IR').format(item.duplicate_count)} بار استخراج شده است؛ یک تصمیم همه نسخه‌های تکراری را از صف بررسی کنار می‌گذارد.`, 'info'));
         }
@@ -1283,10 +1346,18 @@
             card.appendChild(matchLink);
         }
         card.appendChild(node('p', `دلیل بررسی: ${item.reason || 'نیازمند بررسی'} · حداقل خرید: ${item.min_qty || 'ثبت نشده'}`));
-        if (item.message_timestamp) card.appendChild(node('p', `زمان پیام منبع: ${item.message_timestamp}`));
-        const originalPost = safeSourceLink(item.source_post_url);
+        const messageTimestamp = formatSourceTimestamp(item.message_timestamp);
+        if (messageTimestamp) card.appendChild(node('p', `زمان پیام منبع: ${messageTimestamp}`));
+        const sourcePostUrl = aiSourcePostUrl(item);
+        const originalPost = safeSourceLink(sourcePostUrl,
+            item.historical_reextract ? 'باز کردن پیام مبدأ (تاریخی)'
+                : sourcePostUrl && sourcePostUrl !== item.source_post_url ? 'باز کردن پست تلگرام' : 'باز کردن پیام اصلی');
         if (originalPost) card.appendChild(originalPost);
-        if (item.historical_reextract) card.appendChild(notice('این پیشنهاد از بازاستخراج یک پیام قبلی آمده است. پیش از تأیید، مطمئن شوید قیمت و موجودی هنوز معتبرند.', 'warning'));
+        if (item.historical_reextract) {
+            const recentSupplierPosts = safeSourceLink(aiSourceChannelUrl(item), 'دیدن پست‌های جدیدتر تأمین‌کننده');
+            if (recentSupplierPosts) card.appendChild(recentSupplierPosts);
+            card.appendChild(notice('این پیشنهاد از بازاستخراج پیام قدیمی است. پست مبدأ به‌تنهایی تازگی قیمت را ثابت نمی‌کند؛ پیش از تأیید، قیمت را در پیام جدیدتر یا مستقیماً از تأمین‌کننده بررسی کنید.', 'warning'));
+        }
         if (item.original_message) {
             const details = document.createElement('details'); details.appendChild(node('summary', 'متن اصلی پیام تأمین‌کننده'));
             details.appendChild(node('pre', item.original_message)); card.appendChild(details);
@@ -1322,7 +1393,7 @@
             const checkLabel = node('label', null, 'molavi-reextract-current-check');
             currentPriceVerified = document.createElement('input');
             currentPriceVerified.type = 'checkbox';
-            checkLabel.append(currentPriceVerified, document.createTextNode(' قیمت را در پست فعلی بررسی کردم؛ اگر موجودی ذکر نشده، نامشخص می‌ماند.'));
+            checkLabel.append(currentPriceVerified, document.createTextNode(' قیمت را در پیام جدیدتر یا مستقیماً از تأمین‌کننده بررسی کردم؛ پست مبدأ تاریخی است. اگر موجودی ذکر نشده، نامشخص می‌ماند.'));
             card.appendChild(checkLabel);
         }
         const addQuickConfirm = (selectedRole, label) => {
@@ -1973,12 +2044,12 @@
         return card;
     }
 
-    function safeSourceLink(value) {
+    function safeSourceLink(value, label = 'باز کردن پیام اصلی') {
         if (typeof value !== 'string' || !value) return null;
         try {
             const url = new URL(value);
             if (url.protocol !== 'https:' || !['t.me', 'www.t.me', 'bale.ai', 'www.bale.ai'].includes(url.hostname)) return null;
-            const link = node('a', 'باز کردن پیام اصلی', 'button button-secondary');
+            const link = node('a', label, 'button button-secondary');
             link.href = url.href;
             link.target = '_blank';
             link.rel = 'noopener noreferrer';

@@ -53,6 +53,7 @@
 #molavi-owner-workflow .molavi-ai-case-select input,
 #molavi-owner-workflow .molavi-bulk-select-all input { min-width:0; width:auto; }
 #molavi-owner-workflow .molavi-ai-variant-group { border-inline-start:4px solid #2271b1; }
+#molavi-owner-workflow .molavi-ai-source-variant { margin:.25rem 0; padding:.4rem .65rem; border-inline-start:3px solid #8c8f94; background:#f6f7f7; }
 #molavi-owner-workflow .molavi-ai-variant-list { display:flex; flex-wrap:wrap; gap:.4rem; margin:.5rem 0; padding:0; list-style:none; }
 #molavi-owner-workflow .molavi-ai-variant-list li { padding:.35rem .6rem; border-radius:1rem; background:#f0f6fc; }
 #molavi-owner-workflow .molavi-ai-product-attributes { display:flex; flex-wrap:wrap; gap:.4rem; margin:.5rem 0; }

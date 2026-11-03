@@ -158,6 +158,44 @@ async function main() {
     mountedBoard,'AJAX updates the mounted dashboard instead of replacing or reloading the page');
   assert.equal(window.location.href,'https://site.test/wp-admin/admin.php?page=molavi-operations',
     'review actions do not navigate or reload the browser page');
+
+  const teaMessage = 'چای شهرزاد فلزی ۳۵۰ گرم،۶ عدد\n\nقیمت فروش ما عطری: ۷۸۰/۰۰۰ تومان\nقیمت مصرف کننده عطری:۱۰۳۰/۰۰۰ت\nقیمت فروش ما ساده: ۶۸۰/۰۰۰ تومان\nقیمت مصرف کننده ساده: ۸۷۰/۰۰۰ تومان';
+  const teaCase = (letter, salePrice, actualPrice) => ({
+    case_id:`ai:${letter.repeat(64)}`,offer_id:`historical:${letter}`,signature:letter.repeat(64),
+    product_name:'چای شهرزاد فلزی ۳۵۰ گرم،۶ عدد',channel:'@bonakdarjavan',source_channel:'telegram',
+    message_id:'7289',source_post_url:'',message_timestamp:'1787571328',historical_reextract:true,
+    price_type:'unit',detected_price:String(salePrice),sale_price:String(salePrice),
+    actual_price:String(actualPrice),package_count:'6',stock_status:'Unknown',
+    reason:'Historical price needs current supplier verification',original_message:teaMessage
+  });
+  data['ai-confirmations'].cases = [teaCase('a',680000,870000),teaCase('b',780000,1030000)];
+  const refreshButton = walk(root).find(element => element.tagName === 'BUTTON'
+    && element.textContent === 'به‌روزرسانی صف');
+  await refreshButton.listeners.click();
+  const extractionQueue = walk(root).find(element => element.tagName === 'BUTTON'
+    && element.textContent.startsWith('استخراج'));
+  await extractionQueue.listeners.click();
+  visibleCards = walk(root).filter(element => element.className.split(/\s+/).includes('molavi-product-card'));
+  assert.equal(visibleCards.length,1,'AI review also keeps only the current product card visible');
+  const variantLabels = walk(visibleCards[0]).filter(element => element.className
+    .split(/\s+/).includes('molavi-ai-source-variant')).map(element => element.textContent);
+  assert.deepEqual(new Set(variantLabels),new Set([
+    'برچسب نوع در متن پیام: ساده','برچسب نوع در متن پیام: عطری'
+  ]),'distinct source-labeled offers sharing one product title remain distinguishable');
+  const postLink = walk(visibleCards[0]).find(element => element.tagName === 'A'
+    && element.href === 'https://t.me/bonakdarjavan/7289');
+  assert(postLink,'a missing Telegram URL is safely recovered from its public channel and message ID');
+  assert.match(postLink.textContent,/تاریخی/,'old source posts are labeled so they are not mistaken for current prices');
+  assert(walk(visibleCards[0]).some(element => element.tagName === 'A'
+    && element.href === 'https://t.me/s/bonakdarjavan'),
+  'historical cards also link directly to newer supplier posts');
+  assert.match(visibleCards[0].text,/پست مبدأ به‌تنهایی تازگی قیمت را ثابت نمی‌کند/);
+  assert.match(visibleCards[0].text,/قیمت را در پیام جدیدتر/);
+  assert.match(visibleCards[0].text,/زمان پیام منبع:/);
+  assert(!visibleCards[0].text.includes('1787571328'),'source times are shown as readable dates');
+  const aiPosts = calls.filter(item => item.options.method === 'POST'
+    && item.url === workflowApis.ai_confirmations.url);
+  assert.equal(aiPosts.length,0,'inspecting the card never submits an owner decision');
 }
 
 main().catch(error => { console.error(error); process.exitCode = 1; });
