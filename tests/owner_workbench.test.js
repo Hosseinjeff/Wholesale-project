@@ -196,6 +196,28 @@ async function main() {
   const aiPosts = calls.filter(item => item.options.method === 'POST'
     && item.url === workflowApis.ai_confirmations.url);
   assert.equal(aiPosts.length,0,'inspecting the card never submits an owner decision');
+
+  const aloeMessage = 'نوشيدنى آلوورا بر پايه عسل\n۱/۵ لیتر تعداد ۶ عددی\nقیمت فروش ما: ۱۰۵/۰۰۰ تومان\nقیمت مصرف کننده: ۱۵۰/۰۰۰ تومان\n۵۰۰ میل تعداد ۲۰ عددی\nقیمت فروش ما: ۶۰/۰۰۰ تومان\nقیمت مصرف کننده: ۹۰/۰۰۰ تومان\n۲۵۰ میل تعداد ۲۴ عددی\nقیمت فروش ما: ۵۰/۰۰۰ تومان\nقیمت مصرف کننده: ۷۰/۰۰۰ تومان';
+  const aloeCase = (letter, salePrice, actualPrice, volume, packageCount) => ({
+    case_id:`ai:${letter.repeat(64)}`,offer_id:`historical:${letter}`,signature:letter.repeat(64),
+    product_name:'نوشيدنى آلوورا بر پايه عسل',channel:'@bonakdarjavan',source_channel:'telegram',
+    message_id:'7281',batch_id:'reextract:aloe',source_post_url:'',message_timestamp:'1787571328',
+    historical_reextract:true,price_type:'unit',detected_price:String(salePrice),sale_price:String(salePrice),
+    actual_price:String(actualPrice),volume,package_count:String(packageCount),stock_status:'Unknown',
+    reason:'Historical price needs current supplier verification',original_message:aloeMessage
+  });
+  data['ai-confirmations'].cases = [
+    aloeCase('c',105000,150000,'1.5 لیتر',6),aloeCase('d',50000,70000,'250 میل',24)
+  ];
+  await refreshButton.listeners.click();
+  visibleCards = walk(root).filter(element => element.className.split(/\s+/).includes('molavi-product-card'));
+  assert.equal(visibleCards.length,1);
+  assert.match(visibleCards[0].text,/۶۰٬۰۰۰ تومان/,
+    'the card identifies supplier prices present in the source but missing from extraction');
+  assert.match(visibleCards[0].text,/بازاستخراج این پیام برای بررسی کامل لازم است/);
+  assert.equal(calls.filter(item => item.options.method === 'POST'
+    && item.url === workflowApis.ai_confirmations.url).length,0,
+  'source completeness checks do not approve or modify extracted offers');
 }
 
 main().catch(error => { console.error(error); process.exitCode = 1; });

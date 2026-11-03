@@ -475,6 +475,25 @@
         (data.sheet_conflicts && Array.isArray(data.sheet_conflicts.conflicts) ? data.sheet_conflicts.conflicts : [])
             .forEach(item => ensureProduct(item).conflicts.push(item));
 
+        const aiCasesBySource = new Map();
+        const allAiCases = [
+            ...((data.ai_confirmations && Array.isArray(data.ai_confirmations.cases)) ? data.ai_confirmations.cases : []),
+            ...((data.ai_confirmations && Array.isArray(data.ai_confirmations.recent_decisions)) ? data.ai_confirmations.recent_decisions : [])
+        ];
+        allAiCases.forEach(item => {
+            const key = aiSourceMessageKey(item);
+            if (!key) return;
+            if (!aiCasesBySource.has(key)) aiCasesBySource.set(key, new Map());
+            const identifier = String(item.offer_id || item.case_id || '');
+            if (identifier) aiCasesBySource.get(key).set(identifier, item);
+        });
+        const aiSourceCoverageLead = new Map();
+        ((data.ai_confirmations && Array.isArray(data.ai_confirmations.cases)) ? data.ai_confirmations.cases : [])
+            .forEach(item => {
+                const key = aiSourceMessageKey(item);
+                if (key && !aiSourceCoverageLead.has(key)) aiSourceCoverageLead.set(key, item.case_id);
+            });
+
         const holds = data.publication_holds && Array.isArray(data.publication_holds.holds)
             ? data.publication_holds.holds : [];
         const holdReviewRecords = holds.map(hold => reviewRecord(
@@ -591,8 +610,13 @@
                 await dashboard(message, kind);
             };
             product.ai.forEach(item => {
+                const sourceKey = aiSourceMessageKey(item);
+                const sourceCases = sourceKey && aiCasesBySource.has(sourceKey)
+                    ? [...aiCasesBySource.get(sourceKey).values()] : [item];
+                const sourcePriceGap = sourceKey && aiSourceCoverageLead.get(sourceKey) === item.case_id
+                    ? aiSourcePriceGap(item, sourceCases) : null;
                 const ai = aiCaseCard(item, null, contextStored.ai_confirmations, true, [item], {
-                    embedded:true, apiKey:'ai_confirmations', refresh:refreshInPlace
+                    embedded:true, apiKey:'ai_confirmations', refresh:refreshInPlace, sourcePriceGap
                 });
                 const title = node('h3', 'استخراج از پیام تأمین‌کننده');
                 ai.prepend(title);
@@ -1011,25 +1035,63 @@
         return '';
     }
 
+    function aiSourceDigits(value) {
+        return String(value || '')
+            .replace(/[۰-۹]/g, digit => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(digit)))
+            .replace(/[٠-٩]/g, digit => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)))
+            .replace(/\D/g, '');
+    }
+
+    function aiSourceMessageKey(item) {
+        const messageId = String(item && item.message_id || '').trim();
+        if (!messageId) return '';
+        return JSON.stringify([
+            String(item.source_channel || '').trim().toLowerCase(),
+            String(item.channel || item.channel_username || '').trim().toLowerCase(),
+            messageId,
+            String(item.batch_id || '').trim()
+        ]);
+    }
+
+    function aiSourceSalePrices(content) {
+        const prices = new Set();
+        const pattern = /قیمت\s*فروش\s*ما(?:\s+[^:：\n]+?)?\s*[:：]\s*([\d۰-۹٠-٩][\d۰-۹٠-٩\s٬,./٫]*)/giu;
+        for (const match of String(content || '').matchAll(pattern)) {
+            const digits = aiSourceDigits(match[1]);
+            if (digits && Number.isSafeInteger(Number(digits)) && Number(digits) > 0) prices.add(digits);
+        }
+        return prices;
+    }
+
+    function aiSourcePriceGap(item, cases) {
+        const sourcePrices = aiSourceSalePrices(item && item.original_message);
+        if (sourcePrices.size < 2) return null;
+        const extractedPrices = new Set();
+        cases.forEach(candidate => {
+            ['detected_price','sale_price','package_price'].forEach(fieldName => {
+                const digits = aiSourceDigits(candidate && candidate[fieldName]);
+                if (digits) extractedPrices.add(digits);
+            });
+        });
+        const missing = [...sourcePrices].filter(price => !extractedPrices.has(price));
+        return missing.length ? {sourceCount:sourcePrices.size, missing} : null;
+    }
+
     function aiSourceVariantLabel(item) {
         const explicit = aiProductAttributes(item).variationType;
         if (explicit) return explicit;
         const source = String(item && item.original_message || '');
         if (!source) return '';
-        const digits = value => String(value || '')
-            .replace(/[۰-۹]/g, digit => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(digit)))
-            .replace(/[٠-٩]/g, digit => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)))
-            .replace(/\D/g, '');
         const expected = new Set([
-            digits(item.detected_price || item.sale_price),
-            digits(item.actual_price || item.consumer_price)
+            aiSourceDigits(item.detected_price || item.sale_price),
+            aiSourceDigits(item.actual_price || item.consumer_price)
         ].filter(Boolean));
         if (!expected.size) return '';
         const labels = new Set();
         const linePattern = /(?:قیمت\s*)?(فروش\s+ما|مصرف\s*کننده)(?:\s+([^:：\n]+?))?\s*[:：]\s*([\d۰-۹٠-٩][\d۰-۹٠-٩\s٬,./٫]*)/giu;
         for (const match of source.matchAll(linePattern)) {
             const label = String(match[2] || '').trim().replace(/\s+/g, ' ');
-            if (label && expected.has(digits(match[3]))) labels.add(label);
+            if (label && expected.has(aiSourceDigits(match[3]))) labels.add(label);
         }
         return labels.size === 1 ? [...labels][0] : labels.size > 1 ? [...labels].join(' / ') : '';
     }
@@ -1357,6 +1419,10 @@
             const recentSupplierPosts = safeSourceLink(aiSourceChannelUrl(item), 'دیدن پست‌های جدیدتر تأمین‌کننده');
             if (recentSupplierPosts) card.appendChild(recentSupplierPosts);
             card.appendChild(notice('این پیشنهاد از بازاستخراج پیام قدیمی است. پست مبدأ به‌تنهایی تازگی قیمت را ثابت نمی‌کند؛ پیش از تأیید، قیمت را در پیام جدیدتر یا مستقیماً از تأمین‌کننده بررسی کنید.', 'warning'));
+        }
+        if (options.sourcePriceGap) {
+            const missing = options.sourcePriceGap.missing.map(value => amount(Number(value))).join('، ');
+            card.appendChild(notice(`متن پیام ${options.sourcePriceGap.sourceCount} مبلغ فروش متمایز دارد، اما ${missing} در هیچ مورد استخراج‌شده‌ای دیده نمی‌شود؛ بازاستخراج این پیام برای بررسی کامل لازم است.`, 'warning'));
         }
         if (item.original_message) {
             const details = document.createElement('details'); details.appendChild(node('summary', 'متن اصلی پیام تأمین‌کننده'));

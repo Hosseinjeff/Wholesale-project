@@ -94,6 +94,19 @@ Follow this order silently for every product:
    into a price.
 4. Check every supplier and consumer price stated for this product appears in the right
    field. Do not say a labeled value is missing or uncertain.
+5. If one base product is followed by repeated size/weight/count blocks, and each block
+   has its own labeled price lines, return one product record per distinct block even if
+   the base name is written only once. Assign each block only the supplier/consumer prices
+   that appear after its size/count and before the next block. Preserve the base name;
+   put that block's measurement, pack count, and prices in its fields. Count all such
+   blocks first and never skip a middle size or its prices.
+
+For example, a base name followed by `۱/۵ لیتر تعداد ۶ عددی` and prices `۱۰۵/۰۰۰` /
+`۱۵۰/۰۰۰`, then `۵۰۰ میل تعداد ۲۰ عددی` and prices `۶۰/۰۰۰` / `۹۰/۰۰۰`, then
+`۲۵۰ میل تعداد ۲۴ عددی` and prices `۵۰/۰۰۰` / `۷۰/۰۰۰` is exactly three offers.
+Return all three, with volumes 1.5 liters, 500 ml, and 250 ml; counts 6, 20, and 24;
+and the matching supplier/consumer prices for each block. Do not combine the amounts
+under one name or return only the first and last block.
 
 A particularly important title shape is `نودل لیوانی شف هو،۱۲ عددی سبزیجات`: keep the
 entire phrase in `name`; treat `سبزیجات` as its flavor/type when the post uses it that
@@ -558,6 +571,37 @@ def _source_price_role(source_title, content, candidate_amounts, source_titles=(
     return roles
 
 
+def _source_measurement_for_price_block(source_context, kind, candidate_amounts, submitted):
+    """Accept a model measurement only when its own labeled supplier-price block agrees."""
+    target = measurement_signature(submitted, kind)
+    candidates = {int(amount) for amount in candidate_amounts if amount and int(amount) > 0}
+    if not target or not candidates:
+        return ''
+    blocks = []
+    current = None
+    for line in source_context:
+        measurement = extract_measurement(line, kind)
+        if measurement:
+            if current:
+                blocks.append(current)
+            current = {'measurement': measurement, 'lines': [line]}
+        elif current:
+            current['lines'].append(line)
+    if current:
+        blocks.append(current)
+    matches = []
+    for block in blocks:
+        if measurement_signature(block['measurement'], kind) != target:
+            continue
+        block_text = '\n'.join(block['lines'])
+        supplier_prices = (_labeled_amounts(block_text, _UNIT_PRICE_LABEL)
+                           | _labeled_amounts(block_text, _PACKAGE_PRICE_LABEL,
+                                              skip_leading_package_count=True))
+        if candidates.intersection(supplier_prices):
+            matches.append(block['measurement'])
+    return matches[0] if len(matches) == 1 else ''
+
+
 def _has_explicit_consumer_price_label(content, amount, source_context=None):
     if not amount:
         return False
@@ -672,6 +716,30 @@ def _product(item, content, channel, source_titles=()):
     source_price_roles = _source_price_role(
         source_title, content, (unit, package, sale_raw), source_titles,
         ambiguous_source_title, variation_type or variant_value)
+    if source_title_verified and source_context:
+        for kind in ('volume', 'weight'):
+            submitted = str(item.get(kind) or '').strip()
+            if not submitted:
+                continue
+            explicit = explicit_volume if kind == 'volume' else explicit_weight
+            if explicit:
+                continue
+            corroborated = _source_measurement_for_price_block(
+                source_context, kind, source_price_roles.values(), submitted)
+            if corroborated:
+                if kind == 'volume':
+                    explicit_volume = corroborated
+                else:
+                    explicit_weight = corroborated
+                continue
+            contextual = {
+                measurement_signature(measurement, kind)
+                for line in source_context
+                for measurement in [extract_measurement(line, kind)] if measurement
+            }
+            if len(contextual) > 1:
+                measurement_review_reasons.append(
+                    f'Gemini {kind} is not tied to its own labeled source price block')
     price_evidence = '\n'.join(source_context) if source_context else content
     measurement_amounts = {
         int(measurement.value)

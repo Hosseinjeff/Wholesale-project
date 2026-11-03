@@ -709,6 +709,54 @@ class GeminiExtractionTests(unittest.TestCase):
         self.assertIn('do not ask the owner to confirm the flavor or volume', prompt)
         self.assertIn('All source channels are wholesalers', prompt)
         self.assertIn('single unlabeled amount is the supplier sale amount', prompt)
+        self.assertIn('one product record per distinct block', prompt)
+        self.assertIn('Count all such blocks first and never skip a middle size', prompt)
+        self.assertIn('with volumes 1.5 liters, 500 ml, and 250 ml; counts 6, 20, and 24', prompt)
+        self.assertIn('matching supplier/consumer prices for each block', prompt)
+
+    def test_distinct_size_price_blocks_keep_each_price_count_and_volume(self):
+        base = 'نوشيدنى آلوورا بر پايه عسل'
+        source = (
+            base + '\n'
+            '۱/۵ لیتر تعداد ۶ عددی\n'
+            'قیمت فروش ما: ۱۰۵/۰۰۰ تومان\nقیمت مصرف کننده: ۱۵۰/۰۰۰ تومان\n'
+            '۵۰۰ میل تعداد ۲۰ عددی\n'
+            'قیمت فروش ما: ۶۰/۰۰۰ تومان\nقیمت مصرف کننده: ۹۰/۰۰۰ تومان\n'
+            '۲۵۰ میل تعداد ۲۴ عددی\n'
+            'قیمت فروش ما: ۵۰/۰۰۰ تومان\nقیمت مصرف کننده: ۷۰/۰۰۰ تومان'
+        )
+        generated = []
+        for volume, count, sale, consumer in (
+            ('1.5 لیتر', 6, 105000, 150000),
+            ('500 میل', 20, 60000, 90000),
+            ('250 میل', 24, 50000, 70000),
+        ):
+            generated.append({
+                'name':base,'volume':volume,'package_count':count,
+                'unit_price':sale,'sale_price':sale,'consumer_price':consumer,
+                'price_type':'unit','currency':'IRT','confidence':0.99,
+            })
+        session = FakeSession(json.dumps(generated, ensure_ascii=False))
+        with patch.dict(os.environ, {'GOOGLE_API_KEY':'test-key'}, clear=True):
+            products = extract_message_products(source,'@supplier',session=session)
+        self.assertEqual(len(products),3)
+        self.assertEqual([(p['volume'],p['package_count'],p['sale_price'],p['actual_price'])
+            for p in products], [
+                ('1.5 لیتر',6,105000,150000),
+                ('500 میل',20,60000,90000),
+                ('250 میل',24,50000,70000),
+            ])
+        self.assertTrue(all(not product['needs_review'] for product in products))
+        prompt = session.call[1]['json']['contents'][0]['parts'][0]['text']
+        self.assertIn('never skip a middle size or its prices', prompt)
+
+        mismatched = dict(generated[2], volume='330 میل')
+        mismatch_session = FakeSession(json.dumps([mismatched], ensure_ascii=False))
+        with patch.dict(os.environ, {'GOOGLE_API_KEY':'test-key'}, clear=True):
+            mismatch = extract_message_products(source,'@supplier',session=mismatch_session)[0]
+        self.assertEqual(mismatch['volume'],'')
+        self.assertTrue(mismatch['needs_review'])
+        self.assertIn('not tied to its own labeled source price block', mismatch['review_reason'])
 
     def test_normal_zero_or_small_discount_does_not_require_review(self):
         headers = ['Product Name', 'Sale Price']
