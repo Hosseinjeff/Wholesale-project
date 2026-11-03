@@ -35,7 +35,8 @@ function molavi_site_page_links(): array
 
 function molavi_render_site_header(): void
 {
-    if (is_admin() || wp_doing_ajax() || !function_exists('wc_get_page_permalink')) {
+    if (is_admin() || wp_doing_ajax() || !function_exists('wc_get_page_permalink')
+        || (function_exists('molavi_is_storefront_request') && molavi_is_storefront_request())) {
         return;
     }
 

@@ -5,6 +5,7 @@
 defined('ABSPATH') || exit;
 
 get_header();
+\Molavi\Elementor\molavi_render_site_header();
 ?>
 <main id="primary" class="molavi-custom-shop-main">
     <?php \Molavi\Elementor\molavi_render_storefront(); ?>

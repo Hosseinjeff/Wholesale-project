@@ -511,7 +511,9 @@ body.molavi-storefront-page header.site-header,
 body.molavi-storefront-page footer.site-footer,
 body.molavi-storefront-page #header,
 body.molavi-storefront-page #masthead,
-body.molavi-storefront-page #colophon {
+body.molavi-storefront-page #colophon,
+body.molavi-storefront-page #footer,
+body.molavi-storefront-page #page > hr {
     display: none !important;
 }
 body.molavi-storefront-page .wp-site-blocks,
