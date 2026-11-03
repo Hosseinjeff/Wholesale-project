@@ -152,10 +152,25 @@ function molavi_storefront_card_product_name(\WC_Product $product, string $suppl
     $name = $replace('/[،,؛;]+/u', ' ', $name);
     $name = $replace('/[\p{Z}\s\p{Cf}]+/u', ' ', $name);
     $name = trim($name, " \t\n\r\0\x0B،,؛;:-");
-    if ($name !== '') {
+    if (preg_match('/[\p{L}\p{N}]/u', $name) === 1) {
         return $name;
     }
-    return $originalName !== '' ? $originalName : 'کالا';
+
+    // Some legacy titles include unusual direction marks that make PCRE's
+    // Unicode-property checks reject the cleaned result. Rebuild from the
+    // stored title with simple literal vocabulary before using a generic name.
+    $fallback = $originalName;
+    if ($supplier !== '') {
+        $withoutSupplier = $replace($pattern, ' ', $fallback);
+        if (preg_match('/[\p{L}\p{N}]/u', $withoutSupplier) === 1) {
+            $fallback = $withoutSupplier;
+        }
+    }
+    $fallback = $replace('/[0-9۰-۹٠-٩]+\s*(?:عددی|عدد|تایی|بسته|کارتن)/u', ' ', $fallback);
+    $fallback = $replace('/[0-9۰-۹٠-٩]+(?:[.,٫][0-9۰-۹٠-٩]+)?\s*(?:میلی\s*لیتر|میلی\s*گرم|کیلو\s*گرم|لیتر|گرم|کیلو|kg|g|ml|cc|l)/iu', ' ', $fallback);
+    $fallback = $replace('/[،,؛;]+/u', ' ', $fallback);
+    $fallback = trim($replace('/\s+/u', ' ', $fallback), " \t\n\r\0\x0B،,؛;:-");
+    return $fallback !== '' ? $fallback : ($originalName !== '' ? $originalName : 'کالا');
 }
 
 function molavi_render_storefront_card(\WC_Product $product, array $quote): void
