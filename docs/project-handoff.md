@@ -1,8 +1,31 @@
 # MolaviSale — whole-workflow handoff
 
-Snapshot 4.67. Updated 2026-11-02, Asia/Tehran. The canonical roleplay decisions are in
+Snapshot 4.68. Updated 2026-11-03, Asia/Tehran. The canonical roleplay decisions are in
 `roleplay-state.json`; current live evidence and release gates are in
 `pipeline-readiness.md` and `pipeline-readiness-evidence.json`.
+
+## Current live status — 2026-11-03
+
+WordPress plugin commit `ee6e4b5` is live and verified by cPanel read-back. The shop now
+has a visible heading and buyer-type selector above the product grid, card-local quantity
+feedback, and a clean document title. The duplicate Twenty Twenty-Five `#header` is hidden
+only on the shop page. The public shop returned HTTP 200 with 14 cards, one buyer selector,
+and feedback/status areas inside all 14 cards.
+
+Commit `d081585` contains the extraction prompt/parser corrections and reference-comparison
+data/UI changes. The WordPress UI part is deployed; the backend part is only pushed, not live.
+Railway production `Wholesale-project` is online on deployment `e59b1eb7-03a5-4644-8bd6-c00eef9ba5e1`
+from commit `e2dea37`; it has one running replica and no current issues. Its configured
+source has no branch attached. A previous automatic review rejected attaching it to moving
+`main`, so do not treat the new parser or detailed comparison fields as live until a supported
+one-commit deploy path is approved.
+
+Local verification: 52 extraction, reference-matching and reference-review tests passed;
+JavaScript syntax and Python compilation passed. Flask is not installed here, so three
+route tests in `tests.test_ai_confirmations` could not start; PHP CLI is unavailable. The
+after-change Gemini corpus pass also remains pending because its attempted network request
+was rejected by automatic review due to exporting full supplier posts to Google Gemini.
+No source posts were sent in that rejected attempt.
 
 ## Complete Son juice post correction — 2026-11-02
 

@@ -1,22 +1,23 @@
 # Site changes and preservation workflow
 
-Updated: 2026-11-02, Asia/Tehran
+Updated: 2026-11-03, Asia/Tehran
 
-## Latest live deployment — 2026-11-02
+## Latest live deployment — 2026-11-03
 
-Railway deployment `463ecb86-0a74-484b-ab34-e07fa6108b7d` succeeded from commit
-`cd272e9a4d5e24166fcb8d5d0c4bf2b6de0f9970`; `/health` returned HTTP 200 and `healthy`.
-The production source now follows GitHub `main`. The latest
-WordPress plugin deployment is commit `dea080c531170e1fd90f384d7335fc2eca724b5c`; cPanel
-read-back verified the changed owner workflow JavaScript and CSS. The extraction adapter
-and review fields are pushed to `main` and are live. The WordPress UI includes local title
-parsing for the flavor, volume and Tetra Pak format; the Railway API now returns the
-source-backed prices, carton quantity and separate flavor records.
-The complete Son juice post is now covered by a regression test for its labeled supplier
-price, consumer price, carton quantity and seven flavors. See `project-handoff.md` for the
-correction and `pipeline-readiness.md` for the earlier queue snapshot and outstanding backlog.
-The backend fix is in `c469e29`; deployment `463ecb86-0a74-484b-ab34-e07fa6108b7d` uses
-the subsequent documentation commit `cd272e9` on `main`.
+WordPress plugin commit `ee6e4b5cdc8ea56110386820e8f6c281c6a56518` is deployed and verified
+by cPanel read-back. It removes the duplicate Twenty Twenty-Five `#header` on the storefront,
+sets a clean shop title, and renders the storefront heading, buyer selector and per-product
+feedback/status areas. A public readback returned HTTP 200, 14 product cards, one buyer
+selector and 14 card feedback/status pairs; both title tags now say “فروشگاه مولوی‌سل”.
+
+The preceding WordPress plugin deployment at `d08158589081fb6f026845d0d6984c0942c307ca`
+also verified the new owner-card price presentation and direct candidate links. The
+extraction prompt/parser and detailed reference-candidate comparison data are pushed in
+that commit, but the Python backend is not live yet. Railway production is online with one
+replica and no current issues on deployment `e59b1eb7-03a5-4644-8bd6-c00eef9ba5e1`, commit
+`e2dea37`; the existing `Wholesale-project` source has no branch attached. A prior automatic
+review rejected changing it to follow moving `main`, so that backend change remains pending.
+See `project-handoff.md` for the current source state and validation limits.
 
 ## Source of truth
 
@@ -32,14 +33,14 @@ the subsequent documentation commit `cd272e9` on `main`.
 ## Deploying plugin code
 
 Most recent WordPress plugin deployment: commit
-`dea080c531170e1fd90f384d7335fc2eca724b5c` (2026-11-02). The uploader changed and
+`ee6e4b5cdc8ea56110386820e8f6c281c6a56518` (2026-11-03). The uploader changed and
 read back `includes/owner-workflows.js` and `includes/owner-workflows.css`; no host
-normalization was reported. Cards now surface explicit flavor, volume and packaging,
-offer button-first decisions, and combine variants only when source, price, size,
-packaging and review terms match. An unpriced title stays pending without exposing an
-empty edit form. The extraction adapter also recovers explicit Persian flavor and pack
-format labels, preserves the model's brand field, and rejects a measurement-only number
-as a supplier price unless the source contains a separate amount. Focused tests passed.
+normalization was reported. It also changed `molavi-shop.php` and `storefront.css` to remove
+the duplicate theme heading and normalize the shop title. The prior plugin deployment at
+`d08158589081fb6f026845d0d6984c0942c307ca` uploaded and verified the owner workflow JS/CSS,
+pricing/storefront renderer, shop JS and storefront CSS. Its cards show distinct supplier
+unit/carton prices and clickable reference suggestions with comparison details when the
+backend supplies them. Focused Python tests and JavaScript syntax checks passed.
 
 Railway read-back after the push shows the production `Wholesale-project` service on
 successful deployment `ce182584-7a2c-4812-ac97-fef8e9517d8f`, commit
