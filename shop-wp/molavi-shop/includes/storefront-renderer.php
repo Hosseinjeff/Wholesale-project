@@ -125,6 +125,7 @@ function molavi_storefront_card_product_name(\WC_Product $product, string $suppl
     if ($supplier !== '') {
         $name = str_ireplace($supplier, ' ', $name);
     }
+    $name = str_ireplace(['تعداد در کارتن', 'تعداد در بسته', 'تعداد در جعبه', 'تعداد'], ' ', $name);
     $name = $replace(
         '/(?:کارتن|بسته|جعبه)?\s*[0-9۰-۹٠-٩]{1,4}\s*(?:عددی|عدد|تایی|بسته|کارتن)/u',
         ' ',
