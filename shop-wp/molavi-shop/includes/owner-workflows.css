@@ -65,6 +65,7 @@
 #molavi-owner-workflow .molavi-ai-reference-option span { display:block; font-size:.9em; line-height:1.55; }
 #molavi-owner-workflow .molavi-ai-quick-actions { display:flex; flex-wrap:wrap; align-items:center; gap:.6rem; margin:.75rem 0; }
 #molavi-owner-workflow .molavi-ai-quick-actions button { min-height:2.75rem; }
+#molavi-owner-workflow .molavi-ai-price-basis-hint { flex:1 1 100%; margin:.25rem 0; padding:.55rem .7rem; border-inline-start:3px solid #dba617; background:#fcf9e8; line-height:1.65; }
 #molavi-owner-workflow .molavi-ai-manual-edit { margin-top:.75rem; padding-top:.5rem; border-top:1px solid #dcdcde; }
 #molavi-owner-workflow .molavi-reference-roles { display:flex; flex-wrap:wrap; align-items:center; gap:.5rem; width:100%; }
 #molavi-owner-workflow .molavi-reference-role[aria-pressed="true"] { outline:2px solid #2271b1; outline-offset:1px; }

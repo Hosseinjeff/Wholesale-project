@@ -218,6 +218,33 @@ async function main() {
   assert.equal(calls.filter(item => item.options.method === 'POST'
     && item.url === workflowApis.ai_confirmations.url).length,0,
   'source completeness checks do not approve or modify extracted offers');
+
+  const juiceMessage = 'آبمیوه تکه میوه سانی نس،۲۴ عددی\nقیمت فروش ما: ۱/۲۰۰/۰۰۰ تومان\nقیمت مصرف کننده: ۹۵/۰۰۰ تومان';
+  data['ai-confirmations'].cases = [{
+    case_id:`ai:${'e'.repeat(64)}`,offer_id:'historical:juice',signature:'e'.repeat(64),
+    product_name:'آبمیوه تکه میوه سانی نس،۲۴ عددی',channel:'@bonakdarjavan',source_channel:'telegram',
+    message_id:'7286',source_post_url:'',message_timestamp:'1787571328',historical_reextract:true,
+    price_type:'unit',detected_price:'1200000',sale_price:'1200000',actual_price:'95000',
+    package_count:'24',stock_status:'Unknown',reason:'Unusual discount -1163%; Historical price needs current supplier verification',
+    original_message:juiceMessage
+  }];
+  await refreshButton.listeners.click();
+  visibleCards = walk(root).filter(element => element.className.split(/\s+/).includes('molavi-product-card'));
+  assert.equal(visibleCards.length,1);
+  assert.match(visibleCards[0].text,/۵۰٬۰۰۰ تومان برای هر واحد/,
+    'the owner card shows the per-unit calculation if the extracted amount is a 24-count package total');
+  const packageConfirm = walk(visibleCards[0]).find(element => element.tagName === 'BUTTON'
+    && element.dataset.priceRole === 'package');
+  assert(packageConfirm && packageConfirm.disabled,
+    'the alternate package-price confirmation remains gated until the current historical price is checked');
+  const currentSourceCheck = walk(visibleCards[0]).find(element => element.tagName === 'INPUT');
+  assert(currentSourceCheck,'historical price decisions require an explicit current-source check');
+  currentSourceCheck.checked = true;
+  currentSourceCheck.listeners.change();
+  assert(!packageConfirm.disabled,'checking the current source unlocks only the previously presented price-basis option');
+  assert.equal(calls.filter(item => item.options.method === 'POST'
+    && item.url === workflowApis.ai_confirmations.url).length,0,
+  'reviewing the ambiguous package basis never submits an owner decision');
 }
 
 main().catch(error => { console.error(error); process.exitCode = 1; });

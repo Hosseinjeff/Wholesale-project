@@ -1481,6 +1481,18 @@
                 ? `تأیید هر ${relatedItems.length} نوع با قیمت ${amount(aiDecisionFields(item, quickRole)?.sale_price || price)} · ${quickRole === 'package' ? 'بسته' : 'واحد'}`
                 : `تأیید با همین مشخصات · ${quickRole === 'package' ? 'قیمت بسته' : 'قیمت واحد'}`;
             addQuickConfirm(quickRole, quickLabel);
+            const packageFields = quickRole === 'unit' ? aiDecisionFields(item, 'package') : null;
+            const packageUnitPrice = packageFields && packageFields.package_count
+                ? Math.round(packageFields.sale_price / packageFields.package_count) : 0;
+            if (packageFields && packageFields.package_count > 1 && regularPrice > 0
+                && visibleSupplierPrice > regularPrice && packageUnitPrice > 0
+                && packageUnitPrice < regularPrice) {
+                quickActions.appendChild(node('p',
+                    `اگر ${amount(packageFields.sale_price)} قیمت کل بستهٔ ${new Intl.NumberFormat('fa-IR').format(packageFields.package_count)}‌تایی باشد، معادل ${amount(packageUnitPrice)} برای هر واحد است؛ مبنا را در پیام جدیدتر تأمین‌کننده بررسی کنید.`,
+                    'molavi-ai-price-basis-hint'));
+                addQuickConfirm('package',
+                    `تأیید مبلغ به‌عنوان قیمت کل بستهٔ ${new Intl.NumberFormat('fa-IR').format(packageFields.package_count)}‌تایی`);
+            }
         } else {
             addQuickConfirm('unit', `تأیید ${relatedItems.length > 1 ? 'همه انواع' : 'کالا'} به‌عنوان قیمت هر واحد`);
             const packageButton = addQuickConfirm('package', `تأیید ${relatedItems.length > 1 ? 'همه انواع' : 'کالا'} به‌عنوان قیمت بسته`);
