@@ -498,6 +498,7 @@ body.molavi-storefront-page .elementor-location-header,
 body.molavi-storefront-page .elementor-location-footer,
 body.molavi-storefront-page header.site-header,
 body.molavi-storefront-page footer.site-footer,
+body.molavi-storefront-page #header,
 body.molavi-storefront-page #masthead,
 body.molavi-storefront-page #colophon {
     display: none !important;

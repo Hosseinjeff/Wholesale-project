@@ -68,6 +68,21 @@ function molavi_is_storefront_request(): bool
     return $shopId > 0 && is_page($shopId);
 }
 
+add_filter('pre_get_document_title', static function (string $title): string {
+    return !is_admin() && molavi_is_storefront_request() ? 'فروشگاه مولوی‌سل' : $title;
+}, 999);
+
+add_filter('document_title_parts', static function (array $parts): array {
+    if (!is_admin() && molavi_is_storefront_request()) {
+        return ['title' => 'فروشگاه مولوی‌سل'];
+    }
+    return $parts;
+}, 999);
+
+add_filter('wp_title', static function (string $title): string {
+    return !is_admin() && molavi_is_storefront_request() ? 'فروشگاه مولوی‌سل' : $title;
+}, 999);
+
 add_filter('body_class', static function (array $classes): array {
     if (!is_admin() && !wp_doing_ajax()) {
         $classes[] = 'molavi-site-page';
