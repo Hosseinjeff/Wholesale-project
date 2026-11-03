@@ -101,6 +101,13 @@ function molavi_storefront_card_product_name(\WC_Product $product, string $suppl
     if (preg_match('/[\p{L}\p{N}]/u', $originalName) !== 1) {
         $originalName = '';
     }
+    if ($originalName === '' && function_exists('get_post_field')) {
+        $storedTitle = trim(wp_strip_all_tags((string) get_post_field('post_title', $product->get_id())));
+        $storedTitle = trim((string) preg_replace('/[\p{Z}\s\p{Cf}]+/u', ' ', $storedTitle));
+        if (preg_match('/[\p{L}\p{N}]/u', $storedTitle) === 1) {
+            $originalName = $storedTitle;
+        }
+    }
     if ($originalName === '') {
         $slug = method_exists($product, 'get_slug') ? (string) $product->get_slug() : '';
         if ($slug === '' && function_exists('get_post_field')) {
