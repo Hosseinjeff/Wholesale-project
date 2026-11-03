@@ -86,6 +86,11 @@ function molavi_product_profile(WC_Product $product): array
     $defaultHouseholdUnit = max(1, (int) ceil($defaultShopUnit / 2));
     $shopUnit = molavi_profile_value($product, '_molavi_shop_order_unit', $defaultShopUnit);
     $householdUnit = molavi_profile_value($product, '_molavi_household_order_unit', $defaultHouseholdUnit);
+    $orderUnitsDefaulted = $householdUnit > $shopUnit;
+    if ($orderUnitsDefaulted) {
+        $shopUnit = $defaultShopUnit;
+        $householdUnit = $defaultHouseholdUnit;
+    }
     $settings = molavi_price_settings();
     $householdRatio = $product->get_meta('_molavi_household_discount_cap_ratio', true);
     $shopRatio = $product->get_meta('_molavi_shop_discount_cap_ratio', true);
@@ -109,6 +114,7 @@ function molavi_product_profile(WC_Product $product): array
         'pack_size' => $packSize,
         'household_unit' => $householdUnit,
         'shop_unit' => $shopUnit,
+        'order_units_defaulted' => $orderUnitsDefaulted,
         'household_threshold_units' => is_numeric($householdThreshold) && $householdThreshold !== ''
             ? max(1, min(100, (int) $householdThreshold)) : max(1, (int) $settings['household_discount_threshold_units']),
         'shop_threshold_units' => is_numeric($shopThreshold) && $shopThreshold !== ''
@@ -375,7 +381,7 @@ function molavi_unit_price(array $curve, float $progress): int
 
 function molavi_catalog_map(): array
 {
-    $map = get_transient('molavi_catalog_v3');
+    $map = get_transient('molavi_catalog_v4');
     if (is_array($map)) {
         return $map;
     }
@@ -409,7 +415,7 @@ function molavi_catalog_map(): array
             'discountable' => $curve['discountable'] ? 1 : 0,
         ];
     }
-    set_transient('molavi_catalog_v3', $map, DAY_IN_SECONDS);
+    set_transient('molavi_catalog_v4', $map, DAY_IN_SECONDS);
     return $map;
 }
 
@@ -418,6 +424,7 @@ function molavi_forget_catalog(): void
     delete_transient('molavi_catalog_v1');
     delete_transient('molavi_catalog_v2');
     delete_transient('molavi_catalog_v3');
+    delete_transient('molavi_catalog_v4');
 }
 
 add_action('woocommerce_update_product', 'molavi_forget_catalog');
