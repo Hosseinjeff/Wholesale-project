@@ -2,7 +2,24 @@
 
 Updated: 2026-11-03, Asia/Tehran
 
-## Latest live deployment — 2026-11-03
+## Latest live deployment — 2026-11-03, Persian storefront title repair
+
+WordPress plugin commit `92bd3ad7404c375affcf5958f83bd49df9fd1db4` is live. The cPanel
+uploader deployed and verified `includes/storefront-renderer.php`; cPanel's inserted charset
+tag was normalized by the uploader. The title cleaner had passed Persian punctuation to PHP's
+byte-oriented `trim()` character list, which removed the first byte of some Arabic-script
+titles and made the escaped card title blank. The cleaner now trims ASCII punctuation only.
+A regression fixture for an `آبمیوه` title was added to the WordPress/WooCommerce runtime test.
+
+The live public and authenticated no-store storefront requests both returned HTTP 200 with 14
+product cards. All nine formerly blank titles (IDs 55, 53, 51, 49, 47, 45, 43, 41, and 38) now
+render in both the card heading and search data. The Store API still returns the full catalog
+names. No product, order, or Sheet data changed. `git diff --check` passed. The runtime test
+could not run in this workspace because PHP CLI is unavailable and the Docker socket is not
+accessible; the live HTML check verified the fix. One-time diagnostic and restart files were
+removed, and `wp-content/mu-plugins` is empty.
+
+## Previous live deployment — 2026-11-03, dashboard and initial title cleanup
 
 WordPress plugin commit `c8161803f866d6c3b1557fc97cbefae53a1dc8bc` is deployed. The cPanel
 uploader read back `includes/owner-workflows.js`, `includes/owner-workflows.css`, and
@@ -24,14 +41,9 @@ the reference and publication-hold queues were empty. The 124-product status sna
 longer presented as a product list; the dashboard starts in the highest-priority non-empty
 queue and keeps the rest behind explicit filters.
 
-The storefront renderer source is deployed and read back, and the public page has 14 cards with
-no stock/availability labels or known supplier names. The live HTML still has blank headings on
-nine cards (IDs 55, 53, 51, 49, 47, 45, 43, 41, and 38), so the title fix is not yet verified at
-runtime. WP Rocket is inactive, `wp-content` has no cache drop-ins, and cPanel reports that
-Nginx caching is unavailable; no supported account-level PHP-FPM/OPcache refresh was exposed
-through this cPanel account. A temporary PHP cache-diagnostic endpoint was rejected by
-automatic review because it would add executable code to production and could remain if cleanup
-failed; no endpoint was installed. Resolve this through a supported PHP-FPM/OPcache refresh.
+The first renderer cleanup still left nine blank headings. A live helper check found the title
+strings had invalid UTF-8 after byte-oriented trimming; commit `92bd3ad` above fixes and verifies
+that issue.
 
 ## Latest live deployment — 2026-11-03, 19:18 UTC
 
