@@ -233,6 +233,45 @@ class GeminiExtractionTests(unittest.TestCase):
         self.assertEqual(product['package_count'], 24)
         self.assertFalse(product['needs_review'])
 
+    def test_package_price_comes_from_source_when_model_confuses_box_count_for_amount(self):
+        title = 'چای نمونه'
+        content = (
+            title + '\nدر باکس ۱۲تایی\n'
+            'قیمت هر باکس ۱۲تایی: ۵۷۶٫۰۰۰ تومان\n'
+            'دونه ای: ۴۸٫۰۰۰ تومان'
+        )
+        product = parse_message_products(json.dumps([{
+            'name': title, 'package_count': 12, 'package_price': 12,
+            'unit_price': 48000, 'currency': 'IRT', 'confidence': 0.96,
+        }], ensure_ascii=False), content, '@supplier')[0]
+        self.assertEqual(product['sale_price'], 48000)
+        self.assertEqual(product['package_price'], 576000)
+        self.assertEqual(product['package_count'], 12)
+        self.assertFalse(product['needs_review'])
+
+    def test_emoji_prefixed_latin_title_is_a_product_not_an_empty_listing(self):
+        title = '🍄🌹🍁🐚: Big bear'
+        content = (
+            title + '\nدر باکس ۲۴تایی: ۷۴۰٫۰۰۰تومن\n'
+            'دونه ای: ۳۰٫۸۳۳تومن\nدر ۵ طعم متفاوت'
+        )
+        session = FakeSession(json.dumps([{
+            'name': title, 'package_count': 24, 'package_price': 24,
+            'unit_price': 30833, 'currency': 'IRT', 'confidence': 0.96,
+        }], ensure_ascii=False))
+        with patch.dict(os.environ, {'GOOGLE_API_KEY': 'test-key'}, clear=True):
+            products = extract_message_products(content, '@supplier', session=session)
+        self.assertEqual(len(products), 1)
+        self.assertEqual(products[0]['name'], title)
+        self.assertEqual(products[0]['variation_type'], '')
+        self.assertEqual(products[0]['package_count'], 24)
+        self.assertEqual(products[0]['sale_price'], 30833)
+        self.assertEqual(products[0]['package_price'], 740000)
+        self.assertFalse(products[0]['needs_review'])
+        prompt = session.call[1]['json']['contents'][0]['parts'][0]['text']
+        self.assertIn('Emojis are decorative', prompt)
+        self.assertIn('Return one product with the exact first line as its name', prompt)
+
     def test_missing_optional_consumer_price_does_not_keep_confirmed_supplier_price_queued(self):
         title = 'بلک ولف شیشه ای طعم انار'
         content = 'بلک ولف شیشه ای\nدونه ای: ۲۳٬۰۰۰ تومان'

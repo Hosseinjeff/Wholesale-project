@@ -23,6 +23,7 @@ _UNIT_PRICE_LABEL = re.compile(
 _PACKAGE_PRICE_LABEL = re.compile(
     r'(?:قیمت\s*(?:(?:هر\s*)?(?:یک\s*)?)?(?:باکس|کارتن|کارتون|بسته)(?:ی)?|'
     r'هر\s*(?:یک\s*)?(?:باکس|کارتن|کارتون|بسته)(?:ی)?|'
+    r'(?:در|داخل)\s*(?:هر\s*)?(?:باکس|کارتن|کارتون|بسته)|'
     r'(?:باکسی|کارتنی|کارتونی|بسته‌ای|ورق\s*\d*\s*تایی)\s*[:=]|'
     r'\b(?:package|carton|box|case)\s+price\b|'
     r'\bprice\s+(?:per|of)\s+(?:package|carton|box|case)\b)', re.I)
@@ -116,6 +117,10 @@ knowledge. If the title contains no explicit measurement unit, leave that field 
 Never interpret a measurement as money: for example, `۲۲۰ میلی لیتر` is volume 220 ml,
 not a price of 220. A phrase such as `طعم هلو` is variant `هلو`; `تتراپک` is packaging.
 Keep the product name intact while also filling these separate fields.
+Emojis are decorative and do not make a listing non-product text. If a line begins with
+emojis and then names a product in Persian or Latin text, preserve that whole line as the
+product title when prices or package details follow. A statement such as `در ۵ طعم متفاوت`
+does not identify five variants: return one product and do not invent flavor names.
 Use needs_review=true only when a critical field cannot be safely resolved from the
 source: product identity, supplier amount, currency, unit-versus-package price role, a
 package count needed to calculate a unit price, or a genuinely conflicting/unreadable
@@ -165,6 +170,15 @@ Example source title `بلک ولف شیشه ای` with extracted variant title
 `بلک ولف شیشه ای طعم انار`: keep the variant title, but associate price/count details
 only with the unique exact base-title line. Do not ask the owner to resolve the word
 `طعم` as a separate title or as a reference-catalog match.
+
+Example source message:
+`🍄🌹🍁🐚: Big bear`
+`در باکس ۲۴تایی: ۷۴۰٫۰۰۰تومن`
+`دونه ای: ۳۰٫۸۳۳تومن`
+`در ۵ طعم متفاوت`
+Return one product with the exact first line as its name, package_count 24,
+unit_price 30833, package_price 740000, and no invented variant. The labeled supplier
+prices and currency are explicit, so this listing does not need review.
 
 Fields: name, brand, category, variant, sale_price, consumer_price, unit_price,
 package_price, consumer_package_price, regular_package_price, price_type, currency,
@@ -360,7 +374,9 @@ def _labeled_amounts(content, label_pattern, *, skip_leading_package_count=False
             if skip_leading_package_count:
                 # In “قیمت هر باکس ۲۴: ۷۴۰٬۰۰۰”, the number before the colon
                 # is the box count, not the package price.
-                suffix = re.sub(r'^\s*\d{1,4}\s*[:：]\s*', '', suffix, count=1)
+                suffix = re.sub(
+                    r'^\s*\d{1,4}\s*(?:(?:عدد|تایی|عددی)\s*[:：]?\s*|[:：]\s*)',
+                    '', suffix, count=1)
             match = re.search(r'(?<!\d)\d(?:[\d,٬٫./ ]*\d)?(?!\d)', suffix)
             if not match:
                 continue
@@ -715,8 +731,8 @@ def _product(item, content, channel, source_titles=()):
         'confirmed_price_role': confirmed_role,
         'actual_price': consumer or None,
         'consumer_price': consumer or None,
-        'package_price': package if source_package_price and package else None,
-        'double_pack_price': package if source_package_price and package else None,
+        'package_price': source_package_price or None,
+        'double_pack_price': source_package_price or None,
         'double_pack_consumer_price': consumer_package or None,
         'price_type': price_type,
         'currency': currency,
