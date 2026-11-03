@@ -122,6 +122,7 @@
         if (!response.ok || !body || body.ok !== true) {
             const error = new Error(body && typeof body.error === 'string' ? body.error : 'request_failed');
             error.requestStatus = response.status;
+            error.responseBody = body;
             error.remoteRejected = response.status >= 400 && response.status < 500
                 && Boolean(body && body.ok === false);
             throw error;
@@ -735,8 +736,17 @@
                         updateActionStatus(progressStatus, message, warning ? 'warning' : 'success');
                         await dashboard(message, warning ? 'warning' : 'success');
                     } catch (error) {
-                        try { await persistOwnerReviews([reviewRecord(reviewEventId('sheet_conflict',conflict.conflict_id),'sheet_conflict',conflict.conflict_id,error.remoteRejected?'failed':'pending',{},decision,{error:String(error.message||'request_failed')})]); }
+                        try { await persistOwnerReviews([reviewRecord(eventId,'sheet_conflict',conflict.conflict_id,error.remoteRejected?'failed':'pending',{},decision,{error:String(error.message||'request_failed')})]); }
                         catch (_ignored) {}
+                        if (error.message === 'source_changed' && error.responseBody
+                            && error.responseBody.refreshed === true) {
+                            await dashboard('نسخهٔ این تعارض کهنه بود؛ اطلاعات تازه بارگذاری شد. موردهای باقی‌مانده را بررسی کنید.', 'info');
+                            return;
+                        }
+                        if (error.message === 'conflict_changed') {
+                            await dashboard('این تعارض هم‌زمان تغییر کرد؛ صف تازه شد تا فقط موارد باز را ببینید.', 'info');
+                            return;
+                        }
                         updateActionStatus(progressStatus, errorText(error.message), 'error');
                         errorBox(errorText(error.message),section); useServer.disabled = !contextStored.sheet_conflicts;
                         useSheet.disabled = serverOwned || sheetPreserved || !contextStored.sheet_conflicts;
@@ -2689,7 +2699,7 @@
                                 : !receipt.publish_job)) throw new Error('invalid_receipt');
                         let localWarning = '';
                         try {
-                            await persistOwnerReviews([reviewRecord(reviewEventId('sheet_conflict', conflict.conflict_id),
+                            await persistOwnerReviews([reviewRecord(eventId,
                                 'sheet_conflict', conflict.conflict_id, 'accepted', {}, decision, receipt)]);
                         } catch (_error) { localWarning = ' تصمیم در سرویس ثبت شد، اما وضعیت محلی وردپرس در انتظار همگام‌سازی است.'; }
                         const successMessage = serverOwned
@@ -2700,9 +2710,18 @@
                             localWarning ? 'warning' : 'success');
                     } catch (error) {
                         try {
-                            await persistOwnerReviews([reviewRecord(reviewEventId('sheet_conflict', conflict.conflict_id),
+                            await persistOwnerReviews([reviewRecord(eventId,
                                 'sheet_conflict', conflict.conflict_id, 'failed', {}, decision, {error:error.message})]);
                         } catch (_ignored) {}
+                        if (error.message === 'source_changed' && error.responseBody
+                            && error.responseBody.refreshed === true) {
+                            await sheetConflicts('نسخهٔ این تعارض کهنه بود؛ فهرست تازه شد و موردهای باقی‌مانده نمایش داده می‌شوند.', 'info');
+                            return;
+                        }
+                        if (error.message === 'conflict_changed') {
+                            await sheetConflicts('این تعارض هم‌زمان تغییر کرد؛ فهرست تازه شد تا فقط موارد باز را ببینید.', 'info');
+                            return;
+                        }
                         await sheetConflicts(`${errorText(error.message)} فهرست تعارض‌ها تازه شد؛ موردهای باقی‌مانده را دوباره بررسی کنید.`, 'warning');
                     }
                 };

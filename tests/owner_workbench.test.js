@@ -62,13 +62,20 @@ async function main() {
     operations: {operations:{by_state:{},items:[],failed_publication_ids:[],failed_batch_ids:[],publication_holds:0,sheet_conflicts:1}},
   };
   const calls = [];
+  const storedReviewRows = [];
   const fetch = async (url, options = {}) => {
     calls.push({url:String(url),options});
     if (String(url) === '/admin-ajax.php') {
       const records = new URLSearchParams(options.body).get('records');
-      return {ok:true,status:200,json:async()=>({success:true,data:{stored:JSON.parse(records).length}})};
+      const parsed = JSON.parse(records);
+      storedReviewRows.push(...parsed);
+      return {ok:true,status:200,json:async()=>({success:true,data:{stored:parsed.length}})};
     }
     const path = new URL(String(url),base).pathname;
+    if (path.endsWith('/sheet-conflicts') && options.method === 'POST') {
+      data['sheet-conflicts'].conflicts = [];
+      return {ok:false,status:409,json:async()=>({ok:false,error:'source_changed',refreshed:true})};
+    }
     if (path.endsWith('/supplier-price-evidence') && options.method === 'POST') {
       const payload = JSON.parse(options.body);
       return {ok:true,status:200,json:async()=>({ok:true,product_id:payload.product_id,
@@ -136,6 +143,21 @@ async function main() {
   assert(secondaryDetails && secondaryDetails.open !== true,
     'other product checks stay collapsed until requested');
   assert.equal(calls.length,callsBeforeQueueSwitch,'switching queues is immediate and does not reload data');
+  secondaryDetails.open = true;
+  const serverConflictChoice = walk(visibleCards[0]).find(element => element.tagName === 'BUTTON'
+    && element.textContent === 'اعمال مقدار فعلی سرور');
+  assert(serverConflictChoice,'the Sheet conflict can be acted on from its product card');
+  await serverConflictChoice.listeners.click();
+  assert.match(root.text,/نسخهٔ این تعارض کهنه بود؛ اطلاعات تازه بارگذاری شد/,
+    'a stale source conflict refreshes in place instead of becoming an error wall');
+  assert(!root.text.includes('این تعارض قبلاً تغییر کرده یا تعیین تکلیف شده است'),
+    'the dashboard does not leave a stale conflict error visible after refreshing');
+  const conflictAttemptRows = storedReviewRows.filter(item => item.review_type === 'sheet_conflict'
+    && item.review_id === 'sheet:one' && ['pending','failed'].includes(item.state));
+  assert.equal(conflictAttemptRows.length,2,'the local review log records both the attempt and stale response');
+  assert.equal(conflictAttemptRows[0].event_id,conflictAttemptRows[1].event_id,
+    'the final conflict result updates the same WordPress event instead of stranding a pending record');
+  assert.equal(conflictAttemptRows[1].state,'failed');
   for (const key of Object.keys(workflowApis)) {
     const call = calls.find(item => item.url === workflowApis[key].url);
     assert(call, `${key} API must load independently`);
