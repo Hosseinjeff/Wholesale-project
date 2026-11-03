@@ -6,7 +6,7 @@ Snapshot 4.70. Updated 2026-11-03, Asia/Tehran. The canonical roleplay decisions
 
 ## Current live status — 2026-11-03
 
-The WordPress plugin is live at main commit `8184717`; Railway remains on backend commit
+The WordPress plugin is live at main commit `40b6efa`; Railway remains on backend commit
 `71b2657`. cPanel read-back verified the updated `includes/owner-workflows.js`. Railway deployment
 `eadbf641-36f5-4e8e-b4d8-6db5f0540c59` succeeded; the service is online with one replica,
 no warnings, failures or pending work, and `/health` returns `healthy`. The service retains
@@ -42,9 +42,16 @@ data and returns `source_changed` with `refreshed: true`, but the dashboard show
 refresh as a blocking error and left the stale card visible. WordPress commit `8184717` is
 live: both conflict views now reload the queue with an informational status after this
 response, and conflict action results update the original WordPress audit row rather than
-leaving its pending row open. A regression test covers the stale response and audit update.
-The remaining two conflicts are on the current offer revision and still need review;
-their server and Sheet values diverge, so no choice was submitted. No Sheet rows changed.
+leaving its pending row open. Cards now show the last synchronized value and explain that a
+Sheet value should be sent to WordPress only when the owner made that manual edit. If a server
+value came from a previous owner decision, the card also shows that decision and links to its
+source post. A regression test covers stale-response recovery and source provenance.
+
+The two remaining conflicts are on the current offer revision and need owner review. One
+status conflict says Railway `not_product` versus Sheet `imported`; the Railway value traces
+to a previous `not_product` owner decision, while its source post explicitly lists a six-unit
+box and sale/consumer prices. No decision was changed because this would reverse an existing
+owner choice. No Sheet rows changed.
 
 ## Complete Son juice post correction — 2026-11-02
 

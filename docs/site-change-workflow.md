@@ -4,7 +4,7 @@ Updated: 2026-11-03, Asia/Tehran
 
 ## Latest live deployment — 2026-11-03, Sheet conflict card recovery
 
-WordPress plugin commit `81847172eb18723e2e55eab4e182f47b6fee088d` is live; Railway
+WordPress plugin commit `40b6efa294021a1e8cd9ea5746ec118351cec4f8` is live; Railway
 remains on backend commit `71b2657`. The cPanel uploader deployed and read back
 `includes/owner-workflows.js` with no host normalization.
 
@@ -12,11 +12,15 @@ Seven of nine audited Sheet conflicts referenced an older offer version than the
 status endpoint. When the resolver refreshes such an item, the unified card and dedicated
 conflict screen now treat `source_changed` with `refreshed: true` as an informational
 refresh and reload the queue. Conflict actions also update their existing WordPress audit
-event, so they no longer leave a second, orphaned pending row.
+event, so they no longer leave a second, orphaned pending row. Cards show the last synced
+baseline and explain the server-first/manual-Sheet rule. If a conflict comes from an earlier
+owner decision, the card shows that decision and links to its source post. The current
+`not_product` versus `imported` conflict was left untouched: its existing owner decision
+contradicts a source post that clearly lists a six-unit product with sale and retail prices.
 
 `node --check shop-wp/molavi-shop/includes/owner-workflows.js`,
 `node tests/owner_workbench.test.js`, and `git diff --check` passed. The interaction test
-covers the stale-source response and verifies the WordPress audit event is updated in place.
+covers stale-source recovery, same-event audit updates, conflict baselines, and source links.
 The PHP runtime check could not start because the environment denied access to Docker.
 There was no authenticated WordPress browser profile for a screenshot. No Sheet rows or
 product decisions changed.
