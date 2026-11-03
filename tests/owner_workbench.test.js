@@ -103,12 +103,16 @@ async function main() {
   const walk = element => [element,...element.childNodes.filter(child=>child instanceof Element).flatMap(walk)];
   const cards = walk(root).filter(element => element.className.split(/\s+/).includes('molavi-product-card'));
   assert.equal(cards.length,1,'the review queue renders one product card at a time');
-  assert.match(root.text,/کالای ۱ از ۲/,'only the current product is rendered in the review queue');
+  assert.match(root.text,/تعارض شیت · کالای ۱ از ۱/,'the first screen opens directly on the highest-priority non-empty queue');
   assert.match(cards[0].text,/تازگی قیمت تأمین‌کننده/);
   assert.match(cards[0].text,/تعارض داده/);
   assert.match(cards[0].text,/REF-12/);
   assert(!walk(root).some(element => element.tagName === 'IFRAME'));
   assert(!walk(root).some(element => element.className.split(/\s+/).includes('molavi-admin-tabs')));
+  const allQueue = walk(root).find(element => element.tagName === 'BUTTON'
+    && element.textContent.startsWith('همه کارهای باز'));
+  await allQueue.listeners.click();
+  assert.match(root.text,/کالای ۱ از ۲/,'the all-work queue keeps one product visible while navigating');
   const nextButton = walk(root).find(element => element.tagName === 'BUTTON' && element.textContent === 'بعدی');
   await nextButton.listeners.click();
   let visibleCards = walk(root).filter(element => element.className.split(/\s+/).includes('molavi-product-card'));
@@ -118,15 +122,30 @@ async function main() {
   await previousButton.listeners.click();
   visibleCards = walk(root).filter(element => element.className.split(/\s+/).includes('molavi-product-card'));
   assert.match(visibleCards[0].text,/Noodle 12 pack/);
+  const priceQueue = walk(root).find(element => element.tagName === 'BUTTON'
+    && element.textContent.startsWith('قیمت تأمین‌کننده'));
+  assert(priceQueue && !priceQueue.disabled, 'each workflow queue has its own visible product count');
+  const callsBeforeQueueSwitch = calls.length;
+  await priceQueue.listeners.click();
+  visibleCards = walk(root).filter(element => element.className.split(/\s+/).includes('molavi-product-card'));
+  assert.equal(visibleCards.length,1,'queue filters keep the unified product view to one card');
+  assert.equal(priceQueue.attributes['aria-pressed'],'true','the active queue is visibly selected');
+  assert.match(visibleCards[0].text,/تازگی قیمت تأمین‌کننده/,'the selected queue opens its matching action');
+  const secondaryDetails = walk(visibleCards[0]).find(element => element.className
+    .split(/\s+/).includes('molavi-secondary-product-details'));
+  assert(secondaryDetails && secondaryDetails.open !== true,
+    'other product checks stay collapsed until requested');
+  assert.equal(calls.length,callsBeforeQueueSwitch,'switching queues is immediate and does not reload data');
   for (const key of Object.keys(workflowApis)) {
     const call = calls.find(item => item.url === workflowApis[key].url);
     assert(call, `${key} API must load independently`);
     assert.equal(call.options.headers.Authorization,`Bearer scoped-${key}`);
   }
   assert(calls.some(item => item.url === '/admin-ajax.php'), 'source context is retained in WordPress');
-  const verifyButton = walk(cards[0]).find(element => element.tagName === 'BUTTON'
+  const verifyButton = walk(visibleCards[0]).find(element => element.tagName === 'BUTTON'
     && element.textContent.includes('منبع فعلی را دیدم'));
   assert(verifyButton && !verifyButton.disabled, 'one-click supplier price review stays inside its product card');
+  const mountedBoard = walk(root).find(element => element.className.split(/\s+/).includes('molavi-workbench-board'));
   await verifyButton.listeners.click();
   const verification = calls.find(item => item.options.method === 'POST'
     && item.url === workflowApis.supplier_prices.url);
@@ -135,6 +154,8 @@ async function main() {
   assert(calls.filter(item => item.url === workflowApis.product_status.url).length >= 2,
     'successful action refreshes the dashboard data asynchronously');
   assert.match(root.text,/بررسی قیمت ثبت شد/,'success feedback remains visible after the in-place refresh');
+  assert.equal(walk(root).find(element => element.className.split(/\s+/).includes('molavi-workbench-board')),
+    mountedBoard,'AJAX updates the mounted dashboard instead of replacing or reloading the page');
   assert.equal(window.location.href,'https://site.test/wp-admin/admin.php?page=molavi-operations',
     'review actions do not navigate or reload the browser page');
 }

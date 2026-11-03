@@ -299,9 +299,14 @@
         container.prepend(notice(message, 'error'));
     }
 
-    let workbenchShowAll = false;
+    let workbenchQueue = '';
     let workbenchIndex = 0;
     let workbenchSelectedKey = '';
+    let workbenchLoadId = 0;
+    let workbenchMounted = false;
+    let workbenchBoard = null;
+    let workbenchRefresh = null;
+    let workbenchLiveStatus = null;
 
     function workbenchNameKey(name) {
         return String(name || '').normalize('NFKC').toLocaleLowerCase()
@@ -333,13 +338,24 @@
         status.replaceChildren(node('p', text));
     }
 
-    function workbenchNextStep(product) {
-        if (product.ai.length) return 'اقدام بعدی: اطلاعات استخراج‌شده را بررسی و تأیید یا اصلاح کنید.';
-        if (product.references.length) return 'اقدام بعدی: مرجع درست و مبنای قیمت را انتخاب کنید.';
-        if (product.conflicts.length) return 'اقدام بعدی: تعارض را با نگه‌داشتن مقدار سرور یا اعمال ویرایش دستی شیت حل کنید.';
-        if (product.supplierPrices.length) return 'اقدام بعدی: منبع پیام را باز کنید و تازگی قیمت را تأیید کنید.';
-        if (product.holds.length) return 'اقدام بعدی: جزئیات دستهٔ متوقف‌شده را در بخش پایین بررسی کنید.';
-        if (product.status && product.status.update_needed) return 'اقدام بعدی: وضعیت انتشار کالا را در جزئیات فنی بررسی کنید.';
+    function workbenchActionKey(product) {
+        if (product.ai.length) return 'ai';
+        if (product.references.length) return 'references';
+        if (product.conflicts.length) return 'conflicts';
+        if (product.supplierPrices.length) return 'supplier_prices';
+        if (product.holds.length) return 'holds';
+        if (product.status && product.status.update_needed) return 'status';
+        return 'next';
+    }
+
+    function workbenchNextStep(product, queue = workbenchQueue) {
+        const key = queue === 'next' ? workbenchActionKey(product) : queue;
+        if (key === 'ai') return 'اقدام بعدی: اطلاعات استخراج‌شده را بررسی و تأیید یا اصلاح کنید.';
+        if (key === 'references') return 'اقدام بعدی: مرجع درست و مبنای قیمت را انتخاب کنید.';
+        if (key === 'conflicts') return 'اقدام بعدی: تعارض را با نگه‌داشتن مقدار سرور یا اعمال ویرایش دستی شیت حل کنید.';
+        if (key === 'supplier_prices') return 'اقدام بعدی: منبع پیام را باز کنید و تازگی قیمت را تأیید کنید.';
+        if (key === 'holds') return 'اقدام بعدی: دستهٔ متوقف‌شده را در بخش دسته‌های مشترک پایین صفحه تعیین تکلیف کنید.';
+        if (key === 'status') return 'اقدام بعدی: وضعیت انتشار کالا را در جزئیات فنی بررسی کنید.';
         return 'برای این کالا اقدام بازی ثبت نشده است.';
     }
 
@@ -354,25 +370,34 @@
     }
 
     async function dashboard(message = '', messageKind = 'info') {
-        shell('بررسی کالاها', 'هر بار فقط یک کالا نمایش داده می‌شود؛ اقدام‌ها همین‌جا و بدون بارگذاری کامل صفحه ثبت می‌شوند.');
-        const refresh = node('button', 'به‌روزرسانی وضعیت', 'button button-secondary');
-        refresh.type = 'button';
-        refresh.addEventListener('click', async () => {
-            refresh.disabled = true;
-            refresh.textContent = 'در حال دریافت…';
-            await dashboard();
-        });
-        const toolbar = node('div', null, 'molavi-workbench-toolbar');
-        toolbar.appendChild(refresh);
-        const showAll = node('button', workbenchShowAll ? 'بازگشت به موارد نیازمند اقدام' : 'دیدن کالاهای بدون اقدام', 'button button-secondary');
-        showAll.type = 'button';
-        showAll.addEventListener('click', () => { workbenchShowAll = !workbenchShowAll; dashboard(); });
-        toolbar.appendChild(showAll);
-        root.appendChild(toolbar);
-        if (message) root.appendChild(notice(message, messageKind));
-        const board = node('section', null, 'molavi-workbench-board');
-        board.appendChild(node('p', 'در حال جمع‌کردن وضعیت کالاها از وردپرس و سرویس پردازش…'));
-        root.appendChild(board);
+        if (!workbenchMounted) {
+            shell('بررسی کالاها', 'یک کالا در هر نوبت؛ صف را بر اساس نوع کار انتخاب کنید و همان‌جا انجام دهید.');
+            const toolbar = node('div', null, 'molavi-workbench-toolbar');
+            workbenchRefresh = node('button', 'به‌روزرسانی صف', 'button button-secondary');
+            workbenchRefresh.type = 'button';
+            workbenchRefresh.addEventListener('click', () => dashboard());
+            toolbar.appendChild(workbenchRefresh);
+            root.appendChild(toolbar);
+            workbenchLiveStatus = node('p', 'در حال آماده‌سازی صف رسیدگی…', 'molavi-workbench-live-status');
+            workbenchLiveStatus.setAttribute('role', 'status');
+            workbenchLiveStatus.setAttribute('aria-live', 'polite');
+            root.appendChild(workbenchLiveStatus);
+            workbenchBoard = node('section', null, 'molavi-workbench-board');
+            workbenchBoard.appendChild(node('p', 'در حال دریافت موارد نیازمند رسیدگی…'));
+            root.appendChild(workbenchBoard);
+            workbenchMounted = true;
+        }
+        const thisLoad = ++workbenchLoadId;
+        workbenchRefresh.disabled = true;
+        workbenchRefresh.textContent = 'در حال تازه‌سازی…';
+        if (message) {
+            workbenchLiveStatus.className = `notice notice-${messageKind} molavi-workbench-live-status`;
+            workbenchLiveStatus.textContent = message;
+        } else {
+            workbenchLiveStatus.className = 'molavi-workbench-live-status';
+            workbenchLiveStatus.textContent = 'در حال تازه‌سازی صف رسیدگی…';
+        }
+        const board = workbenchBoard;
 
         const labels = {
             product_status:'وضعیت کاتالوگ', ai_confirmations:'استخراج', reference_items:'تطبیق مرجع',
@@ -386,10 +411,17 @@
         const keys = ['product_status','ai_confirmations','reference_items','supplier_prices',
             'sheet_conflicts','publication_holds','reference_decisions'];
         const loaded = await Promise.all([...keys.map(key => load(key)), load('operations','')]);
+        if (thisLoad !== workbenchLoadId) return;
         const data = Object.fromEntries(keys.map((key,index) => [key,loaded[index].data]));
         const operations = loaded[loaded.length - 1].data;
         const unavailable = loaded.map(result => result.error).filter(Boolean);
         board.replaceChildren();
+        workbenchRefresh.disabled = false;
+        workbenchRefresh.textContent = 'به‌روزرسانی صف';
+        if (!message) {
+            workbenchLiveStatus.className = 'molavi-workbench-live-status';
+            workbenchLiveStatus.textContent = 'صف آماده است؛ اقدام‌ها بدون خروج از این صفحه ثبت می‌شوند.';
+        }
 
         const products = [];
         const byProductId = new Map();
@@ -498,15 +530,10 @@
             || workbenchPriority(a)-workbenchPriority(b) || a.name.localeCompare(b.name,'fa'));
         const openProducts = products.filter(attention);
         const summary = node('section', null, 'card molavi-workbench-summary');
-        summary.appendChild(node('h2', 'وضعیت کاتالوگ'));
-        const metricRow = node('div', null, 'molavi-workbench-metrics');
-        appendStatusPill(metricRow, 'کالاها', products.length);
-        appendStatusPill(metricRow, 'نیازمند رسیدگی', openProducts.length, openProducts.length ? 'warning' : 'success');
-        appendStatusPill(metricRow, 'استخراج', products.reduce((n,item)=>n+item.ai.length,0));
-        appendStatusPill(metricRow, 'تطبیق مرجع', products.reduce((n,item)=>n+item.references.length,0));
-        appendStatusPill(metricRow, 'تعارض', products.reduce((n,item)=>n+item.conflicts.length,0));
-        appendStatusPill(metricRow, 'توقف انتشار', holds.length, holds.length ? 'warning' : 'success');
-        summary.appendChild(metricRow);
+        summary.appendChild(node('h2', 'صف رسیدگی'));
+        summary.appendChild(node('p', openProducts.length
+            ? 'فقط کارت فعلی باز است. برای محدودکردن کار، صف موردنظر را انتخاب کنید.'
+            : 'فعلاً موردی برای رسیدگی وجود ندارد.', 'molavi-workbench-summary-copy'));
         if (data.product_status) {
             const snapshots = Array.isArray(data.product_status.snapshots) ? data.product_status.snapshots : [];
             const latestSnapshot = snapshots.find(item => item.snapshot_id === data.product_status.latest_snapshot_id);
@@ -522,7 +549,16 @@
         }
 
         const renderProduct = product => {
+            const primaryKey = workbenchQueue === 'next' ? workbenchActionKey(product) : workbenchQueue;
             const card = node('article', null, 'card molavi-product-card');
+            const secondaryContent = node('div', null, 'molavi-secondary-product-checks');
+            const secondaryChecks = document.createElement('details');
+            secondaryChecks.className = 'molavi-secondary-product-details';
+            secondaryChecks.appendChild(node('summary', 'سایر موارد همین کالا'));
+            const addWorkflowSection = (section, key) => {
+                if (key === primaryKey) card.appendChild(section);
+                else secondaryContent.appendChild(section);
+            };
             if (product.holds.length) card.classList.add('is-held');
             if (product.conflicts.length) card.classList.add('has-conflict');
             const header = node('div', null, 'molavi-product-card-heading');
@@ -550,8 +586,6 @@
             if (status.update_needed) appendStatusPill(stateRow, 'به‌روزرسانی', 'لازم است', 'warning');
             if (product.holds.length) appendStatusPill(stateRow, 'انتشار', 'متوقف', 'warning');
             if (stateRow.childNodes.length) card.appendChild(stateRow);
-            if (status.review_reason) card.appendChild(node('p', `دلیل وضعیت: ${status.review_reason}`));
-
             const refreshInPlace = async (message, kind, statusNode) => {
                 updateActionStatus(statusNode, message, kind);
                 await dashboard(message, kind);
@@ -562,14 +596,14 @@
                 });
                 const title = node('h3', 'استخراج از پیام تأمین‌کننده');
                 ai.prepend(title);
-                card.appendChild(ai);
+                addWorkflowSection(ai, 'ai');
             });
             product.references.forEach(item => {
                 const reference = referenceItemCard(item, contextStored.reference_items, {
                     embedded:true, apiKey:'reference_items', refresh:refreshInPlace
                 });
                 reference.prepend(node('h3', 'تطبیق و مبنای قیمت مرجع'));
-                card.appendChild(reference);
+                addWorkflowSection(reference, 'references');
             });
             product.supplierPrices.forEach(offer => {
                 const section = node('section', null, 'molavi-product-subsection');
@@ -613,7 +647,7 @@
                     }
                 });
                 section.appendChild(verify);
-                card.appendChild(section);
+                addWorkflowSection(section, 'supplier_prices');
             });
             product.conflicts.forEach(conflict => {
                 const section = node('section', null, 'molavi-product-subsection molavi-product-conflict');
@@ -664,59 +698,119 @@
                 actions.append(useServer);
                 if (!serverOwned && !sheetPreserved) actions.append(useSheet);
                 section.appendChild(actions);
-                card.appendChild(section);
+                addWorkflowSection(section, 'conflicts');
             });
             if (product.holds.length) {
                 const section = node('section', null, 'molavi-product-subsection molavi-product-hold');
                 section.appendChild(node('h3', 'انتشار این محصول در یک دسته متوقف شده است'));
                 product.holds.forEach(hold => section.appendChild(node('p', `شناسه دسته: ${hold.hold_id} · ${hold.reason || 'نیازمند بررسی'}`)));
                 section.appendChild(node('small', 'اگر یک دسته چند محصول دارد، جزئیات و اقدام مشترک آن فقط یک بار در بخش «دسته‌های متوقف‌شده» نمایش داده می‌شود.'));
-                card.appendChild(section);
+                addWorkflowSection(section, 'holds');
             }
-            if (status.source_post_url) {
+            if (status.update_needed || status.review_reason || status.source_post_url) {
+                const details = document.createElement('details');
+                details.open = primaryKey === 'status';
+                details.appendChild(node('summary', 'جزئیات وضعیت و منبع کالا'));
+                if (status.review_reason) details.appendChild(node('p', `دلیل وضعیت: ${status.review_reason}`));
                 const source = safeSourceLink(status.source_post_url);
-                if (source) {
-                    const details = document.createElement('details');
-                    details.appendChild(node('summary', 'پیام مبدأ و شناسه‌ها'));
-                    details.append(source, node('p', `آخرین پیشنهاد: ${status.latest_offer_id || 'ثبت نشده'} · نسخه مرجع: ${status.reference_snapshot_id || 'ثبت نشده'} · بررسی قیمت: ${status.supplier_price_verified_at || 'ثبت نشده'}`));
-                    card.appendChild(details);
-                }
+                if (source) details.appendChild(source);
+                const technicalParts = [];
+                if (status.latest_offer_id) technicalParts.push(`آخرین پیشنهاد: ${status.latest_offer_id}`);
+                if (status.reference_snapshot_id) technicalParts.push(`نسخه مرجع: ${status.reference_snapshot_id}`);
+                if (status.supplier_price_verified_at) technicalParts.push(`بررسی قیمت: ${status.supplier_price_verified_at}`);
+                if (technicalParts.length) details.appendChild(node('p', technicalParts.join(' · ')));
+                addWorkflowSection(details, 'status');
+            }
+            if (secondaryContent.childNodes.length) {
+                secondaryChecks.appendChild(secondaryContent);
+                card.appendChild(secondaryChecks);
             }
             return card;
         };
 
-        const shownProducts = workbenchShowAll ? products : openProducts;
-        if (!products.length) board.appendChild(notice(unavailable.length
-            ? 'وضعیت کالا دریافت نشد. منابع بالا را باز کنید تا اتصال ناموفق مشخص شود.'
-            : 'کالایی برای نمایش ثبت نشده است.', unavailable.length ? 'warning' : 'info'));
-        else if (!shownProducts.length) board.appendChild(notice('همه کالاها وضعیت عادی دارند؛ برای مرور وضعیت یک‌به‌یک، «دیدن کالاهای بدون اقدام» را بزنید.', 'success'));
-        else {
-            if (workbenchSelectedKey) {
-                const previousIndex = shownProducts.findIndex(product => product.key === workbenchSelectedKey);
-                if (previousIndex >= 0) workbenchIndex = previousIndex;
+        const queueDefinitions = [
+            {key:'next',label:'همه کارهای باز',matches:attention},
+            {key:'ai',label:'استخراج',matches:product=>product.ai.length>0},
+            {key:'references',label:'تطبیق مرجع',matches:product=>product.references.length>0},
+            {key:'conflicts',label:'تعارض شیت',matches:product=>product.conflicts.length>0},
+            {key:'supplier_prices',label:'قیمت تأمین‌کننده',matches:product=>product.supplierPrices.length>0},
+            {key:'holds',label:'توقف انتشار',matches:product=>product.holds.length>0},
+            {key:'status',label:'وضعیت کالا',matches:product=>Boolean(product.status && product.status.update_needed)}
+        ].map(queue=>({...queue,count:products.filter(queue.matches).length}));
+        const currentQueue = queueDefinitions.find(queue=>queue.key===workbenchQueue);
+        if (!currentQueue || (!currentQueue.count && workbenchQueue !== 'next')) {
+            workbenchQueue = queueDefinitions.slice(1).find(queue=>queue.count>0)?.key || 'next';
+            workbenchSelectedKey = '';
+            workbenchIndex = 0;
+        }
+        const queueNavigation = node('div', null, 'molavi-workbench-queues');
+        queueNavigation.setAttribute('role', 'group');
+        queueNavigation.setAttribute('aria-label', 'انتخاب نوع کار');
+        const queueButtons = new Map();
+        queueDefinitions.filter(queue=>queue.key==='next'||queue.count>0).forEach(queue=>{
+            const button=node('button',`${queue.label} · ${queue.count.toLocaleString('fa-IR')}`,
+                'button button-secondary molavi-workbench-queue');
+            button.type='button';
+            button.disabled=queue.count===0;
+            button.setAttribute('aria-pressed',queue.key===workbenchQueue?'true':'false');
+            button.addEventListener('click',()=>{
+                if (button.disabled || workbenchQueue===queue.key) return;
+                workbenchQueue=queue.key;
+                workbenchIndex=0;
+                workbenchSelectedKey='';
+                workbenchLiveStatus.className='molavi-workbench-live-status';
+                workbenchLiveStatus.textContent=`صف «${queue.label}»؛ ${queue.count.toLocaleString('fa-IR')} کالا برای رسیدگی.`;
+                queueButtons.forEach((item,key)=>item.setAttribute('aria-pressed',key===workbenchQueue?'true':'false'));
+                renderQueue();
+            });
+            queueButtons.set(queue.key,button);
+            queueNavigation.appendChild(button);
+        });
+        const queueContent = node('div', null, 'molavi-workbench-queue-content');
+        board.append(queueNavigation,queueContent);
+        const renderQueue = () => {
+            const queue=queueDefinitions.find(item=>item.key===workbenchQueue) || queueDefinitions[0];
+            const shownProducts=products.filter(queue.matches);
+            queueContent.replaceChildren();
+            if (!products.length) {
+                queueContent.appendChild(notice(unavailable.length
+                    ? 'وضعیت کالا دریافت نشد. منابع بالا را باز کنید تا اتصال ناموفق مشخص شود.'
+                    : 'کالایی برای نمایش ثبت نشده است.',unavailable.length?'warning':'info'));
+                return;
             }
-            workbenchIndex = Math.max(0, Math.min(workbenchIndex, shownProducts.length - 1));
-            const navigation = node('nav', null, 'molavi-product-navigation');
-            navigation.setAttribute('aria-label', 'مرور یک‌به‌یک کالاها');
-            const previous = node('button', 'قبلی', 'button button-secondary');
-            const position = node('span', '', 'molavi-product-position');
-            const next = node('button', 'بعدی', 'button button-primary');
-            previous.type = 'button'; next.type = 'button';
-            const current = node('div', null, 'molavi-current-product');
-            const renderCurrent = () => {
-                const product = shownProducts[workbenchIndex];
-                workbenchSelectedKey = product.key;
-                previous.disabled = workbenchIndex <= 0;
-                next.disabled = workbenchIndex >= shownProducts.length - 1;
-                position.textContent = `کالای ${(workbenchIndex + 1).toLocaleString('fa-IR')} از ${shownProducts.length.toLocaleString('fa-IR')}`;
+            if (!shownProducts.length) {
+                queueContent.appendChild(notice(unavailable.length
+                    ? 'این صف خالی است؛ منابعی که دریافت نشدند را در وضعیت اتصال بررسی کنید.'
+                    : 'همه کارهای این صف انجام شده‌اند.',unavailable.length?'warning':'success'));
+                return;
+            }
+            if (workbenchSelectedKey) {
+                const previousIndex=shownProducts.findIndex(product=>product.key===workbenchSelectedKey);
+                if (previousIndex>=0) workbenchIndex=previousIndex;
+            }
+            workbenchIndex=Math.max(0,Math.min(workbenchIndex,shownProducts.length-1));
+            const navigation=node('nav',null,'molavi-product-navigation');
+            navigation.setAttribute('aria-label','مرور کالاهای صف انتخاب‌شده');
+            const previous=node('button','قبلی','button button-secondary');
+            const position=node('span','', 'molavi-product-position');
+            const next=node('button','بعدی','button button-primary');
+            previous.type='button'; next.type='button';
+            const current=node('div',null,'molavi-current-product');
+            const renderCurrent=()=>{
+                const product=shownProducts[workbenchIndex];
+                workbenchSelectedKey=product.key;
+                previous.disabled=workbenchIndex<=0;
+                next.disabled=workbenchIndex>=shownProducts.length-1;
+                position.textContent=`${queue.label} · کالای ${(workbenchIndex+1).toLocaleString('fa-IR')} از ${shownProducts.length.toLocaleString('fa-IR')}`;
                 current.replaceChildren(renderProduct(product));
             };
-            previous.addEventListener('click', () => { if (workbenchIndex > 0) { workbenchIndex -= 1; renderCurrent(); } });
-            next.addEventListener('click', () => { if (workbenchIndex + 1 < shownProducts.length) { workbenchIndex += 1; renderCurrent(); } });
-            navigation.append(previous, position, next);
-            board.append(navigation, current);
+            previous.addEventListener('click',()=>{if(workbenchIndex>0){workbenchIndex-=1;renderCurrent();}});
+            next.addEventListener('click',()=>{if(workbenchIndex+1<shownProducts.length){workbenchIndex+=1;renderCurrent();}});
+            navigation.append(previous,position,next);
+            queueContent.append(navigation,current);
             renderCurrent();
-        }
+        };
+        renderQueue();
 
         if (batchCards.length) {
             const batchGroup = document.createElement('details');

@@ -4,6 +4,11 @@
 #molavi-owner-workflow .card { box-sizing:border-box; padding:1rem; margin:1rem 0; border:1px solid #dcdcde; border-radius:8px; background:#fff; }
 #molavi-owner-workflow .molavi-technical-details > summary { padding:.1rem 0; }
 #molavi-owner-workflow .molavi-workbench-toolbar { display:flex; flex-wrap:wrap; gap:.5rem; margin:.5rem 0 1rem; }
+#molavi-owner-workflow .molavi-workbench-live-status { min-height:1.5rem; margin:.25rem 0 .75rem; padding:.45rem .65rem; border-inline-start:3px solid #2271b1; background:#f6f7f7; }
+#molavi-owner-workflow .molavi-workbench-queues { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,12rem),1fr)); gap:.5rem; margin:.75rem 0; }
+#molavi-owner-workflow .molavi-workbench-queue { min-height:2.75rem; white-space:normal; text-align:start; line-height:1.5; }
+#molavi-owner-workflow .molavi-workbench-queue[aria-pressed="true"] { border-color:#2271b1; background:#f0f6fc; box-shadow:inset 0 0 0 1px #2271b1; color:#135e96; }
+#molavi-owner-workflow .molavi-workbench-queue:disabled { opacity:.55; }
 #molavi-owner-workflow .molavi-workbench-summary { border-inline-start:4px solid #2271b1; }
 #molavi-owner-workflow .molavi-workbench-summary h2 { margin-top:0; }
 #molavi-owner-workflow .molavi-product-navigation { display:flex; align-items:center; justify-content:space-between; gap:.75rem; margin:0 0 .75rem; }
@@ -29,6 +34,9 @@
 #molavi-owner-workflow .molavi-product-subsection > h3 { margin:.1rem 0 .6rem; }
 #molavi-owner-workflow .molavi-product-conflict { border-inline-start:3px solid #d63638; }
 #molavi-owner-workflow .molavi-product-hold { border-inline-start:3px solid #d63638; }
+#molavi-owner-workflow .molavi-secondary-product-details { margin-top:1rem; padding-top:.5rem; border-top:1px solid #dcdcde; }
+#molavi-owner-workflow .molavi-secondary-product-details > summary { color:#50575e; }
+#molavi-owner-workflow .molavi-secondary-product-checks > * { margin-top:.65rem; }
 #molavi-owner-workflow .molavi-source-health { margin:1rem 0; padding:.75rem; border:1px solid #dba617; border-radius:6px; background:#fcf9e8; }
 #molavi-owner-workflow .molavi-global-workflows > summary,
 #molavi-owner-workflow .molavi-batch-group > summary,
@@ -96,6 +104,8 @@
     #molavi-owner-workflow .molavi-product-position { font-size:.9em; text-align:center; }
     #molavi-owner-workflow .molavi-workbench-toolbar .button,
     #molavi-owner-workflow .molavi-global-links .button { width:100%; }
+    #molavi-owner-workflow .molavi-workbench-queues { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    #molavi-owner-workflow .molavi-workbench-queue { min-width:0; padding:.45rem; }
     #molavi-owner-workflow label { width:100%; min-width:0; }
     #molavi-owner-workflow input,
     #molavi-owner-workflow select,
