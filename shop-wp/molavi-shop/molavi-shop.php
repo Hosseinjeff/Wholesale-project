@@ -251,6 +251,15 @@ add_filter('woocommerce_product_get_short_description', static function (string 
     return implode(' · ', $parts);
 }, 10, 2);
 
+add_filter('get_the_excerpt', static function (string $excerpt, $post): string {
+    if (is_admin() || !($post instanceof WP_Post) || $post->post_type !== 'product') {
+        return $excerpt;
+    }
+    $offerId = (string) get_post_meta($post->ID, '_molavi_supplier_offer_id', true);
+    $supplier = (string) get_post_meta($post->ID, '_molavi_supplier', true);
+    return $offerId !== '' || $supplier !== '' ? '' : $excerpt;
+}, 20, 2);
+
 add_filter('gettext_woocommerce', static function (string $translation, string $text): string {
     static $labels = [
         'Your cart is currently empty!' => 'سبد خرید شما خالی است.',
