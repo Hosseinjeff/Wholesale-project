@@ -96,23 +96,35 @@ function molavi_render_storefront(): void
 
 function molavi_storefront_card_product_name(\WC_Product $product, string $supplier = ''): string
 {
-    $name = trim(wp_strip_all_tags($product->get_name()));
+    $originalName = trim(wp_strip_all_tags($product->get_name()));
+    $name = $originalName;
     $supplier = trim(wp_strip_all_tags($supplier));
     if ($supplier !== '') {
         $pattern = '/(?<![\p{L}\p{N}])' . preg_quote($supplier, '/') . '(?![\p{L}\p{N}])/iu';
         $name = (string) preg_replace($pattern, ' ', $name);
+    }
+    $name = (string) preg_replace('/[\p{Z}\s\p{Cf}]+/u', ' ', $name);
+    // A legacy supplier field can duplicate the entire product title. Keep that
+    // title rather than rendering a blank link in the storefront.
+    if (preg_match('/[\p{L}\p{N}]/u', $name) !== 1) {
+        $name = $originalName;
     }
     $name = (string) preg_replace(
         '/(?<![\p{L}\p{N}])(?:(?:کارتن|بسته|جعبه)\s*)?[0-9۰-۹٠-٩]{1,4}\s*(?:عددی|عدد|تایی|بسته|کارتن)(?![\p{L}\p{N}])/u',
         ' ',
         $name
     );
+    $name = (string) preg_replace(
+        '/(?<![\p{L}\p{N}])[0-9۰-۹٠-٩]+(?:[.,٫][0-9۰-۹٠-٩]+)?\s*(?:میلی[\p{Z}\s\x{200c}]*لیتر(?:ی)?|میلی[\p{Z}\s\x{200c}]*گرم(?:ی)?|کیلو[\p{Z}\s\x{200c}]*گرم(?:ی)?|لیتر(?:ی)?|گرم(?:ی)?|کیلو|kg|g|ml|cc|l)(?![\p{L}\p{N}])/iu',
+        ' ',
+        $name
+    );
     $name = (string) preg_replace('/(?<![\p{L}\p{N}])تعداد\s+در\s+(?:کارتن|بسته|جعبه)(?![\p{L}\p{N}])/u', ' ', $name);
     $name = (string) preg_replace('/(?<![\p{L}\p{N}])(?:کارتن|بسته|جعبه)(?![\p{L}\p{N}])/u', ' ', $name);
     $name = (string) preg_replace('/[،,؛;]+/u', ' ', $name);
-    $name = (string) preg_replace('/[\p{Z}\s\x{200c}]+/u', ' ', $name);
+    $name = (string) preg_replace('/[\p{Z}\s\p{Cf}]+/u', ' ', $name);
     $name = trim($name, " \t\n\r\0\x0B،,؛;:-");
-    return $name !== '' ? $name : 'کالا';
+    return preg_match('/[\p{L}\p{N}]/u', $name) === 1 ? $name : 'کالا';
 }
 
 function molavi_render_storefront_card(\WC_Product $product, array $quote): void
