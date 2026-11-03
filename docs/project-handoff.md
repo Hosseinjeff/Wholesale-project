@@ -6,8 +6,8 @@ Snapshot 4.70. Updated 2026-11-03, Asia/Tehran. The canonical roleplay decisions
 
 ## Current live status — 2026-11-03
 
-The WordPress plugin and Railway service both run main commit `71b2657`. cPanel read-back
-verified the updated `includes/owner-workflows.js`. Railway deployment
+The WordPress plugin is live at main commit `8184717`; Railway remains on backend commit
+`71b2657`. cPanel read-back verified the updated `includes/owner-workflows.js`. Railway deployment
 `eadbf641-36f5-4e8e-b4d8-6db5f0540c59` succeeded; the service is online with one replica,
 no warnings, failures or pending work, and `/health` returns `healthy`. The service retains
 its existing 500 MB `/data` volume.
@@ -35,6 +35,16 @@ observed blockers are source-data and historical-price checks, not API failures.
 Gemini request was made. The authenticated screenshot check is still unavailable;
 the available browser profile has no recorded WordPress sign-in. Live verification used the
 cPanel read-back, Railway status and health endpoint, plus local interaction tests.
+
+The follow-up conflict-card audit found seven of nine open conflicts referenced an older
+offer version than the catalog status endpoint. The resolver already refreshes stale source
+data and returns `source_changed` with `refreshed: true`, but the dashboard showed that safe
+refresh as a blocking error and left the stale card visible. WordPress commit `8184717` is
+live: both conflict views now reload the queue with an informational status after this
+response, and conflict action results update the original WordPress audit row rather than
+leaving its pending row open. A regression test covers the stale response and audit update.
+The remaining two conflicts are on the current offer revision and still need review;
+their server and Sheet values diverge, so no choice was submitted. No Sheet rows changed.
 
 ## Complete Son juice post correction — 2026-11-02
 

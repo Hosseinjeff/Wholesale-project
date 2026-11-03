@@ -2,7 +2,26 @@
 
 Updated: 2026-11-03, Asia/Tehran
 
-## Latest live deployment — 2026-11-03, extraction card source checks
+## Latest live deployment — 2026-11-03, Sheet conflict card recovery
+
+WordPress plugin commit `81847172eb18723e2e55eab4e182f47b6fee088d` is live; Railway
+remains on backend commit `71b2657`. The cPanel uploader deployed and read back
+`includes/owner-workflows.js` with no host normalization.
+
+Seven of nine audited Sheet conflicts referenced an older offer version than the catalog
+status endpoint. When the resolver refreshes such an item, the unified card and dedicated
+conflict screen now treat `source_changed` with `refreshed: true` as an informational
+refresh and reload the queue. Conflict actions also update their existing WordPress audit
+event, so they no longer leave a second, orphaned pending row.
+
+`node --check shop-wp/molavi-shop/includes/owner-workflows.js`,
+`node tests/owner_workbench.test.js`, and `git diff --check` passed. The interaction test
+covers the stale-source response and verifies the WordPress audit event is updated in place.
+The PHP runtime check could not start because the environment denied access to Docker.
+There was no authenticated WordPress browser profile for a screenshot. No Sheet rows or
+product decisions changed.
+
+## Previous live deployment — 2026-11-03, extraction card source checks
 
 Main commit `71b265712978dbce12408c0c7d0d921d1513da18` is live in WordPress and Railway.
 The cPanel uploader deployed and read back `includes/owner-workflows.js` with no host
