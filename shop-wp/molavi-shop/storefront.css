@@ -501,21 +501,6 @@ body.molavi-storefront-page {
     --molavi-raspberry: #F13D5D;
     background: var(--molavi-bg) !important;
 }
-body.molavi-storefront-page .wp-site-blocks > header,
-body.molavi-storefront-page .wp-site-blocks > footer,
-body.molavi-storefront-page header.wp-block-template-part,
-body.molavi-storefront-page footer.wp-block-template-part,
-body.molavi-storefront-page .elementor-location-header,
-body.molavi-storefront-page .elementor-location-footer,
-body.molavi-storefront-page header.site-header,
-body.molavi-storefront-page footer.site-footer,
-body.molavi-storefront-page #header,
-body.molavi-storefront-page #masthead,
-body.molavi-storefront-page #colophon,
-body.molavi-storefront-page #footer,
-body.molavi-storefront-page #page > hr {
-    display: none !important;
-}
 body.molavi-storefront-page .wp-site-blocks,
 body.molavi-storefront-page #primary,
 body.molavi-storefront-page main,
@@ -1007,8 +992,6 @@ body.molavi-site-page .wp-site-blocks > header,
 body.molavi-site-page .wp-site-blocks > footer,
 body.molavi-site-page header.wp-block-template-part,
 body.molavi-site-page footer.wp-block-template-part,
-body.molavi-site-page .elementor-location-header,
-body.molavi-site-page .elementor-location-footer,
 body.molavi-site-page header.site-header,
 body.molavi-site-page footer.site-footer,
 body.molavi-site-page #masthead,

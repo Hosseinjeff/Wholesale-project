@@ -39,6 +39,9 @@ function molavi_render_site_header(bool $forceStorefront = false): void
         || (!$forceStorefront && function_exists('molavi_is_storefront_request') && molavi_is_storefront_request())) {
         return;
     }
+    if (function_exists('elementor_theme_do_location') && elementor_theme_do_location('header')) {
+        return;
+    }
 
     $shopUrl = wc_get_page_permalink('shop') ?: home_url('/');
     $accountUrl = wc_get_page_permalink('myaccount') ?: home_url('/');
@@ -102,10 +105,21 @@ function molavi_render_site_header(bool $forceStorefront = false): void
     <?php
 }
 
-function molavi_render_site_footer(): void
+function molavi_render_site_footer(bool $elementorOnly = false): void
 {
-    if (is_admin() || wp_doing_ajax()
-        || (function_exists('molavi_is_storefront_request') && molavi_is_storefront_request())) {
+    if (is_admin() || wp_doing_ajax()) {
+        return;
+    }
+    if ($elementorOnly) {
+        if (function_exists('elementor_theme_do_location')) {
+            elementor_theme_do_location('footer');
+        }
+        return;
+    }
+    if (function_exists('molavi_is_storefront_request') && molavi_is_storefront_request()) {
+        return;
+    }
+    if (function_exists('elementor_theme_do_location') && elementor_theme_do_location('footer')) {
         return;
     }
     $shopUrl = function_exists('wc_get_page_permalink') ? wc_get_page_permalink('shop') : home_url('/');
