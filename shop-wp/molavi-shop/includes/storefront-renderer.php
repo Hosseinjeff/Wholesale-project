@@ -97,8 +97,11 @@ function molavi_render_storefront(): void
 function molavi_storefront_card_product_name(\WC_Product $product, string $supplier = ''): string
 {
     $originalName = trim(wp_strip_all_tags($product->get_name()));
-    if ($originalName === '' && method_exists($product, 'get_slug')) {
-        $slug = (string) $product->get_slug();
+    if ($originalName === '') {
+        $slug = method_exists($product, 'get_slug') ? (string) $product->get_slug() : '';
+        if ($slug === '' && function_exists('get_post_field')) {
+            $slug = (string) get_post_field('post_name', $product->get_id());
+        }
         if ($slug === '') {
             $path = parse_url($product->get_permalink(), PHP_URL_PATH);
             $slug = is_string($path) ? basename(rtrim($path, '/')) : '';
