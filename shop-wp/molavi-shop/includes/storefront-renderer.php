@@ -102,11 +102,11 @@ function molavi_storefront_card_product_name(\WC_Product $product, string $suppl
     };
     $originalName = '';
     if (function_exists('get_post_field')) {
-        $storedTitle = wp_check_invalid_utf8(trim(wp_strip_all_tags((string) get_post_field('post_title', $product->get_id()))), true);
+        $storedTitle = trim(wp_strip_all_tags((string) get_post_field('post_title', $product->get_id())));
         $originalName = trim($replace('/[\p{Z}\s\p{Cf}]+/u', ' ', $storedTitle));
     }
     if ($originalName === '') {
-        $originalName = wp_check_invalid_utf8(trim(wp_strip_all_tags($product->get_name())), true);
+        $originalName = trim(wp_strip_all_tags($product->get_name()));
         $originalName = trim($replace('/[\p{Z}\s\p{Cf}]+/u', ' ', $originalName));
     }
     if ($originalName === '') {
@@ -118,12 +118,12 @@ function molavi_storefront_card_product_name(\WC_Product $product, string $suppl
         if ($slug === '' && function_exists('get_post_field')) {
             $slug = (string) get_post_field('post_name', $product->get_id());
         }
-        $slug = wp_check_invalid_utf8(rawurldecode($slug), true);
+        $slug = rawurldecode($slug);
         $slug = $replace('/-[0-9]+$/', '', $slug);
         $originalName = trim($replace('/[-_]+/u', ' ', $slug));
     }
     $name = $originalName;
-    $supplier = wp_check_invalid_utf8(trim(wp_strip_all_tags($supplier)), true);
+    $supplier = trim(wp_strip_all_tags($supplier));
     if ($supplier !== '') {
         $pattern = '/(?<![\p{L}\p{N}])' . preg_quote($supplier, '/') . '(?![\p{L}\p{N}])/iu';
         $name = $replace($pattern, ' ', $name);
