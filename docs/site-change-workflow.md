@@ -2,6 +2,37 @@
 
 Updated: 2026-11-03, Asia/Tehran
 
+## Latest live deployment — 2026-11-03
+
+WordPress plugin commit `c8161803f866d6c3b1557fc97cbefae53a1dc8bc` is deployed. The cPanel
+uploader read back `includes/owner-workflows.js`, `includes/owner-workflows.css`, and
+`includes/storefront-renderer.php`; the admin page serves byte-matching JavaScript and CSS.
+The dashboard opens on the first non-empty priority queue, shows one product card at a time,
+offers in-place filters for each type of work, and folds secondary checks for the same product.
+After a decision, the card remains mounted while the data refreshes and a persistent result
+message appears. Queue changes do not make another request.
+
+`node --check` passed for the workflow script and its test, `node tests/owner_workbench.test.js`
+passed, and `git diff --check` passed. The interaction test verifies one-card navigation,
+queue filtering, collapsed secondary checks, asynchronous saves, persistent feedback, and no
+page navigation. An authenticated read-only admin request returned HTTP 200. PHP CLI is not
+installed in this workspace, so the PHP runtime test could not run. No product, order, or Sheet
+data changed.
+
+The live queue returned 26 extraction cases, 7 Sheet conflicts, and 109 supplier-price checks;
+the reference and publication-hold queues were empty. The 124-product status snapshot is no
+longer presented as a product list; the dashboard starts in the highest-priority non-empty
+queue and keeps the rest behind explicit filters.
+
+The storefront renderer source is deployed and read back, and the public page has 14 cards with
+no stock/availability labels or known supplier names. The live HTML still has blank headings on
+nine cards (IDs 55, 53, 51, 49, 47, 45, 43, 41, and 38), so the title fix is not yet verified at
+runtime. WP Rocket is inactive, `wp-content` has no cache drop-ins, and cPanel reports that
+Nginx caching is unavailable; no supported account-level PHP-FPM/OPcache refresh was exposed
+through this cPanel account. A temporary PHP cache-diagnostic endpoint was rejected by
+automatic review because it would add executable code to production and could remain if cleanup
+failed; no endpoint was installed. Resolve this through a supported PHP-FPM/OPcache refresh.
+
 ## Latest live deployment — 2026-11-03, 19:18 UTC
 
 WordPress plugin commit `a567b4b0b109e68a353c27bca30f3e79fc33702c` is live. cPanel
