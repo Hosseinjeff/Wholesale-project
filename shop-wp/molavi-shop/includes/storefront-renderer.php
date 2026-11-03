@@ -138,7 +138,9 @@ function molavi_storefront_card_product_name(\WC_Product $product, string $suppl
     );
     $name = str_replace(['،', ',', '؛', ';'], ' ', $name);
     $name = preg_replace('/\s+/', ' ', $name) ?? $name;
-    $name = trim($name, " \t\n\r\0\x0B،,؛;:-");
+    // PHP trim() treats its character list as bytes; Persian punctuation here
+    // can strip the first byte from Arabic-script letters and make invalid UTF-8.
+    $name = trim($name, " \t\n\r\0\x0B,:;-");
     return $name !== '' ? $name : ($originalName !== '' ? $originalName : 'کالا');
 }
 

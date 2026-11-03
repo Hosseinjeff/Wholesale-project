@@ -14,6 +14,18 @@ function ref_prepare_owner_workflow_page($page) {
     $_GET['page'] = $page;
     do_action('admin_enqueue_scripts', '');
 }
+$storefront_title_test_id = wp_insert_post([
+    'post_type' => 'product',
+    'post_status' => 'publish',
+    'post_title' => 'آبمیوه سون،۲۲۰ میلی لیتر طعم انبه',
+]);
+$storefront_title_test_product = wc_get_product($storefront_title_test_id);
+if (!$storefront_title_test_product instanceof WC_Product) {
+    throw new RuntimeException('FAILED: storefront Persian title fixture created');
+}
+$storefront_title = \Molavi\Elementor\molavi_storefront_card_product_name($storefront_title_test_product, 'سون');
+ref_assert($storefront_title === 'آبمیوه طعم انبه', 'storefront title cleanup preserves the first Persian character');
+wp_delete_post($storefront_title_test_id, true);
 $event = ['event_id' => 'failure:<script>alert(1)</script>', 'snapshot_id' => 'A',
     'reason' => 'refresh_failed', 'created_at' => '2026-10-25T00:00:00+00:00'];
 $price_offer = ['product_id'=>'price-1','name'=>'<script>price</script>','channel'=>'@supplier',
