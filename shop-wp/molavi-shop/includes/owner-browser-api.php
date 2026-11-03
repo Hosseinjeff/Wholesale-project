@@ -90,20 +90,22 @@ add_action('admin_enqueue_scripts', static function (): void {
         'pageUrls' => molavi_owner_workflow_page_urls(),
     ];
     if ($page === 'molavi-operations') {
-        $queueSources = [
-            'reference_items' => ['/reference/item-reviews', 'owner:/reference/item-reviews', 'cases'],
-            'ai_confirmations' => ['/pipeline/ai-confirmations', 'owner:/pipeline/ai-confirmations', 'cases'],
-            'reference_decisions' => ['/reference/decisions', 'owner:/reference/decisions', 'events'],
-            'supplier_prices' => ['/pipeline/supplier-price-evidence', 'owner:/pipeline/supplier-price-evidence', 'offers'],
+        $workflowSources = [
+            'ai_confirmations' => ['/pipeline/ai-confirmations', 'owner:/pipeline/ai-confirmations'],
+            'reference_items' => ['/reference/item-reviews', 'owner:/reference/item-reviews'],
+            'supplier_prices' => ['/pipeline/supplier-price-evidence', 'owner:/pipeline/supplier-price-evidence'],
+            'sheet_conflicts' => ['/pipeline/sheet-conflicts', 'owner:/pipeline/sheet-conflicts'],
+            'publication_holds' => ['/pipeline/publication-holds', 'owner:/pipeline/publication-holds'],
+            'product_status' => ['/pipeline/product-status-snapshots', 'owner:/pipeline/product-status-snapshots'],
+            'reference_decisions' => ['/reference/decisions', 'owner:/reference/decisions'],
         ];
-        $browserConfig['queueSummaryApis'] = [];
-        foreach ($queueSources as $key=>$source) {
+        $browserConfig['workflowApis'] = [];
+        foreach ($workflowSources as $key=>$source) {
             $scopedToken = molavi_owner_workflow_token($source[1]);
             if ($scopedToken === '') { continue; }
-            $browserConfig['queueSummaryApis'][$key] = [
-                'url'=>rtrim($base, '/') . $source[0],
-                'token'=>$scopedToken,
-                'rows_key'=>$source[2],
+            $browserConfig['workflowApis'][$key] = [
+                'url' => rtrim($base, '/') . $source[0],
+                'token' => $scopedToken,
             ];
         }
     }

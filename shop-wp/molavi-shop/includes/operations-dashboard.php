@@ -34,8 +34,8 @@ function molavi_operations_dashboard_screen(): void {
     if (!molavi_reference_owner()) { wp_die('دسترسی مجاز نیست.', '', ['response'=>403]); }
     nocache_headers();
     echo '<div class="wrap"><h1>' . esc_html('خط لوله مولوی‌سل') . '</h1>';
-    echo '<p>' . esc_html('بخش‌های استخراج، بررسی کالا، انتشار، موجودی و سفارش را از تب‌های همین صفحه باز کنید.') . '</p>';
-    molavi_owner_workflow_mount('در حال دریافت وضعیت خط لوله…');
+    echo '<p>' . esc_html('برای هر کالا، استخراج، تطبیق مرجع، قیمت تأمین‌کننده، تعارض همگام‌سازی و وضعیت انتشار در یک کارت نمایش داده می‌شود. کارهای سراسری و سفارش‌ها در بخش جداگانهٔ همین صفحه هستند.') . '</p>';
+    molavi_owner_workflow_mount('در حال آماده‌سازی کارت‌های کالا…');
     echo '<noscript><div class="notice notice-warning"><p>' . esc_html('برای نمایش وضعیت زنده، جاوااسکریپت را فعال کنید.') . '</p>';
     echo '<ul>';
     $labels = [

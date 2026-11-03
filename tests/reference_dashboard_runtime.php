@@ -312,9 +312,17 @@ $reference_item_event=['event_id'=>'context:reference_item:item:runtime-case',
         'product_name'=>'چای سبز','candidates'=>[['reference_id'=>'R-1','name'=>'چای سبز']]]];
 ref_assert(molavi_owner_review_store_write($reference_item_event),
     'reference-match context is stored in the WordPress review database');
+$supplier_price_event=['event_id'=>'context:supplier_price:runtime-product','review_type'=>'supplier_price',
+    'review_id'=>'runtime-product','state'=>'observed','context'=>['product_id'=>'runtime-product',
+        'name'=>'چای سبز','source_revision'=>'runtime-revision']];
+ref_assert(molavi_owner_review_store_write($supplier_price_event),
+    'supplier-price review context is stored in the WordPress review database');
 $workflow_js=file_get_contents('/plugin/includes/owner-workflows.js');
 ref_assert(strpos($workflow_js,'original_message')!==false && strpos($workflow_js,'expected_decision_id')!==false,
     'browser review UI displays source messages and submits optimistic decision revisions');
+ref_assert(strpos($workflow_js,'molavi-admin-tabs')===false && strpos($workflow_js,'createElement(\'iframe\')')===false
+    && strpos($workflow_js,'کارت یکپارچه کالاها')!==false,
+    'owner dashboard uses centralized product cards instead of tabbed embedded pages');
 ref_assert(strpos($workflow_js,'context:ai_confirmation:')!==false
     && strpos($workflow_js,'decision_history:Array.isArray(context.decision_history)')!==false
     && strpos($workflow_js,"'pending', context, decision")!==false
@@ -668,18 +676,19 @@ $http_mode='queue';ref_prepare_owner_workflow_page('molavi-operations');
 ob_start();molavi_operations_dashboard_screen();$operations_html=ob_get_clean();
 ref_assert(strpos($operations_html,'id="molavi-owner-workflow"')!==false, 'pipeline hub mounts its live status panel');
 ref_assert(strpos($operations_html,'page=molavi-ai-confirmations')!==false && strpos($operations_html,'page=molavi-paid-orders')!==false, 'pipeline hub keeps all workflow destinations reachable');
-ref_assert(strpos($workflow_js,'molavi-next-action-list')!==false
-    && strpos($workflow_js,'requestQueueSummary')!==false
-    && strpos($workflow_js,'molavi-owner-workflow-updated')!==false,
-    'pipeline hub shows the next owner action and refreshes counts after a decision');
+ref_assert(strpos($workflow_js,'کارت یکپارچه کالاها')!==false
+    && strpos($workflow_js,'product.supplierPrices.forEach')!==false
+    && strpos($workflow_js,'product.conflicts.forEach')!==false
+    && strpos($workflow_js,'به‌روزرسانی وضعیت')!==false,
+    'pipeline hub consolidates product facts, conflicts, and refresh controls in one card');
 $workflow_api_php=file_get_contents('/plugin/includes/owner-browser-api.php');
-ref_assert(strpos($workflow_api_php,'queueSummaryApis')!==false
+ref_assert(strpos($workflow_api_php,'workflowApis')!==false
     && strpos($workflow_api_php,'owner:/pipeline/ai-confirmations')!==false
-    && strpos($workflow_api_php,'owner:/reference/item-reviews')!==false,
-    'dashboard exposes only short-lived route-scoped queue-count capabilities');
-ref_assert(strpos($workflow_js,'Object.entries(sources).map')!==false
-    && strpos($workflow_js,'Promise.all')!==false
-    && strpos($workflow_js,'status:\'unavailable\', count:null')!==false,
-    'dashboard reads queue counts in parallel and keeps failed reads visibly unavailable');
+    && strpos($workflow_api_php,'owner:/reference/item-reviews')!==false
+    && strpos($workflow_api_php,'owner:/pipeline/sheet-conflicts')!==false,
+    'dashboard exposes only short-lived route-scoped capabilities for its product data sources');
+ref_assert(strpos($workflow_js,'Promise.all([...keys.map(key => load(key))')!==false
+    && strpos($workflow_js,'molavi-source-health')!==false,
+    'dashboard loads product data sources independently and identifies unavailable sources');
 wp_set_current_user($other);
 ref_assert(is_wp_error(molavi_operations_dashboard_request()), 'non-owner cannot read unified operations dashboard');
