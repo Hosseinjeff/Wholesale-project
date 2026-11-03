@@ -156,16 +156,16 @@ add_action('woocommerce_product_data_panels', static function (): void {
                 <span><?php echo esc_html('خانوار: ' . number_format_i18n($profile['household_unit'])
                     . ' · فروشگاه: ' . number_format_i18n($profile['shop_unit'])
                     . ' · اندازه بسته استخراج‌شده: ' . number_format_i18n($profile['pack_size'])); ?></span></p>
+            <p class="form-field"><label for="_molavi_tuna_threshold_anchor">
+                <input type="checkbox" id="_molavi_tuna_threshold_anchor" name="_molavi_tuna_threshold_anchor" value="1" <?php checked($profile['tuna_threshold_anchor']); ?> />
+                <?php echo esc_html('استفاده از قیمت همین قوطی تن‌ماهی برای محاسبه آستانه تخفیف'); ?></label>
+                <span class="description">اگر چند محصول انتخاب شوند، قیمت میانه آن‌ها مبناست. قیمت مرجع مشتری در این محصول همیشه در دسترس است.</span></p>
             <p class="form-field"><label for="_molavi_household_order_unit">واحد سفارش خانوار (اختیاری)</label>
                 <input type="number" min="1" max="999" step="1" id="_molavi_household_order_unit" name="_molavi_household_order_unit" value="<?php echo esc_attr((string) $product->get_meta('_molavi_household_order_unit', true)); ?>" placeholder="<?php echo esc_attr((string) $profile['household_unit']); ?>" />
-                <span class="description">خالی بماند تا نصف اندازه بسته از پیام استخراج شود.</span></p>
+                <span class="description">خالی بماند تا یک‌هشتم تعداد بسته مبنا باشد؛ بسته ۲۴تایی برای خانوار از ۳ عدد شروع می‌شود.</span></p>
             <p class="form-field"><label for="_molavi_shop_order_unit">واحد سفارش فروشگاه (اختیاری)</label>
                 <input type="number" min="1" max="999" step="1" id="_molavi_shop_order_unit" name="_molavi_shop_order_unit" value="<?php echo esc_attr((string) $product->get_meta('_molavi_shop_order_unit', true)); ?>" placeholder="<?php echo esc_attr((string) $profile['shop_unit']); ?>" />
-                <span class="description">خالی بماند تا اندازه بسته استخراج‌شده از پیام استفاده شود.</span></p>
-            <p class="form-field"><label for="_molavi_household_discount_threshold_units">تعداد واحد تا سقف خانوار (اختیاری)</label>
-                <input type="number" min="1" max="100" step="1" id="_molavi_household_discount_threshold_units" name="_molavi_household_discount_threshold_units" value="<?php echo esc_attr((string) $product->get_meta('_molavi_household_discount_threshold_units', true)); ?>" placeholder="<?php echo esc_attr((string) $profile['household_threshold_units']); ?>" /></p>
-            <p class="form-field"><label for="_molavi_shop_discount_threshold_units">تعداد واحد تا سقف فروشگاه (اختیاری)</label>
-                <input type="number" min="1" max="100" step="1" id="_molavi_shop_discount_threshold_units" name="_molavi_shop_discount_threshold_units" value="<?php echo esc_attr((string) $product->get_meta('_molavi_shop_discount_threshold_units', true)); ?>" placeholder="<?php echo esc_attr((string) $profile['shop_threshold_units']); ?>" /></p>
+                <span class="description">خالی بماند تا یک‌چهارم تعداد بسته مبنا باشد؛ بسته ۲۴تایی برای فروشگاه از ۶ عدد شروع می‌شود.</span></p>
             <p class="form-field"><label for="_molavi_household_discount_cap_percent">سقف خانوار از حداکثر تخفیف کالا ٪</label>
                 <input type="number" min="0" max="100" step="0.1" id="_molavi_household_discount_cap_percent" name="_molavi_household_discount_cap_percent" value="<?php echo esc_attr($product->get_meta('_molavi_household_discount_cap_ratio', true) === '' ? '' : (string) ((float) $product->get_meta('_molavi_household_discount_cap_ratio', true) * 100)); ?>" placeholder="<?php echo esc_attr((string) round($profile['household_cap_ratio'] * 100, 1)); ?>" /></p>
             <p class="form-field"><label for="_molavi_shop_discount_cap_percent">سقف فروشگاه از حداکثر تخفیف کالا ٪</label>
@@ -235,6 +235,12 @@ add_action('woocommerce_process_product_meta', static function (int $postId): vo
         if ($raw === '') { delete_post_meta($postId, $key); continue; }
         if (!is_numeric($raw)) { continue; }
         update_post_meta($postId, $key, max(0.0, min(1.0, (float) $raw / 100)));
+    }
+    if (isset($_POST['_molavi_tuna_threshold_anchor'])
+        && wp_unslash((string) $_POST['_molavi_tuna_threshold_anchor']) === '1') {
+        update_post_meta($postId, '_molavi_tuna_threshold_anchor', '1');
+    } else {
+        delete_post_meta($postId, '_molavi_tuna_threshold_anchor');
     }
     molavi_forget_catalog();
 }, 40);

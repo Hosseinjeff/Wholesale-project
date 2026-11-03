@@ -361,11 +361,18 @@ def _duplicate_source_offer_key(offer):
     return hashlib.sha256(_stable(identity)).hexdigest()
 
 
-def review_cases(store, ledger, *, include_history=False, limit=200):
+def review_cases(store, ledger, *, include_history=False, limit=200, reference_snapshot=None):
     from catalog.sync import _records, _read_sheet_if_present
     raw = _read_sheet_if_present(store, 'Offers')
     _, offers = _records(raw)
     cases = []
+    reference_rows = (reference_snapshot or {}).get('rows') or []
+    reference_lookup = {}
+    if reference_rows:
+        from reference_import.matching import ranked_candidates
+        for row in reference_rows:
+            if isinstance(row, (list, tuple)) and len(row) > 16:
+                reference_lookup[str(row[16] or row[2] or '')] = str(row[0] or '')
     source_duplicates = {}
     all_by_offer = {}
     source_results = ledger.source_reextractions()
@@ -407,6 +414,16 @@ def review_cases(store, ledger, *, include_history=False, limit=200):
             superseded = True
         case = None if superseded else _as_case(offer, ledger, include_decided=True)
         if case:
+            case['reference_match_name'] = reference_lookup.get(str(case.get('reference_match_id') or ''), '')
+            case['reference_candidates'] = []
+            if reference_rows and not case.get('reference_match_id'):
+                from reference_import.matching import ranked_candidates
+                case['reference_candidates'] = ranked_candidates({
+                    'name': case.get('product_name'), 'clean_name': case.get('product_name'),
+                    'brand': case.get('brand'), 'category': case.get('category'),
+                    'variant': case.get('variation_type'), 'volume': case.get('volume'),
+                    'weight': case.get('weight'), 'package_count': case.get('package_count'),
+                }, reference_rows, limit=3)
             latest_decision = ledger.latest(case['case_id'])
             decided = bool(latest_decision and latest_decision['signature'] == case['signature'])
             duplicate_key = _duplicate_source_offer_key(offer)

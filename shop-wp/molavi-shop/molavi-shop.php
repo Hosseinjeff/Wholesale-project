@@ -121,6 +121,10 @@ add_action('wp_enqueue_scripts', static function (): void {
             'shop_unit' => (int) $row['shop_unit'],
             'household_threshold_units' => (int) $row['household_threshold_units'],
             'shop_threshold_units' => (int) $row['shop_threshold_units'],
+            'shelf' => (int) $row['shelf'],
+            'discountable' => (int) $row['discountable'],
+            'household_max_discount' => (float) $row['household_max_discount'],
+            'shop_max_discount' => (float) $row['shop_max_discount'],
         ];
     }
     $quote = molavi_quote();
@@ -129,7 +133,7 @@ add_action('wp_enqueue_scripts', static function (): void {
         'quote' => WC_AJAX::get_endpoint('molavi_quote'),
         'buyer' => WC_AJAX::get_endpoint('molavi_buyer'),
         'nonce' => wp_create_nonce('molavi-qty'),
-        'unlock' => 0,
+        'unlock' => (int) $quote['unlock'],
         'buyerType' => molavi_buyer_type(),
         'checkout' => wc_get_checkout_url(),
         'qtys' => $quote['qtys'] === [] ? new stdClass() : $quote['qtys'],
@@ -197,7 +201,7 @@ add_filter('woocommerce_get_price_html', static function (string $html, $product
     $curve = molavi_curve($product);
     $map = molavi_catalog_map();
     $row = $map[(string) $product->get_id()] ?? null;
-    $quote = $row ? molavi_catalog_product_price($row, molavi_cart_qty($product->get_id()), molavi_buyer_type())
+    $quote = $row ? molavi_catalog_product_price($row, molavi_cart_qty($product->get_id()), molavi_buyer_type(), molavi_cart_progress())
         : ['price' => molavi_unit_price($curve, 0.0)];
     $unit = (int) $quote['price'];
     $shelf = (int) $curve['shelf'];

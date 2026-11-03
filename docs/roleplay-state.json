@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "snapshot_version": "4.65-owner-review-ux-deployed",
-  "updated_at_local_date": "2026-11-02",
+  "snapshot_version": "4.68-pricing-profiles-and-extraction-reference-ux",
+  "updated_at_local_date": "2026-11-03",
   "timezone": "Asia/Tehran",
   "shared_brief_url": "https://www.molavisale.ir/molavi-workflow-e73014a831.html",
   "shared_markdown_url": "https://www.molavisale.ir/molavi-workflow-e73014a831.md",
@@ -90,7 +90,8 @@
     "D-041",
     "D-042",
     "D-043",
-    "D-044"
+    "D-044",
+    "D-045"
   ],
   "working_proposal_ids": [
     "P-01",
@@ -346,6 +347,24 @@
     "payment_integration": "The public WooCommerce site has no enabled payment methods. Configure a full-prepayment gateway separately; no live charge was made.",
     "below_threshold_delivery_fee": "250,000 toman; free from 5,000,000-toman discounted goods subtotal; no manual quote",
     "guest_checkout_confirmed": true
+  },
+  "buyer_pricing_profiles": {
+    "user_confirmed": true,
+    "household_unlock": "Current published customer-reference unit price of a common tuna can × 24",
+    "shop_owner_unlock": "4 × household unlock",
+    "fallback_if_no_tuna_product_is_published": 5000000,
+    "discount_progress_basis": "Eligible basket reference-price value; delivery is separate",
+    "maximum_discount_caps": {
+      "household": "50% of each product's allowed discount room",
+      "shop_owner": "100% of allowed discount room, ending at the permitted supplier-cost margin floor"
+    },
+    "pack_24_order_step": {
+      "household": 3,
+      "shop_owner": 6
+    },
+    "other_pack_default": "Shop owner receives ceil(pack size / 4); household receives ceil(shop increment / 2); Woo product overrides remain available",
+    "buyer_choice": "Compact picker beside the cart; explanation is on demand; selected type is shown on cart lines",
+    "wordpress_storage": "Threshold defaults in the molavi_price_settings option; tuna anchor and per-product quantity/discount overrides in WooCommerce product metadata"
   },
   "supplier_price_validity": {
     "two_gates_confirmed": true,

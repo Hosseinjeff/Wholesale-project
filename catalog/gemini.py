@@ -31,6 +31,10 @@ _CONSUMER_PRICE_LABEL = re.compile(
     r'\b(?:consumer|retail)\s+price\b)', re.I)
 _VARIANT_LIST_LABEL = re.compile(
     r'(?:طعم|مزه)[\s\u200c]*(?:های|ها)\s*[:：]?\s*(.+)', re.I)
+_KNOWN_VARIANT_SUFFIXES = (
+    'سیب موز', 'سبزیجات', 'آناناس', 'آلبالو', 'پرتقال', 'انبه', 'انار', 'هلو',
+    'مرغ', 'گوشت', 'قارچ', 'پنیر', 'شکلات', 'تند', 'مخلوط',
+)
 
 
 def _english_numbers(value):
@@ -84,6 +88,9 @@ are separately listed at the same explicit price, preserve one product per liste
 variant and repeat the same price fields for each. A plural flavor list such as
 `طعم های: انبه، هلو و آلبالو` explicitly lists separate variants: return one record per
 flavor with the shared source price, without asking the owner to choose each flavor.
+When a variant is part of the extracted product name but the source lists the base
+product on its own line, keep the complete variant name and use only that exact base
+line's nearby price/count details. Do not borrow details from a different product.
 
 Read measurements from each product title literally. The Persian suffix `گ` means
 grams and `ل` means liters, even when attached to the number with no spaces: `180گ`
@@ -246,7 +253,7 @@ def _explicit_piece_counts(value):
         r'(?<!\d)(\d{1,4})\s*ع(?=$|[^\w])', text)]
 
 
-def _source_title_evidence(name, content):
+def _source_title_evidence(name, content, variant=''):
     """Recover a title only when one source line has the exact same base identity."""
     identities = {_title_identity(name)}
     # Treat only the first model line as a candidate product title. Later lines
@@ -254,6 +261,17 @@ def _source_title_evidence(name, content):
     # not make the product title ambiguous.
     first_line = next((part.strip() for part in str(name or '').splitlines() if part.strip()), '')
     identities.add(_title_identity(first_line))
+    # Some supplier posts label a base product line and put its flavor/model in
+    # the extracted title. Match that suffix only when it is an explicit model
+    # attribute or a recognized flavor; the matched source line remains the
+    # sole authority for price and pack details.
+    for title in (str(name or '').strip(), first_line):
+        for suffix in (str(variant or '').strip(), *_KNOWN_VARIANT_SUFFIXES):
+            if not suffix:
+                continue
+            base = re.sub(r'(?:[\s،,;]+)' + re.escape(suffix) + r'\s*$', '', title, flags=re.I)
+            if base != title and base.strip():
+                identities.add(_title_identity(base))
     identities.discard('')
     if not identities:
         return None, False
@@ -424,16 +442,22 @@ def _product(item, content, channel, source_titles=()):
     explicit_volume = extract_measurement(name, 'volume')
     explicit_weight = extract_measurement(name, 'weight')
     measurement_review_reasons = []
-    source_title, ambiguous_source_title = _source_title_evidence(name, content)
+    variant_value = item.get('variation_type') or item.get('variant') or ''
+    source_title, ambiguous_source_title = _source_title_evidence(name, content, variant_value)
     source_title_verified = bool(source_title)
     source_context = _source_title_context(
         source_title, content, source_titles, ambiguous_source_title)
     if source_title:
-        name, source_volume, source_weight = source_title
-        explicit_volume = source_volume
-        explicit_weight = source_weight
-        # Keep the product title concise and recover size/count from its source
-        # context instead of appending packaging, quality, or price lines to it.
+        matched_source_name, source_volume, source_weight = source_title
+        first_model_line = next((part.strip() for part in name.splitlines() if part.strip()), name)
+        # Prefer the exact source title to remove model-added packaging/price
+        # lines. Keep a verified variant suffix when it is absent from the base
+        # source title.
+        name = matched_source_name if _title_identity(first_model_line) == _title_identity(matched_source_name) else first_model_line
+        explicit_volume = explicit_volume or source_volume
+        explicit_weight = explicit_weight or source_weight
+        # Keep the model's full variant title while recovering measurements and
+        # pack details from the matched source line and its scoped context.
         for kind in ('volume', 'weight'):
             if extract_measurement(name, kind):
                 if kind == 'volume':
@@ -464,7 +488,7 @@ def _product(item, content, channel, source_titles=()):
     explicit_packaging = _explicit_packaging(name)
     if explicit_packaging and explicit_packaging not in packaging:
         packaging = ' · '.join(value for value in (explicit_packaging, packaging) if value)
-    variation_type = _explicit_variant(name) or str(item.get('variant') or item.get('variation_type') or '').strip()
+    variation_type = _explicit_variant(name) or str(variant_value or '').strip()
     model_count = _count(item.get('package_count'))
     title_piece_counts = set(_explicit_piece_counts(name))
     source_package_counts = _source_package_counts(source_context)
@@ -666,14 +690,15 @@ def parse_message_products(response_text, content, channel):
         name = item.get('name') or item.get('product_name')
         if not isinstance(name, str) or not name.strip():
             continue
-        source_title, _ambiguous = _source_title_evidence(name.strip(), content)
+        variant = item.get('variation_type') or item.get('variant') or ''
+        source_title, _ambiguous = _source_title_evidence(name.strip(), content, variant)
         if source_title and source_title not in source_titles:
             source_titles.append(source_title)
     products = []
     groups = {}
     for item in items:
         product = _product(item, content, channel, source_titles)
-        source_title, ambiguous = _source_title_evidence(product['name'], content)
+        source_title, ambiguous = _source_title_evidence(product['name'], content, product.get('variation_type'))
         variants = _listed_source_variants(_source_title_context(
             source_title, content, source_titles, ambiguous))
         if variants:

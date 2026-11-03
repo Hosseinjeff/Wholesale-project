@@ -954,7 +954,46 @@
         const detectedSupplierPrice = normalizedAiInteger(item.detected_price) || normalizedAiInteger(item.sale_price);
         const packagePrice = normalizedAiInteger(item.package_price);
         const visibleSupplierPrice = detectedSupplierPrice || packagePrice;
-        card.appendChild(node('p', `تأمین‌کننده: ${item.channel || 'نامشخص'} · مبلغ فروش تأمین‌کننده: ${visibleSupplierPrice ? amount(visibleSupplierPrice) : 'در پیام پیدا نشد'} · مبنا: ${roleLabel}`));
+        const regularPrice = normalizedAiInteger(item.actual_price || item.consumer_price);
+        card.appendChild(node('p', `قیمت فروش تأمین‌کننده: ${visibleSupplierPrice ? amount(visibleSupplierPrice) : 'در پیام پیدا نشد'} · مبنا: ${roleLabel}`));
+        card.appendChild(node('p', `قیمت مصرف‌کننده / عادی: ${regularPrice ? amount(regularPrice) : 'در پیام پیدا نشد'} · تأمین‌کننده: ${item.channel || 'نامشخص'}`));
+        const referenceStates = {
+            exact_compatible_identity: 'تطبیق دقیق خودکار بر اساس نام و ویژگی‌ها؛ نقش قیمت جداگانه بررسی می‌شود',
+            owner_approved_mapping: 'تطبیق قبلاً توسط مالک تأیید شده',
+            no_compatible_reference: 'مرجع سازگار پیدا نشد',
+            multiple_candidates: 'چند مرجع مشابه پیدا شد؛ یک مورد باید انتخاب شود',
+            missing_name: 'نام کالا برای جست‌وجوی مرجع کافی نیست'
+        };
+        const assignedReference = item.reference_match_id
+            ? `مرجع ثبت‌شده: ${item.reference_match_name || item.reference_match_id} · ${referenceStates[item.reference_match_state] || item.reference_match_state || 'تطبیق ثبت‌شده'}`
+            : `مرجع کالا: ${referenceStates[item.reference_match_state] || 'هنوز انتخاب نشده؛ پیشنهادها در «تطبیق کالا» هستند'}`;
+        card.appendChild(node('p', assignedReference));
+        const referenceCandidates = Array.isArray(item.reference_candidates) ? item.reference_candidates.slice(0, 3) : [];
+        if (referenceCandidates.length) {
+            const candidateList = document.createElement('ul');
+            candidateList.className = 'molavi-ai-reference-candidates';
+            referenceCandidates.forEach(candidate => {
+                const prices = [candidate.unit_price ? `واحد ${amount(candidate.unit_price)}` : '',
+                    candidate.package_price ? `بسته ${amount(candidate.package_price)}` : ''].filter(Boolean).join(' · ');
+                candidateList.appendChild(node('li', `پیشنهاد مرجع: ${candidate.name} · ${candidate.reference_id}${prices ? ` · ${prices}` : ''} · رتبه ${Math.round(Number(candidate.score || 0) * 100)}٪`));
+            });
+            card.appendChild(candidateList);
+            card.appendChild(node('small', 'رتبه فقط پیشنهاد است و تا تأیید در تب تطبیق، کالا به مرجع وصل نمی‌شود.'));
+        }
+        if (!item.reference_match_id) {
+            const matchLink = document.createElement('a');
+            matchLink.className = 'button';
+            const target = config.pageUrls && config.pageUrls['molavi-reference-items']
+                || 'admin.php?page=molavi-reference-items';
+            const matchUrl = new URL(target, window.location.href);
+            if (item.offer_id) matchUrl.searchParams.set('offer_id', item.offer_id);
+            if (referenceCandidates[0] && referenceCandidates[0].reference_id) {
+                matchUrl.searchParams.set('reference_id', referenceCandidates[0].reference_id);
+            }
+            matchLink.href = matchUrl.toString();
+            matchLink.textContent = 'تأیید تطبیق همین کالا';
+            card.appendChild(matchLink);
+        }
         card.appendChild(node('p', `دلیل بررسی: ${item.reason || 'نیازمند بررسی'} · حداقل خرید: ${item.min_qty || 'ثبت نشده'}`));
         if (item.message_timestamp) card.appendChild(node('p', `زمان پیام منبع: ${item.message_timestamp}`));
         const originalPost = safeSourceLink(item.source_post_url);
@@ -1559,6 +1598,11 @@
         const currentReference = item.decision && item.decision.reference_id
             || (item.reference_update && item.reference_update.reference_id) || '';
         let selectedReferenceId = candidateRows.some(row => row.reference_id === currentReference) ? currentReference : '';
+        const requestedReferenceId = String(item.preselected_reference_id
+            || new URLSearchParams(window.location.search).get('reference_id') || '');
+        if (!selectedReferenceId && candidateRows.some(row => row.reference_id === requestedReferenceId)) {
+            selectedReferenceId = requestedReferenceId;
+        }
         if (!selectedReferenceId && candidateRows.length && Number(candidateRows[0].score) >= 0.95) {
             selectedReferenceId = candidateRows[0].reference_id;
         }
@@ -1644,8 +1688,10 @@
             const state = data.reference_state || {};
             if (!state.allow_automatic) root.appendChild(notice('نسخه قیمت مرجع فعال و معتبر نیست. ابتدا فهرست مرجع را از API ووکامرس دریافت، بررسی و فعال کنید.', 'warning'));
             const requestedOfferId = new URLSearchParams(window.location.search).get('offer_id') || '';
+            const requestedReferenceId = new URLSearchParams(window.location.search).get('reference_id') || '';
             let cases = [...(data.cases || []), ...(data.recent_decisions || [])];
             if (requestedOfferId) cases = cases.filter(item => String(item.offer_id || '') === requestedOfferId);
+            if (requestedReferenceId) cases.forEach(item => { item.preselected_reference_id = requestedReferenceId; });
             let contextStored = true;
             if (cases.length) {
                 try {

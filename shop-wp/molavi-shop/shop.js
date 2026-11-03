@@ -75,7 +75,11 @@
                 householdUnit: Number(publicRow.household_unit) || 1,
                 shopUnit: Number(publicRow.shop_unit) || 1,
                 packSize: Number(publicRow.pack_size) || 1,
-                thresholdUnits: currentThreshold || 1
+                thresholdUnits: currentThreshold || 1,
+                shelf: Number(publicRow.shelf) || 0,
+                discountable: Number(publicRow.discountable) || 0,
+                householdMax: Number(publicRow.household_max_discount) || 0,
+                shopMax: Number(publicRow.shop_max_discount) || 0
             };
         }
         var node = document.querySelector('[data-molavi-price][data-product="' + cssEscape(id) + '"]');
@@ -88,7 +92,11 @@
             min: profileMin || Number(node.getAttribute("data-min")) || 1,
             householdUnit: Number(node.getAttribute("data-household-min")) || 1,
             shopUnit: Number(node.getAttribute("data-shop-min")) || 1,
-            thresholdUnits: 1
+            thresholdUnits: 1,
+            shelf: Number(node.getAttribute("data-shelf")) || 0,
+            discountable: Number(node.getAttribute("data-discountable")) || 0,
+            householdMax: Number(node.getAttribute("data-household-max")) || 0,
+            shopMax: Number(node.getAttribute("data-shop-max")) || 0
         };
     }
 
@@ -107,22 +115,20 @@
     }
 
     function suggestion(sourceQtys) {
-        var shopTargetReached = false;
-        var householdTargetExceeded = false;
+        var eligibleReference = 0;
         var householdValid = true;
         Object.keys(sourceQtys || {}).forEach(function (id) {
             var qty = Number(sourceQtys[id]) || 0;
-            var product = catalog[id] || {};
+            var product = rowOf(id) || {};
             if (qty < 1) return;
-            var shopUnit = Math.max(1, Number(product.shop_unit) || Number(product.min) || 1);
-            var householdUnit = Math.max(1, Number(product.household_unit) || 1);
-            shopTargetReached = shopTargetReached || qty >= shopUnit * Math.max(1, Number(product.shop_threshold_units) || 4);
-            var householdTarget = householdUnit * Math.max(1, Number(product.household_threshold_units) || 1);
-            householdTargetExceeded = householdTargetExceeded || qty > householdTarget;
+            if (Number(product.discountable) === 1 && Number(product.shelf) > 0) eligibleReference += Number(product.shelf) * qty;
+            var householdUnit = Math.max(1, Number(product.householdUnit) || 1);
             if (qty < householdUnit || qty % householdUnit !== 0) householdValid = false;
         });
-        if (buyerType === "household" && householdTargetExceeded) return { buyer_type: "shop", reason: "household_threshold_exceeded" };
-        if (buyerType === "shop" && !shopTargetReached && householdValid) {
+        var householdTarget = Number(lastQuote.household_unlock) || 5000000;
+        var shopTarget = Number(lastQuote.shop_unlock) || householdTarget * 4;
+        if (buyerType === "household" && eligibleReference > householdTarget) return { buyer_type: "shop", reason: "household_threshold_exceeded" };
+        if (buyerType === "shop" && eligibleReference < shopTarget && householdValid) {
             return { buyer_type: "household", reason: "household_order" };
         }
         return null;
@@ -133,9 +139,15 @@
             button.setAttribute("aria-pressed", button.getAttribute("data-molavi-buyer") === buyerType ? "true" : "false");
         });
         document.querySelectorAll("[data-molavi-buyer-help]").forEach(function (node) {
-            node.textContent = buyerType === "shop"
-                ? "فروشگاهی: تعداد سفارش بیشتر و سقف تخفیف بالاتر؛ سقف هر کالا معمولاً پس از ۴ واحد سفارش تکمیل می‌شود."
-                : "خانوار: تعداد سفارش کمتر و سقف تخفیف پایین‌تر؛ سقف هر کالا معمولاً با ۱ واحد سفارش تکمیل می‌شود.";
+            var shell = Number(lastQuote.tuna_shell_units) || 24;
+            var household = Number(lastQuote.household_unlock) || 5000000;
+            var shop = Number(lastQuote.shop_unlock) || household * 4;
+            var benchmark = lastQuote.threshold_dynamic
+                ? "مبنای روز: " + (lastQuote.tuna_anchor_name || "قیمت مرجع تن‌ماهی") + "، هر قوطی " + toman(lastQuote.tuna_anchor_unit_price) + ". "
+                : "قیمت مرجع تن‌ماهی هنوز در کاتالوگ نیست و آستانه فعلی " + toman(household) + " است. ";
+            node.textContent = benchmark + "آستانه خانوار برابر ارزش " + digits(shell) + " قوطی تن‌ماهی (" + toman(household)
+                + ") است؛ آستانه فروشگاه چهار برابر آن (" + toman(shop)
+                + "). سقف تخفیف فروشگاه تا کف مجاز و نزدیک‌تر به بهای تأمین‌کننده می‌رسد.";
         });
     }
 
@@ -322,6 +334,17 @@
                 if (shelf > unit) was.textContent = toman(shelf);
             }
         });
+        document.querySelectorAll("[data-molavi-profile-deal]").forEach(function (node) {
+            var row = rowOf(node.getAttribute("data-product") || "");
+            if (!row) return;
+            var maximum = buyerType === "shop" ? row.shopMax : row.householdMax;
+            var prefix = node.getAttribute("data-prefix") || "تا";
+            node.classList.toggle("molavi-deal-fixed", maximum <= 0);
+            node.textContent = maximum > 0
+                ? (prefix === "تا" ? "تا " + percent(maximum) + " تخفیف" : percent(maximum) + " " + prefix)
+                : "قیمت ثابت";
+            node.setAttribute("aria-label", maximum > 0 ? "حداکثر " + percent(maximum) + " تخفیف" : "قیمت ثابت");
+        });
         document.querySelectorAll(".e-loop-item [data-molavi-cart]").forEach(function (node) {
             var id = node.getAttribute("data-product");
             var qty = Number(counts[id] || 0);
@@ -371,8 +394,8 @@
             html += '<article class="molavi-bline" data-product="' + escapeHtml(id) + '" data-min="' + min + '" data-qty="' + qty + '">'
                 + '<div class="molavi-bline-image"><img src="' + escapeHtml(row.image || "") + '" alt="' + escapeHtml(row.name || "") + '" loading="lazy"></div>'
                 + '<div class="molavi-bline-copy"><h3>' + escapeHtml(row.name || "") + "</h3><p><strong>"
-                + toman(unit) + "</strong> × " + digits(qty) + "</p><small>واحد سفارش " + digits(min)
-                + " · سقف تخفیف پس از " + digits(row.thresholdUnits) + " واحد</small>"
+                + toman(unit) + "</strong> × " + digits(qty) + "</p><small>واحد افزایش " + digits(min)
+                + " · نوع خرید: " + (buyerType === "shop" ? "فروشگاهی" : "خانوار") + "</small>"
                 + (invalidLine ? '<strong class="molavi-buyer-line-warning">نیازمند اصلاح تعداد</strong>' : "") + "</div>"
                 + stepper(qty, row) + "</article>";
         });
@@ -407,8 +430,10 @@
         if (progressFill) progressFill.style.width = progressPct + "%";
         var progressTitle = document.querySelector("[data-molavi-progress-title]");
         var remainingNode = document.querySelector("[data-molavi-remaining]");
-        if (progressTitle) progressTitle.textContent = progress >= 1 ? "سقف تخفیف کالاهای سبد فعال است" : "تعداد بیشتر، تخفیف هر کالا را افزایش می‌دهد";
-        if (remainingNode) remainingNode.textContent = "تعداد لازم برای هر کالا کنار همان ردیف نوشته شده است.";
+        if (progressTitle) progressTitle.textContent = progress >= 1 ? "به سقف تخفیف این نوع خرید رسیدید" : "با افزایش مبلغ سبد، تخفیف بیشتر می‌شود";
+        if (remainingNode) remainingNode.textContent = progress >= 1
+            ? "سقف تخفیف " + (buyerType === "shop" ? "فروشگاه" : "خانوار") + " فعال است."
+            : "تا سقف تخفیف " + (buyerType === "shop" ? "فروشگاه" : "خانوار") + " " + toman(Number(quote && quote.remaining) || 0) + " مانده است.";
     }
 
     function setText(selector, value) {

@@ -2040,7 +2040,23 @@ def ai_confirmations_route():
                     }})
                 response.headers['Cache-Control']='no-store'
                 return response
-            cases, recent = review_cases(store, ledger, include_history=True)
+            reference_snapshot = None
+            reference_path = os.getenv('REFERENCE_STORE_PATH') or ''
+            if reference_path and os.path.isfile(reference_path):
+                try:
+                    from datetime import datetime, timezone
+                    from reference_import.snapshots import ReferenceStore
+                    from reference_import.workflow import active_reference_use
+                    reference_store = ReferenceStore(reference_path, owner_ids=sorted(owners))
+                    candidate_snapshot = reference_store.active_snapshot()
+                    reference_state = active_reference_use(reference_store, now=datetime.now(timezone.utc))
+                    if (candidate_snapshot and reference_state.get('allow_automatic')
+                            and candidate_snapshot.get('snapshot_id') == reference_state.get('snapshot_id')):
+                        reference_snapshot = candidate_snapshot
+                except Exception:
+                    reference_snapshot = None
+            cases, recent = review_cases(store, ledger, include_history=True,
+                                         reference_snapshot=reference_snapshot)
             response = jsonify({'ok': True, 'cases': cases, 'recent_decisions': recent,
                                 'publication_held': bool(queue.publication_holds())})
             response.headers['Cache-Control'] = 'no-store'

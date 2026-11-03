@@ -121,6 +121,7 @@ function molavi_apply_settings(array $settings): void
             continue;
         }
         $next[$field] = in_array($field, ['min_profit', 'unlock_target',
+            'household_unlock_fallback', 'tuna_shell_units', 'shop_unlock_multiplier',
             'household_discount_threshold_units', 'shop_discount_threshold_units'], true)
             ? (int) $settings[$field]
             : (float) $settings[$field];

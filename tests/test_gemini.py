@@ -164,6 +164,29 @@ class GeminiExtractionTests(unittest.TestCase):
         self.assertEqual(product['price_type'], 'unit')
         self.assertFalse(product['needs_review'])
 
+    def test_variant_suffix_uses_base_title_price_context_and_keeps_both_prices(self):
+        base = 'نودل لیوانی شف هو،۱۲ عددی'
+        title = base + ' سبزیجات'
+        content = (
+            base + '\n'
+            'تعداد در کارتن: ۱۲ عدد\n'
+            'قیمت فروش ما: ۷۵/۰۰۰ تومان\n'
+            'قیمت مصرف کننده: ۱۳۰/۰۰۰ تومان'
+        )
+        product = parse_message_products(json.dumps([{
+            'name': title, 'variation_type': 'سبزیجات', 'package_count': 12,
+            'currency': 'IRT', 'confidence': 0.70, 'needs_review': True,
+            'review_reason': 'supplier unit price is missing',
+        }], ensure_ascii=False), content, '@supplier')[0]
+        self.assertEqual(product['name'], title)
+        self.assertEqual(product['variation_type'], 'سبزیجات')
+        self.assertEqual(product['sale_price'], 75000)
+        self.assertEqual(product['detected_price'], 75000)
+        self.assertEqual(product['actual_price'], 130000)
+        self.assertEqual(product['price_type'], 'unit')
+        self.assertEqual(product['confidence'], 0.95)
+        self.assertFalse(product['needs_review'])
+
     def test_unit_and_consumer_labels_after_pack_count_are_scoped_to_product(self):
         title = 'تی بگ چای شهرزاد کاوردار'
         content = (

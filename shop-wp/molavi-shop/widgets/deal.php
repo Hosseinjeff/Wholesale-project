@@ -81,21 +81,29 @@ class Deal extends Widget_Base
             return;
         }
         $curve = molavi_curve($product);
+        $profile = molavi_product_profile($product);
+        $household = molavi_profile_curve($curve, $profile, 'household');
+        $shop = molavi_profile_curve($curve, $profile, 'shop');
+        $current = molavi_profile_curve($curve, $profile, molavi_buyer_type());
         $prefix = trim((string) $this->get_settings_for_display('prefix'));
         if ($prefix === '' || $prefix === 'تخفیف') {
             $prefix = 'تا';
         }
+        $attributes = ' data-molavi-profile-deal data-product="' . esc_attr((string) $product->get_id())
+            . ' data-prefix="' . esc_attr($prefix)
+            . '" data-household-max="' . esc_attr((string) $household['max'])
+            . '" data-shop-max="' . esc_attr((string) $shop['max']) . '"';
         if (($curve['max'] ?? 0) <= 0) {
-            echo '<span class="molavi-deal molavi-deal-fixed">قیمت ثابت</span>';
+            echo '<span class="molavi-deal molavi-deal-fixed"' . $attributes . '>قیمت ثابت</span>';
             return;
         }
         if ($prefix === 'تا') {
-            echo '<span class="molavi-deal" dir="rtl">' . esc_html('تا ' . molavi_percent((float) $curve['max']) . ' تخفیف') . '</span>';
+            echo '<span class="molavi-deal" dir="rtl"' . $attributes . '>' . esc_html('تا ' . molavi_percent((float) $current['max']) . ' تخفیف') . '</span>';
             return;
         }
         if ($prefix === '') {
             $prefix = 'تخفیف';
         }
-        echo '<span class="molavi-deal" dir="rtl">' . esc_html(molavi_percent((float) $curve['max']) . ' ' . $prefix) . '</span>';
+        echo '<span class="molavi-deal" dir="rtl"' . $attributes . '>' . esc_html(molavi_percent((float) $current['max']) . ' ' . $prefix) . '</span>';
     }
 }

@@ -1,6 +1,6 @@
 # MolaviSale business flow
 
-Updated: 2026-10-25, Asia/Tehran. Design stage: mockup v2; production unchanged.
+Updated: 2026-11-03, Asia/Tehran. WordPress pricing and extraction-reference UI are being updated in production.
 
 This document connects the existing ingestion/pricing code to the customer journey.
 Code-backed behavior and proposed launch behavior are distinguished below.
@@ -81,15 +81,21 @@ integration concerns; the visual prototype does not prove them.
 Each eligible product has its own consumer/reference price, opening selling price,
 minimum selling price, and maximum discount. Supplier cost and margin rules determine
 the range; those internal values should not be presented as customer-facing content.
+The current WordPress implementation applies separate household and shop-owner caps:
+households can reach half of the product's permitted discount room, while shop owners
+can reach the permitted floor, closer to supplier cost. These values are persisted in
+Woo product metadata and can be overridden per product.
 
 Let `R` be the reference price, `C` the opening price, `F` the minimum selling price,
 and `p` the basket progress:
 
 ```text
 eligible_reference_total = sum(reference_price × quantity for eligible basket items)
-progress = clamp(eligible_reference_total / unlock_target, 0, 1)
-current_unit_price = ROUND_HALF_UP(C + (F - C) × progress)
-maximum_discount = (R - F) / R
+progress = clamp(eligible_reference_total / buyer_profile_unlock_target, 0, 1)
+profile_floor = R - (R - F) × buyer_profile_cap
+profile_opening = max(profile_floor, min(R, C))
+current_unit_price = ROUND_HALF_UP(profile_opening + (profile_floor - profile_opening) × progress)
+maximum_discount = (R - profile_floor) / R
 current_discount = (R - current_unit_price) / R
 ```
 
@@ -106,10 +112,16 @@ Important consequences:
   The current discount is already included in the shown unit price; do not subtract it twice.
 - WooCommerce measures progress using reference value of **discountable** products.
   Fixed-price products can be purchased but do not advance that progress.
-- The default unlock target in code is 2,000,000 toman. It is configurable and is only
-  a sample value in this mockup, not a newly verified live business setting.
-- That target is not a minimum order value, delivery threshold, payable total, or coupon.
-  Reaching it gives each eligible product its own maximum discount.
+- The household discount-unlock target is dynamically calculated as the current
+  customer-reference price for one common tuna can multiplied by 24. Shop-owner unlock
+  is four times the household target. The target and tuna anchor are computed in
+  WordPress from the published product catalog; an owner can mark the correct tuna
+  product in its WooCommerce editor. If no tuna product is present, the current fallback
+  is 5,000,000 toman until one is available. The threshold is not a minimum order value,
+  delivery threshold, payable total, or coupon.
+- Reaching a profile's unlock target gives each eligible product its own profile-specific
+  maximum discount. The discount progress counts eligible reference-price value, while
+  the selected buyer type determines both the target and the price floor.
 - Basket savings are `sum((reference - current_unit) × quantity)`.
   The overall basket percentage is savings divided by total reference value, a weighted
   result rather than the average of the visible product percentages.
@@ -121,11 +133,21 @@ discount eligibility. Cross-platform tests must account for this input-contract 
 
 ### Minimum quantities
 
-The current extraction defaults pack sizes of 6, 12, or 24 to a minimum purchase of
-6; other examples default to 1. Product-specific minimums are carried into the store.
-That is a minimum, not a multiple-of-pack restriction: after the initial minimum,
-the current shop changes quantity one unit at a time. Reducing below the minimum
-removes the line and should explain the removal and repricing.
+WordPress derives profile-specific order increments from the extracted pack count:
+shop-owner increment = rounded-up one quarter of the pack, and household increment =
+rounded-up half of the shop increment. A 24-unit pack therefore starts at 3 for a
+household and 6 for a shop owner, and each later cart adjustment uses that same step.
+Per-product values can be overridden in the WooCommerce product editor. If changing
+buyer type makes an existing cart quantity invalid, the cart shows the required unit
+and offers a one-click quantity fix before checkout.
+
+The supplier-message owner card now displays source-backed supplier and consumer prices.
+Exact reference identities may be assigned automatically only under the existing
+strict name/attribute match; ambiguous or unmatched cases show ranked suggestions. The
+WordPress **تطبیق کالا** screen is where the owner confirms the reference product and
+whether the supplier amount is per unit or per package. Opening that screen from an
+extraction card jumps to the same offer and preselects its highest ranked suggestion;
+ranking by itself does not approve a match.
 
 ## Proposed first-release customer flow
 

@@ -14,6 +14,7 @@ from catalog.ai_confirmations import (
 from catalog.extract import MESSAGE_HEADERS, OFFER_HEADERS, PRODUCT_HEADERS
 from catalog.pricing import catalog_from_records, default_settings
 from catalog.sync import MemoryStore, _records, _row_from_map, refresh_ai_message_status
+from reference_import.importer import HEADERS as REFERENCE_HEADERS
 
 
 class AIConfirmationTests(unittest.TestCase):
@@ -98,6 +99,23 @@ class AIConfirmationTests(unittest.TestCase):
         cases = review_cases(self.store, self.ledger)
         changed_case = next(item for item in cases if item['offer_id'] == changed['Offer ID'])
         self.assertNotIn('variant_group_id', changed_case)
+
+    def test_case_includes_ranked_reference_suggestions_for_owner_review(self):
+        reference = [''] * len(REFERENCE_HEADERS)
+        reference[0] = 'Tuna 24 pack'
+        reference[1] = 'Tuna'
+        reference[2] = 'tuna'
+        reference[3] = 2400000
+        reference[4] = 100000
+        reference[6] = 24
+        reference[13] = 'Canned Food'
+        reference[16] = 'ref-tuna-24'
+        cases = review_cases(self.store, self.ledger,
+            reference_snapshot={'rows': [reference]})
+        case = next(item for item in cases if item['offer_id'] == self.source['Offer ID'])
+        self.assertEqual(case['reference_candidates'][0]['reference_id'], 'ref-tuna-24')
+        self.assertEqual(case['reference_candidates'][0]['name'], 'Tuna 24 pack')
+        self.assertGreater(case['reference_candidates'][0]['score'], 0.35)
 
     def test_duplicate_variation_labels_are_not_grouped(self):
         first = dict(self.source, **{'Offer ID':'batch-1:msg-1:1', 'Product Name':'Tuna Lemon',

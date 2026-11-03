@@ -94,7 +94,7 @@ class Basket extends Widget_Base
                     continue;
                 }
                 $qty = (int) $item['quantity'];
-                $unit = (int) (molavi_catalog_product_price($row, $qty, molavi_buyer_type())['price'] ?? $row['sale']);
+                $unit = (int) (molavi_catalog_product_price($row, $qty, molavi_buyer_type(), molavi_cart_progress())['price'] ?? $row['sale']);
                 $shelf = (int) $row['shelf'];
                 $saved += $shelf > $unit ? ($shelf - $unit) * $qty : 0;
                 $total += $unit * $qty;
@@ -104,6 +104,7 @@ class Basket extends Widget_Base
         $count = count($lines);
         echo '<aside class="molavi-basket" data-molavi-basket>';
         echo '<div class="molavi-basket-head"><h2>' . esc_html($title) . '</h2><span data-molavi-basket-count>' . esc_html($count > 0 ? '(' . molavi_digits((string) $count) . ' محصول)' : '') . '</span></div>';
+        molavi_render_buyer_profile_selector('cart');
         echo '<div class="molavi-basket-lines" data-molavi-basket-lines>';
         if ($lines === []) {
             echo '<p class="molavi-basket-empty">سبد خالی است.</p>';
