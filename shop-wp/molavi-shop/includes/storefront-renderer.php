@@ -152,7 +152,7 @@ function molavi_storefront_card_product_name(\WC_Product $product, string $suppl
     $name = $replace('/[،,؛;]+/u', ' ', $name);
     $name = $replace('/[\p{Z}\s\p{Cf}]+/u', ' ', $name);
     $name = trim($name, " \t\n\r\0\x0B،,؛;:-");
-    if (preg_match('/[\p{L}\p{N}]/u', $name) === 1) {
+    if ($name !== '') {
         return $name;
     }
     return $originalName !== '' ? $originalName : 'کالا';
