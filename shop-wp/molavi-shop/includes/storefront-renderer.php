@@ -98,7 +98,12 @@ function molavi_storefront_card_product_name(\WC_Product $product, string $suppl
 {
     $originalName = trim(wp_strip_all_tags($product->get_name()));
     if ($originalName === '' && method_exists($product, 'get_slug')) {
-        $slug = rawurldecode((string) $product->get_slug());
+        $slug = (string) $product->get_slug();
+        if ($slug === '') {
+            $path = parse_url($product->get_permalink(), PHP_URL_PATH);
+            $slug = is_string($path) ? basename(rtrim($path, '/')) : '';
+        }
+        $slug = rawurldecode($slug);
         $slug = (string) preg_replace('/-[0-9]+$/', '', $slug);
         $originalName = trim(preg_replace('/[-_]+/u', ' ', $slug) ?? '');
     }
