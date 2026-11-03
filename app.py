@@ -2342,7 +2342,9 @@ def reference_item_reviews_route():
                      if not row.get('decision') or row.get('projection_pending')]
             for row in cases:
                 row['candidates'] = ranked_candidates(
-                    row.get('attributes') or {}, snapshot.get('rows') or [], limit=12)
+                    {**(row.get('attributes') or {}),
+                     'supplier_price': row.get('supplier_price') or ''},
+                    snapshot.get('rows') or [], limit=12)
             recent_decisions = sorted((row for row in all_cases
                                        if row.get('decision') and not row.get('projection_pending')),
                 key=lambda row: str((row.get('decision') or {}).get('created_at') or ''), reverse=True)[:50]

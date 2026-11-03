@@ -1,6 +1,6 @@
 import unittest
 from reference_import.importer import HEADERS
-from reference_import.matching import candidate_match,price_role_hint
+from reference_import.matching import candidate_match,price_role_hint,ranked_candidates
 
 
 def row(name='چای',brand='الف',variant='',count=12,unit=40000,package=480000,code='10'):
@@ -23,5 +23,21 @@ class MatchingTests(unittest.TestCase):
  def test_ambiguous_or_missing_scale_requires_review(self):
   self.assertEqual(price_role_hint(100000,{'unit_price':40000,'package_price':480000})['role'],'needs_review')
   self.assertEqual(price_role_hint(100,{'unit_price':0,'package_price':100})['role'],'needs_review')
+ def test_ranked_candidates_explain_attribute_comparison_and_supplier_price_scale(self):
+  source=row(name='چای ممتاز ۴۰۰ گرمی',brand='الف',variant='هل',count=12,unit=40000,package=480000)
+  source[8]='۲۲۰ میلی لیتر';source[9]='۴۰۰ گرم';source[13]='چای'
+  candidates=ranked_candidates({'name':'چای ممتاز ۴۰۰ گرمی','brand':'الف','variant':'هل',
+      'package_count':12,'volume':'220 ml','weight':'۴۰۰ گرم','supplier_price':460000},[source],limit=3)
+  self.assertEqual(len(candidates),1)
+  candidate=candidates[0]
+  self.assertEqual(candidate['supplier_price'],460000)
+  self.assertEqual(candidate['price_role_hint']['role'],'package')
+  comparisons={item['key']:item for item in candidate['comparisons']}
+  self.assertEqual(comparisons['brand']['state'],'match')
+  self.assertEqual(comparisons['variant']['state'],'match')
+  self.assertEqual(comparisons['package_count']['state'],'match')
+  self.assertEqual(comparisons['volume']['state'],'match')
+  self.assertEqual(comparisons['weight']['state'],'match')
+  self.assertEqual(comparisons['category']['state'],'not_provided')
 
 if __name__=='__main__':unittest.main()

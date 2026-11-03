@@ -25,9 +25,9 @@
         var host = button.closest("[data-product]");
         if (!host) return;
         event.preventDefault();
-        showStatus("");
         var id = host.getAttribute("data-product");
         if (!id) return;
+        showStatus("", id);
         var row = catalog[id] || {};
         var min = Number(host.getAttribute("data-min")) || Number(row.min) || 1;
         var qty = Number(qtys[id] || 0);
@@ -48,8 +48,8 @@
         if (next > 0) qtys[id] = next;
         else delete qtys[id];
         paint(localQuote());
-        if (removedForMinimum) showStatus("با کاهش از حداقل خرید " + digits(min) + " عدد، محصول از سبد حذف شد و قیمت‌ها دوباره محاسبه می‌شوند.");
-        else showStatus("در حال به‌روزرسانی قیمت سبد…");
+        if (removedForMinimum) showStatus("با کاهش از حداقل خرید " + digits(min) + " عدد، محصول از سبد حذف شد و قیمت‌ها دوباره محاسبه می‌شوند.", id);
+        else showStatus("در حال به‌روزرسانی قیمت سبد…", id);
         sync();
     });
 
@@ -154,36 +154,32 @@
     function showBuyerFeedback(quote) {
         var invalid = Array.isArray(quote && quote.invalid_lines) ? quote.invalid_lines : [];
         var switchSuggestion = quote && quote.switch_suggestion;
-        document.querySelectorAll("[data-molavi-buyer-feedback]").forEach(function (box) {
+        document.querySelectorAll("[data-molavi-card-feedback]").forEach(function (box) {
             box.replaceChildren();
-            box.hidden = !invalid.length && !switchSuggestion;
-            if (invalid.length) {
-                box.appendChild(document.createTextNode("این کالاها با واحد سفارش نوع خرید انتخاب‌شده هماهنگ نیستند. تعدادشان را اصلاح کنید یا نوع خرید را برگردانید:"));
-                var list = document.createElement("ul");
-                invalid.forEach(function (item) {
-                    var line = document.createElement("li");
-                    line.appendChild(document.createTextNode(item.name + " · در سبد " + digits(item.quantity)
-                        + " · واحد لازم " + digits(item.order_unit)));
-                    var fix = document.createElement("button");
-                    fix.type = "button";
-                    fix.className = "molavi-buyer-fix";
-                    fix.setAttribute("data-molavi-fix", item.product_id);
-                    fix.textContent = "افزودن تا " + digits(item.needed_quantity);
-                    line.appendChild(document.createTextNode(" "));
-                    line.appendChild(fix);
-                    list.appendChild(line);
-                });
-                box.appendChild(list);
+            var id = String(box.getAttribute("data-product") || "");
+            var invalidLine = invalid.find(function (item) { return String(item.product_id) === id; });
+            if (invalidLine) {
+                box.appendChild(document.createTextNode("تعداد این کالا با واحد سفارش " + digits(invalidLine.order_unit)
+                    + " هماهنگ نیست؛ در سبد " + digits(invalidLine.quantity) + " عدد است."));
+                var fix = document.createElement("button");
+                fix.type = "button";
+                fix.className = "molavi-buyer-fix";
+                fix.setAttribute("data-molavi-fix", id);
+                fix.textContent = "تنظیم روی " + digits(invalidLine.needed_quantity);
+                box.appendChild(fix);
             }
-            if (switchSuggestion && switchSuggestion.buyer_type) {
+            if (switchSuggestion && switchSuggestion.buyer_type && Number(qtys[id]) > 0) {
+                if (invalidLine) box.appendChild(document.createTextNode(" "));
+                else box.appendChild(document.createTextNode("برای این سبد، نوع خرید پیشنهادی تغییر کرده است: "));
                 var suggestionButton = document.createElement("button");
                 suggestionButton.type = "button";
                 suggestionButton.className = "molavi-buyer-suggestion";
                 suggestionButton.setAttribute("data-molavi-buyer", switchSuggestion.buyer_type);
                 suggestionButton.textContent = switchSuggestion.buyer_type === "shop"
-                    ? "از آستانه خانوار بیشتر شده؛ انتخاب صاحب فروشگاه" : "سفارش هنوز به آستانه تخفیف فروشگاهی نرسیده؛ انتخاب خانوار";
+                    ? "تغییر این سبد به خرید فروشگاهی" : "تغییر این سبد به خرید خانوار";
                 box.appendChild(suggestionButton);
             }
+            box.hidden = !box.childNodes.length;
         });
     }
 
@@ -233,7 +229,7 @@
         var item = (lastQuote.invalid_lines || []).find(function (line) { return String(line.product_id) === String(id); });
         if (item) qtys[id] = Number(item.needed_quantity) || Number(row.min) || 1;
         paint(localQuote());
-        showStatus("در حال به‌روزرسانی قیمت سبد…");
+        showStatus("در حال به‌روزرسانی قیمت سبد…", id);
         sync();
     });
 
@@ -266,7 +262,7 @@
                     paint(payload.data.quote || {});
                     showBuyerFeedback(payload.data.quote || {});
                     applyFragments(payload.data.fragments || {});
-                    showStatus("");
+                    ids.forEach(function (id) { showStatus("", id); });
                 }
             })
             .catch(function () {
@@ -279,7 +275,9 @@
                     retries += 1;
                     qtys = Object.assign({}, serverQtys);
                     paint(lastQuote);
-                    showStatus("سبد به‌روز نشد و تغییر اخیر ذخیره نشده است. دوباره تلاش کنید.");
+                    ids.forEach(function (id) {
+                        showStatus("سبد به‌روز نشد و تغییر اخیر ذخیره نشده است. دوباره تلاش کنید.", id);
+                    });
                     return;
                 }
                 if (dirty) sync();
@@ -441,8 +439,12 @@
         if (node) node.textContent = value;
     }
 
-    function showStatus(message) {
-        var node = document.querySelector("[data-molavi-status]");
+    function showStatus(message, productId) {
+        var card = productId
+            ? document.querySelector('[data-molavi-card][data-product="' + cssEscape(String(productId)) + '"]')
+            : null;
+        var node = card ? card.querySelector("[data-molavi-card-status]")
+            : document.querySelector("[data-molavi-status]");
         if (!node) return;
         node.textContent = message;
         node.hidden = !message;

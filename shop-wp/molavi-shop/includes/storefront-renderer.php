@@ -43,8 +43,20 @@ function molavi_render_storefront(): void
     sort($categories, SORT_NATURAL | SORT_FLAG_CASE);
     ?>
     <section class="molavi-storefront" data-molavi-storefront aria-label="فروشگاه مولوی‌سل">
+        <header class="molavi-store-intro">
+            <div>
+                <p class="molavi-eyebrow">خرید از مولوی‌سل</p>
+                <h1>فروشگاه مولوی‌سل</h1>
+                <p>نوع خرید و قیمت را انتخاب کنید؛ راهنمای تعداد هر کالا کنار همان محصول نمایش داده می‌شود.</p>
+            </div>
+            <div class="molavi-intro-note">
+                <span class="molavi-intro-mark" aria-hidden="true">✓</span>
+                <span>برای هر کالا، حداقل و گام سفارش روی کارت آن دیده می‌شود. جمع سبد و تخفیف در پنل سبد محاسبه می‌شود.</span>
+            </div>
+        </header>
         <div class="molavi-store-layout">
             <div class="molavi-product-area">
+                <?php molavi_render_buyer_profile_selector('shop'); ?>
                 <div class="molavi-product-toolbar" id="molavi-products">
                     <label class="molavi-sort">
                         <span>مرتب‌سازی:</span>
@@ -131,7 +143,7 @@ function molavi_render_storefront_card(\WC_Product $product, array $quote): void
         ? 'موجود در انبار: ' . molavi_digits((string) max(0, (int) $stock)) . ' عدد'
         : 'موجود در انبار';
     ?>
-    <article class="molavi-product-card e-loop-item" data-molavi-card data-name="<?php echo esc_attr($product->get_name()); ?>" data-category="<?php echo esc_attr($category); ?>" data-search="<?php echo esc_attr($search); ?>" data-price="<?php echo esc_attr((string) $unit); ?>" data-created="<?php echo esc_attr((string) $createdAt); ?>" data-household-max="<?php echo esc_attr((string) $householdCurve['max']); ?>" data-shop-max="<?php echo esc_attr((string) $shopCurve['max']); ?>">
+    <article class="molavi-product-card e-loop-item" data-molavi-card data-product="<?php echo esc_attr((string) $id); ?>" data-name="<?php echo esc_attr($product->get_name()); ?>" data-category="<?php echo esc_attr($category); ?>" data-search="<?php echo esc_attr($search); ?>" data-price="<?php echo esc_attr((string) $unit); ?>" data-created="<?php echo esc_attr((string) $createdAt); ?>" data-household-max="<?php echo esc_attr((string) $householdCurve['max']); ?>" data-shop-max="<?php echo esc_attr((string) $shopCurve['max']); ?>">
         <div class="molavi-card-photo">
             <?php echo wp_kses_post($image); ?>
             <?php if ($max > 0): ?>
@@ -160,6 +172,8 @@ function molavi_render_storefront_card(\WC_Product $product, array $quote): void
                 </div>
             </div>
             <?php molavi_render_storefront_control($product, $qty, $min); ?>
+            <div class="molavi-card-feedback" data-molavi-card-feedback data-product="<?php echo esc_attr((string) $id); ?>" role="status" aria-live="polite" hidden></div>
+            <p class="molavi-card-status" data-molavi-card-status data-product="<?php echo esc_attr((string) $id); ?>" role="status" aria-live="polite" hidden></p>
         </div>
     </article>
     <?php
@@ -188,7 +202,6 @@ function molavi_render_storefront_basket(array $quote): void
             <div><p class="molavi-eyebrow">جمع‌بندی</p><h2 id="molavi-basket-title">سبد خرید <span data-molavi-basket-count><?php echo esc_html(molavi_digits((string) ($quote['kinds'] ?? 0))); ?></span></h2></div>
             <button type="button" class="molavi-close-basket" data-molavi-close-basket aria-label="بستن سبد">×</button>
         </header>
-        <?php molavi_render_buyer_profile_selector('cart'); ?>
         <div class="molavi-basket-lines" data-molavi-basket-lines>
             <?php foreach ($qtys as $id => $qty): ?>
                 <?php $row = $map[(string) $id] ?? null; if (!$row || (int) $qty < 1) { continue; } $unit = (int) ($units[(string) $id] ?? molavi_catalog_product_price($row, (int) $qty, molavi_buyer_type(), (float) ($quote['progress'] ?? 0))['price']); $product = wc_get_product((int) $id); $step = max(1, (int) ($row[molavi_buyer_type() . '_unit'] ?? $row['min'])); ?>

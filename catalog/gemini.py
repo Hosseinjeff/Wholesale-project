@@ -35,6 +35,11 @@ _KNOWN_VARIANT_SUFFIXES = (
     'سیب موز', 'سبزیجات', 'آناناس', 'آلبالو', 'پرتقال', 'انبه', 'انار', 'هلو',
     'مرغ', 'گوشت', 'قارچ', 'پنیر', 'شکلات', 'تند', 'مخلوط',
 )
+_OPTIONAL_PRICE_REASON = re.compile(
+    r'(?:consumer|retail|قیمت\s*(?:مصرف(?:\s*کننده)?|خرده\s*فروشی))'
+    r'.{0,50}(?:missing|not\s+(?:provided|available|listed|found|specified)|'
+    r'no\s+consumer\s+price|unavailable|ثبت\s*نشده|وجود\s*ندارد|'
+    r'موجود\s*نیست|در\s*پیام\s*نیست|پیدا\s*نشد|ذکر\s*نشده|ندارد|نیست)', re.I)
 
 
 def _english_numbers(value):
@@ -88,9 +93,14 @@ are separately listed at the same explicit price, preserve one product per liste
 variant and repeat the same price fields for each. A plural flavor list such as
 `طعم های: انبه، هلو و آلبالو` explicitly lists separate variants: return one record per
 flavor with the shared source price, without asking the owner to choose each flavor.
-When a variant is part of the extracted product name but the source lists the base
-product on its own line, keep the complete variant name and use only that exact base
-line's nearby price/count details. Do not borrow details from a different product.
+Source-line association and reference-catalog matching are two different tasks. For
+source-line association only, “base title” means the exact product title after removing
+one explicitly identified flavor/model suffix (including its preceding `طعم` or `مزه`
+label when present). Keep the full variant in `name` and `variant`. You may use the
+matching base-title line and its immediately associated details only when that exact
+line is unique in this message. This does not assign the product to a reference catalog
+entry; never imply that it does. Never use a merely similar title or another product's
+price/count as evidence.
 
 Read measurements from each product title literally. The Persian suffix `گ` means
 grams and `ل` means liters, even when attached to the number with no spaces: `180گ`
@@ -109,8 +119,9 @@ Keep the product name intact while also filling these separate fields.
 Use needs_review=true only when a critical field cannot be safely resolved from the
 source: product identity, supplier amount, currency, unit-versus-package price role, a
 package count needed to calculate a unit price, or a genuinely conflicting/unreadable
-source. Missing optional brand, category, description or stock details are not reasons
-to request review. Confidence measures these critical fields only; do not lower it for
+source. A missing consumer/retail price is optional and never by itself requires review.
+Missing optional brand, category, description or stock details are not reasons to request
+review. Confidence measures these critical fields only; do not lower it for
 missing optional details. When the title and labeled price lines directly support the
 critical fields, use confidence 0.90–0.99. Use confidence below 0.85 only when a real
 ambiguity remains. If the adapter can recover a unique exact title, including a size or
@@ -133,6 +144,27 @@ For that title, return the exact title in `name`, `brand` `سون`, `variant` `�
 `packaging` `تتراپک`, and `volume` `220 میل`. It contains no price, so return null for
 supplier/consumer prices and set needs_review=true for the missing supplier amount. Do
 not turn 220 into a price and do not ask the owner to confirm the flavor or volume.
+
+Example supplier message:
+`آبمیوه تتراپک سون،۲۲۰ میلی لیتر`
+`طعم های: انبه،آناناس،سیب موز،انار،آلبالو،پرتقال و هلو`
+`تعداد در کارتن ۳۶ عدد`
+`قیمت فروش ما: ۱۸/۵۰۰ تومان`
+`قیمت مصرف کننده: ۵۰/۰۰۰ تومان`
+Return seven products, one per explicitly listed flavor. For each, preserve the exact
+base title plus that flavor, use supplier unit price 18500, consumer unit price 50000,
+package count 36, volume 220 ml, brand سون, and packaging تتراپک. If the consumer-price
+line is absent, leave consumer_price null and do not set needs_review for that alone.
+
+Example price line: `قیمت هر باکس ۲۴: ۷۴۰/۰۰۰ تومان`. Here ۲۴ before the colon is the
+number of items in the box, not the amount being priced; the package price is 740000. If
+a separate `دونه ای: ۳۰/۸۳۳ تومان` line exists, preserve both values and use 30833 as
+supplier unit price. Do not replace either explicit value with a computed estimate.
+
+Example source title `بلک ولف شیشه ای` with extracted variant title
+`بلک ولف شیشه ای طعم انار`: keep the variant title, but associate price/count details
+only with the unique exact base-title line. Do not ask the owner to resolve the word
+`طعم` as a separate title or as a reference-catalog match.
 
 Fields: name, brand, category, variant, sale_price, consumer_price, unit_price,
 package_price, consumer_package_price, regular_package_price, price_type, currency,
@@ -210,6 +242,21 @@ def _listed_source_variants(source_context):
     return variants
 
 
+def _title_for_variant(name, base_title, variant):
+    """Build each listed flavor title from the uniquely matched source title."""
+    title = str(name or '').strip()
+    base = str(base_title or '').strip()
+    if not base:
+        return title + ' طعم ' + str(variant)
+    if _title_identity(title) == _title_identity(base):
+        return title + ' طعم ' + str(variant)
+    label_match = re.search(r'(?:طعم|مزه)[\s\u200c]*[^،,؛;\n]+\s*$', title, re.I)
+    if label_match:
+        label = re.match(r'(طعم|مزه)', label_match.group(), re.I).group(1)
+        return base + ' ' + label + ' ' + str(variant)
+    return base + ' ' + str(variant)
+
+
 def _explicit_packaging(text):
     text = str(text or '')
     if re.search(r'تترا[\s\u200c-]*پک|\btetra[\s-]*pack\b|\btetrapak\b', text, re.I):
@@ -269,7 +316,9 @@ def _source_title_evidence(name, content, variant=''):
         for suffix in (str(variant or '').strip(), *_KNOWN_VARIANT_SUFFIXES):
             if not suffix:
                 continue
-            base = re.sub(r'(?:[\s،,;]+)' + re.escape(suffix) + r'\s*$', '', title, flags=re.I)
+            base = re.sub(
+                r'(?:[\s،,;]+)(?:(?:طعم|مزه)[\s\u200c]*)?'
+                + re.escape(suffix) + r'\s*$', '', title, flags=re.I)
             if base != title and base.strip():
                 identities.add(_title_identity(base))
     identities.discard('')
@@ -301,13 +350,17 @@ def _source_title_evidence(name, content, variant=''):
     return None, len(matches) > 1
 
 
-def _labeled_amounts(content, label_pattern):
+def _labeled_amounts(content, label_pattern, *, skip_leading_package_count=False):
     """Read amounts only from lines carrying the corresponding explicit label."""
     amounts = set()
     for line in str(content or '').splitlines():
         text = _english_numbers(line).replace('\u200c', ' ').replace('ي', 'ی').replace('ك', 'ک')
         for label in label_pattern.finditer(text):
             suffix = text[label.end():]
+            if skip_leading_package_count:
+                # In “قیمت هر باکس ۲۴: ۷۴۰٬۰۰۰”, the number before the colon
+                # is the box count, not the package price.
+                suffix = re.sub(r'^\s*\d{1,4}\s*[:：]\s*', '', suffix, count=1)
             match = re.search(r'(?<!\d)\d(?:[\d,٬٫./ ]*\d)?(?!\d)', suffix)
             if not match:
                 continue
@@ -391,7 +444,8 @@ def _source_price_role(source_title, content, candidate_amounts, source_titles=(
     candidates = {int(amount) for amount in candidate_amounts if amount and int(amount) > 0}
     roles = {}
     for role, pattern in (('unit', _UNIT_PRICE_LABEL), ('package', _PACKAGE_PRICE_LABEL)):
-        labeled = _labeled_amounts('\n'.join(context), pattern)
+        labeled = _labeled_amounts(
+            '\n'.join(context), pattern, skip_leading_package_count=(role == 'package'))
         matches = candidates.intersection(labeled)
         # A single amount under an explicit label is stronger evidence than a
         # missing or malformed model field. Retain model disambiguation only when
@@ -569,9 +623,11 @@ def _product(item, content, channel, source_titles=()):
     }
     confirmed_source_role = bool(source_unit_price or source_package_price) and not conflicting_role_amount
     reasons = [reason for reason in original_review_reasons if not (
-        confirmed_source_role and reason.lower() in role_review_reasons)]
+        confirmed_source_role and (
+            reason.lower() in role_review_reasons or _OPTIONAL_PRICE_REASON.search(reason)))]
     role_only_model_review = bool(original_review_reasons) and all(
-        reason.lower() in role_review_reasons for reason in original_review_reasons)
+        reason.lower() in role_review_reasons or _OPTIONAL_PRICE_REASON.search(reason)
+        for reason in original_review_reasons)
     review = bool(item.get('needs_review')) and not (confirmed_source_role and role_only_model_review)
     reasons.extend(measurement_review_reasons)
     if count_conflict:
@@ -654,8 +710,8 @@ def _product(item, content, channel, source_titles=()):
         'brand': str(item.get('brand') or '').strip(),
         'sale_price': sale,
         'price': sale,
-        'detected_price': source_package_price or source_unit_price or unit or package or sale_raw or 0,
-        'source_price_amount': source_package_price or source_unit_price or sale_raw or unit or package or 0,
+        'detected_price': source_unit_price or source_package_price or unit or package or sale_raw or 0,
+        'source_price_amount': source_unit_price or source_package_price or sale_raw or unit or package or 0,
         'confirmed_price_role': confirmed_role,
         'actual_price': consumer or None,
         'consumer_price': consumer or None,
@@ -703,7 +759,9 @@ def parse_message_products(response_text, content, channel):
             source_title, content, source_titles, ambiguous))
         if variants:
             key = source_title[0]
-            groups.setdefault(key, {'variants': variants, 'products': []})['products'].append(product)
+            groups.setdefault(key, {
+                'variants': variants, 'products': [], 'base_title': source_title[0],
+            })['products'].append(product)
         else:
             products.append(product)
 
@@ -714,6 +772,8 @@ def parse_message_products(response_text, content, channel):
         for variant in group['variants']:
             expanded = dict(prototype)
             expanded['variation_type'] = variant
+            expanded['name'] = _title_for_variant(
+                prototype['name'], group.get('base_title'), variant)
             products.append(expanded)
     return products
 

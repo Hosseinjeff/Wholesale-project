@@ -345,7 +345,9 @@ def review_cases(sheet_store, snapshot, ledger, *, include_decided=False, includ
                 'source_snapshot_id': str(product.get('Reference Snapshot ID') or ''),
             } if due_update else None,
             'attributes': attrs, 'signature': product_signature(attrs),
-            'candidates': (ranked_candidates(attrs, snapshot.get('rows') or [], limit=12)
+            'candidates': (ranked_candidates(
+                {**attrs, 'supplier_price': offer.get('Price') or offer.get('Sale Price') or ''},
+                snapshot.get('rows') or [], limit=12)
                            if include_candidates else []),
             'projection_pending': bool(decision and not decision_projected),
             'projection_pending_reason': (

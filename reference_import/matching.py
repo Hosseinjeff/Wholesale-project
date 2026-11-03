@@ -54,8 +54,39 @@ def product_signature(product):
 
 def _reference(row):
     return {'reference_id': str(row[16] or row[2]), 'name': str(row[0]),
+            'clean_name': str(row[1] or row[0]),
             'unit_price': _number(row[4]), 'package_price': _number(row[3]),
-            'package_count': _number(row[6])}
+            'consumer_price': _number(row[5]), 'package_count': _number(row[6]),
+            'unit_label': str(row[7] or ''), 'volume': str(row[8] or ''),
+            'weight': str(row[9] or ''), 'variant': str(row[11] or ''),
+            'brand': str(row[12] or ''), 'category': str(row[13] or '')}
+
+
+def _attribute_comparisons(incoming, candidate, components, source_values):
+    labels = {'name': 'نام', 'brand': 'برند', 'category': 'دسته',
+              'variant': 'طعم/مدل', 'package_count': 'تعداد در بسته',
+              'volume': 'حجم', 'weight': 'وزن'}
+    result = []
+    for key, label in labels.items():
+        source = str(source_values.get(key) or '').strip()
+        normalized_source = str(incoming.get(key) or '').strip()
+        reference = str(candidate.get(key) or '').strip()
+        if not normalized_source:
+            state = 'not_provided'
+        elif not reference:
+            state = 'reference_missing'
+        elif key == 'name':
+            similarity = float(components.get(key) or 0)
+            state = 'match' if similarity >= .92 else ('close' if similarity >= .72 else 'conflict')
+        elif key == 'package_count':
+            state = 'match' if _number(normalized_source) == _number(reference) else 'conflict'
+        elif key in {'volume', 'weight'}:
+            state = 'match' if normalized_source == _name(reference) else 'conflict'
+        else:
+            state = 'match' if normalized_source == _text(reference) else 'conflict'
+        result.append({'key': key, 'label': label, 'source': source,
+                       'reference': reference, 'state': state})
+    return result
 
 
 def ranked_candidates(product, rows, *, limit=10):
@@ -70,8 +101,17 @@ def ranked_candidates(product, rows, *, limit=10):
         'category': _text(product.get('category')),
         'variant': _text(product.get('variant') or product.get('variation_type')),
         'package_count': str(package_count(product) or ''),
-        'volume': _text(product.get('volume')),
-        'weight': _text(product.get('weight')),
+        'volume': _name(product.get('volume')),
+        'weight': _name(product.get('weight')),
+    }
+    source_values = {
+        'name': str(product.get('clean_name') or product.get('name') or '').strip(),
+        'brand': str(product.get('brand') or '').strip(),
+        'category': str(product.get('category') or '').strip(),
+        'variant': str(product.get('variant') or product.get('variation_type') or '').strip(),
+        'package_count': str(package_count(product) or ''),
+        'volume': str(product.get('volume') or '').strip(),
+        'weight': str(product.get('weight') or '').strip(),
     }
     if not incoming['name']:
         return []
@@ -87,7 +127,7 @@ def ranked_candidates(product, rows, *, limit=10):
             if key == 'package_count':
                 right = str(_number(right) or '')
             else:
-                right = _name(right) if key == 'name' else _text(right)
+                right = _name(right) if key in {'name', 'volume', 'weight'} else _text(right)
             if not left:
                 continue
             denominator += weight
@@ -100,7 +140,17 @@ def ranked_candidates(product, rows, *, limit=10):
         candidate = _reference(row)
         if not candidate['reference_id']:
             continue
-        candidate.update({'score': round(score, 4), 'component_scores': components})
+        candidate.update({
+            'score': round(score, 4), 'component_scores': components,
+            'name_similarity': round(components.get('name', 0), 4),
+            'comparisons': _attribute_comparisons(incoming, candidate, components, source_values),
+        })
+        supplier_price = _number(
+            product.get('supplier_price') or product.get('detected_price')
+            or product.get('sale_price') or product.get('price'))
+        if supplier_price:
+            candidate['supplier_price'] = supplier_price
+            candidate['price_role_hint'] = price_role_hint(supplier_price, candidate)
         scored.append(candidate)
     scored.sort(key=lambda item: (-item['score'], item['reference_id']))
     return scored[:max(1, min(int(limit), 20))]

@@ -22,6 +22,40 @@
         return Number.isFinite(number) ? new Intl.NumberFormat('fa-IR').format(number) + ' تومان' : String(value);
     }
 
+    function referenceComparisonSummary(candidate) {
+        const labels = {brand:'برند',category:'دسته',variant:'طعم/مدل',
+            package_count:'تعداد بسته',volume:'حجم',weight:'وزن'};
+        const states = {match:'یکسان',close:'نزدیک',conflict:'اختلاف',reference_missing:'در مرجع ثبت نشده'};
+        return (Array.isArray(candidate.comparisons) ? candidate.comparisons : [])
+            .filter(item => item && item.key !== 'name' && item.source)
+            .map(item => {
+                const label = labels[item.key] || item.label || item.key;
+                if (item.state === 'match') return `${label}: ${states.match} (${item.source})`;
+                if (item.state === 'reference_missing') return `${label}: ${states.reference_missing}`;
+                if (item.state === 'conflict') return `${label}: اختلاف، پیام ${item.source} / مرجع ${item.reference || '—'}`;
+                return `${label}: ${states[item.state] || 'بررسی لازم'}${item.reference ? ` · مرجع ${item.reference}` : ''}`;
+            }).slice(0, 4);
+    }
+
+    function referencePriceSummary(candidate, fallbackSupplierPrice = '') {
+        const supplierPrice = candidate.supplier_price || fallbackSupplierPrice;
+        const values = [supplierPrice ? `پیام ${amount(supplierPrice)}` : ''].concat([
+            candidate.unit_price ? `واحد ${amount(candidate.unit_price)}` : '',
+            candidate.package_price ? `بسته ${candidate.package_count || '?'}‌تایی ${amount(candidate.package_price)}` : ''
+        ]).filter(Boolean);
+        const hint = candidate.price_role_hint || {};
+        if (supplierPrice && hint.role === 'unit') {
+            const distance = Number(hint.unit_distance);
+            values.push(`قیمت پیام به واحد نزدیک‌تر است${Number.isFinite(distance) ? ` (${(distance * 100).toLocaleString('fa-IR', {maximumFractionDigits:1})}٪ فاصله)` : ''}`);
+        }
+        else if (supplierPrice && hint.role === 'package') {
+            const distance = Number(hint.package_distance);
+            values.push(`قیمت پیام به بسته نزدیک‌تر است${Number.isFinite(distance) ? ` (${(distance * 100).toLocaleString('fa-IR', {maximumFractionDigits:1})}٪ فاصله)` : ''}`);
+        }
+        else if (supplierPrice) values.push('مبنای قیمت از این مقایسه روشن نیست');
+        return values.join(' · ');
+    }
+
     function errorText(code) {
         const labels = {
             unauthorized: 'نشست مالک منقضی شده است؛ صفحه را تازه کنید.',
@@ -934,6 +968,8 @@
         if (displayAttributes.volume) extractedAttributes.push(`حجم: ${displayAttributes.volume}`);
         if (displayAttributes.weight) extractedAttributes.push(`وزن: ${displayAttributes.weight}`);
         if (displayAttributes.packaging) extractedAttributes.push(`بسته‌بندی: ${displayAttributes.packaging}`);
+        const packageCount = normalizedAiInteger(item.package_count);
+        if (packageCount) extractedAttributes.push(`تعداد در کارتن/بسته: ${new Intl.NumberFormat('fa-IR').format(packageCount)}`);
         if (displayAttributes.brand) extractedAttributes.push(`برند: ${displayAttributes.brand}`);
         if (displayAttributes.category) extractedAttributes.push(`دسته: ${displayAttributes.category}`);
         if (extractedAttributes.length) {
@@ -955,43 +991,63 @@
         const packagePrice = normalizedAiInteger(item.package_price);
         const visibleSupplierPrice = detectedSupplierPrice || packagePrice;
         const regularPrice = normalizedAiInteger(item.actual_price || item.consumer_price);
+        const regularPackagePrice = normalizedAiInteger(item.double_pack_consumer_price
+            || item.consumer_package_price || item.regular_package_price);
         card.appendChild(node('p', `قیمت فروش تأمین‌کننده: ${visibleSupplierPrice ? amount(visibleSupplierPrice) : 'در پیام پیدا نشد'} · مبنا: ${roleLabel}`));
+        if (packagePrice && packagePrice !== visibleSupplierPrice) {
+            card.appendChild(node('p', `قیمت کل بسته/کارتن تأمین‌کننده: ${amount(packagePrice)}${packageCount ? ` · ${new Intl.NumberFormat('fa-IR').format(packageCount)} عدد` : ''}`));
+        }
         card.appendChild(node('p', `قیمت مصرف‌کننده / عادی: ${regularPrice ? amount(regularPrice) : 'در پیام پیدا نشد'} · تأمین‌کننده: ${item.channel || 'نامشخص'}`));
+        if (regularPackagePrice) card.appendChild(node('p', `قیمت عادی کل بسته/کارتن: ${amount(regularPackagePrice)}`));
         const referenceStates = {
-            exact_compatible_identity: 'تطبیق دقیق خودکار بر اساس نام و ویژگی‌ها؛ نقش قیمت جداگانه بررسی می‌شود',
+            exact_compatible_identity: 'نام و ویژگی‌ها با مرجع سازگارند؛ نقش قیمت جداگانه بررسی می‌شود',
             owner_approved_mapping: 'تطبیق قبلاً توسط مالک تأیید شده',
             no_compatible_reference: 'مرجع سازگار پیدا نشد',
             multiple_candidates: 'چند مرجع مشابه پیدا شد؛ یک مورد باید انتخاب شود',
             missing_name: 'نام کالا برای جست‌وجوی مرجع کافی نیست'
         };
+        const referenceCandidates = Array.isArray(item.reference_candidates) ? item.reference_candidates.slice(0, 3) : [];
         const assignedReference = item.reference_match_id
             ? `مرجع ثبت‌شده: ${item.reference_match_name || item.reference_match_id} · ${referenceStates[item.reference_match_state] || item.reference_match_state || 'تطبیق ثبت‌شده'}`
-            : `مرجع کالا: ${referenceStates[item.reference_match_state] || 'هنوز انتخاب نشده؛ پیشنهادها در «تطبیق کالا» هستند'}`;
+            : `مرجع کالا: ${referenceStates[item.reference_match_state] || (referenceCandidates.length
+                ? 'هنوز انتخاب نشده؛ گزینه‌های مقایسه در همین کارت هستند' : 'هنوز انتخاب نشده؛ جست‌وجوی مرجع را باز کنید')}`;
         card.appendChild(node('p', assignedReference));
-        const referenceCandidates = Array.isArray(item.reference_candidates) ? item.reference_candidates.slice(0, 3) : [];
         if (referenceCandidates.length) {
-            const candidateList = document.createElement('ul');
-            candidateList.className = 'molavi-ai-reference-candidates';
+            const candidateList = node('div', null, 'molavi-ai-reference-candidates');
+            candidateList.appendChild(node('strong', 'مقایسه با کالاهای مرجع'));
+            candidateList.appendChild(node('p', 'هر گزینه، همان پیشنهاد را در فرم تطبیق باز می‌کند و مرجع را از قبل انتخاب می‌کند.'));
             referenceCandidates.forEach(candidate => {
-                const prices = [candidate.unit_price ? `واحد ${amount(candidate.unit_price)}` : '',
-                    candidate.package_price ? `بسته ${amount(candidate.package_price)}` : ''].filter(Boolean).join(' · ');
-                candidateList.appendChild(node('li', `پیشنهاد مرجع: ${candidate.name} · ${candidate.reference_id}${prices ? ` · ${prices}` : ''} · رتبه ${Math.round(Number(candidate.score || 0) * 100)}٪`));
+                const option = document.createElement('a');
+                option.className = 'button button-secondary molavi-ai-reference-option';
+                const target = config.pageUrls && config.pageUrls['molavi-reference-items']
+                    || 'admin.php?page=molavi-reference-items';
+                const matchUrl = new URL(target, window.location.href);
+                if (item.offer_id) matchUrl.searchParams.set('offer_id', item.offer_id);
+                if (candidate.reference_id) matchUrl.searchParams.set('reference_id', candidate.reference_id);
+                option.href = matchUrl.toString();
+                const nameScore = candidate.name_similarity ?? candidate.component_scores?.name;
+                const score = Number(nameScore ?? candidate.score);
+                option.appendChild(node('strong', candidate.name || candidate.reference_id));
+                option.appendChild(node('span', `${nameScore === undefined ? 'امتیاز کلی پیشنهاد' : 'شباهت نام'}: ${Number.isFinite(score) ? Math.round(score * 100).toLocaleString('fa-IR') + '٪' : 'قابل محاسبه نیست'}`));
+                const comparisons = referenceComparisonSummary(candidate);
+                if (comparisons.length) option.appendChild(node('span', comparisons.join(' · ')));
+                const prices = referencePriceSummary(candidate, visibleSupplierPrice);
+                if (prices) option.appendChild(node('span', prices));
+                option.appendChild(node('span', 'باز کردن فرم تطبیق با این مرجع'));
+                candidateList.appendChild(option);
             });
             card.appendChild(candidateList);
-            card.appendChild(node('small', 'رتبه فقط پیشنهاد است و تا تأیید در تب تطبیق، کالا به مرجع وصل نمی‌شود.'));
+            card.appendChild(node('small', 'شباهت نام راهنماست، نه احتمال تأیید. مرجع فقط پس از بازبینی و تأیید صریح در فرم تطبیق ثبت می‌شود.'));
         }
-        if (!item.reference_match_id) {
+        if (!item.reference_match_id && !referenceCandidates.length) {
             const matchLink = document.createElement('a');
             matchLink.className = 'button';
             const target = config.pageUrls && config.pageUrls['molavi-reference-items']
                 || 'admin.php?page=molavi-reference-items';
             const matchUrl = new URL(target, window.location.href);
             if (item.offer_id) matchUrl.searchParams.set('offer_id', item.offer_id);
-            if (referenceCandidates[0] && referenceCandidates[0].reference_id) {
-                matchUrl.searchParams.set('reference_id', referenceCandidates[0].reference_id);
-            }
             matchLink.href = matchUrl.toString();
-            matchLink.textContent = 'تأیید تطبیق همین کالا';
+            matchLink.textContent = 'جست‌وجوی مرجع برای این کالا';
             card.appendChild(matchLink);
         }
         card.appendChild(node('p', `دلیل بررسی: ${item.reason || 'نیازمند بررسی'} · حداقل خرید: ${item.min_qty || 'ثبت نشده'}`));
@@ -1611,15 +1667,19 @@
             : ['unit', 'single', 'per_unit'].includes(roleHint) ? 'unit' : '';
         const candidates = node('div', null, 'molavi-reference-candidates');
         if (candidateRows.length) {
-            candidates.appendChild(node('p', 'یک پیشنهاد را انتخاب کنید؛ پیشنهاد با اطمینان بالا از قبل انتخاب شده است.'));
+            candidates.appendChild(node('p', 'گزینه‌ها با نام و ویژگی‌های پیام مقایسه شده‌اند؛ اگر شباهت ویژگی‌ها زیاد باشد، گزینهٔ اول پیش‌انتخاب می‌شود. هر تطبیق را پیش از ثبت بررسی و تأیید کنید.'));
             candidateRows.slice(0, 6).forEach(row => {
                 const option = node('button', null, 'button molavi-reference-candidate');
                 option.type = 'button';
                 option.setAttribute('aria-pressed', String(row.reference_id === selectedReferenceId));
                 option.appendChild(node('strong', row.name || row.reference_id));
-                const score = Number(row.score);
-                option.appendChild(node('span', `امتیاز تطبیق: ${Number.isFinite(score) ? Math.round(score * 100) + '٪' : 'نامشخص'}`));
-                option.appendChild(node('span', `تکی: ${amount(row.unit_price)} · بسته: ${amount(row.package_price)}`));
+                const nameScore = row.name_similarity ?? row.component_scores?.name;
+                const score = Number(nameScore ?? row.score);
+                option.appendChild(node('span', `${nameScore === undefined ? 'امتیاز کلی پیشنهاد' : 'شباهت نام'}: ${Number.isFinite(score) ? Math.round(score * 100).toLocaleString('fa-IR') + '٪' : 'نامشخص'}`));
+                const comparisons = referenceComparisonSummary(row);
+                if (comparisons.length) option.appendChild(node('span', comparisons.join(' · ')));
+                option.appendChild(node('span', referencePriceSummary(row, item.supplier_price)
+                    || `قیمت مرجع واحد: ${amount(row.unit_price)} · بسته: ${amount(row.package_price)}`));
                 option.addEventListener('click', () => {
                     selectedReferenceId = row.reference_id;
                     candidates.querySelectorAll('.molavi-reference-candidate').forEach(button =>

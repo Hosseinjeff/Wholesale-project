@@ -187,6 +187,78 @@ class GeminiExtractionTests(unittest.TestCase):
         self.assertEqual(product['confidence'], 0.95)
         self.assertFalse(product['needs_review'])
 
+    def test_flavor_suffix_with_taam_marker_uses_unique_base_title(self):
+        base = 'آبمیوه تتراپک سون،۲۲۰ میلی لیتر'
+        title = base + ' طعم هلو'
+        content = (
+            base + '\n'
+            'طعم های: انبه،آناناس،سیب موز،انار،آلبالو،پرتقال و هلو\n'
+            'تعداد در کارتن ۳۶ عدد\n'
+            'قیمت فروش ما: ۱۸/۵۰۰ تومان\n'
+            'قیمت مصرف کننده: ۵۰/۰۰۰ تومان'
+        )
+        products = parse_message_products(json.dumps([{
+            'name': title, 'brand': 'سون', 'variant': 'هلو', 'package_count': 36,
+            'unit_price': 18500, 'consumer_price': 50000, 'currency': 'IRT',
+            'confidence': 0.97,
+        }], ensure_ascii=False), content, '@supplier')
+        self.assertEqual(len(products), 7)
+        product = next(row for row in products if row['variation_type'] == 'هلو')
+        self.assertEqual(product['name'], title)
+        self.assertEqual(product['variation_type'], 'هلو')
+        self.assertEqual(product['volume'], '220 میل')
+        self.assertEqual(product['package_count'], 36)
+        self.assertEqual(product['sale_price'], 18500)
+        self.assertEqual(product['consumer_price'], 50000)
+        self.assertFalse(product['needs_review'])
+        self.assertEqual(len({row['name'] for row in products}), 7)
+
+    def test_package_label_with_count_before_colon_preserves_explicit_unit_and_box_prices(self):
+        base = 'بلک ولف شیشه ای'
+        title = base + ' طعم انار'
+        content = (
+            base + '\nتعداد در کارتن ۲۴ عدد\n'
+            'قیمت هر باکس ۲۴: ۷۴۰٬۰۰۰ تومان\n'
+            'دونه ای: ۳۰٬۸۳۳ تومان'
+        )
+        product = parse_message_products(json.dumps([{
+            'name': title, 'variant': 'انار', 'package_count': 24,
+            'package_price': 24, 'unit_price': 30833, 'sale_price': 740000,
+            'currency': 'IRT', 'confidence': 0.96,
+        }], ensure_ascii=False), content, '@supplier')[0]
+        self.assertEqual(product['sale_price'], 30833)
+        self.assertEqual(product['detected_price'], 30833)
+        self.assertEqual(product['source_price_amount'], 30833)
+        self.assertEqual(product['package_price'], 740000)
+        self.assertEqual(product['package_count'], 24)
+        self.assertFalse(product['needs_review'])
+
+    def test_missing_optional_consumer_price_does_not_keep_confirmed_supplier_price_queued(self):
+        title = 'بلک ولف شیشه ای طعم انار'
+        content = 'بلک ولف شیشه ای\nدونه ای: ۲۳٬۰۰۰ تومان'
+        product = parse_message_products(json.dumps([{
+            'name': title, 'variant': 'انار', 'unit_price': 23000,
+            'currency': 'IRT', 'confidence': 0.70, 'needs_review': True,
+            'review_reason': 'consumer price missing',
+        }], ensure_ascii=False), content, '@supplier')[0]
+        self.assertEqual(product['sale_price'], 23000)
+        self.assertIsNone(product['consumer_price'])
+        self.assertEqual(product['confidence'], 0.95)
+        self.assertFalse(product['needs_review'])
+        self.assertEqual(product['review_reason'], '')
+
+    def test_prompt_explains_source_association_and_optional_consumer_price(self):
+        title = 'چای نمونه'
+        session = FakeSession(json.dumps([{
+            'name': title, 'unit_price': 1000, 'currency': 'IRT', 'confidence': 0.96,
+        }], ensure_ascii=False))
+        with patch.dict(os.environ, {'GOOGLE_API_KEY': 'test-key'}, clear=True):
+            extract_message_products(title + '\nدونه ای: ۱٬۰۰۰ تومان', '@supplier', session=session)
+        prompt = session.call[1]['json']['contents'][0]['parts'][0]['text']
+        self.assertIn('Source-line association and reference-catalog matching are two different tasks', prompt)
+        self.assertIn('A missing consumer/retail price is optional', prompt)
+        self.assertIn('قیمت هر باکس ۲۴: ۷۴۰/۰۰۰ تومان', prompt)
+
     def test_unit_and_consumer_labels_after_pack_count_are_scoped_to_product(self):
         title = 'تی بگ چای شهرزاد کاوردار'
         content = (
@@ -378,7 +450,7 @@ class GeminiExtractionTests(unittest.TestCase):
         ])
         for product in products:
             with self.subTest(variant=product['variation_type']):
-                self.assertEqual(product['name'], title)
+                self.assertEqual(product['name'], title + ' طعم ' + product['variation_type'])
                 self.assertEqual(product['brand'], 'سون')
                 self.assertEqual(product['sale_price'], 18500)
                 self.assertEqual(product['consumer_price'], 50000)

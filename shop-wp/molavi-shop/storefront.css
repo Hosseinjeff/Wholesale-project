@@ -130,6 +130,39 @@
 .molavi-buyer-suggestion { margin-top: 7px; }
 .molavi-order-units { color: var(--molavi-muted); font-size: .78rem; }
 .molavi-buyer-line-warning { color: #9b3717; display: block; font-size: .78rem; margin-top: 4px; }
+.molavi-product-area > .molavi-buyer-choice { margin-bottom: 14px; }
+.molavi-card-feedback {
+    background: #FFF7E8;
+    border: 1px solid #F0D7B1;
+    border-radius: 9px;
+    color: #704719;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    font-size: .76rem;
+    gap: 5px 8px;
+    line-height: 1.55;
+    margin-top: 8px;
+    padding: 7px 8px;
+}
+.molavi-card-feedback[hidden], .molavi-card-status[hidden] { display: none !important; }
+.molavi-card-status {
+    background: #F4F6F5;
+    border-radius: 8px;
+    color: var(--molavi-muted);
+    font-size: .74rem;
+    line-height: 1.5;
+    margin: 7px 0 0;
+    padding: 6px 8px;
+}
+.molavi-card-feedback .molavi-buyer-fix,
+.molavi-card-feedback .molavi-buyer-suggestion {
+    border-radius: 7px;
+    font: inherit;
+    font-weight: 700;
+    margin: 0;
+    padding: 4px 7px;
+}
 .molavi-store-tools {
     align-items: center;
     display: flex;

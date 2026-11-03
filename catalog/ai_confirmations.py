@@ -423,6 +423,7 @@ def review_cases(store, ledger, *, include_history=False, limit=200, reference_s
                     'brand': case.get('brand'), 'category': case.get('category'),
                     'variant': case.get('variation_type'), 'volume': case.get('volume'),
                     'weight': case.get('weight'), 'package_count': case.get('package_count'),
+                    'supplier_price': case.get('detected_price') or case.get('sale_price'),
                 }, reference_rows, limit=3)
             latest_decision = ledger.latest(case['case_id'])
             decided = bool(latest_decision and latest_decision['signature'] == case['signature'])

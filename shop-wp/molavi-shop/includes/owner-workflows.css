@@ -32,7 +32,11 @@
 #molavi-owner-workflow .molavi-ai-variant-list li { padding:.35rem .6rem; border-radius:1rem; background:#f0f6fc; }
 #molavi-owner-workflow .molavi-ai-product-attributes { display:flex; flex-wrap:wrap; gap:.4rem; margin:.5rem 0; }
 #molavi-owner-workflow .molavi-ai-product-attributes span { padding:.35rem .6rem; border-radius:1rem; background:#f6f7f7; }
-#molavi-owner-workflow .molavi-ai-reference-candidates { margin:.4rem 1.25rem; line-height:1.7; }
+#molavi-owner-workflow .molavi-ai-reference-candidates { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,17rem),1fr)); gap:.5rem; margin:.5rem 0; line-height:1.6; }
+#molavi-owner-workflow .molavi-ai-reference-candidates > strong,
+#molavi-owner-workflow .molavi-ai-reference-candidates > p { grid-column:1/-1; margin:.15rem 0; }
+#molavi-owner-workflow .molavi-ai-reference-option { display:flex; flex-direction:column; align-items:flex-start; gap:.25rem; width:100%; min-width:0; padding:.7rem; white-space:normal; text-align:start; text-decoration:none; }
+#molavi-owner-workflow .molavi-ai-reference-option span { display:block; font-size:.9em; line-height:1.55; }
 #molavi-owner-workflow .molavi-ai-quick-actions { display:flex; flex-wrap:wrap; align-items:center; gap:.6rem; margin:.75rem 0; }
 #molavi-owner-workflow .molavi-ai-quick-actions button { min-height:2.75rem; }
 #molavi-owner-workflow .molavi-ai-manual-edit { margin-top:.75rem; padding-top:.5rem; border-top:1px solid #dcdcde; }
