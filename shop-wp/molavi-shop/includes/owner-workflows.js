@@ -514,6 +514,27 @@
             batchCards.push({hold, relatedCount:related.length});
         });
 
+        // Merge only extraction-only siblings whose source, name base, price,
+        // package and review terms match exactly. Each case remains a separate
+        // server decision, but the owner can review equal-price flavors together.
+        groupAiVariantCases((data.ai_confirmations && Array.isArray(data.ai_confirmations.cases))
+            ? data.ai_confirmations.cases : []).forEach(items => {
+            if (items.length < 2) return;
+            const siblings = items.map(item => byOfferId.get(String(item.offer_id || '')))
+                .filter(Boolean);
+            if (siblings.length !== items.length || new Set(siblings).size !== siblings.length) return;
+            if (siblings.some(product => product.product_id || product.status || product.references.length
+                || product.supplierPrices.length || product.conflicts.length || product.holds.length
+                || product.ai.length !== 1)) return;
+            const primary = siblings[0];
+            primary.name = aiVariantBaseName(items[0]);
+            primary.ai = items.slice();
+            const siblingSet = new Set(siblings.slice(1));
+            for (let index = products.length - 1; index >= 0; index--) {
+                if (siblingSet.has(products[index])) products.splice(index, 1);
+            }
+        });
+
         const contextGroups = [
             ['ai_confirmations','ai_confirmation',(data.ai_confirmations && data.ai_confirmations.cases) || [], item => item.case_id, item => item],
             ['reference_items','reference_item',(data.reference_items && data.reference_items.cases) || [], item => item.case_id, item => item],
@@ -609,14 +630,18 @@
                 updateActionStatus(statusNode, message, kind);
                 await dashboard(message, kind);
             };
-            product.ai.forEach(item => {
+            groupAiVariantCases(product.ai).forEach(relatedItems => {
+                const item = relatedItems[0];
                 const sourceKey = aiSourceMessageKey(item);
                 const sourceCases = sourceKey && aiCasesBySource.has(sourceKey)
                     ? [...aiCasesBySource.get(sourceKey).values()] : [item];
-                const sourcePriceGap = sourceKey && aiSourceCoverageLead.get(sourceKey) === item.case_id
-                    ? aiSourcePriceGap(item, sourceCases) : null;
-                const ai = aiCaseCard(item, null, contextStored.ai_confirmations, true, [item], {
-                    embedded:true, apiKey:'ai_confirmations', refresh:refreshInPlace, sourcePriceGap
+                const isSourceLead = sourceKey && aiSourceCoverageLead.get(sourceKey) === item.case_id;
+                const sourcePriceGap = isSourceLead ? aiSourcePriceGap(item, sourceCases) : null;
+                const sourceVariantGap = isSourceLead ? aiSourceVariantGap(item, sourceCases) : null;
+                const sourceStockGap = isSourceLead ? aiSourceStockGap(item, sourceCases) : null;
+                const ai = aiCaseCard(item, null, contextStored.ai_confirmations, true, relatedItems, {
+                    embedded:true, apiKey:'ai_confirmations', refresh:refreshInPlace,
+                    sourcePriceGap, sourceVariantGap, sourceStockGap
                 });
                 const title = node('h3', 'استخراج از پیام تأمین‌کننده');
                 ai.prepend(title);
@@ -1055,7 +1080,7 @@
 
     function aiSourceSalePrices(content) {
         const prices = new Set();
-        const pattern = /قیمت\s*فروش\s*ما(?:\s+[^:：\n]+?)?\s*[:：]\s*([\d۰-۹٠-٩][\d۰-۹٠-٩\s٬,./٫]*)/giu;
+        const pattern = /(?:قیمت\s*فروش(?:\s*ما)?|قیمت\s*هر\s*(?:یک\s*)?(?:بسته|کارتن|عدد|واحد))(?:\s+[^:：\n]+?)?\s*[:：]\s*([\d۰-۹٠-٩][\d۰-۹٠-٩\s٬,./٫]*)/giu;
         for (const match of String(content || '').matchAll(pattern)) {
             const digits = aiSourceDigits(match[1]);
             if (digits && Number.isSafeInteger(Number(digits)) && Number(digits) > 0) prices.add(digits);
@@ -1065,16 +1090,80 @@
 
     function aiSourcePriceGap(item, cases) {
         const sourcePrices = aiSourceSalePrices(item && item.original_message);
-        if (sourcePrices.size < 2) return null;
+        if (!sourcePrices.size) {
+            const hasExtractedPrice = cases.some(candidate => ['detected_price','sale_price','package_price']
+                .some(fieldName => normalizedAiInteger(candidate && candidate[fieldName])));
+            return hasExtractedPrice ? {unverified:true} : null;
+        }
         const extractedPrices = new Set();
+        const packageTotals = new Set();
+        const matchedByCount = new Map();
         cases.forEach(candidate => {
             ['detected_price','sale_price','package_price'].forEach(fieldName => {
                 const digits = aiSourceDigits(candidate && candidate[fieldName]);
                 if (digits) extractedPrices.add(digits);
             });
+            const salePrice = normalizedAiInteger(candidate && candidate.sale_price);
+            const packageCount = normalizedAiInteger(candidate && candidate.package_count);
+            if (salePrice && packageCount > 1) {
+                const total = String(salePrice * packageCount);
+                packageTotals.add(total);
+                if (sourcePrices.has(total) && !sourcePrices.has(String(salePrice))) {
+                    matchedByCount.set(`${total}:${salePrice}:${packageCount}`, {
+                        source:total, unit:String(salePrice), count:packageCount
+                    });
+                }
+            }
         });
-        const missing = [...sourcePrices].filter(price => !extractedPrices.has(price));
-        return missing.length ? {sourceCount:sourcePrices.size, missing} : null;
+        const missing = [...sourcePrices].filter(price => !extractedPrices.has(price) && !packageTotals.has(price));
+        return missing.length || matchedByCount.size
+            ? {sourceCount:sourcePrices.size, missing, matchedByCount:[...matchedByCount.values()]} : null;
+    }
+
+    function aiSourceVariantGap(item, cases) {
+        const source = String(item && item.original_message || '');
+        if (!source) return null;
+        const sourceLines = source.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+        const countMatch = source.match(/در\s*([0-9۰-۹٠-٩]+)\s*طعم\s*(?=[(（:：])/iu);
+        let sourceCount = normalizedAiInteger(countMatch && countMatch[1]);
+        if (!sourceCount) {
+            const variantLabels = cases.map(candidate => String(candidate.variation_type || aiProductAttributes(candidate).variationType || '').trim())
+                .filter(Boolean);
+            const labels = new Set(variantLabels.map(value => value.normalize('NFKC').replace(/\s+/g, ' ').toLocaleLowerCase('fa')));
+            let listLine = sourceLines.find(line => /(?:طعم|مزه)[^:：]*[:：]/iu.test(line));
+            if (!listLine) {
+                listLine = sourceLines.find(line => /[،,]/.test(line) && !/[\d۰-۹٠-٩]/.test(line)
+                    && !/(?:قیمت|تومان|تومن|ریال|تعداد|کارتن|باکس|بسته)/u.test(line)
+                    && labels.size > 0 && [...labels].filter(label => line.normalize('NFKC')
+                        .replace(/\s+/g, ' ').toLocaleLowerCase('fa').includes(label)).length >= 2);
+            }
+            if (listLine) {
+                const hasVariantCue = /(?:طعم|مزه)/iu.test(listLine);
+                let list = hasVariantCue ? listLine.split(/[:：]/).slice(1).join(':').trim() : listLine;
+                if (hasVariantCue && !list) list = (listLine.match(/طعم[^(:：]*\(([^)]+)\)/iu) || [])[1] || '';
+                if (list) {
+                    sourceCount = (list.match(/[،,]/g) || []).length + 1;
+                    const conjunctionPattern = /([^،,؛;]+?)\s+و\s+([^،,؛;]+?)(?=$|[،,؛;])/gu;
+                    for (const match of list.matchAll(conjunctionPattern)) {
+                        const left = match[1].trim().normalize('NFKC').replace(/\s+/g, ' ').toLocaleLowerCase('fa');
+                        const right = match[2].trim().normalize('NFKC').replace(/\s+/g, ' ').toLocaleLowerCase('fa');
+                        if (labels.has(left) && labels.has(right)) sourceCount += 1;
+                    }
+                }
+            }
+        }
+        const extractedCount = new Set(cases.map(candidate => String(candidate.variation_type
+            || aiProductAttributes(candidate).variationType || '').trim().normalize('NFKC')
+            .replace(/\s+/g, ' ').toLocaleLowerCase('fa')).filter(Boolean)).size;
+        return sourceCount > extractedCount ? {sourceCount, extractedCount} : null;
+    }
+
+    function aiSourceStockGap(item, cases) {
+        const source = String(item && item.original_message || '');
+        if (!/(?:اتمام\s*موجودی|موجودی\s*(?:ندارد|تمام\s*شده)|ناموجود|sold\s*out|out\s+of\s+stock)/iu.test(source)) return null;
+        const captured = cases.some(candidate => /(?:out\s*of\s*stock|sold\s*out|unavailable|ناموجود|اتمام\s*موجودی)/iu
+            .test(String(candidate && candidate.stock_status || '')));
+        return captured ? null : {historical:true};
     }
 
     function aiSourceVariantLabel(item) {
@@ -1088,7 +1177,7 @@
         ].filter(Boolean));
         if (!expected.size) return '';
         const labels = new Set();
-        const linePattern = /(?:قیمت\s*)?(فروش\s+ما|مصرف\s*کننده)(?:\s+([^:：\n]+?))?\s*[:：]\s*([\d۰-۹٠-٩][\d۰-۹٠-٩\s٬,./٫]*)/giu;
+        const linePattern = /(?:قیمت\s*)?(فروش(?:\s+ما)?|مصرف\s*کننده)(?:\s+([^:：\n]+?))?\s*[:：]\s*([\d۰-۹٠-٩][\d۰-۹٠-٩\s٬,./٫]*)/giu;
         for (const match of source.matchAll(linePattern)) {
             const label = String(match[2] || '').trim().replace(/\s+/g, ' ');
             if (label && expected.has(aiSourceDigits(match[3]))) labels.add(label);
@@ -1183,6 +1272,7 @@
             name = name.replace(new RegExp(`(?:با\\s*)?(?:طعم|مزه)\\s*[:：]?\\s*${escaped}`, 'iu'), ' ');
             name = name.replace(new RegExp(`(^|[\\s،,])${escaped}(?=$|[\\s،,])`, 'giu'), '$1 ');
         }
+        name = name.replace(/(?:^|[\s،,])موجود\s*[:：]?\s*$/u, ' ');
         return name.normalize('NFKC').toLowerCase().replace(/[،,؛;:()[\]{}]/g, ' ').replace(/\s+/g, ' ').trim();
     }
 
@@ -1344,7 +1434,10 @@
             pack: 'هر بسته', package: 'هر بسته', carton: 'هر کارتن'};
         const roleLabel = roleLabels[String(item.price_type || '').toLowerCase()]
             || 'مبنای هر واحد یا بسته هنوز مشخص نیست';
-        const detectedSupplierPrice = normalizedAiInteger(item.detected_price) || normalizedAiInteger(item.sale_price);
+        const detectedSupplierPrice = normalizedAiInteger(item.sale_price)
+            || (['pack','package','carton'].includes(String(item.price_type || '').toLowerCase())
+                ? normalizedAiInteger(item.package_price) || normalizedAiInteger(item.detected_price)
+                : normalizedAiInteger(item.detected_price));
         const packagePrice = normalizedAiInteger(item.package_price);
         const visibleSupplierPrice = detectedSupplierPrice || packagePrice;
         const regularPrice = normalizedAiInteger(item.actual_price || item.consumer_price);
@@ -1421,8 +1514,23 @@
             card.appendChild(notice('این پیشنهاد از بازاستخراج پیام قدیمی است. پست مبدأ به‌تنهایی تازگی قیمت را ثابت نمی‌کند؛ پیش از تأیید، قیمت را در پیام جدیدتر یا مستقیماً از تأمین‌کننده بررسی کنید.', 'warning'));
         }
         if (options.sourcePriceGap) {
-            const missing = options.sourcePriceGap.missing.map(value => amount(Number(value))).join('، ');
-            card.appendChild(notice(`متن پیام ${options.sourcePriceGap.sourceCount} مبلغ فروش متمایز دارد، اما ${missing} در هیچ مورد استخراج‌شده‌ای دیده نمی‌شود؛ بازاستخراج این پیام برای بررسی کامل لازم است.`, 'warning'));
+            if (options.sourcePriceGap.unverified) {
+                card.appendChild(notice('متن پیام مبدأ مبلغ فروش تأمین‌کننده را با برچسب روشن نشان نمی‌دهد؛ پیش از تأیید، قیمت فعلی را در منبع بررسی و در فرم اصلاح کنید.', 'warning'));
+            } else {
+                if (options.sourcePriceGap.missing.length) {
+                    const missing = options.sourcePriceGap.missing.map(value => amount(Number(value))).join('، ');
+                    card.appendChild(notice(`متن پیام ${options.sourcePriceGap.sourceCount} مبلغ فروش متمایز دارد، اما ${missing} در هیچ مورد استخراج‌شده‌ای دیده نمی‌شود؛ بازاستخراج این پیام برای بررسی کامل لازم است.`, 'warning'));
+                }
+                (options.sourcePriceGap.matchedByCount || []).forEach(match => {
+                    card.appendChild(notice(`مبلغ منبع ${amount(Number(match.source))} با ${amount(Number(match.unit))} × ${new Intl.NumberFormat('fa-IR').format(match.count)} برابر است؛ این تطبیق محاسباتی به‌تنهایی مبنای قیمت را ثابت نمی‌کند.`, 'info'));
+                });
+            }
+        }
+        if (options.sourceVariantGap) {
+            card.appendChild(notice(`متن منبع ${options.sourceVariantGap.sourceCount} طعم یا نوع را مشخص می‌کند، اما فقط ${options.sourceVariantGap.extractedCount} مورد در صف استخراج دیده می‌شود؛ پیش از تأیید گروه، استخراج این پیام باید کامل شود.`, 'warning'));
+        }
+        if (options.sourceStockGap) {
+            card.appendChild(notice('پست مبدأ تاریخی صریحاً اتمام موجودی را ذکر می‌کند، اما وضعیت استخراج‌شده نامشخص است؛ وضعیت امروز را در منبع فعلی بررسی کنید.', 'warning'));
         }
         if (item.original_message) {
             const details = document.createElement('details'); details.appendChild(node('summary', 'متن اصلی پیام تأمین‌کننده'));
@@ -1467,8 +1575,12 @@
             const button = node('button', label, 'button button-primary');
             button.type = 'button';
             button.dataset.priceRole = selectedRole;
+            const sourcePriceNeedsReview = Boolean(options.sourcePriceGap
+                && (options.sourcePriceGap.unverified || options.sourcePriceGap.missing.length));
+            const sourceVariantNeedsReview = Boolean(options.sourceVariantGap);
             button.disabled = !contextStored || !decisionsEnabled || !selectedFields
-                || Boolean(item.historical_reextract && !currentPriceVerified.checked);
+                || Boolean(item.historical_reextract && !currentPriceVerified.checked)
+                || sourcePriceNeedsReview || sourceVariantNeedsReview;
             button.addEventListener('click', () => submitAiCaseDecisions(relatedItems, 'confirm', selectedFields,
                 card, quickButtons, !item.historical_reextract || currentPriceVerified.checked, options));
             quickActions.appendChild(button);
@@ -1507,9 +1619,12 @@
                     button.disabled = !contextStored || !decisionsEnabled;
                     return;
                 }
+                const sourcePriceNeedsReview = Boolean(options.sourcePriceGap
+                    && (options.sourcePriceGap.unverified || options.sourcePriceGap.missing.length));
+                const sourceVariantNeedsReview = Boolean(options.sourceVariantGap);
                 button.disabled = !contextStored || !decisionsEnabled
                     || !aiDecisionFields(item, button.dataset.priceRole)
-                    || !currentPriceVerified.checked;
+                    || !currentPriceVerified.checked || sourcePriceNeedsReview || sourceVariantNeedsReview;
             });
         });
         const notProduct = node('button', relatedItems.length > 1
@@ -1560,6 +1675,11 @@
             if (!form.reportValidity()) return;
             if (item.historical_reextract && !currentPriceVerified.checked) {
                 errorBox('پیش از تأیید، قیمت را در پست فعلی بررسی کنید؛ موجودی فقط با تصریح منبع قابل تأیید است.', card);
+                return;
+            }
+            if (options.sourceVariantGap || (options.sourcePriceGap && options.sourcePriceGap.missing
+                && options.sourcePriceGap.missing.length)) {
+                errorBox('تعداد طعم‌ها یا مبلغ‌های پیام با موارد استخراج‌شده برابر نیست؛ ابتدا همان پیام را دوباره استخراج کنید.', card);
                 return;
             }
             const payload = {

@@ -245,6 +245,107 @@ async function main() {
   assert.equal(calls.filter(item => item.options.method === 'POST'
     && item.url === workflowApis.ai_confirmations.url).length,0,
   'reviewing the ambiguous package basis never submits an owner decision');
+
+  const mookokoMessage = 'آبمیوه شیشه ای موکوکوکو(تیکه نارگیل)\nطعم های موجود : بلوبری،هندوانه،نارگیل،پرتقال،طالبی،توت فرنگی و انبه\nکارتن ۱۲ عددی\nقیمت فروش ما : ۵۵/۰۰۰ تومان\nقیمت مصرف کننده : ۱۰۰/۰۰۰ تومان';
+  const mookokoVariants = ['بلوبری','هندوانه','نارگیل','پرتقال','طالبی','توت فرنگی','انبه'];
+  data['ai-confirmations'].cases = mookokoVariants.map((variant,index) => ({
+    case_id:`ai:${(index+1).toString(16).repeat(64)}`,offer_id:`historical:mookoko:${index}`,
+    signature:(index+1).toString(16).repeat(64),product_name:`آبمیوه شیشه ای موکوکوکو(تیکه نارگیل) ${index === 0 ? 'موجود : ' : ''}${variant}`,
+    variation_type:variant,channel:'@bonakdarjavan',source_channel:'telegram',message_id:'7335',
+    batch_id:'reextract:mookoko',source_post_url:'',message_timestamp:'1787571328',historical_reextract:true,
+    price_type:'unit',detected_price:'55000',sale_price:'55000',actual_price:'100000',package_count:'12',
+    stock_status:'Unknown',reason:'Historical price needs current supplier verification',brand:'موکوکوکو',
+    packaging:'شیشه ای',original_message:mookokoMessage
+  }));
+  await refreshButton.listeners.click();
+  visibleCards = walk(root).filter(element => element.className.split(/\s+/).includes('molavi-product-card'));
+  assert.equal(visibleCards.length,1,
+    'same-source, same-price, same-package flavors share one dashboard review card');
+  assert.match(visibleCards[0].text,/انواع هم‌قیمت از یک پیام/,
+    'the grouped card tells the owner exactly why variants are reviewed together');
+  for (const variant of mookokoVariants) assert(visibleCards[0].text.includes(variant),`grouped card shows ${variant}`);
+  const groupedConfirm = walk(visibleCards[0]).find(element => element.tagName === 'BUTTON'
+    && /تأیید هر (۷|7) نوع/.test(element.textContent));
+  assert(groupedConfirm && groupedConfirm.disabled,
+    'one grouped decision action covers all equal-price variants and still requires a current-price check');
+  const groupedSourceCheck = walk(visibleCards[0]).find(element => element.tagName === 'INPUT');
+  groupedSourceCheck.checked = true;
+  groupedSourceCheck.listeners.change();
+  assert(!groupedConfirm.disabled,'the grouped confirmation unlocks after checking a current supplier source');
+  assert.equal(calls.filter(item => item.options.method === 'POST'
+    && item.url === workflowApis.ai_confirmations.url).length,0,
+  'grouping variants for review does not submit any owner decisions');
+
+  const noodleMessage = 'نودل لیوانی شف هو،۱۲ عددی\nگوشت،مرغ،فلفلی،قارچ پنیر،سبزیجات\nقیمت فروش ما: ۷۵/۰۰۰ تومان\nقیمت مصرف کننده: ۱۳۰/۰۰۰ تومان';
+  const noodleVariants = ['سبزیجات','قارچ پنیر','فلفلی','مرغ'];
+  data['ai-confirmations'].cases = noodleVariants.map((variant,index) => ({
+    case_id:`ai:${(index+1).toString(16).repeat(64)}`,offer_id:`historical:noodle:${index}`,
+    signature:(index+1).toString(16).repeat(64),product_name:`نودل لیوانی شف هو،۱۲ عددی ${variant}`,
+    variation_type:variant,channel:'@bonakdarjavan',source_channel:'telegram',message_id:'7346',
+    batch_id:'reextract:noodle',source_post_url:'',message_timestamp:'1787571328',historical_reextract:true,
+    price_type:'unit',detected_price:'75000',sale_price:'75000',actual_price:'130000',package_count:'12',
+    stock_status:'Unknown',reason:'Historical price needs current supplier verification',original_message:noodleMessage
+  }));
+  await refreshButton.listeners.click();
+  visibleCards = walk(root).filter(element => element.className.split(/\s+/).includes('molavi-product-card'));
+  assert.equal(visibleCards.length,1,'four extracted noodle flavors remain one same-price review card');
+  assert.match(visibleCards[0].text,/متن منبع 5 طعم یا نوع را مشخص می‌کند، اما فقط 4 مورد/,
+    'the card flags the source-listed fifth flavor omitted from extraction');
+  const incompleteNoodleConfirm = walk(visibleCards[0]).find(element => element.tagName === 'BUTTON'
+    && /تأیید هر (۴|4) نوع/.test(element.textContent));
+  const noodleSourceCheck = walk(visibleCards[0]).find(element => element.tagName === 'INPUT');
+  noodleSourceCheck.checked = true;
+  noodleSourceCheck.listeners.change();
+  assert(incompleteNoodleConfirm && incompleteNoodleConfirm.disabled,
+    'an incomplete source variant group cannot be confirmed as complete');
+
+  const cakeMessage = 'کیکس مکس قوطی در ۳ طعم(زرد و آبی و بنفش) :\nباکس :۲۴عددی\nبنفش با قیمت مصرف: ۱۴۵/۰۰۰تومن\nآبی و زرد بدون قیمت مصرف';
+  data['ai-confirmations'].cases = ['زرد','بنفش'].map((variant,index) => ({
+    case_id:`ai:${(index+1).toString(16).repeat(64)}`,offer_id:`historical:cake:${index}`,
+    signature:(index+1).toString(16).repeat(64),product_name:`کیکس مکس قوطی در ۳ طعم(زرد و آبی و بنفش) ${variant}`,
+    variation_type:`(زرد و آبی و بنفش) ${variant}`,channel:'@bonakdarjavan',source_channel:'telegram',message_id:'7171',
+    batch_id:'reextract:cake',source_post_url:'',message_timestamp:'1787571328',historical_reextract:true,
+    price_type:'unit',detected_price:'1590000',sale_price:'66250',package_price:'1590000',actual_price:'145000',
+    package_count:'24',stock_status:'Unknown',reason:'Historical price needs current supplier verification',original_message:cakeMessage
+  }));
+  await refreshButton.listeners.click();
+  visibleCards = walk(root).filter(element => element.className.split(/\s+/).includes('molavi-product-card'));
+  assert.equal(visibleCards.length,1,'the two same-price cake flavors are grouped for review');
+  assert.match(visibleCards[0].text,/فقط 2 مورد در صف استخراج/,
+    'the source says three flavors while only two extracted cases exist');
+  assert.match(visibleCards[0].text,/قیمت فروش تأمین‌کننده: ۶۶٬۲۵۰ تومان/,
+    'the card shows the per-unit sale field instead of its raw carton total');
+  assert.match(visibleCards[0].text,/قیمت کل بسته\/کارتن تأمین‌کننده: ۱٬۵۹۰٬۰۰۰ تومان/);
+  assert.match(visibleCards[0].text,/مبلغ فروش تأمین‌کننده را با برچسب روشن نشان نمی‌دهد/,
+    'an extracted price absent from labeled source text is flagged for verification');
+  const unsupportedCakeConfirm = walk(visibleCards[0]).find(element => element.tagName === 'BUTTON'
+    && /تأیید هر (۲|2) نوع/.test(element.textContent));
+  assert(unsupportedCakeConfirm && unsupportedCakeConfirm.disabled,
+    'the card cannot fast-confirm an ungrounded extracted price');
+  assert.equal(calls.filter(item => item.options.method === 'POST'
+    && item.url === workflowApis.ai_confirmations.url).length,0,
+  'source mismatch checks never submit owner decisions');
+
+  const packMessage = 'پیک: اتمام موجودی\nدر کارتن ۱۲ تایی\nقیمت هر یک بسته: ۲/۵۲۰/۰۰۰ تومان\nقیمت مصرف: ۲۶۰/۰۰۰ تومان';
+  data['ai-confirmations'].cases = [{
+    case_id:`ai:${'f'.repeat(64)}`,offer_id:'historical:pack',signature:'f'.repeat(64),
+    product_name:'پیک',channel:'@bonakdarjavan',source_channel:'telegram',message_id:'7306',
+    batch_id:'reextract:pack',source_post_url:'',message_timestamp:'1787571328',historical_reextract:true,
+    price_type:'unit',detected_price:'210000',sale_price:'210000',actual_price:'260000',package_count:'12',
+    stock_status:'Unknown',reason:'Re-extraction result awaiting owner review',original_message:packMessage
+  }];
+  await refreshButton.listeners.click();
+  visibleCards = walk(root).filter(element => element.className.split(/\s+/).includes('molavi-product-card'));
+  assert.match(visibleCards[0].text,/مبلغ منبع ۲٬۵۲۰٬۰۰۰ تومان با ۲۱۰٬۰۰۰ تومان × ۱۲ برابر است/,
+    'a package amount divided by the explicit count is shown as arithmetic evidence, not proof of price basis');
+  assert.match(visibleCards[0].text,/مبنای قیمت را ثابت نمی‌کند/);
+  assert(!visibleCards[0].text.includes('قیمت فروش تأمین‌کننده: ۲٬۵۲۰٬۰۰۰ تومان'),
+    'a derived unit sale is not mislabeled with the raw package total');
+  assert.match(visibleCards[0].text,/پست مبدأ تاریخی صریحاً اتمام موجودی را ذکر می‌کند/,
+    'the card surfaces source stock text that the extraction left unknown');
+  assert.equal(calls.filter(item => item.options.method === 'POST'
+    && item.url === workflowApis.ai_confirmations.url).length,0,
+  'package-price arithmetic does not submit an owner decision');
 }
 
 main().catch(error => { console.error(error); process.exitCode = 1; });
