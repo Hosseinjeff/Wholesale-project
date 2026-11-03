@@ -2,7 +2,29 @@
 
 Updated: 2026-11-03, Asia/Tehran
 
-## Latest live deployment — 2026-11-03, Persian storefront title repair
+## Latest live deployment — 2026-11-03, extraction card source checks
+
+Main commit `71b265712978dbce12408c0c7d0d921d1513da18` is live in WordPress and Railway.
+The cPanel uploader deployed and read back `includes/owner-workflows.js` with no host
+normalization. Railway deployment `eadbf641-36f5-4e8e-b4d8-6db5f0540c59` succeeded from
+`main`; the `Wholesale-project` service is online with one replica, no warnings or pending
+work, and `/health` returns HTTP 200 with `healthy`.
+
+Extraction-only cards now group flavors from the same post when their source, base name,
+prices, count, stock and review terms all match. Cards compare extracted prices and flavors
+with explicit source text, separate unit price from carton total, call out missing variants,
+and keep fast confirmation disabled when source prices or variants are missing or unsupported.
+The Gemini prompt now covers parenthetical flavor lists, forbids deriving supplier prices from
+consumer prices or count, and extracts explicit out-of-stock wording as a source fact.
+
+Validation passed: `node --check`, `node tests/owner_workbench.test.js`,
+`python -m unittest discover -s tests -p 'test_gemini.py'` (47 tests), and `git diff --check`.
+No product, Sheet, WooCommerce, publication or owner-decision data changed. No live Gemini
+call was made for the reviewed posts. An authenticated screenshot was unavailable because
+the available browser profile has no recorded WordPress sign-in; cPanel read-back,
+interaction tests and Railway health/status checks verified the release.
+
+## Previous live deployment — 2026-11-03, Persian storefront title repair
 
 WordPress plugin commit `92bd3ad7404c375affcf5958f83bd49df9fd1db4` is live. The cPanel
 uploader deployed and verified `includes/storefront-renderer.php`; cPanel's inserted charset

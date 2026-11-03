@@ -6,30 +6,35 @@ Snapshot 4.70. Updated 2026-11-03, Asia/Tehran. The canonical roleplay decisions
 
 ## Current live status — 2026-11-03
 
-WordPress plugin commit `ad211ae` is live and verified by cPanel read-back. The shop uses a
-standalone document template and asks Elementor Pro Theme Builder for header/footer locations.
-No Elementor header/footer is currently assigned to the live shop, so it renders the plugin
-header fallback and no footer. The old theme shell is not loaded; no CSS hide rule is used for
-the shop header/footer. The public shop has 14 cards and buyer selectors in both the product
-area and cart. Supplier names are absent from cards and the checked product detail. At 390px,
-the cart selector remains visible in the drawer without horizontal overflow.
+The WordPress plugin and Railway service both run main commit `71b2657`. cPanel read-back
+verified the updated `includes/owner-workflows.js`. Railway deployment
+`eadbf641-36f5-4e8e-b4d8-6db5f0540c59` succeeded; the service is online with one replica,
+no warnings, failures or pending work, and `/health` returns `healthy`. The service retains
+its existing 500 MB `/data` volume.
 
-Railway production `Wholesale-project` follows `main`. Backend commit `0492f62` contains
-the extraction prompt and package-price corrections and is deployed on Railway deployment
-`fcf76ec5-e566-4501-9a82-61df3c0beaba`. Railway reports one running replica, no issues or
-pending work; `https://wholesale-project-production.up.railway.app/health` returned HTTP 200
-with `healthy`. The service uses its existing 500 MB `/data` volume.
+The owner dashboard's first read-only extraction audit covered 26 open cases from 14 source
+posts. Equal-price flavors now share one card and one grouped review action only when source,
+name base, price, count, stock and review terms match. The Mookoko juice post's seven same-price
+flavors now occupy one card. Source coverage warns that the noodle post lists five flavors but
+only four cases are staged, the cake post lists three flavors but only two are staged, and the
+aloe drink post has a missing 60,000-toman sale price for its 500 ml offer. These incomplete
+source groups are flagged for re-extraction; fast-confirm is blocked on the affected cards.
 
-The five unique supplier posts in the two identical exports were sent to Gemini for a
-post-change check. The adapter returned seven products across them, with no review holds:
-one, three, one, one and one product per post. The three explicitly named energy-drink
-flavors were split; the five-flavor Big Bear listing stayed one product because its flavor
-names were not provided. Package totals and per-unit amounts are both preserved. No source
-contact details are recorded here.
+Other source-backed checks now surface the cake case's unsubstantiated 66,250-toman unit price
+separately from its 1,590,000-toman carton field; show the Sani Nas 1,200,000/95,000 and
+24-count math without choosing its basis; show that 2,520,000 divided by 12 matches the
+Pik offer's 210,000 price without presenting the arithmetic as proof; and flag old source
+posts that explicitly say out of stock while the extracted stock state is unknown. A saffron
+case also has an extracted supplier price without a clearly labeled supplier amount in its
+source. Historical source text does not verify a current price or stock state.
 
-Local verification: 54 extraction, reference-matching and reference-review tests passed;
-JavaScript syntax and Python compilation passed. Flask is not installed here, so three
-route tests in `tests.test_ai_confirmations` could not start; PHP CLI is unavailable.
+No product, Sheet, WooCommerce, publication, or owner decision was changed during the audit.
+Node syntax and dashboard interaction tests pass; 47 Gemini prompt/adapter unit tests pass.
+The authenticated dashboard API read returned HTTP 200 for all workbench endpoints; the
+observed blockers are source-data and historical-price checks, not API failures. No new live
+Gemini request was made. The authenticated screenshot check is still unavailable;
+the available browser profile has no recorded WordPress sign-in. Live verification used the
+cPanel read-back, Railway status and health endpoint, plus local interaction tests.
 
 ## Complete Son juice post correction — 2026-11-02
 

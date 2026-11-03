@@ -4,6 +4,27 @@ The AI-only production path uses `catalog.gemini.extract_message_products`. The
 owner's operational reconciliation report does not call Gemini; it reports queue,
 review, Sheet and Woo outcomes without treating them as an accuracy score.
 
+## Current prompt revision and card audit — 2026-11-03
+
+The prompt now explicitly handles parenthetical named-flavor lists and says not to infer
+supplier prices from consumer prices, carton counts or expected discounts. It also maps
+explicit `اتمام موجودی` / `ناموجود` statements to the source post's stock status while
+warning that a historical post does not establish today's stock. The local prompt assertion
+and adapter suite passes 47 tests. The earlier small live smoke check below predates this
+revision and does not validate it.
+
+A read-only dashboard audit covered 26 open cases across 14 saved source posts. It found
+one omitted noodle flavor, one omitted cake flavor, one missing size-specific sale amount,
+several extracted prices without matching supplier-price labels, two old out-of-stock
+statements that the extraction left unknown, and one package total whose division matched
+the staged unit amount. The WordPress cards now surface these mismatches and group identical
+same-price flavor cases. The owner decisions and product records were left untouched.
+
+No saved supplier source was sent to Gemini during this audit. Automatic review blocked a
+one-off request because it would transmit a private saved post to Google's Gemini API; no
+payload was sent. Validation after this prompt revision is local only until a safe, approved
+live sample is available.
+
 Use `tools/evaluate_supplier_extraction.py` with an owner-labelled JSONL file kept
 outside Git. Each line contains one saved source message and its verified expected
 products:
