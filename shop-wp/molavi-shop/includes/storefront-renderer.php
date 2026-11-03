@@ -96,14 +96,18 @@ function molavi_render_storefront(): void
 
 function molavi_storefront_card_product_name(\WC_Product $product, string $supplier = ''): string
 {
-    $originalName = trim(wp_strip_all_tags($product->get_name()));
-    $originalName = trim((string) preg_replace('/[\p{Z}\s\p{Cf}]+/u', ' ', $originalName));
+    $replace = static function (string $pattern, string $replacement, string $subject): string {
+        $updated = preg_replace($pattern, $replacement, $subject);
+        return is_string($updated) ? $updated : $subject;
+    };
+    $originalName = wp_check_invalid_utf8(trim(wp_strip_all_tags($product->get_name())), true);
+    $originalName = trim($replace('/[\p{Z}\s\p{Cf}]+/u', ' ', $originalName));
     if (preg_match('/[\p{L}\p{N}]/u', $originalName) !== 1) {
         $originalName = '';
     }
     if ($originalName === '' && function_exists('get_post_field')) {
-        $storedTitle = trim(wp_strip_all_tags((string) get_post_field('post_title', $product->get_id())));
-        $storedTitle = trim((string) preg_replace('/[\p{Z}\s\p{Cf}]+/u', ' ', $storedTitle));
+        $storedTitle = wp_check_invalid_utf8(trim(wp_strip_all_tags((string) get_post_field('post_title', $product->get_id()))), true);
+        $storedTitle = trim($replace('/[\p{Z}\s\p{Cf}]+/u', ' ', $storedTitle));
         if (preg_match('/[\p{L}\p{N}]/u', $storedTitle) === 1) {
             $originalName = $storedTitle;
         }
@@ -117,38 +121,41 @@ function molavi_storefront_card_product_name(\WC_Product $product, string $suppl
             $path = parse_url($product->get_permalink(), PHP_URL_PATH);
             $slug = is_string($path) ? basename(rtrim($path, '/')) : '';
         }
-        $slug = rawurldecode($slug);
-        $slug = (string) preg_replace('/-[0-9]+$/', '', $slug);
-        $originalName = trim(preg_replace('/[-_]+/u', ' ', $slug) ?? '');
+        $slug = wp_check_invalid_utf8(rawurldecode($slug), true);
+        $slug = $replace('/-[0-9]+$/', '', $slug);
+        $originalName = trim($replace('/[-_]+/u', ' ', $slug));
     }
     $name = $originalName;
-    $supplier = trim(wp_strip_all_tags($supplier));
+    $supplier = wp_check_invalid_utf8(trim(wp_strip_all_tags($supplier)), true);
     if ($supplier !== '') {
         $pattern = '/(?<![\p{L}\p{N}])' . preg_quote($supplier, '/') . '(?![\p{L}\p{N}])/iu';
-        $name = (string) preg_replace($pattern, ' ', $name);
+        $name = $replace($pattern, ' ', $name);
     }
-    $name = (string) preg_replace('/[\p{Z}\s\p{Cf}]+/u', ' ', $name);
+    $name = $replace('/[\p{Z}\s\p{Cf}]+/u', ' ', $name);
     // A legacy supplier field can duplicate the entire product title. Keep that
     // title rather than rendering a blank link in the storefront.
     if (preg_match('/[\p{L}\p{N}]/u', $name) !== 1) {
         $name = $originalName;
     }
-    $name = (string) preg_replace(
+    $name = $replace(
         '/(?<![\p{L}\p{N}])(?:(?:کارتن|بسته|جعبه)\s*)?[0-9۰-۹٠-٩]{1,4}\s*(?:عددی|عدد|تایی|بسته|کارتن)(?![\p{L}\p{N}])/u',
         ' ',
         $name
     );
-    $name = (string) preg_replace(
+    $name = $replace(
         '/(?<![\p{L}\p{N}])[0-9۰-۹٠-٩]+(?:[.,٫][0-9۰-۹٠-٩]+)?\s*(?:میلی[\p{Z}\s\x{200c}]*لیتر(?:ی)?|میلی[\p{Z}\s\x{200c}]*گرم(?:ی)?|کیلو[\p{Z}\s\x{200c}]*گرم(?:ی)?|لیتر(?:ی)?|گرم(?:ی)?|کیلو|kg|g|ml|cc|l)(?![\p{L}\p{N}])/iu',
         ' ',
         $name
     );
-    $name = (string) preg_replace('/(?<![\p{L}\p{N}])تعداد\s+در\s+(?:کارتن|بسته|جعبه)(?![\p{L}\p{N}])/u', ' ', $name);
-    $name = (string) preg_replace('/(?<![\p{L}\p{N}])(?:کارتن|بسته|جعبه)(?![\p{L}\p{N}])/u', ' ', $name);
-    $name = (string) preg_replace('/[،,؛;]+/u', ' ', $name);
-    $name = (string) preg_replace('/[\p{Z}\s\p{Cf}]+/u', ' ', $name);
+    $name = $replace('/(?<![\p{L}\p{N}])تعداد\s+در\s+(?:کارتن|بسته|جعبه)(?![\p{L}\p{N}])/u', ' ', $name);
+    $name = $replace('/(?<![\p{L}\p{N}])(?:کارتن|بسته|جعبه)(?![\p{L}\p{N}])/u', ' ', $name);
+    $name = $replace('/[،,؛;]+/u', ' ', $name);
+    $name = $replace('/[\p{Z}\s\p{Cf}]+/u', ' ', $name);
     $name = trim($name, " \t\n\r\0\x0B،,؛;:-");
-    return preg_match('/[\p{L}\p{N}]/u', $name) === 1 ? $name : 'کالا';
+    if (preg_match('/[\p{L}\p{N}]/u', $name) === 1) {
+        return $name;
+    }
+    return $originalName !== '' ? $originalName : 'کالا';
 }
 
 function molavi_render_storefront_card(\WC_Product $product, array $quote): void
