@@ -187,6 +187,33 @@ class GeminiExtractionTests(unittest.TestCase):
         self.assertEqual(product['confidence'], 0.95)
         self.assertFalse(product['needs_review'])
 
+    def test_bare_variant_list_keeps_shared_price_evidence_and_expands_products(self):
+        base = 'نودل لیوانی شف هو،۱۲ عددی'
+        title = base + ' سبزیجات'
+        content = (
+            base + '\n'
+            'گوشت،مرغ،فلفلی،قارچ پنیر،سبزیجات\n'
+            'قیمت فروش ما: ۷۵/۰۰۰ تومان\n'
+            'قیمت مصرف کننده: ۱۳۰/۰۰۰ تومان'
+        )
+        products = parse_message_products(json.dumps([{
+            'name': title, 'variant': 'سبزیجات', 'package_count': 12,
+            'confidence': 0.70, 'needs_review': True,
+            'review_reason': 'supplier unit price is missing',
+        }], ensure_ascii=False), content, '@supplier')
+
+        self.assertEqual([product['variation_type'] for product in products], [
+            'گوشت', 'مرغ', 'فلفلی', 'قارچ پنیر', 'سبزیجات',
+        ])
+        for product in products:
+            with self.subTest(variant=product['variation_type']):
+                self.assertEqual(product['name'], base + ' ' + product['variation_type'])
+                self.assertEqual(product['sale_price'], 75000)
+                self.assertEqual(product['actual_price'], 130000)
+                self.assertEqual(product['package_count'], 12)
+                self.assertEqual(product['price_type'], 'unit')
+                self.assertFalse(product['needs_review'])
+
     def test_flavor_suffix_with_taam_marker_uses_unique_base_title(self):
         base = 'آبمیوه تتراپک سون،۲۲۰ میلی لیتر'
         title = base + ' طعم هلو'
@@ -675,6 +702,8 @@ class GeminiExtractionTests(unittest.TestCase):
         self.assertIn('`۲۲۰ میلی لیتر` is volume 220 ml, not a price of 220', prompt)
         self.assertIn('`طعم هلو` is variant `هلو`', prompt)
         self.assertIn('`قیمت فروش ما`', prompt)
+        self.assertIn('bare comma-separated flavor/model list directly after a base title', prompt)
+        self.assertIn('`گوشت،مرغ،فلفلی،قارچ پنیر،سبزیجات`', prompt)
         self.assertIn('one record per flavor with the shared source price', prompt)
         self.assertIn('`تتراپک` is packaging', prompt)
         self.assertIn('do not ask the owner to confirm the flavor or volume', prompt)

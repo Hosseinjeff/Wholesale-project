@@ -81,10 +81,13 @@ Follow this order silently for every product:
 2. Scan the rest of the post for every labeled fact belonging to that title. Blank lines,
    emoji dividers, and line wrapping are formatting, not product boundaries. A title with
    a flavor/model suffix is still the same listing: keep that full title and continue
-   reading later price and count lines. A unique exact base-title line may supply that
-   listing's details only when it adds one clear flavor/model suffix. Never borrow facts
-   from a merely similar title or another product. Stop at the next clearly new product
-   title or an order/contact footer.
+   reading later price and count lines. A bare comma-separated flavor/model list directly
+   after a base title is also part of that listing, even when it has no `طعم های:` label;
+   keep scanning after it and apply the following shared prices and counts to each listed
+   variant. A unique exact base-title line may supply that listing's details when the
+   extracted title adds a clear flavor/model suffix or names one member of its following
+   variant list. Never borrow facts from a merely similar title or another product. Stop
+   at the next clearly new product title or an order/contact footer.
 3. Classify every number by its label before filling fields: supplier price, consumer or
    regular retail price, package price, quantity, size/measurement, date, phone, or other.
    Never skip an explicit price, but never turn a count, size, date, address, or phone
@@ -102,6 +105,15 @@ a variant suffix. For example, if a unique listing has `قیمت فروش ما: 
 amount is for a box/carton/package. A separate `تعداد در کارتن: X` line supplies only
 the count: neither that line nor the title's count marker changes the basis of either
 price. Do not invent any amount absent from the source.
+
+Some posts put the base title on one line and an unlabeled flavor list on the next, for
+example `نودل لیوانی شف هو،۱۲ عددی` followed by
+`گوشت،مرغ،فلفلی،قارچ پنیر،سبزیجات`, then `قیمت فروش ما: A تومان` and
+`قیمت مصرف کننده: B تومان`. Treat those five words/phrases as variants of the noodle,
+not as a new product title or unrelated text. Return one record for each listed flavor;
+each record keeps the exact base title plus its flavor and receives the same supplier
+unit price A, consumer price B, and title count 12. The standalone list does not end the
+listing or make the following labeled prices uncertain.
 
 PRICE ROLE AND BASIS:
 - Supplier offer labels include `قیمت فروش ما`, `قیمت فروش ویژه`, `قیمت همکار`,
@@ -168,8 +180,8 @@ PRODUCTS, VARIANTS, PACKS, AND NUMBERS:
 
 REVIEW AND OUTPUT:
 - A clear product with no supplier amount is still an item: return it with supplier
-  price fields null and `needs_review=true` for the missing supplier amount. Missing
-  consumer price is optional and never by itself requires review.
+  price fields null and `needs_review=true` for the missing supplier amount.
+- A missing consumer/retail price is optional and never by itself requires review.
 - Set `needs_review=true` only for unresolved identity, supplier amount, currency,
   unit/package basis, a count required to calculate a unit price, conflicting prices,
   or unreadable source text. Missing optional brand, category, description or stock details
@@ -184,8 +196,8 @@ REVIEW AND OUTPUT:
 - The adapter may correct model fields from a unique exact title and its local labeled
   lines. Keep that exact title even when a generated count or measurement conflicts;
   source titles and explicit labels are authoritative.
-- Source-line association is not reference-catalog matching. Never imply that a product
-  has been assigned to a reference product.
+- Source-line association and reference-catalog matching are two different tasks.
+  Product extraction does not assign a product to a reference product.
 
 Example: title `آبمیوه تتراپک سون،۲۲۰ میلی لیتر طعم هلو` has exact name, brand `سون`,
 variant `هلو`, packaging `تتراپک`, and volume `220 میل`. With no price in the post, return
@@ -278,19 +290,43 @@ def _explicit_variant(text):
     return re.sub(r'\s+', ' ', value).strip()
 
 
-def _listed_source_variants(source_context):
-    """Read a comma/conjunction-separated flavor list from the scoped source."""
+def _variant_list_parts(line, *, allow_bare=False):
+    """Split a labeled list, or a bare list confirmed by an extracted variant."""
+    match = _VARIANT_LIST_LABEL.search(str(line or ''))
+    if match:
+        value = match.group(1).strip()
+    elif allow_bare and re.search(r'[،,؛;]|\s+و\s+', str(line or '')):
+        value = str(line or '').strip()
+    else:
+        return []
+    variants = []
+    parts = re.split(r'[،,؛;]+', value)
+    if parts and re.search(r'\s+و\s+', parts[-1]):
+        parts[-1:] = re.split(r'\s+و\s+', parts[-1])
+    for part in parts:
+        variant = re.sub(r'\s+', ' ', part).strip(' :،,؛;*-–—')
+        if variant and variant not in variants:
+            variants.append(variant)
+    return variants
+
+
+def _bare_variant_list_matches(line, variant):
+    """Confirm that a bare comma list contains the model's extracted variant."""
+    identity = _title_identity(variant)
+    return bool(identity and any(
+        _title_identity(part) == identity
+        for part in _variant_list_parts(line, allow_bare=True)
+    ))
+
+
+def _listed_source_variants(source_context, variant_hint=''):
+    """Read a labeled list or a bare list containing this product's variant."""
     variants = []
     for line in source_context:
-        match = _VARIANT_LIST_LABEL.search(line)
-        if not match:
+        labeled = bool(_VARIANT_LIST_LABEL.search(line))
+        if not labeled and not _bare_variant_list_matches(line, variant_hint):
             continue
-        value = match.group(1).strip().strip(' :،,؛;*-–—')
-        parts = re.split(r'[،,؛;]+', value)
-        if parts and re.search(r'\s+و\s+', parts[-1]):
-            parts[-1:] = re.split(r'\s+و\s+', parts[-1])
-        for part in parts:
-            variant = re.sub(r'\s+', ' ', part).strip(' :،,؛;*-–—')
+        for variant in _variant_list_parts(line, allow_bare=not labeled):
             if variant and variant not in variants:
                 variants.append(variant)
     return variants
@@ -444,7 +480,7 @@ def _source_package_counts(source_context):
     return counts
 
 
-def _source_title_context(source_title, content, source_titles=(), ambiguous=False):
+def _source_title_context(source_title, content, source_titles=(), ambiguous=False, variant_hint=''):
     """Collect one product's listing lines, ending at another recovered product title."""
     if not source_title or ambiguous:
         return []
@@ -484,6 +520,9 @@ def _source_title_context(source_title, content, source_titles=(), ambiguous=Fal
             continue
         if index in other_indexes or footer.search(line):
             break
+        if _bare_variant_list_matches(line, variant_hint):
+            context.append(line)
+            continue
         has_price_marker = bool(
             _UNIT_PRICE_LABEL.search(line) or _PACKAGE_PRICE_LABEL.search(line)
             or _CONSUMER_PRICE_LABEL.search(line)
@@ -494,11 +533,13 @@ def _source_title_context(source_title, content, source_titles=(), ambiguous=Fal
     return context
 
 
-def _source_price_role(source_title, content, candidate_amounts, source_titles=(), ambiguous=False):
+def _source_price_role(source_title, content, candidate_amounts, source_titles=(), ambiguous=False,
+                       variant_hint=''):
     """Recover uniquely labeled prices from the matching product's source lines."""
     if not source_title or ambiguous:
         return {}
-    context = _source_title_context(source_title, content, source_titles, ambiguous)
+    context = _source_title_context(
+        source_title, content, source_titles, ambiguous, variant_hint)
     if not context:
         return {}
     candidates = {int(amount) for amount in candidate_amounts if amount and int(amount) > 0}
@@ -557,10 +598,11 @@ def _product(item, content, channel, source_titles=()):
     explicit_weight = extract_measurement(name, 'weight')
     measurement_review_reasons = []
     variant_value = item.get('variation_type') or item.get('variant') or ''
+    variation_type = _explicit_variant(name) or str(variant_value or '').strip()
     source_title, ambiguous_source_title = _source_title_evidence(name, content, variant_value)
     source_title_verified = bool(source_title)
     source_context = _source_title_context(
-        source_title, content, source_titles, ambiguous_source_title)
+        source_title, content, source_titles, ambiguous_source_title, variation_type)
     if source_title:
         matched_source_name, source_volume, source_weight = source_title
         first_model_line = next((part.strip() for part in name.splitlines() if part.strip()), name)
@@ -602,7 +644,6 @@ def _product(item, content, channel, source_titles=()):
     explicit_packaging = _explicit_packaging(name)
     if explicit_packaging and explicit_packaging not in packaging:
         packaging = ' · '.join(value for value in (explicit_packaging, packaging) if value)
-    variation_type = _explicit_variant(name) or str(variant_value or '').strip()
     model_count = _count(item.get('package_count'))
     title_piece_counts = set(_explicit_piece_counts(name))
     source_package_counts = _source_package_counts(source_context)
@@ -629,7 +670,8 @@ def _product(item, content, channel, source_titles=()):
         item.get('consumer_package_price') or item.get('regular_package_price'))
     sale_raw = _number(item.get('sale_price') or item.get('price') or item.get('wholesale_price'))
     source_price_roles = _source_price_role(
-        source_title, content, (unit, package, sale_raw), source_titles, ambiguous_source_title)
+        source_title, content, (unit, package, sale_raw), source_titles,
+        ambiguous_source_title, variation_type or variant_value)
     price_evidence = '\n'.join(source_context) if source_context else content
     measurement_amounts = {
         int(measurement.value)
@@ -815,8 +857,10 @@ def parse_message_products(response_text, content, channel):
     for item in items:
         product = _product(item, content, channel, source_titles)
         source_title, ambiguous = _source_title_evidence(product['name'], content, product.get('variation_type'))
-        variants = _listed_source_variants(_source_title_context(
-            source_title, content, source_titles, ambiguous))
+        variant_hint = str(item.get('variation_type') or item.get('variant') or '').strip()
+        context = _source_title_context(
+            source_title, content, source_titles, ambiguous, variant_hint)
+        variants = _listed_source_variants(context, variant_hint)
         if variants:
             key = source_title[0]
             groups.setdefault(key, {

@@ -57,8 +57,19 @@ function molavi_owner_workflow_token(string $scope): string {
 
 add_action('admin_enqueue_scripts', static function (): void {
     $page = isset($_GET['page']) && is_string($_GET['page']) ? sanitize_key(wp_unslash($_GET['page'])) : '';
+    $allPages = molavi_owner_workflow_page_urls();
+    if (!isset($allPages[$page]) || !molavi_reference_owner()) { return; }
+
+    // The route-backed owner dashboard already uses fetch. This handler adds the
+    // same no-reload behavior to the remaining server-rendered action forms.
+    $formsScript = __DIR__ . '/admin-ajax-forms.js';
+    if (is_readable($formsScript)) {
+        wp_enqueue_script('molavi-admin-ajax-forms', plugins_url('admin-ajax-forms.js', __FILE__), [],
+            (string) filemtime($formsScript), true);
+    }
+
     $pages = molavi_owner_workflow_pages();
-    if (!isset($pages[$page]) || !molavi_reference_owner()) { return; }
+    if (!isset($pages[$page])) { return; }
     $base = defined('MOLAVI_REFERENCE_SERVER_URL') ? MOLAVI_REFERENCE_SERVER_URL : '';
     $script = __DIR__ . '/owner-workflows.js';
     $token = molavi_owner_workflow_token($pages[$page][1]);

@@ -31,5 +31,17 @@ package count and extra-product counts only. It does not print names or source t
 does not write to Sheets, WooCommerce or the durable queue. Gemini usage may incur API
 charges. Do not commit supplier posts, owner labels, API keys or case-level outputs.
 
-**Current measurement:** not run. The November 2 audit supplied no owner-labelled
-corpus to this workspace, and no Gemini requests have been made for this evaluation.
+**Small live smoke check (2026-11-03):** after the prompt update, three owner-approved
+saved supplier posts were sent through the production Gemini model and the local
+normalizer: one noodle post with an unlabeled comma-separated flavor list, one labeled
+flavor list with carton quantity, and one single-supplier-price post without a consumer
+price. They produced 5, 7, and 1 records respectively; all explicit supplier and
+consumer prices and package counts matched, the missing consumer price stayed empty, and
+none of the 13 records was held for review. The noodle post had exposed a real boundary
+failure: the prior prompt/model found the flavors and prices, but local title-scoped
+evidence stopped at the standalone flavor list. The prompt now names that post shape and
+the normalizer carries the uniquely matched list into the same product's price context.
+Source messages and row-level output were not saved in the repository.
+
+**Formal accuracy measurement:** not run. The live check is a narrow smoke test, not an
+owner-labelled corpus or a statistical accuracy score.
