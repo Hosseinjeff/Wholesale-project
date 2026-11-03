@@ -1,16 +1,18 @@
 # MolaviSale — whole-workflow handoff
 
-Snapshot 4.69. Updated 2026-11-03, Asia/Tehran. The canonical roleplay decisions are in
+Snapshot 4.70. Updated 2026-11-03, Asia/Tehran. The canonical roleplay decisions are in
 `roleplay-state.json`; current live evidence and release gates are in
 `pipeline-readiness.md` and `pipeline-readiness-evidence.json`.
 
 ## Current live status — 2026-11-03
 
-WordPress plugin commit `ee6e4b5` is live and verified by cPanel read-back. The shop now
-has a visible heading and buyer-type selector above the product grid, card-local quantity
-feedback, and a clean document title. The duplicate Twenty Twenty-Five `#header` is hidden
-only on the shop page. The public shop returned HTTP 200 with 14 cards, one buyer selector,
-and feedback/status areas inside all 14 cards.
+WordPress plugin commit `ad211ae` is live and verified by cPanel read-back. The shop uses a
+standalone document template and asks Elementor Pro Theme Builder for header/footer locations.
+No Elementor header/footer is currently assigned to the live shop, so it renders the plugin
+header fallback and no footer. The old theme shell is not loaded; no CSS hide rule is used for
+the shop header/footer. The public shop has 14 cards and buyer selectors in both the product
+area and cart. Supplier names are absent from cards and the checked product detail. At 390px,
+the cart selector remains visible in the drawer without horizontal overflow.
 
 Railway production `Wholesale-project` follows `main`. Backend commit `0492f62` contains
 the extraction prompt and package-price corrections and is deployed on Railway deployment
