@@ -12,12 +12,13 @@ selector and 14 card feedback/status pairs; both title tags now say “فروش�
 
 The preceding WordPress plugin deployment at `d08158589081fb6f026845d0d6984c0942c307ca`
 also verified the new owner-card price presentation and direct candidate links. The
-extraction prompt/parser and detailed reference-candidate comparison data are pushed in
-that commit, but the Python backend is not live yet. Railway production is online with one
-replica and no current issues on deployment `e59b1eb7-03a5-4644-8bd6-c00eef9ba5e1`, commit
-`e2dea37`; the existing `Wholesale-project` source has no branch attached. A prior automatic
-review rejected changing it to follow moving `main`, so that backend change remains pending.
-See `project-handoff.md` for the current source state and validation limits.
+The Python backend changes are live from `main` commit `0492f62` on Railway deployment
+`fcf76ec5-e566-4501-9a82-61df3c0beaba`. The five unique supplier posts in the validation
+exports produced seven products with no review holds. The explicit flavor list expanded
+into three product records; a five-flavor count without flavor names remained one product.
+Unit and package prices were preserved separately. See `project-handoff.md` for the
+validation details. Railway is online with one running replica and no pending work;
+`/health` returned HTTP 200 with `healthy`.
 
 ## Source of truth
 
@@ -42,13 +43,12 @@ pricing/storefront renderer, shop JS and storefront CSS. Its cards show distinct
 unit/carton prices and clickable reference suggestions with comparison details when the
 backend supplies them. Focused Python tests and JavaScript syntax checks passed.
 
-Railway read-back after the push shows the production `Wholesale-project` service on
-successful deployment `ce182584-7a2c-4812-ac97-fef8e9517d8f`, commit
-`3c0464ec1aae196d84b12636b82d74c494e394ba`, with one replica and no staged changes.
-The source is the expected GitHub repository but has no branch attached. A previous
-automatic approval review rejected changing this live source to follow moving `main`;
-no alternate source change was attempted. The new extraction prompt and backend grouping
-therefore remain pushed but undeployed until that source change is approved.
+Railway read-back shows the production `Wholesale-project` service following
+`Hosseinjeff/Wholesale-project@main`, with backend commit `0492f62` deployed on
+`fcf76ec5-e566-4501-9a82-61df3c0beaba`. The service retains its 500 MB `/data` volume.
+Five unique supplier posts were checked through Gemini after the prompt/parser update;
+the normalized result contains seven products and no review holds. Local extraction,
+matching and reference-review tests pass (54 total).
 
 The cPanel uploader is `tools/deploy_wordpress_plugin.py`. It accepts a Git ref
 before the plugin changes, and only deploys tracked PHP, JavaScript and CSS files
