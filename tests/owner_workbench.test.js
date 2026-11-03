@@ -47,16 +47,19 @@ async function main() {
   ].map(([key,path]) => [key,{url:base+path,token:`scoped-${key}`} ]));
   const data = {
     'product-status-snapshots': {products:[{product_id:'product-1',product_name:'Noodle 12 pack',
-      channel:'@supplier',latest_offer_id:'offer-1',status:'sell',update_needed:false,
+      channel:'@supplier',latest_offer_id:'owner-confirm:owner-decision-1',status:'imported',update_needed:false,
       supplier_price_state:'blocked',reference_match_id:'REF-12',reference_approval_state:'approved'},
       {product_id:'product-2',product_name:'Ketchup',channel:'@supplier',status:'sell',update_needed:true}],
       snapshots:[{captured_at:'2026-11-03T08:00:00Z'}],latest_snapshot_id:'snapshot-1'},
-    'ai-confirmations': {cases:[]},
+    'ai-confirmations': {cases:[],recent_decisions:[{product_name:'Noodle 12 pack',channel:'@supplier',
+      source_post_url:'https://t.me/supplier/18',decision:{decision_id:'owner-decision-1',
+        choice:'not_product',created_at:'2026-11-03T08:00:00Z'}}]},
     'item-reviews': {cases:[]},
     'supplier-price-evidence': {offers:[{product_id:'product-1',name:'Noodle 12 pack',channel:'@supplier',
       sale_price:120000,state:'blocked',source_revision:'revision-1',source_timestamp:'2026-11-03T07:00:00Z'}]},
     'sheet-conflicts': {conflicts:[{conflict_id:'sheet:one',product_id:'product-1',product_name:'Noodle 12 pack',
-      channel:'@supplier',field:'Sale Price',base:100,server:120,sheet:140,server_owned:false,sheet_preserved:false}]},
+      channel:'@supplier',field:'Status',base:'needs_review',server:'not_product',sheet:'imported',
+      source_revision:'owner-confirm:owner-decision-1',server_owned:false,sheet_preserved:false}]},
     'publication-holds': {holds:[]},
     'decisions': {events:[]},
     operations: {operations:{by_state:{},items:[],failed_publication_ids:[],failed_batch_ids:[],publication_holds:0,sheet_conflicts:1}},
@@ -113,10 +116,15 @@ async function main() {
   assert.match(root.text,/تعارض شیت · کالای ۱ از ۱/,'the first screen opens directly on the highest-priority non-empty queue');
   assert.match(cards[0].text,/تازگی قیمت تأمین‌کننده/);
   assert.match(cards[0].text,/تعارض داده/);
-  assert.match(cards[0].text,/آخرین مقدار هماهنگ‌شده: 100/,
+  assert.match(cards[0].text,/آخرین مقدار هماهنگ‌شده: needs_review/,
     'the conflict card shows the baseline needed to tell which side changed');
   assert.match(cards[0].text,/هر دو مقدار از آخرین هماهنگی تغییر کرده‌اند/,
     'the card explains why the Sheet value needs an explicit manual-edit confirmation');
+  assert.match(cards[0].text,/مالک قبلاً «کالا نیست» را ثبت کرده است/,
+    'a server status derived from an earlier owner decision shows that provenance');
+  assert(walk(cards[0]).some(element => element.tagName === 'A'
+    && element.href === 'https://t.me/supplier/18'),
+  'the conflict card links the related prior decision back to its source post');
   assert.match(cards[0].text,/REF-12/);
   assert(!walk(root).some(element => element.tagName === 'IFRAME'));
   assert(!walk(root).some(element => element.className.split(/\s+/).includes('molavi-admin-tabs')));

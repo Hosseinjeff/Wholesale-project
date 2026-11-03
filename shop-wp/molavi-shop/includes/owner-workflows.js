@@ -711,6 +711,32 @@
                 if (!serverOwned && !sheetPreserved) {
                     section.appendChild(notice('هر دو مقدار از آخرین هماهنگی تغییر کرده‌اند. مقدار سرور پیش‌فرض است؛ فقط اگر خودتان این سلول را دستی در شیت اصلاح کرده‌اید، مقدار شیت را به فروشگاه بفرستید.', 'info'));
                 }
+                const sourceRevision = String(conflict.source_revision || '');
+                const relatedDecision = sourceRevision.startsWith('owner-confirm:')
+                    ? ((data.ai_confirmations && Array.isArray(data.ai_confirmations.recent_decisions)
+                        ? data.ai_confirmations.recent_decisions : []).find(item =>
+                            String(item && item.decision && item.decision.decision_id || '')
+                                === sourceRevision.slice('owner-confirm:'.length)))
+                    : null;
+                if (relatedDecision) {
+                    const choiceLabel = relatedDecision.decision.choice === 'not_product'
+                        ? 'مالک قبلاً «کالا نیست» را ثبت کرده است'
+                        : relatedDecision.decision.choice === 'confirm'
+                            ? 'مالک قبلاً استخراج را تأیید کرده است'
+                            : `تصمیم قبلی مالک: ${relatedDecision.decision.choice || 'نامشخص'}`;
+                    const context = node('details', null, 'molavi-conflict-source-context');
+                    context.appendChild(node('summary', 'منشأ مقدار سرور'));
+                    const when = formatSourceTimestamp(relatedDecision.decision.created_at);
+                    context.appendChild(node('p', `${choiceLabel}${when ? ` · ${when}` : ''}`));
+                    if (relatedDecision.source_post_url) {
+                        const sourceLink = node('a', 'بازکردن پیام منبع');
+                        sourceLink.href = String(relatedDecision.source_post_url);
+                        sourceLink.target = '_blank';
+                        sourceLink.rel = 'noopener noreferrer';
+                        context.appendChild(sourceLink);
+                    }
+                    section.appendChild(context);
+                }
                 const actions = node('div', null, 'molavi-product-actions');
                 const useServer = node('button', sheetPreserved ? 'حفظ هویت اصلی کالا'
                     : serverOwned ? 'همگام‌سازی مقدار سیستمی از سرور'
