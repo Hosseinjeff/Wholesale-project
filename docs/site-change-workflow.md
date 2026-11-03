@@ -2,7 +2,27 @@
 
 Updated: 2026-11-03, Asia/Tehran
 
-## Latest live deployment — 2026-11-03, 16:48 UTC
+## Latest live deployment — 2026-11-03, 19:18 UTC
+
+WordPress plugin commit `a567b4b0b109e68a353c27bca30f3e79fc33702c` is live. cPanel
+uploaded and read back `includes/operations-dashboard.php`, `includes/owner-browser-api.php`,
+`includes/owner-review-store.php`, `includes/owner-workflows.css`, and
+`includes/owner-workflows.js` with no host normalization. The owner operations page now
+loads extraction, reference matching, supplier-price freshness, Sheet conflicts, catalog
+status, and publication holds into product-centered cards. Shared batch actions appear once;
+global and order work remains in collapsed sections. Review context and receipts stay in the
+WordPress database, while card actions use asynchronous requests.
+
+`node --check` passed for the workflow script and its test, `node tests/owner_workbench.test.js`
+passed, and `git diff --check` passed. The admin interaction test verifies product grouping,
+scoped route tokens, local review context, and asynchronous supplier-price verification.
+The PHP runtime test could not run because PHP is not installed; Flask-backed route tests
+could not run because Flask is not installed. An authenticated visual click-through of
+`wp-admin` was unavailable, so the dashboard has interaction-test and cPanel read-back
+verification, not a live screenshot. No product, order, or Sheet data changed. This commit
+does not change Railway.
+
+## Previous live deployment — 2026-11-03, 16:48 UTC
 
 Commit `dc0e3d4ffdc0aa17581bbabca7143cd8108e74bf` is live in the WordPress plugin and
 Railway backend. cPanel uploaded and read back `includes/admin-ajax-forms.js` and
@@ -19,7 +39,7 @@ both production services are online with no issues or pending work, and `/health
 HTTP 200 with `healthy`. The prompt and title-scoped evidence update passed the three-post
 live smoke check recorded in [`ai-extraction-validation.md`](ai-extraction-validation.md).
 
-## Previous live deployment — 2026-11-03
+## Storefront layout release — 2026-11-03
 
 WordPress plugin commit `ad211aed122ee23ec84847534e512e9dd2670dc4` is deployed and verified
 by cPanel read-back. The shop template no longer loads the theme header/footer shell or its
@@ -58,10 +78,12 @@ validation details. Railway is online with one running replica and no pending wo
 ## Deploying plugin code
 
 Most recent WordPress plugin deployment: commit
-`dc0e3d4ffdc0aa17581bbabca7143cd8108e74bf` (2026-11-03). The uploader changed and read
-back `includes/admin-ajax-forms.js` and `includes/owner-browser-api.php` with no host
-normalization. The preceding deployment at `ad211aed122ee23ec84847534e512e9dd2670dc4`
-changed and verified `includes/site-chrome.php`, `shop-template.php`, and `storefront.css`.
+`a567b4b0b109e68a353c27bca30f3e79fc33702c` (2026-11-03). The uploader changed and read
+back five owner-dashboard files with no host normalization. The preceding deployment at
+`dc0e3d4ffdc0aa17581bbabca7143cd8108e74bf` (2026-11-03) uploaded `includes/admin-ajax-forms.js`
+and `includes/owner-browser-api.php`. The earlier storefront deployment at
+`ad211aed122ee23ec84847534e512e9dd2670dc4` changed and verified
+`includes/site-chrome.php`, `shop-template.php`, and `storefront.css`.
 cPanel inserted its documented charset marker after `<head>` in the standalone template and
 after `<header>` in the site-chrome partial; both exact changes were normalized and verified. The preceding
 deployment at `37fe2a73eaf034393f6d5dd15a7aff40e67f4fe3` uploaded and verified `molavi-shop.php`.
@@ -107,7 +129,7 @@ the plugin directory.
 After a successful deploy, record the deployed commit here or in the relevant
 release note and use it as `--since` for the next deployment.
 
-Most recent plugin deployment: commit `a80e20865ea4f196956f41a4d9743f6f74c992f6`
+Earlier plugin deployment: commit `a80e20865ea4f196956f41a4d9743f6f74c992f6`
 (2026-11-02). `python tools/deploy_wordpress_plugin.py --since
 3a5e9e0af76be33fc009a193768522e8130b3e18` uploaded `includes/owner-workflows.js`
 and verified its read-back; no host normalization was reported. The Sheet conflict
