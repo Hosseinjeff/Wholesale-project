@@ -346,6 +346,20 @@ async function main() {
   assert.equal(calls.filter(item => item.options.method === 'POST'
     && item.url === workflowApis.ai_confirmations.url).length,0,
   'package-price arithmetic does not submit an owner decision');
+
+  const partialStockMessage = 'آبمیوه تست در ۲ طعم (قرمز و آبی)\nاتمام موجودی\nقیمت فروش ما: ۱۰/۰۰۰ تومان';
+  data['ai-confirmations'].cases = ['Unknown','Out of Stock'].map((stock,index) => ({
+    case_id:`ai:${(index+1).toString(16).repeat(64)}`,offer_id:`historical:stock:${index}`,
+    signature:(index+1).toString(16).repeat(64),product_name:`آبمیوه تست ${index ? 'قرمز' : 'آبی'}`,
+    variation_type:index ? 'قرمز' : 'آبی',channel:'@bonakdarjavan',source_channel:'telegram',message_id:'7307',
+    batch_id:'reextract:stock',source_post_url:'',message_timestamp:'1787571328',historical_reextract:true,
+    price_type:'unit',detected_price:'10000',sale_price:'10000',package_count:'12',stock_status:stock,
+    reason:'Historical price needs current supplier verification',original_message:partialStockMessage
+  }));
+  await refreshButton.listeners.click();
+  visibleCards = walk(root).filter(element => element.className.split(/\s+/).includes('molavi-product-card'));
+  assert.match(visibleCards[0].text,/وضعیت استخراج‌شده نامشخص است/,
+    'one variant with an extracted stock value does not hide another variant whose stock is unknown');
 }
 
 main().catch(error => { console.error(error); process.exitCode = 1; });

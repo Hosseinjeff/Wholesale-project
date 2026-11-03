@@ -1161,7 +1161,7 @@
     function aiSourceStockGap(item, cases) {
         const source = String(item && item.original_message || '');
         if (!/(?:اتمام\s*موجودی|موجودی\s*(?:ندارد|تمام\s*شده)|ناموجود|sold\s*out|out\s+of\s+stock)/iu.test(source)) return null;
-        const captured = cases.some(candidate => /(?:out\s*of\s*stock|sold\s*out|unavailable|ناموجود|اتمام\s*موجودی)/iu
+        const captured = cases.length > 0 && cases.every(candidate => /(?:out\s*of\s*stock|sold\s*out|unavailable|ناموجود|اتمام\s*موجودی)/iu
             .test(String(candidate && candidate.stock_status || '')));
         return captured ? null : {historical:true};
     }

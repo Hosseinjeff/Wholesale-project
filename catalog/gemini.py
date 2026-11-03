@@ -172,14 +172,14 @@ PRODUCTS, VARIANTS, PACKS, AND NUMBERS:
   details. Preserve the base title plus each flavor in `name` and put that flavor in
   `variant`. Do not ask the owner to choose same-price variants. `در ۵ طعم متفاوت`
   gives no names: return one product and invent no variants.
-- A parenthetical list also names variants. For example, `کیکس مکس قوطی در ۳ طعم
-  (زرد و آبی و بنفش)` means three separate variants: `زرد`, `آبی`, and `بنفش`. Return
+- A parenthetical list also names variants. For example, `محصول نمونه در ۳ طعم
+  (قرمز، آبی و بنفش)` means three separate variants: `قرمز`, `آبی`, and `بنفش`. Return
   all three, put only the individual color in `variant`, and do not repeat the complete
   parenthetical list inside each variant. If the post gives only a consumer price for
   بنفش and says supplier prices are absent or gives no supplier-price line at all, leave
   supplier price fields null for every flavor; do not derive or invent a supplier amount
-  from consumer prices, carton count, or expected discount. Assign 145000 as consumer price
-  only to بنفش when that is the only flavor with a labeled consumer price.
+  from consumer prices, carton count, or expected discount. Assign the explicitly labeled
+  consumer price only to its named flavor when that is the only one with a consumer price.
 - `package_count` is the explicit number of product units in the supplier carton/package
   relevant to the offer. Distinguish an inner retail-pack count in the title from the
   number of inner packs in a carton; do not merge levels or assume they are equal. Fill

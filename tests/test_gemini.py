@@ -324,7 +324,7 @@ class GeminiExtractionTests(unittest.TestCase):
         self.assertIn('Source-line association and reference-catalog matching are two different tasks', prompt)
         self.assertIn('A missing consumer/retail price is optional', prompt)
         self.assertIn('قیمت هر باکس ۲۴: ۷۴۰/۰۰۰ تومان', prompt)
-        self.assertIn('کیکس مکس قوطی در ۳ طعم', prompt)
+        self.assertIn('محصول نمونه در ۳ طعم', prompt)
         self.assertIn('do not derive or invent a supplier amount', prompt)
         self.assertIn('اتمام موجودی', prompt)
 
