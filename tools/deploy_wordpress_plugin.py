@@ -14,6 +14,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -124,10 +125,11 @@ def matches_live_source(remote: str, source: str) -> tuple[bool, bool]:
     if file_sha(remote) == file_sha(source):
         return True, False
     marker = '<meta charset="utf-8">'
-    opening = remote.find("<header")
-    close = remote.find(">", opening) if opening >= 0 else -1
-    if close >= 0 and remote.startswith(marker, close + 1):
-        normalized = remote[:close + 1] + remote[close + 1 + len(marker):]
+    for tag in ("head", "header"):
+        opening = re.search(r"<" + tag + r"\b[^>]*>", remote, flags=re.IGNORECASE)
+        if opening is None or not remote.startswith(marker, opening.end()):
+            continue
+        normalized = remote[:opening.end()] + remote[opening.end() + len(marker):]
         if file_sha(normalized) == file_sha(source):
             return True, True
     return False, False
