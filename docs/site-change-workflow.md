@@ -17,10 +17,12 @@ WordPress database, while card actions use asynchronous requests.
 passed, and `git diff --check` passed. The admin interaction test verifies product grouping,
 scoped route tokens, local review context, and asynchronous supplier-price verification.
 The PHP runtime test could not run because PHP is not installed; Flask-backed route tests
-could not run because Flask is not installed. An authenticated visual click-through of
-`wp-admin` was unavailable, so the dashboard has interaction-test and cPanel read-back
-verification, not a live screenshot. No product, order, or Sheet data changed. This commit
-does not change Railway.
+could not run because Flask is not installed. An authenticated read-only request to
+`molavi-operations` returned HTTP 200 with the workbench mount and scoped API configuration;
+the JS and CSS assets also returned HTTP 200. An authenticated visual click-through of
+`wp-admin` was unavailable, so the dashboard has interaction-test and live page/asset checks,
+not a live screenshot. No product, order, or Sheet data changed. This commit does not change
+Railway.
 
 ## Previous live deployment — 2026-11-03, 16:48 UTC
 
