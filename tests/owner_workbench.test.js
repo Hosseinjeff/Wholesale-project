@@ -113,6 +113,10 @@ async function main() {
   assert.match(root.text,/تعارض شیت · کالای ۱ از ۱/,'the first screen opens directly on the highest-priority non-empty queue');
   assert.match(cards[0].text,/تازگی قیمت تأمین‌کننده/);
   assert.match(cards[0].text,/تعارض داده/);
+  assert.match(cards[0].text,/آخرین مقدار هماهنگ‌شده: 100/,
+    'the conflict card shows the baseline needed to tell which side changed');
+  assert.match(cards[0].text,/هر دو مقدار از آخرین هماهنگی تغییر کرده‌اند/,
+    'the card explains why the Sheet value needs an explicit manual-edit confirmation');
   assert.match(cards[0].text,/REF-12/);
   assert(!walk(root).some(element => element.tagName === 'IFRAME'));
   assert(!walk(root).some(element => element.className.split(/\s+/).includes('molavi-admin-tabs')));

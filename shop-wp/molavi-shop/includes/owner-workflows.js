@@ -353,7 +353,7 @@
         const key = queue === 'next' ? workbenchActionKey(product) : queue;
         if (key === 'ai') return 'اقدام بعدی: اطلاعات استخراج‌شده را بررسی و تأیید یا اصلاح کنید.';
         if (key === 'references') return 'اقدام بعدی: مرجع درست و مبنای قیمت را انتخاب کنید.';
-        if (key === 'conflicts') return 'اقدام بعدی: تعارض را با نگه‌داشتن مقدار سرور یا اعمال ویرایش دستی شیت حل کنید.';
+        if (key === 'conflicts') return 'اقدام بعدی: مقدار سرور را نگه دارید؛ فقط اگر خودتان شیت را دستی تغییر داده‌اید، اصلاح شیت را به فروشگاه بفرستید.';
         if (key === 'supplier_prices') return 'اقدام بعدی: منبع پیام را باز کنید و تازگی قیمت را تأیید کنید.';
         if (key === 'holds') return 'اقدام بعدی: دستهٔ متوقف‌شده را در بخش دسته‌های مشترک پایین صفحه تعیین تکلیف کنید.';
         if (key === 'status') return 'اقدام بعدی: وضعیت انتشار کالا را در جزئیات فنی بررسی کنید.';
@@ -702,16 +702,20 @@
             product.conflicts.forEach(conflict => {
                 const section = node('section', null, 'molavi-product-subsection molavi-product-conflict');
                 section.appendChild(node('h3', `تعارض داده · ${conflict.field || 'فیلد نامشخص'}`));
-                for (const [caption,key] of [['مقدار فعلی سرور','server'],['مقدار دستی شیت','sheet']]) {
+                for (const [caption,key] of [['آخرین مقدار هماهنگ‌شده','base'],
+                    ['مقدار فعلی سرور','server'],['مقدار فعلی شیت','sheet']]) {
                     section.appendChild(node('p', `${caption}: ${conflictValue(conflict[key])}`));
                 }
                 const serverOwned = conflict.server_owned === true;
                 const sheetPreserved = conflict.sheet_preserved === true;
+                if (!serverOwned && !sheetPreserved) {
+                    section.appendChild(notice('هر دو مقدار از آخرین هماهنگی تغییر کرده‌اند. مقدار سرور پیش‌فرض است؛ فقط اگر خودتان این سلول را دستی در شیت اصلاح کرده‌اید، مقدار شیت را به فروشگاه بفرستید.', 'info'));
+                }
                 const actions = node('div', null, 'molavi-product-actions');
                 const useServer = node('button', sheetPreserved ? 'حفظ هویت اصلی کالا'
                     : serverOwned ? 'همگام‌سازی مقدار سیستمی از سرور'
                     : 'اعمال مقدار فعلی سرور', 'button button-primary');
-                const useSheet = node('button', 'اعمال اصلاح دستی شیت', 'button button-secondary');
+                const useSheet = node('button', 'فرستادن مقدار شیت به فروشگاه', 'button button-secondary');
                 useServer.type = 'button'; useSheet.type = 'button';
                 useServer.disabled = !contextStored.sheet_conflicts;
                 useSheet.disabled = serverOwned || sheetPreserved || !contextStored.sheet_conflicts;
