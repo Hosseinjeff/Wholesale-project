@@ -33,10 +33,10 @@ function molavi_site_page_links(): array
     return $links;
 }
 
-function molavi_render_site_header(): void
+function molavi_render_site_header(bool $forceStorefront = false): void
 {
     if (is_admin() || wp_doing_ajax() || !function_exists('wc_get_page_permalink')
-        || (function_exists('molavi_is_storefront_request') && molavi_is_storefront_request())) {
+        || (!$forceStorefront && function_exists('molavi_is_storefront_request') && molavi_is_storefront_request())) {
         return;
     }
 
