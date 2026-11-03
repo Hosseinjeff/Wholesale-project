@@ -6,6 +6,12 @@
 #molavi-owner-workflow .molavi-workbench-toolbar { display:flex; flex-wrap:wrap; gap:.5rem; margin:.5rem 0 1rem; }
 #molavi-owner-workflow .molavi-workbench-summary { border-inline-start:4px solid #2271b1; }
 #molavi-owner-workflow .molavi-workbench-summary h2 { margin-top:0; }
+#molavi-owner-workflow .molavi-product-navigation { display:flex; align-items:center; justify-content:space-between; gap:.75rem; margin:0 0 .75rem; }
+#molavi-owner-workflow .molavi-product-position { color:#50575e; font-weight:600; }
+#molavi-owner-workflow .molavi-current-product { min-width:0; }
+#molavi-owner-workflow .molavi-product-next-step { margin:.6rem 0; padding:.65rem .8rem; border-inline-start:3px solid #2271b1; border-radius:4px; background:#f0f6fc; color:#1d4d73; line-height:1.6; }
+#molavi-owner-workflow .molavi-ajax-status { margin:.65rem 0; padding:.1rem .7rem; }
+#molavi-owner-workflow .molavi-ajax-status p { margin:.5rem 0; }
 #molavi-owner-workflow .molavi-workbench-metrics,
 #molavi-owner-workflow .molavi-product-state-row,
 #molavi-owner-workflow .molavi-product-actions,
@@ -86,6 +92,8 @@
     #molavi-owner-workflow .molavi-workflow-heading { align-items:flex-start; flex-direction:column; }
     #molavi-owner-workflow .card { padding:.75rem; }
     #molavi-owner-workflow .molavi-product-card-heading { align-items:flex-start; flex-direction:column; }
+    #molavi-owner-workflow .molavi-product-navigation .button { min-width:5rem; }
+    #molavi-owner-workflow .molavi-product-position { font-size:.9em; text-align:center; }
     #molavi-owner-workflow .molavi-workbench-toolbar .button,
     #molavi-owner-workflow .molavi-global-links .button { width:100%; }
     #molavi-owner-workflow label { width:100%; min-width:0; }

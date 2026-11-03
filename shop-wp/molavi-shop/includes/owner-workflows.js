@@ -300,6 +300,8 @@
     }
 
     let workbenchShowAll = false;
+    let workbenchIndex = 0;
+    let workbenchSelectedKey = '';
 
     function workbenchNameKey(name) {
         return String(name || '').normalize('NFKC').toLocaleLowerCase()
@@ -317,14 +319,52 @@
         parent.appendChild(pill);
     }
 
+    function actionStatus(container, text, kind = 'info') {
+        const status = node('div', null, `notice notice-${kind} molavi-ajax-status`);
+        status.setAttribute('role', 'status');
+        status.appendChild(node('p', text));
+        container.prepend(status);
+        return status;
+    }
+
+    function updateActionStatus(status, text, kind = 'info') {
+        if (!status) return;
+        status.className = `notice notice-${kind} molavi-ajax-status`;
+        status.replaceChildren(node('p', text));
+    }
+
+    function workbenchNextStep(product) {
+        if (product.ai.length) return 'اقدام بعدی: اطلاعات استخراج‌شده را بررسی و تأیید یا اصلاح کنید.';
+        if (product.references.length) return 'اقدام بعدی: مرجع درست و مبنای قیمت را انتخاب کنید.';
+        if (product.conflicts.length) return 'اقدام بعدی: تعارض را با نگه‌داشتن مقدار سرور یا اعمال ویرایش دستی شیت حل کنید.';
+        if (product.supplierPrices.length) return 'اقدام بعدی: منبع پیام را باز کنید و تازگی قیمت را تأیید کنید.';
+        if (product.holds.length) return 'اقدام بعدی: جزئیات دستهٔ متوقف‌شده را در بخش پایین بررسی کنید.';
+        if (product.status && product.status.update_needed) return 'اقدام بعدی: وضعیت انتشار کالا را در جزئیات فنی بررسی کنید.';
+        return 'برای این کالا اقدام بازی ثبت نشده است.';
+    }
+
+    function workbenchPriority(product) {
+        if (product.ai.length) return 0;
+        if (product.references.length) return 1;
+        if (product.conflicts.length) return 2;
+        if (product.supplierPrices.length) return 3;
+        if (product.holds.length) return 4;
+        if (product.status && product.status.update_needed) return 5;
+        return 6;
+    }
+
     async function dashboard(message = '', messageKind = 'info') {
-        shell('کارت یکپارچه کالاها', 'استخراج، قیمت، مرجع، تعارض همگام‌سازی و وضعیت انتشار هر کالا در همان کارت جمع شده است.');
+        shell('بررسی کالاها', 'هر بار فقط یک کالا نمایش داده می‌شود؛ اقدام‌ها همین‌جا و بدون بارگذاری کامل صفحه ثبت می‌شوند.');
         const refresh = node('button', 'به‌روزرسانی وضعیت', 'button button-secondary');
         refresh.type = 'button';
-        refresh.addEventListener('click', () => dashboard());
+        refresh.addEventListener('click', async () => {
+            refresh.disabled = true;
+            refresh.textContent = 'در حال دریافت…';
+            await dashboard();
+        });
         const toolbar = node('div', null, 'molavi-workbench-toolbar');
         toolbar.appendChild(refresh);
-        const showAll = node('button', workbenchShowAll ? 'فقط موارد نیازمند رسیدگی' : 'نمایش همه کالاها', 'button button-secondary');
+        const showAll = node('button', workbenchShowAll ? 'بازگشت به موارد نیازمند اقدام' : 'دیدن کالاهای بدون اقدام', 'button button-secondary');
         showAll.type = 'button';
         showAll.addEventListener('click', () => { workbenchShowAll = !workbenchShowAll; dashboard(); });
         toolbar.appendChild(showAll);
@@ -454,7 +494,8 @@
         const attention = product => Boolean(product.status && product.status.update_needed)
             || product.ai.length > 0 || product.references.length > 0 || product.supplierPrices.length > 0
             || product.conflicts.length > 0 || product.holds.length > 0;
-        products.sort((a,b) => Number(attention(b))-Number(attention(a)) || a.name.localeCompare(b.name,'fa'));
+        products.sort((a,b) => Number(attention(b))-Number(attention(a))
+            || workbenchPriority(a)-workbenchPriority(b) || a.name.localeCompare(b.name,'fa'));
         const openProducts = products.filter(attention);
         const summary = node('section', null, 'card molavi-workbench-summary');
         summary.appendChild(node('h2', 'وضعیت کاتالوگ'));
@@ -489,6 +530,7 @@
             const state = attention(product) ? 'نیازمند اقدام' : 'وضعیت ثبت‌شده';
             appendStatusPill(header, 'وضعیت', state, attention(product) ? 'warning' : 'success');
             card.appendChild(header);
+            card.appendChild(node('p', workbenchNextStep(product), 'molavi-product-next-step'));
             const status = product.status || {};
             const sourceParts = [];
             if (product.product_id) sourceParts.push(`شناسه: ${product.product_id}`);
@@ -510,9 +552,13 @@
             if (stateRow.childNodes.length) card.appendChild(stateRow);
             if (status.review_reason) card.appendChild(node('p', `دلیل وضعیت: ${status.review_reason}`));
 
+            const refreshInPlace = async (message, kind, statusNode) => {
+                updateActionStatus(statusNode, message, kind);
+                await dashboard(message, kind);
+            };
             product.ai.forEach(item => {
                 const ai = aiCaseCard(item, null, contextStored.ai_confirmations, true, [item], {
-                    embedded:true, apiKey:'ai_confirmations', refresh:dashboard
+                    embedded:true, apiKey:'ai_confirmations', refresh:refreshInPlace
                 });
                 const title = node('h3', 'استخراج از پیام تأمین‌کننده');
                 ai.prepend(title);
@@ -520,7 +566,7 @@
             });
             product.references.forEach(item => {
                 const reference = referenceItemCard(item, contextStored.reference_items, {
-                    embedded:true, apiKey:'reference_items', refresh:dashboard
+                    embedded:true, apiKey:'reference_items', refresh:refreshInPlace
                 });
                 reference.prepend(node('h3', 'تطبیق و مبنای قیمت مرجع'));
                 card.appendChild(reference);
@@ -538,6 +584,9 @@
                 if (verify.disabled) section.appendChild(notice('ثبت زمینه این بررسی در پایگاه داده وردپرس ناموفق بود؛ اقدام غیرفعال است.', 'error'));
                 verify.addEventListener('click', async () => {
                     verify.disabled = true;
+                    const originalLabel = verify.textContent;
+                    verify.textContent = 'در حال ثبت…';
+                    const progressStatus = actionStatus(section, 'در حال ثبت تأیید قیمت با درخواست AJAX…');
                     const eventId = reviewEventId('supplier_price', offer.product_id);
                     const context = {product_id:offer.product_id,name:offer.name,channel:offer.channel,
                         sale_price:offer.sale_price,source_timestamp:offer.source_timestamp,
@@ -551,10 +600,15 @@
                         let warning = '';
                         try { await persistOwnerReviews([reviewRecord(eventId,'supplier_price',offer.product_id,'accepted',context,decision,receipt)]); }
                         catch (_error) { warning = ' قیمت تأیید شد، اما رسید محلی وردپرس هنوز همگام نشده است.'; }
-                        await dashboard(`بررسی قیمت ثبت شد و انتشار دوباره در صف قرار گرفت.${warning}`, warning ? 'warning' : 'success');
+                        verify.textContent = 'قیمت تأیید شد';
+                        const message = `بررسی قیمت ثبت شد و انتشار دوباره در صف قرار گرفت.${warning}`;
+                        updateActionStatus(progressStatus, message, warning ? 'warning' : 'success');
+                        await dashboard(message, warning ? 'warning' : 'success');
                     } catch (error) {
                         try { await persistOwnerReviews([reviewRecord(eventId,'supplier_price',offer.product_id,error.remoteRejected?'failed':'pending',context,decision,{error:String(error.message||'request_failed')})]); }
                         catch (_ignored) {}
+                        verify.textContent = originalLabel;
+                        updateActionStatus(progressStatus, errorText(error.message), 'error');
                         errorBox(errorText(error.message), section); verify.disabled = !contextStored.supplier_prices;
                     }
                 });
@@ -579,6 +633,7 @@
                 useSheet.disabled = serverOwned || sheetPreserved || !contextStored.sheet_conflicts;
                 const submitConflictChoice = async choice => {
                     useServer.disabled = true; useSheet.disabled = true;
+                    const progressStatus = actionStatus(section, 'در حال ثبت تصمیم تعارض با درخواست AJAX…');
                     const eventId = reviewEventId('sheet_conflict', conflict.conflict_id);
                     const note = choice === 'server'
                         ? (serverOwned ? 'Synchronize this server-owned field back to the Sheet.' : 'Auto: keep the current server-computed value.')
@@ -593,10 +648,13 @@
                         let warning = '';
                         try { await persistOwnerReviews([reviewRecord(eventId,'sheet_conflict',conflict.conflict_id,'accepted',{},decision,receipt)]); }
                         catch (_error) { warning = ' تصمیم ثبت شد، اما رسید وردپرس هنوز همگام نشده است.'; }
-                        await dashboard(`${serverOwned ? 'مقدار سیستمی با سرور همگام شد.' : sheetPreserved ? 'مقدار اصلی شیت حفظ شد.' : 'اصلاح دستی به فروشگاه فرستاده شد.'}${warning}`,warning?'warning':'success');
+                        const message = `${serverOwned ? 'مقدار سیستمی با سرور همگام شد.' : sheetPreserved ? 'مقدار اصلی شیت حفظ شد.' : 'اصلاح دستی به فروشگاه فرستاده شد.'}${warning}`;
+                        updateActionStatus(progressStatus, message, warning ? 'warning' : 'success');
+                        await dashboard(message, warning ? 'warning' : 'success');
                     } catch (error) {
                         try { await persistOwnerReviews([reviewRecord(reviewEventId('sheet_conflict',conflict.conflict_id),'sheet_conflict',conflict.conflict_id,error.remoteRejected?'failed':'pending',{},decision,{error:String(error.message||'request_failed')})]); }
                         catch (_ignored) {}
+                        updateActionStatus(progressStatus, errorText(error.message), 'error');
                         errorBox(errorText(error.message),section); useServer.disabled = !contextStored.sheet_conflicts;
                         useSheet.disabled = serverOwned || sheetPreserved || !contextStored.sheet_conflicts;
                     }
@@ -631,8 +689,34 @@
         if (!products.length) board.appendChild(notice(unavailable.length
             ? 'وضعیت کالا دریافت نشد. منابع بالا را باز کنید تا اتصال ناموفق مشخص شود.'
             : 'کالایی برای نمایش ثبت نشده است.', unavailable.length ? 'warning' : 'info'));
-        else if (!shownProducts.length) board.appendChild(notice('همه کالاها وضعیت عادی دارند؛ برای دیدن فهرست کامل، «نمایش همه کالاها» را بزنید.', 'success'));
-        shownProducts.forEach(product => board.appendChild(renderProduct(product)));
+        else if (!shownProducts.length) board.appendChild(notice('همه کالاها وضعیت عادی دارند؛ برای مرور وضعیت یک‌به‌یک، «دیدن کالاهای بدون اقدام» را بزنید.', 'success'));
+        else {
+            if (workbenchSelectedKey) {
+                const previousIndex = shownProducts.findIndex(product => product.key === workbenchSelectedKey);
+                if (previousIndex >= 0) workbenchIndex = previousIndex;
+            }
+            workbenchIndex = Math.max(0, Math.min(workbenchIndex, shownProducts.length - 1));
+            const navigation = node('nav', null, 'molavi-product-navigation');
+            navigation.setAttribute('aria-label', 'مرور یک‌به‌یک کالاها');
+            const previous = node('button', 'قبلی', 'button button-secondary');
+            const position = node('span', '', 'molavi-product-position');
+            const next = node('button', 'بعدی', 'button button-primary');
+            previous.type = 'button'; next.type = 'button';
+            const current = node('div', null, 'molavi-current-product');
+            const renderCurrent = () => {
+                const product = shownProducts[workbenchIndex];
+                workbenchSelectedKey = product.key;
+                previous.disabled = workbenchIndex <= 0;
+                next.disabled = workbenchIndex >= shownProducts.length - 1;
+                position.textContent = `کالای ${(workbenchIndex + 1).toLocaleString('fa-IR')} از ${shownProducts.length.toLocaleString('fa-IR')}`;
+                current.replaceChildren(renderProduct(product));
+            };
+            previous.addEventListener('click', () => { if (workbenchIndex > 0) { workbenchIndex -= 1; renderCurrent(); } });
+            next.addEventListener('click', () => { if (workbenchIndex + 1 < shownProducts.length) { workbenchIndex += 1; renderCurrent(); } });
+            navigation.append(previous, position, next);
+            board.append(navigation, current);
+            renderCurrent();
+        }
 
         if (batchCards.length) {
             const batchGroup = document.createElement('details');
@@ -671,6 +755,9 @@
                 if (!messages.length) card.appendChild(notice('تا نمایش پیام‌های مبدأ، اقدام روی این دسته غیرفعال می‌ماند.', 'warning'));
                 action.addEventListener('click', async () => {
                     action.disabled = true;
+                    const actionLabel = action.textContent;
+                    action.textContent = 'در حال ثبت…';
+                    const progressStatus = actionStatus(card, 'در حال ثبت اقدام دسته با درخواست AJAX…');
                     const eventId = reviewEventId('publication_hold', hold.hold_id);
                     const note = 'Owner reviewed the linked source messages and authorized one batch retry.';
                     const decision = reconcileWithoutRetry
@@ -695,11 +782,16 @@
                         try { await persistOwnerReviews([reviewRecord(reviewEventId('publication_hold',hold.hold_id),
                             'publication_hold',hold.hold_id,'accepted',{},decision,receipt)]); }
                         catch (_error) { warning = ' اقدام ثبت شد، اما رسید وردپرس هنوز همگام نشده است.'; }
-                        await dashboard(`${reconcileWithoutRetry?'توقف تکراری بسته شد و دسته دوباره اجرا نشد.':'دسته برای یک بار پردازش دوباره در صف قرار گرفت.'}${warning}`,warning?'warning':'success');
+                        action.textContent = reconcileWithoutRetry ? 'توقف بسته شد' : 'دسته در صف قرار گرفت';
+                        const message = `${reconcileWithoutRetry?'توقف تکراری بسته شد و دسته دوباره اجرا نشد.':'دسته برای یک بار پردازش دوباره در صف قرار گرفت.'}${warning}`;
+                        updateActionStatus(progressStatus, message, warning ? 'warning' : 'success');
+                        await dashboard(message, warning ? 'warning' : 'success');
                     } catch (error) {
                         try { await persistOwnerReviews([reviewRecord(reviewEventId('publication_hold',hold.hold_id),
                             'publication_hold',hold.hold_id,error.remoteRejected?'failed':'pending',{},decision,{error:String(error.message||'request_failed')})]); }
                         catch (_ignored) {}
+                        action.textContent = actionLabel;
+                        updateActionStatus(progressStatus, errorText(error.message), 'error');
                         errorBox(errorText(error.message),card); action.disabled = !holdsContextStored || !messages.length;
                     }
                 });
@@ -931,6 +1023,7 @@
         });
         const priorDisabled = controls.map(button => button.disabled);
         controls.forEach(button => { button.disabled = true; });
+        const progressStatus = actionStatus(card, 'در حال ثبت تصمیم با درخواست AJAX…');
         try {
             await persistOwnerReviews(requests.map(({item, payload, eventId, context}) => reviewRecord(
                 eventId, 'ai_confirmation', item.case_id, 'pending', context,
@@ -939,6 +1032,7 @@
                     source_current_verified:payload.source_current_verified, fields:payload.fields}
             )));
         } catch (_error) {
+            updateActionStatus(progressStatus, 'ذخیره زمینه در وردپرس ناموفق بود؛ هیچ تغییری ارسال نشد.', 'error');
             errorBox('تصمیم در پایگاه داده وردپرس ذخیره نشد؛ هیچ تغییری برای این موارد ارسال نشد.', card);
             controls.forEach((button, index) => { button.disabled = priorDisabled[index]; });
             return;
@@ -981,8 +1075,9 @@
         }
         const label = choice === 'confirm' ? 'تأیید شد' : 'به‌عنوان «کالا نیست» ثبت شد';
         const summary = `${accepted} از ${items.length} مورد ${label}${failed ? `؛ ${failed} مورد ناموفق ماند${firstError ? ` (${firstError})` : ''}` : ''}${localWarning ? ' رسید محلی وردپرس به همگام‌سازی نیاز دارد.' : ''}`;
+        updateActionStatus(progressStatus, summary, failed || localWarning ? 'warning' : 'success');
         if (typeof options.refresh === 'function') {
-            await options.refresh(summary, failed || localWarning ? 'warning' : 'success');
+            await options.refresh(summary, failed || localWarning ? 'warning' : 'success', progressStatus);
         } else {
             await aiConfirmations(summary, failed || localWarning ? 'warning' : 'success');
         }
@@ -1648,6 +1743,7 @@
             const decision = {...payload};
             const controls = Array.from(form.querySelectorAll('button'));
             controls.forEach(button => { button.disabled = true; });
+            const progressStatus = actionStatus(card, 'در حال ثبت تصمیم تطبیق با درخواست AJAX…');
             try {
                 await persistOwnerReviews([reviewRecord(eventId, 'reference_item', item.case_id,
                     'pending', item, decision)]);
@@ -1664,21 +1760,24 @@
                     await persistOwnerReviews([reviewRecord(eventId, 'reference_item', item.case_id,
                         'accepted', item, decision, receipt)]);
                 } catch (_error) {
+                    updateActionStatus(progressStatus, 'تصمیم در سرویس ثبت شد، اما رسید وردپرس هنوز همگام نشده است.', 'warning');
                     if (typeof options.refresh === 'function') {
-                        await options.refresh('تصمیم در سرویس ثبت شد، اما رسید وردپرس هنوز همگام نشده است.', 'warning');
+                        await options.refresh('تصمیم در سرویس ثبت شد، اما رسید وردپرس هنوز همگام نشده است.', 'warning', progressStatus);
                     } else {
                         await referenceItems('تصمیم در سرویس ثبت شد، اما رسید وردپرس هنوز همگام نشده است.', 'warning');
                     }
                     return;
                 }
                 if (receipt.projection_state === 'pending_verification') {
+                    updateActionStatus(progressStatus, 'تصمیم ذخیره شد؛ ثبت آن در فهرست کالاها هنوز تأیید نشده و مورد باز می‌ماند.', 'warning');
                     if (typeof options.refresh === 'function') {
-                        await options.refresh('تصمیم ذخیره شد؛ ثبت آن در فهرست کالاها هنوز تأیید نشده و مورد برای تکمیل باز می‌ماند.', 'warning');
+                        await options.refresh('تصمیم ذخیره شد؛ ثبت آن در فهرست کالاها هنوز تأیید نشده و مورد برای تکمیل باز می‌ماند.', 'warning', progressStatus);
                     } else {
                         await referenceItems('تصمیم ذخیره شد؛ ثبت آن در فهرست کالاها هنوز تأیید نشده و مورد برای تکمیل باز می‌ماند.', 'warning');
                     }
                 } else {
-                    if (typeof options.refresh === 'function') await options.refresh('تصمیم تطبیق ثبت شد.', 'success');
+                    updateActionStatus(progressStatus, 'تصمیم تطبیق ثبت شد.', 'success');
+                    if (typeof options.refresh === 'function') await options.refresh('تصمیم تطبیق ثبت شد.', 'success', progressStatus);
                     else await referenceItems('تصمیم تطبیق ثبت شد.', 'success');
                 }
             } catch (error) {
@@ -1687,6 +1786,7 @@
                         error.remoteRejected ? 'failed' : 'pending', item, decision,
                         {error:String(error.message || 'request_failed'), request_status:error.requestStatus || null})]);
                 } catch (_ignored) {}
+                updateActionStatus(progressStatus, errorText(error.message), 'error');
                 errorBox(errorText(error.message), card);
                 controls.forEach(button => { button.disabled = false; });
                 if (submitter) submitter.disabled = false;

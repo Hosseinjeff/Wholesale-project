@@ -48,7 +48,8 @@ async function main() {
   const data = {
     'product-status-snapshots': {products:[{product_id:'product-1',product_name:'Noodle 12 pack',
       channel:'@supplier',latest_offer_id:'offer-1',status:'sell',update_needed:false,
-      supplier_price_state:'blocked',reference_match_id:'REF-12',reference_approval_state:'approved'}],
+      supplier_price_state:'blocked',reference_match_id:'REF-12',reference_approval_state:'approved'},
+      {product_id:'product-2',product_name:'Ketchup',channel:'@supplier',status:'sell',update_needed:true}],
       snapshots:[{captured_at:'2026-11-03T08:00:00Z'}],latest_snapshot_id:'snapshot-1'},
     'ai-confirmations': {cases:[]},
     'item-reviews': {cases:[]},
@@ -101,12 +102,22 @@ async function main() {
 
   const walk = element => [element,...element.childNodes.filter(child=>child instanceof Element).flatMap(walk)];
   const cards = walk(root).filter(element => element.className.split(/\s+/).includes('molavi-product-card'));
-  assert.equal(cards.length,1,'same product ID must produce one centralized product card');
+  assert.equal(cards.length,1,'the review queue renders one product card at a time');
+  assert.match(root.text,/کالای ۱ از ۲/,'only the current product is rendered in the review queue');
   assert.match(cards[0].text,/تازگی قیمت تأمین‌کننده/);
   assert.match(cards[0].text,/تعارض داده/);
   assert.match(cards[0].text,/REF-12/);
   assert(!walk(root).some(element => element.tagName === 'IFRAME'));
   assert(!walk(root).some(element => element.className.split(/\s+/).includes('molavi-admin-tabs')));
+  const nextButton = walk(root).find(element => element.tagName === 'BUTTON' && element.textContent === 'بعدی');
+  await nextButton.listeners.click();
+  let visibleCards = walk(root).filter(element => element.className.split(/\s+/).includes('molavi-product-card'));
+  assert.equal(visibleCards.length,1,'next navigation swaps the active card instead of loading a product list');
+  assert.match(visibleCards[0].text,/Ketchup/,'next moves to the next product without fetching the page again');
+  const previousButton = walk(root).find(element => element.tagName === 'BUTTON' && element.textContent === 'قبلی');
+  await previousButton.listeners.click();
+  visibleCards = walk(root).filter(element => element.className.split(/\s+/).includes('molavi-product-card'));
+  assert.match(visibleCards[0].text,/Noodle 12 pack/);
   for (const key of Object.keys(workflowApis)) {
     const call = calls.find(item => item.url === workflowApis[key].url);
     assert(call, `${key} API must load independently`);
@@ -121,6 +132,11 @@ async function main() {
     && item.url === workflowApis.supplier_prices.url);
   assert(verification, 'supplier verification submits asynchronously without a page form post');
   assert.equal(verification.options.headers.Authorization,'Bearer scoped-supplier_prices');
+  assert(calls.filter(item => item.url === workflowApis.product_status.url).length >= 2,
+    'successful action refreshes the dashboard data asynchronously');
+  assert.match(root.text,/بررسی قیمت ثبت شد/,'success feedback remains visible after the in-place refresh');
+  assert.equal(window.location.href,'https://site.test/wp-admin/admin.php?page=molavi-operations',
+    'review actions do not navigate or reload the browser page');
 }
 
 main().catch(error => { console.error(error); process.exitCode = 1; });
