@@ -100,26 +100,23 @@ function molavi_storefront_card_product_name(\WC_Product $product, string $suppl
         $updated = preg_replace($pattern, $replacement, $subject);
         return is_string($updated) ? $updated : $subject;
     };
-    $originalName = wp_check_invalid_utf8(trim(wp_strip_all_tags($product->get_name())), true);
-    $originalName = trim($replace('/[\p{Z}\s\p{Cf}]+/u', ' ', $originalName));
-    if (preg_match('/[\p{L}\p{N}]/u', $originalName) !== 1) {
-        $originalName = '';
-    }
-    if ($originalName === '' && function_exists('get_post_field')) {
+    $originalName = '';
+    if (function_exists('get_post_field')) {
         $storedTitle = wp_check_invalid_utf8(trim(wp_strip_all_tags((string) get_post_field('post_title', $product->get_id()))), true);
-        $storedTitle = trim($replace('/[\p{Z}\s\p{Cf}]+/u', ' ', $storedTitle));
-        if (preg_match('/[\p{L}\p{N}]/u', $storedTitle) === 1) {
-            $originalName = $storedTitle;
-        }
+        $originalName = trim($replace('/[\p{Z}\s\p{Cf}]+/u', ' ', $storedTitle));
     }
     if ($originalName === '') {
-        $slug = method_exists($product, 'get_slug') ? (string) $product->get_slug() : '';
+        $originalName = wp_check_invalid_utf8(trim(wp_strip_all_tags($product->get_name())), true);
+        $originalName = trim($replace('/[\p{Z}\s\p{Cf}]+/u', ' ', $originalName));
+    }
+    if ($originalName === '') {
+        $path = parse_url($product->get_permalink(), PHP_URL_PATH);
+        $slug = is_string($path) ? basename(rtrim($path, '/')) : '';
+        if ($slug === '' && method_exists($product, 'get_slug')) {
+            $slug = (string) $product->get_slug();
+        }
         if ($slug === '' && function_exists('get_post_field')) {
             $slug = (string) get_post_field('post_name', $product->get_id());
-        }
-        if ($slug === '') {
-            $path = parse_url($product->get_permalink(), PHP_URL_PATH);
-            $slug = is_string($path) ? basename(rtrim($path, '/')) : '';
         }
         $slug = wp_check_invalid_utf8(rawurldecode($slug), true);
         $slug = $replace('/-[0-9]+$/', '', $slug);
