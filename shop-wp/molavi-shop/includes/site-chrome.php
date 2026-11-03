@@ -103,7 +103,8 @@ function molavi_render_site_header(): void
 
 function molavi_render_site_footer(): void
 {
-    if (is_admin() || wp_doing_ajax()) {
+    if (is_admin() || wp_doing_ajax()
+        || (function_exists('molavi_is_storefront_request') && molavi_is_storefront_request())) {
         return;
     }
     $shopUrl = function_exists('wc_get_page_permalink') ? wc_get_page_permalink('shop') : home_url('/');

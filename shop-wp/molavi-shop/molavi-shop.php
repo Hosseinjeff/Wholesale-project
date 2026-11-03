@@ -235,15 +235,16 @@ add_filter('woocommerce_get_price_html', static function (string $html, $product
 }, 20, 2);
 
 add_filter('woocommerce_product_get_short_description', static function (string $description, $product): string {
+    if (!is_admin() && $product instanceof WC_Product
+        && ((string) $product->get_meta('_molavi_supplier_offer_id', true) !== ''
+            || (string) $product->get_meta('_molavi_supplier', true) !== '')) {
+        return '';
+    }
     if ($description !== '') {
         return $description;
     }
     $min = molavi_product_min($product);
-    $supplier = (string) $product->get_attribute('supplier');
     $parts = [];
-    if ($supplier !== '') {
-        $parts[] = $supplier;
-    }
     if ($min > 1) {
         $parts[] = 'حداقل خرید ' . molavi_digits((string) $min) . ' عدد';
     }

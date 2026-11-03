@@ -599,24 +599,28 @@ function molavi_quote(): array
 function molavi_render_buyer_profile_selector(string $context = 'shop'): void
 {
     $selected = molavi_buyer_type();
-    $label = 'قیمت برای';
+    $compact = $context !== 'shop';
+    $label = $compact ? 'نوع خرید' : 'قیمت برای';
     $targets = molavi_unlock_targets(molavi_catalog_map());
     $benchmarkText = $targets['dynamic']
         ? 'مبنای روز: ' . (string) $targets['anchor_name'] . ' با قیمت مرجع ' . molavi_toman((int) $targets['anchor_unit_price']) . ' برای هر قوطی.'
         : 'قیمت مرجع تن‌ماهی هنوز در کاتالوگ فروشگاه نیست؛ تا ثبت آن، آستانه خانوار روی مقدار فعلی ' . molavi_toman((int) $targets['household']) . ' می‌ماند.';
     ?>
-    <section class="molavi-buyer-choice" data-molavi-buyer-choice aria-label="انتخاب نوع خریدار">
+    <section class="molavi-buyer-choice<?php echo $compact ? ' molavi-buyer-choice-compact' : ''; ?>" data-molavi-buyer-choice aria-label="انتخاب نوع خریدار">
         <strong class="molavi-buyer-choice-title"><?php echo esc_html($label); ?></strong>
         <div class="molavi-buyer-choice-buttons" role="group" aria-label="نوع خریدار">
-            <button type="button" data-molavi-buyer="household" aria-pressed="<?php echo $selected === 'household' ? 'true' : 'false'; ?>">خریدار خانوار</button>
-            <button type="button" data-molavi-buyer="shop" aria-pressed="<?php echo $selected === 'shop' ? 'true' : 'false'; ?>">صاحب فروشگاه</button>
+            <button type="button" data-molavi-buyer="household" aria-pressed="<?php echo $selected === 'household' ? 'true' : 'false'; ?>"><?php echo $compact ? 'خانوار' : 'خریدار خانوار'; ?></button>
+            <button type="button" data-molavi-buyer="shop" aria-pressed="<?php echo $selected === 'shop' ? 'true' : 'false'; ?>"><?php echo $compact ? 'فروشگاه' : 'صاحب فروشگاه'; ?></button>
         </div>
-        <details class="molavi-buyer-choice-details">
-            <summary aria-label="توضیح نوع خرید">راهنما</summary>
-            <p class="molavi-buyer-choice-help" data-molavi-buyer-help><?php echo esc_html(
-                $benchmarkText . ' آستانه خانوار ارزش ' . molavi_digits((string) $targets['shell_units']) . ' قوطی تن‌ماهی (' . molavi_toman((int) $targets['household']) . ') است؛ آستانه فروشگاه ' . molavi_digits((string) $targets['shop_multiplier']) . ' برابر آن (' . molavi_toman((int) $targets['shop']) . '). تخفیف فروشگاه می‌تواند تا کف مجاز قیمت و نزدیک‌تر به بهای تأمین‌کننده برسد.'
-            ); ?></p>
-        </details>
+        <?php if (!$compact): ?>
+            <details class="molavi-buyer-choice-details">
+                <summary aria-label="توضیح نوع خرید">راهنما</summary>
+                <p class="molavi-buyer-choice-help" data-molavi-buyer-help><?php echo esc_html(
+                    $benchmarkText . ' آستانه خانوار ارزش ' . molavi_digits((string) $targets['shell_units']) . ' قوطی تن‌ماهی (' . molavi_toman((int) $targets['household']) . ') است؛ آستانه فروشگاه ' . molavi_digits((string) $targets['shop_multiplier']) . ' برابر آن (' . molavi_toman((int) $targets['shop']) . '). تخفیف فروشگاه می‌تواند تا کف مجاز قیمت و نزدیک‌تر به بهای تأمین‌کننده برسد.'
+                ); ?></p>
+            </details>
+        <?php endif; ?>
+        <div class="molavi-buyer-feedback" data-molavi-buyer-feedback role="status" aria-live="polite" hidden></div>
     </section>
     <?php
 }

@@ -49,7 +49,6 @@
         else delete qtys[id];
         paint(localQuote());
         if (removedForMinimum) showStatus("با کاهش از حداقل خرید " + digits(min) + " عدد، محصول از سبد حذف شد و قیمت‌ها دوباره محاسبه می‌شوند.", id);
-        else showStatus("در حال به‌روزرسانی قیمت سبد…", id);
         sync();
     });
 
@@ -154,30 +153,49 @@
     function showBuyerFeedback(quote) {
         var invalid = Array.isArray(quote && quote.invalid_lines) ? quote.invalid_lines : [];
         var switchSuggestion = quote && quote.switch_suggestion;
+        var storeRoot = document.querySelector("[data-molavi-storefront]");
+        var basket = document.querySelector("#molavi-basket-dialog");
+        var cartVisible = basket && (!storeRoot || window.matchMedia("(min-width: 761px)").matches
+            || basket.classList.contains("is-open"));
+        var feedbackNodes = document.querySelectorAll("[data-molavi-buyer-feedback]");
+        feedbackNodes.forEach(function (node) {
+            node.replaceChildren();
+            node.hidden = true;
+        });
+        var globalFeedback = cartVisible && basket
+            ? basket.querySelector("[data-molavi-buyer-feedback]")
+            : storeRoot && storeRoot.querySelector(".molavi-product-area [data-molavi-buyer-feedback]");
+        if (!globalFeedback) globalFeedback = feedbackNodes[0];
+        if (globalFeedback) {
+            if (switchSuggestion && switchSuggestion.buyer_type) {
+                globalFeedback.appendChild(document.createTextNode(
+                    switchSuggestion.buyer_type === "shop"
+                        ? "برای این سبد، خرید فروشگاهی پیشنهاد می‌شود. "
+                        : "برای این سبد، خرید خانوار پیشنهاد می‌شود. "
+                ));
+                var switchButton = document.createElement("button");
+                switchButton.type = "button";
+                switchButton.className = "molavi-buyer-suggestion";
+                switchButton.setAttribute("data-molavi-buyer", switchSuggestion.buyer_type);
+                switchButton.textContent = switchSuggestion.buyer_type === "shop"
+                    ? "انتخاب فروشگاه" : "انتخاب خانوار";
+                globalFeedback.appendChild(switchButton);
+            }
+            globalFeedback.hidden = !globalFeedback.childNodes.length;
+        }
         document.querySelectorAll("[data-molavi-card-feedback]").forEach(function (box) {
             box.replaceChildren();
             var id = String(box.getAttribute("data-product") || "");
             var invalidLine = invalid.find(function (item) { return String(item.product_id) === id; });
             if (invalidLine) {
-                box.appendChild(document.createTextNode("تعداد این کالا با واحد سفارش " + digits(invalidLine.order_unit)
-                    + " هماهنگ نیست؛ در سبد " + digits(invalidLine.quantity) + " عدد است."));
+                box.appendChild(document.createTextNode("تعداد سبد با گام سفارش " + digits(invalidLine.order_unit)
+                    + " هماهنگ نیست."));
                 var fix = document.createElement("button");
                 fix.type = "button";
                 fix.className = "molavi-buyer-fix";
                 fix.setAttribute("data-molavi-fix", id);
-                fix.textContent = "تنظیم روی " + digits(invalidLine.needed_quantity);
+                fix.textContent = "تنظیم تعداد روی " + digits(invalidLine.needed_quantity);
                 box.appendChild(fix);
-            }
-            if (switchSuggestion && switchSuggestion.buyer_type && Number(qtys[id]) > 0) {
-                if (invalidLine) box.appendChild(document.createTextNode(" "));
-                else box.appendChild(document.createTextNode("برای این سبد، نوع خرید پیشنهادی تغییر کرده است: "));
-                var suggestionButton = document.createElement("button");
-                suggestionButton.type = "button";
-                suggestionButton.className = "molavi-buyer-suggestion";
-                suggestionButton.setAttribute("data-molavi-buyer", switchSuggestion.buyer_type);
-                suggestionButton.textContent = switchSuggestion.buyer_type === "shop"
-                    ? "تغییر این سبد به خرید فروشگاهی" : "تغییر این سبد به خرید خانوار";
-                box.appendChild(suggestionButton);
             }
             box.hidden = !box.childNodes.length;
         });
@@ -208,7 +226,6 @@
                     return;
                 }
                 paint(payload.data.quote);
-                showBuyerFeedback(payload.data.quote);
                 showStatus("");
             })
             .catch(function () {
@@ -229,7 +246,6 @@
         var item = (lastQuote.invalid_lines || []).find(function (line) { return String(line.product_id) === String(id); });
         if (item) qtys[id] = Number(item.needed_quantity) || Number(row.min) || 1;
         paint(localQuote());
-        showStatus("در حال به‌روزرسانی قیمت سبد…", id);
         sync();
     });
 
@@ -260,7 +276,6 @@
                 if (!dirty) {
                     qtys = Object.assign({}, serverQtys);
                     paint(payload.data.quote || {});
-                    showBuyerFeedback(payload.data.quote || {});
                     applyFragments(payload.data.fragments || {});
                     ids.forEach(function (id) { showStatus("", id); });
                 }
@@ -312,9 +327,10 @@
                 node.setAttribute("data-household-min", String(row.householdUnit));
                 node.setAttribute("data-shop-min", String(row.shopUnit));
                 var orderUnits = node.closest("[data-molavi-card]")?.querySelector("[data-molavi-order-units]");
-                if (orderUnits) orderUnits.textContent = "خانوار " + digits(row.householdUnit) + " · فروشگاه " + digits(row.shopUnit);
+                var unitText = "خانوار " + digits(row.householdUnit) + " · فروشگاه " + digits(row.shopUnit);
+                if (orderUnits && orderUnits.textContent !== unitText) orderUnits.textContent = unitText;
             }
-            if (amount) amount.textContent = toman(unit);
+            if (amount && amount.textContent !== toman(unit)) amount.textContent = toman(unit);
             node.setAttribute("data-unit", String(unit));
             var card = node.closest("[data-molavi-card]");
             if (card) card.setAttribute("data-price", String(unit));
@@ -345,12 +361,7 @@
         });
         document.querySelectorAll(".e-loop-item [data-molavi-cart]").forEach(function (node) {
             var id = node.getAttribute("data-product");
-            var qty = Number(counts[id] || 0);
-            node.setAttribute("data-qty", String(qty));
-            var row = rowOf(id);
-            if (row) node.setAttribute("data-min", String(row.min));
-            node.classList.toggle("is-in", qty > 0);
-            node.innerHTML = qty > 0 ? stepper(qty, row) : addButton(row);
+            updateCardControl(node, Number(counts[id] || 0), rowOf(id));
         });
         paintBasket(units, counts, quote);
         showBuyerFeedback(quote);
@@ -365,9 +376,49 @@
         });
     }
 
+    function updateCardControl(node, qty, row) {
+        var min = Math.max(1, Number(row && row.min) || Number(node.getAttribute("data-min")) || 1);
+        var inCart = node.classList.contains("is-in");
+        node.setAttribute("data-min", String(min));
+        node.setAttribute("data-qty", String(qty));
+
+        if (qty > 0 && inCart) {
+            var count = node.querySelector(".molavi-step b");
+            var buttons = node.querySelectorAll(".molavi-step button[data-molavi-step]");
+            if (count && count.textContent !== digits(qty)) count.textContent = digits(qty);
+            if (buttons.length >= 2) {
+                buttons[0].setAttribute("data-molavi-step", String(-min));
+                buttons[1].setAttribute("data-molavi-step", String(min));
+            }
+            return;
+        }
+        if (qty < 1 && !inCart) return;
+
+        var active = node.contains(document.activeElement) ? document.activeElement : null;
+        var activeAction = active && active.hasAttribute("data-molavi-clear") ? "clear"
+            : active && Number(active.getAttribute("data-molavi-step")) < 0 ? "minus" : "plus";
+        node.classList.toggle("is-in", qty > 0);
+        node.innerHTML = qty > 0 ? stepper(qty, row) : addButton(row);
+
+        if (active) {
+            var replacement = qty < 1 ? node.querySelector(".molavi-add")
+                : activeAction === "clear" ? node.querySelector("[data-molavi-clear]")
+                : activeAction === "minus" ? node.querySelector('.molavi-step button[data-molavi-step^="-"]')
+                : Array.prototype.slice.call(node.querySelectorAll(".molavi-step button[data-molavi-step]"))
+                    .find(function (button) { return Number(button.getAttribute("data-molavi-step")) > 0; });
+            if (replacement) replacement.focus({ preventScroll: true });
+        }
+    }
+
     function paintBasket(units, counts, quote) {
         var lines = document.querySelector("[data-molavi-basket-lines]");
         if (!lines) return;
+        var oldScrollTop = lines.scrollTop;
+        var active = lines.contains(document.activeElement) ? document.activeElement : null;
+        var activeLine = active && active.closest(".molavi-bline");
+        var focusProduct = activeLine ? activeLine.getAttribute("data-product") : "";
+        var focusAction = active && active.hasAttribute("data-molavi-clear") ? "clear"
+            : active ? active.getAttribute("data-molavi-step") : null;
         var saved = 0;
         var total = 0;
         var referenceTotal = 0;
@@ -392,12 +443,20 @@
             html += '<article class="molavi-bline" data-product="' + escapeHtml(id) + '" data-min="' + min + '" data-qty="' + qty + '">'
                 + '<div class="molavi-bline-image"><img src="' + escapeHtml(row.image || "") + '" alt="' + escapeHtml(row.name || "") + '" loading="lazy"></div>'
                 + '<div class="molavi-bline-copy"><h3>' + escapeHtml(row.name || "") + "</h3><p><strong>"
-                + toman(unit) + "</strong> × " + digits(qty) + "</p><small>واحد افزایش " + digits(min)
-                + " · نوع خرید: " + (buyerType === "shop" ? "فروشگاهی" : "خانوار") + "</small>"
+                + toman(unit) + "</strong> × " + digits(qty) + "</p><small>گام سفارش: " + digits(min)
+                + " عدد</small>"
                 + (invalidLine ? '<strong class="molavi-buyer-line-warning">نیازمند اصلاح تعداد</strong>' : "") + "</div>"
                 + stepper(qty, row) + "</article>";
         });
-        lines.innerHTML = html || '<p class="molavi-basket-empty">سبد خالی است.</p>';
+        lines.innerHTML = html || '<p class="molavi-basket-empty" data-molavi-empty-basket>سبد خالی است.</p>';
+        lines.scrollTop = oldScrollTop;
+        if (focusProduct && focusAction !== null) {
+            var newLine = Array.prototype.slice.call(lines.querySelectorAll(".molavi-bline"))
+                .find(function (line) { return line.getAttribute("data-product") === focusProduct; });
+            var focusTarget = newLine && (focusAction === "clear" ? newLine.querySelector("[data-molavi-clear]")
+                : newLine.querySelector('button[data-molavi-step="' + cssEscape(focusAction) + '"]'));
+            if (focusTarget) focusTarget.focus({ preventScroll: true });
+        }
         var emptyLine = document.querySelector("[data-molavi-empty-basket]");
         if (emptyLine) emptyLine.hidden = kinds > 0;
         var save = document.querySelector("[data-molavi-basket-save]");
@@ -608,6 +667,7 @@
                 dialog.removeAttribute("inert");
                 dialog.removeAttribute("aria-hidden");
             }
+            showBuyerFeedback(localQuote());
         }
 
         function open() {
@@ -621,6 +681,7 @@
             var closeButton = dialog.querySelector("[data-molavi-close-basket]");
             if (closeButton) closeButton.focus();
             else dialog.focus();
+            showBuyerFeedback(localQuote());
         }
 
         triggers.forEach(function (trigger) {
@@ -669,14 +730,15 @@
                 dialog.setAttribute("inert", "");
                 dialog.setAttribute("aria-hidden", "true");
             }
+            showBuyerFeedback(localQuote());
         });
     }
 
     setupCatalog();
     setupMobileBasket();
+    setupNativeCartAutoUpdate();
     updateBuyerControls();
     paint(lastQuote);
-    showBuyerFeedback(lastQuote);
 
     function applyFragments(fragments) {
         if (!window.jQuery) return;
@@ -684,6 +746,27 @@
             var target = jQuery(selector);
             if (target.length) target.replaceWith(html);
         });
+    }
+
+    function setupNativeCartAutoUpdate() {
+        if (!document.body.classList.contains("woocommerce-cart")) return;
+        var forms = Array.prototype.slice.call(document.querySelectorAll("form.woocommerce-cart-form"));
+        if (!forms.length) return;
+        forms.forEach(function (form) {
+            form.addEventListener("change", function (event) {
+                var input = event.target.closest("input.qty");
+                if (!input || !form.contains(input)) return;
+                var updateButton = form.querySelector('[name="update_cart"]');
+                if (!updateButton) return;
+                window.clearTimeout(form._molaviUpdateTimer);
+                form._molaviUpdateTimer = window.setTimeout(function () {
+                    updateButton.disabled = false;
+                    if (typeof form.requestSubmit === "function") form.requestSubmit(updateButton);
+                    else updateButton.click();
+                }, 300);
+            });
+        });
+        document.body.classList.add("molavi-auto-cart-update-ready");
     }
 
     function stepper(qty, row) {

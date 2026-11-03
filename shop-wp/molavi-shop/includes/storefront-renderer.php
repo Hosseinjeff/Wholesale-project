@@ -43,17 +43,7 @@ function molavi_render_storefront(): void
     sort($categories, SORT_NATURAL | SORT_FLAG_CASE);
     ?>
     <section class="molavi-storefront" data-molavi-storefront aria-label="فروشگاه مولوی‌سل">
-        <header class="molavi-store-intro">
-            <div>
-                <p class="molavi-eyebrow">خرید از مولوی‌سل</p>
-                <h1>فروشگاه مولوی‌سل</h1>
-                <p>نوع خرید و قیمت را انتخاب کنید؛ راهنمای تعداد هر کالا کنار همان محصول نمایش داده می‌شود.</p>
-            </div>
-            <div class="molavi-intro-note">
-                <span class="molavi-intro-mark" aria-hidden="true">✓</span>
-                <span>برای هر کالا، حداقل و گام سفارش روی کارت آن دیده می‌شود. جمع سبد و تخفیف در پنل سبد محاسبه می‌شود.</span>
-            </div>
-        </header>
+        <h1 class="screen-reader-text">فروشگاه مولوی‌سل</h1>
         <div class="molavi-store-layout">
             <div class="molavi-product-area">
                 <?php molavi_render_buyer_profile_selector('shop'); ?>
@@ -119,10 +109,6 @@ function molavi_render_storefront_card(\WC_Product $product, array $quote): void
     $rate = $shelf > $unit ? ($shelf - $unit) / $shelf : 0.0;
     $qty = molavi_cart_qty($id);
     $min = molavi_product_min($product);
-    $supplier = trim((string) $product->get_meta('_molavi_supplier'));
-    if ($supplier === '') {
-        $supplier = trim(wp_strip_all_tags($product->get_short_description()));
-    }
     $packaging = trim((string) $product->get_meta('_molavi_packaging'));
     $category = trim((string) $product->get_meta('_molavi_category'));
     if ($category === '') {
@@ -131,7 +117,7 @@ function molavi_render_storefront_card(\WC_Product $product, array $quote): void
             $category = (string) $terms[0]->name;
         }
     }
-    $search = trim(implode(' ', array_filter([$product->get_name(), $supplier, $packaging, $category])));
+    $search = trim(implode(' ', array_filter([$product->get_name(), $packaging, $category])));
     $image = $product->get_image('woocommerce_thumbnail', [
         'alt' => $product->get_name(),
         'loading' => 'lazy',
@@ -159,7 +145,6 @@ function molavi_render_storefront_card(\WC_Product $product, array $quote): void
                 <?php if ($packaging !== ''): ?><span><?php echo esc_html($packaging); ?></span><?php endif; ?>
                 <span class="molavi-order-units" data-molavi-order-units>خانوار <?php echo esc_html(molavi_digits((string) $profile['household_unit'])); ?> · فروشگاه <?php echo esc_html(molavi_digits((string) $profile['shop_unit'])); ?></span>
                 <?php if ($category !== ''): ?><span><?php echo esc_html($category); ?></span><?php endif; ?>
-                <?php if ($supplier !== ''): ?><span><?php echo esc_html($supplier); ?></span><?php endif; ?>
                 <span class="molavi-stock"><i aria-hidden="true"></i><?php echo esc_html($stockLabel); ?></span>
                 <span class="screen-reader-text">حداقل خرید <?php echo esc_html(molavi_digits((string) $min)); ?> عدد</span>
             </div>
@@ -193,7 +178,6 @@ function molavi_render_storefront_control(\WC_Product $product, int $qty, int $m
 function molavi_render_storefront_basket(array $quote): void
 {
     $map = molavi_catalog_map();
-    $buyerType = molavi_buyer_type();
     $qtys = is_array($quote['qtys'] ?? null) ? $quote['qtys'] : [];
     $units = is_array($quote['units'] ?? null) ? $quote['units'] : [];
     ?>
@@ -202,12 +186,13 @@ function molavi_render_storefront_basket(array $quote): void
             <div><p class="molavi-eyebrow">جمع‌بندی</p><h2 id="molavi-basket-title">سبد خرید <span data-molavi-basket-count><?php echo esc_html(molavi_digits((string) ($quote['kinds'] ?? 0))); ?></span></h2></div>
             <button type="button" class="molavi-close-basket" data-molavi-close-basket aria-label="بستن سبد">×</button>
         </header>
+        <?php molavi_render_buyer_profile_selector('basket'); ?>
         <div class="molavi-basket-lines" data-molavi-basket-lines>
             <?php foreach ($qtys as $id => $qty): ?>
                 <?php $row = $map[(string) $id] ?? null; if (!$row || (int) $qty < 1) { continue; } $unit = (int) ($units[(string) $id] ?? molavi_catalog_product_price($row, (int) $qty, molavi_buyer_type(), (float) ($quote['progress'] ?? 0))['price']); $product = wc_get_product((int) $id); $step = max(1, (int) ($row[molavi_buyer_type() . '_unit'] ?? $row['min'])); ?>
                 <article class="molavi-bline" data-product="<?php echo esc_attr((string) $id); ?>" data-min="<?php echo esc_attr((string) $row['min']); ?>" data-qty="<?php echo esc_attr((string) $qty); ?>">
                     <div class="molavi-bline-image"><?php if ($product): ?><?php echo wp_kses_post($product->get_image('woocommerce_thumbnail', ['alt' => (string) $row['name'], 'loading' => 'lazy'])); ?><?php endif; ?></div>
-                    <div class="molavi-bline-copy"><h3><?php echo esc_html((string) $row['name']); ?></h3><p><strong><?php echo esc_html(molavi_toman($unit)); ?></strong> × <?php echo esc_html(molavi_digits((string) $qty)); ?></p><small>واحد افزایش برای <?php echo $buyerType === 'shop' ? 'فروشگاه' : 'خانوار'; ?>: <?php echo esc_html(molavi_digits((string) $step)); ?></small></div>
+                    <div class="molavi-bline-copy"><h3><?php echo esc_html((string) $row['name']); ?></h3><p><strong><?php echo esc_html(molavi_toman($unit)); ?></strong> × <?php echo esc_html(molavi_digits((string) $qty)); ?></p><small>گام سفارش: <?php echo esc_html(molavi_digits((string) $step)); ?> عدد</small></div>
                     <div class="molavi-actions"><div class="molavi-step"><button type="button" data-molavi-step="-<?php echo esc_attr((string) $step); ?>" aria-label="کم کردن به اندازه واحد سفارش">−</button><b><?php echo esc_html(molavi_digits((string) $qty)); ?></b><button type="button" data-molavi-step="<?php echo esc_attr((string) $step); ?>" aria-label="افزودن به اندازه واحد سفارش">+</button></div><button type="button" class="molavi-trash" data-molavi-clear aria-label="حذف از سبد"><?php echo molavi_basket_trash_svg(); ?></button></div>
                 </article>
             <?php endforeach; ?>
