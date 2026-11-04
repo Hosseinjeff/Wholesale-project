@@ -1,5 +1,23 @@
 # Whole-pipeline readiness — checkpoints through 2026-11-04
 
+## Historical price registration after reference assignment — 2026-11-04
+
+The open `آبمیوه تکه میوه سانی نس،۲۴ عددی` case is a historical re-extraction. Its
+reference assignment was already saved, but the final confirmation still requires an
+explicit check that the supplier price is current. The old UI left the manual final
+confirmation button enabled without that check, so it surfaced the historical-price
+gate as a late error. The final button now stays disabled until the check is marked,
+and the check persists when the reference-save action refreshes the card. A regression
+test covers both behaviors. The selected reference's saved price role is `unit` while
+the candidate comparison hints `package`; the card now shows this mismatch for the owner
+to review without changing the saved assignment.
+
+WordPress plugin commit `5865237739f3e2718134c284b06531ec5e010d17` was deployed and
+read-back verified. The authenticated WordPress page, live JavaScript asset and AI queue
+returned HTTP 200; the served JavaScript hash matches the deployed source. The exact case
+remains open with its reference assignment saved. No final price decision was submitted.
+The owner must verify the current supplier price before the UI enables final registration.
+
 ## Owner review responsiveness and reference assignment — 2026-11-04
 
 Railway deployment `74741fbe-5551-4feb-87fa-74da0a0a9b79` runs backend commit `d9bea58`;

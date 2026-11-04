@@ -1,12 +1,12 @@
 {
   "date": "2026-11-04",
-  "mode": "Owner review responsiveness and in-card reference assignment verified; no product decision submitted",
+  "mode": "Historical price confirmation after reference assignment fixed and live verified; no product decision submitted",
   "latest_owner_review_recheck": {
     "date": "2026-11-04",
     "commit": "d9bea58a4d404ec8acf4299f9f3ec21b0a172703",
     "railway_deployment": "74741fbe-5551-4feb-87fa-74da0a0a9b79",
     "railway_status": "SUCCESS",
-    "wordpress_revision": "308c189e75d0aa75848230f6961b63bcabddb47d",
+    "wordpress_revision": "5865237739f3e2718134c284b06531ec5e010d17",
     "wordpress_asset_readback": true,
     "served_owner_workflows_js_matches_source": true,
     "wordpress_operations_page_http": 200,
@@ -25,6 +25,21 @@
     "dashboard_actions_refresh_only_affected_queues": true,
     "production_reference_assignment_submitted": false,
     "production_product_decision_submitted": false,
+    "historical_price_confirmation_recheck": {
+      "product_name": "آبمیوه تکه میوه سانی نس،۲۴ عددی",
+      "ai_queue_http": 200,
+      "case_found": true,
+      "historical_reextract": true,
+      "reference_assignment_saved": true,
+      "saved_price_role": "unit",
+      "candidate_price_role_hint": "package",
+      "wordpress_page_http": 200,
+      "live_javascript_http": 200,
+      "served_javascript_matches_source": true,
+      "manual_final_confirmation_requires_current_price_check": true,
+      "price_check_survives_reference_save_refresh": true,
+      "production_final_price_decision_submitted": false
+    },
     "local_validation": {
       "reference_and_ai_python_tests": 25,
       "owner_api_integration_tests": 8,

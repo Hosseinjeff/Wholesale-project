@@ -1,6 +1,6 @@
 # MolaviSale — whole-workflow handoff
 
-Snapshot 4.71. Updated 2026-11-04, Asia/Tehran. The canonical roleplay decisions are in
+Snapshot 4.72. Updated 2026-11-04, Asia/Tehran. The canonical roleplay decisions are in
 `roleplay-state.json`; current live evidence and release gates are in
 `pipeline-readiness.md` and `pipeline-readiness-evidence.json`.
 
@@ -9,8 +9,10 @@ Snapshot 4.71. Updated 2026-11-04, Asia/Tehran. The canonical roleplay decisions
 Railway deployment `74741fbe-5551-4feb-87fa-74da0a0a9b79` runs backend commit `d9bea58` and is
 `SUCCESS`; the service is online without warnings and `/health` returns HTTP 200. WordPress
 plugin assets `includes/owner-workflows.js` and `.css` were deployed and verified by cPanel
-read-back from main commit `308c189`. The authenticated WordPress operations page and the live
-JavaScript asset both return HTTP 200; the asset hash matches the checked-in file.
+read-back from main commit `5865237`. The authenticated WordPress operations page and the live
+JavaScript asset both return HTTP 200; the asset hash matches the checked-in file. The updated
+historical-price confirmation flow was checked against the exact open Sani Nas juice case:
+its reference assignment remains saved, and no final price decision was submitted.
 
 The dashboard's eight initial reads all returned HTTP 200. The extraction API now loads in
 2.91 seconds (it took 22.69 seconds before candidate scoring was optimized); it returns 26
