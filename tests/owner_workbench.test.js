@@ -2,6 +2,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const {webcrypto} = require('node:crypto');
+const workflowScriptPath = process.env.MOLAVI_OWNER_WORKFLOW_SCRIPT
+  || 'shop-wp/molavi-shop/includes/owner-workflows.js';
 
 class Element {
   constructor(tag = 'div') {
@@ -111,17 +113,19 @@ async function main() {
     assert(response, `unexpected API path: ${path}`);
     return {ok:true,status:200,json:async()=>({ok:true,...response})};
   };
+  let scrollToCalls = 0;
   const window = {molaviOwnerWorkflow:{page:'molavi-operations',apiUrl:base+'/pipeline/operations-dashboard',
     token:'scoped-operations',workflowApis,pageUrls:{},reviewStoreUrl:'/admin-ajax.php',reviewStoreNonce:'nonce'},
     parent:null,location:{href:'https://site.test/wp-admin/admin.php?page=molavi-operations',
       pathname:'/wp-admin/admin.php',search:'?page=molavi-operations'},crypto:webcrypto,history:{replaceState(){}},
     scrollX:0,scrollY:0,scrollTo(x,y){
+      scrollToCalls++;
       if (x && typeof x === 'object') { this.scrollX=x.left; this.scrollY=x.top; }
       else { this.scrollX=x; this.scrollY=y; }
     },
     addEventListener(){},confirm:()=>true};
   window.parent = window;
-  vm.runInNewContext(fs.readFileSync('shop-wp/molavi-shop/includes/owner-workflows.js','utf8'),
+  vm.runInNewContext(fs.readFileSync(workflowScriptPath,'utf8'),
     {window,document,fetch,URL,Intl,Map,Set,Promise,TextEncoder,Date,Math,Number,String,Boolean,Array,Object,Error,
       URLSearchParams,console, setTimeout, clearTimeout});
   for (let attempt=0; attempt<20; attempt++) {
@@ -183,6 +187,8 @@ async function main() {
     'a stale source conflict refreshes in place instead of becoming an error wall');
   assert(!root.text.includes('این تعارض قبلاً تغییر کرده یا تعیین تکلیف شده است'),
     'the dashboard does not leave a stale conflict error visible after refreshing');
+  visibleCards = walk(root).filter(element => element.className.split(/\s+/).includes('molavi-product-card'));
+  assert.equal(visibleCards.length,1,'the refreshed supplier queue still shows one active product card');
   const conflictAttemptRows = storedReviewRows.filter(item => item.review_type === 'sheet_conflict'
     && item.review_id === 'sheet:one' && ['pending','failed'].includes(item.state));
   assert.equal(conflictAttemptRows.length,2,'the local review log records both the attempt and stale response');
@@ -199,6 +205,9 @@ async function main() {
     && element.textContent.includes('منبع فعلی را دیدم'));
   assert(verifyButton && !verifyButton.disabled, 'one-click supplier price review stays inside its product card');
   const mountedBoard = walk(root).find(element => element.className.split(/\s+/).includes('molavi-workbench-board'));
+  const supplierProductCard = visibleCards[0];
+  const statusRefreshesBeforeVerification = calls.filter(item => item.url === workflowApis.product_status.url).length;
+  const scrollRestoresBeforeVerification = scrollToCalls;
   window.scrollX = 13;
   window.scrollY = 640;
   await verifyButton.listeners.click();
@@ -206,11 +215,15 @@ async function main() {
     && item.url === workflowApis.supplier_prices.url);
   assert(verification, 'supplier verification submits asynchronously without a page form post');
   assert.equal(verification.options.headers.Authorization,'Bearer scoped-supplier_prices');
-  assert(calls.filter(item => item.url === workflowApis.product_status.url).length >= 2,
-    'successful action refreshes the dashboard data asynchronously');
-  assert.match(root.text,/بررسی قیمت ثبت شد/,'success feedback remains visible after the in-place refresh');
+  assert.equal(calls.filter(item => item.url === workflowApis.product_status.url).length,
+    statusRefreshesBeforeVerification,'supplier acknowledgement does not rebuild the whole dashboard');
+  assert.match(root.text,/بررسی قیمت ثبت شد/,'success feedback remains visible in the existing card');
   assert.equal(walk(root).find(element => element.className.split(/\s+/).includes('molavi-workbench-board')),
-    mountedBoard,'AJAX updates the mounted dashboard instead of replacing or reloading the page');
+    mountedBoard,'supplier acknowledgement leaves the dashboard board mounted');
+  assert.equal(walk(root).find(element => element.className.split(/\s+/).includes('molavi-product-card')),
+    supplierProductCard,'supplier acknowledgement updates the existing product card instead of rebuilding it');
+  assert.equal(scrollToCalls,scrollRestoresBeforeVerification,
+    'supplier acknowledgement does not force a scroll restore after shortening the page');
   assert.deepEqual([window.scrollX,window.scrollY],[13,640],
     'supplier acknowledgement keeps the owner at the same scroll position after its in-place refresh');
   const activePriceQueue = walk(root).find(element => element.tagName === 'BUTTON'
@@ -219,8 +232,8 @@ async function main() {
     'the dashboard keeps the supplier-price queue selected after its last item is acknowledged');
   assert(activePriceQueue.disabled && /۰/.test(activePriceQueue.textContent),
     'the now-empty supplier-price queue remains visible with a zero count');
-  assert.match(root.text,/همه کارهای این صف انجام شده‌اند/,
-    'an empty acknowledged queue shows completion instead of jumping to a different queue');
+  assert.match(root.text,/همه موارد این صف رسیدگی شدند/,
+    'the active supplier queue reports completion while keeping its acknowledged card in place');
   assert.equal(window.location.href,'https://site.test/wp-admin/admin.php?page=molavi-operations',
     'review actions do not navigate or reload the browser page');
 
@@ -516,7 +529,7 @@ async function main() {
     location:{href:'https://site.test/wp-admin/admin.php?page=molavi-supplier-prices',
       pathname:'/wp-admin/admin.php',search:'?page=molavi-supplier-prices'}};
   supplierWindow.parent = supplierWindow;
-  vm.runInNewContext(fs.readFileSync('shop-wp/molavi-shop/includes/owner-workflows.js','utf8'),
+  vm.runInNewContext(fs.readFileSync(workflowScriptPath,'utf8'),
     {window:supplierWindow,document:supplierDocument,fetch,URL,Intl,Map,Set,Promise,TextEncoder,Date,Math,
       Number,String,Boolean,Array,Object,Error,URLSearchParams,console,setTimeout,clearTimeout});
   for (let attempt=0; attempt<20; attempt++) {

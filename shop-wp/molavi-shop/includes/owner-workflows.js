@@ -332,6 +332,7 @@
     function appendStatusPill(parent, label, value, kind = '') {
         const pill = node('span', `${label}: ${value}`, `molavi-status-pill${kind ? ` is-${kind}` : ''}`);
         parent.appendChild(pill);
+        return pill;
     }
 
     function actionStatus(container, text, kind = 'info') {
@@ -348,11 +349,15 @@
         status.replaceChildren(node('p', text));
     }
 
+    function workbenchPendingSupplierPrices(product) {
+        return product.supplierPrices.filter(offer => offer.acknowledged !== true).length;
+    }
+
     function workbenchActionKey(product) {
         if (product.ai.length) return 'ai';
         if (product.references.length) return 'references';
         if (product.conflicts.length) return 'conflicts';
-        if (product.supplierPrices.length) return 'supplier_prices';
+        if (workbenchPendingSupplierPrices(product)) return 'supplier_prices';
         if (product.holds.length) return 'holds';
         if (product.status && product.status.update_needed) return 'status';
         return 'next';
@@ -373,7 +378,7 @@
         if (product.ai.length) return 0;
         if (product.references.length) return 1;
         if (product.conflicts.length) return 2;
-        if (product.supplierPrices.length) return 3;
+        if (workbenchPendingSupplierPrices(product)) return 3;
         if (product.holds.length) return 4;
         if (product.status && product.status.update_needed) return 5;
         return 6;
@@ -408,6 +413,7 @@
             workbenchLiveStatus.textContent = 'در حال تازه‌سازی صف رسیدگی…';
         }
         const board = workbenchBoard;
+        let refreshQueueCounts = () => 0;
 
         const labels = {
             product_status:'وضعیت کاتالوگ', ai_confirmations:'استخراج', reference_items:'تطبیق مرجع',
@@ -591,7 +597,7 @@
         }
 
         const attention = product => Boolean(product.status && product.status.update_needed)
-            || product.ai.length > 0 || product.references.length > 0 || product.supplierPrices.length > 0
+            || product.ai.length > 0 || product.references.length > 0 || workbenchPendingSupplierPrices(product) > 0
             || product.conflicts.length > 0 || product.holds.length > 0;
         products.sort((a,b) => Number(attention(b))-Number(attention(a))
             || workbenchPriority(a)-workbenchPriority(b) || a.name.localeCompare(b.name,'fa'));
@@ -631,9 +637,10 @@
             const header = node('div', null, 'molavi-product-card-heading');
             header.appendChild(node('h2', product.name));
             const state = attention(product) ? 'نیازمند اقدام' : 'وضعیت ثبت‌شده';
-            appendStatusPill(header, 'وضعیت', state, attention(product) ? 'warning' : 'success');
+            const statePill = appendStatusPill(header, 'وضعیت', state, attention(product) ? 'warning' : 'success');
             card.appendChild(header);
-            card.appendChild(node('p', workbenchNextStep(product), 'molavi-product-next-step'));
+            const nextStep = node('p', workbenchNextStep(product), 'molavi-product-next-step');
+            card.appendChild(nextStep);
             const status = product.status || {};
             const sourceParts = [];
             if (product.product_id) sourceParts.push(`شناسه: ${product.product_id}`);
@@ -642,13 +649,14 @@
             if (sourceParts.length) card.appendChild(node('p', sourceParts.join(' · '), 'molavi-product-identity'));
 
             const stateRow = node('div', null, 'molavi-product-state-row');
+            let supplierPricePill = null;
             if (status.reference_match_id) appendStatusPill(stateRow, 'مرجع', status.reference_match_id);
             else if (status.reference_approval_state) appendStatusPill(stateRow, 'مرجع', status.reference_approval_state,
                 status.reference_update_needed ? 'warning' : '');
             if (status.reference_price_role) appendStatusPill(stateRow, 'مبنای قیمت مرجع',
                 status.reference_price_role === 'package' ? 'بسته' : status.reference_price_role === 'unit' ? 'واحد' : status.reference_price_role);
             if (status.reference_price_change_percent) appendStatusPill(stateRow, 'تغییر مرجع', `${status.reference_price_change_percent}٪`, status.reference_update_needed ? 'warning' : '');
-            if (status.supplier_price_state) appendStatusPill(stateRow, 'قیمت تأمین‌کننده', status.supplier_price_state,
+            if (status.supplier_price_state) supplierPricePill = appendStatusPill(stateRow, 'قیمت تأمین‌کننده', status.supplier_price_state,
                 ['blocked','needs_review'].includes(status.supplier_price_state) ? 'warning' : '');
             if (status.update_needed) appendStatusPill(stateRow, 'به‌روزرسانی', 'لازم است', 'warning');
             if (product.holds.length) appendStatusPill(stateRow, 'انتشار', 'متوقف', 'warning');
@@ -687,15 +695,18 @@
             product.supplierPrices.forEach(offer => {
                 const section = node('section', null, 'molavi-product-subsection');
                 section.appendChild(node('h3', 'تازگی قیمت تأمین‌کننده'));
-                section.appendChild(node('p', `${offer.channel || product.channel || 'تأمین‌کننده نامشخص'} · قیمت: ${amount(offer.sale_price)} · ${({warning:'نیاز به بررسی تازه',blocked:'قیمت کهنه؛ سفارش متوقف است',needs_review:'مدرک قیمت نیاز به بررسی دارد'}[offer.state] || offer.state || 'نیازمند بررسی')}`));
+                const statusText = offer.acknowledged
+                    ? 'قیمت تأیید شد؛ انتشار دوباره در صف است'
+                    : ({warning:'نیاز به بررسی تازه',blocked:'قیمت کهنه؛ سفارش متوقف است',needs_review:'مدرک قیمت نیاز به بررسی دارد'}[offer.state] || offer.state || 'نیازمند بررسی');
+                section.appendChild(node('p', `${offer.channel || product.channel || 'تأمین‌کننده نامشخص'} · قیمت: ${amount(offer.sale_price)} · ${statusText}`));
                 if (offer.source_timestamp) section.appendChild(node('p', `زمان منبع: ${offer.source_timestamp}`));
                 const sourceLink = safeSourceLink(offer.source_post_url);
                 if (sourceLink) section.appendChild(sourceLink);
-                const verify = node('button', 'منبع فعلی را دیدم؛ قیمت تأیید است', 'button button-primary');
+                const verify = node('button', offer.acknowledged ? 'قیمت تأیید شد' : 'منبع فعلی را دیدم؛ قیمت تأیید است', 'button button-primary');
                 verify.type = 'button';
-                verify.disabled = !contextStored.supplier_prices;
-                if (verify.disabled) section.appendChild(notice('ثبت زمینه این بررسی در پایگاه داده وردپرس ناموفق بود؛ اقدام غیرفعال است.', 'error'));
-                verify.addEventListener('click', async () => {
+                verify.disabled = offer.acknowledged || !contextStored.supplier_prices;
+                if (!offer.acknowledged && verify.disabled) section.appendChild(notice('ثبت زمینه این بررسی در پایگاه داده وردپرس ناموفق بود؛ اقدام غیرفعال است.', 'error'));
+                if (!offer.acknowledged) verify.addEventListener('click', async () => {
                     verify.disabled = true;
                     const originalLabel = verify.textContent;
                     verify.textContent = 'در حال ثبت…';
@@ -713,11 +724,25 @@
                         let warning = '';
                         try { await persistOwnerReviews([reviewRecord(eventId,'supplier_price',offer.product_id,'accepted',context,decision,receipt)]); }
                         catch (_error) { warning = ' قیمت تأیید شد، اما رسید محلی وردپرس هنوز همگام نشده است.'; }
+                        offer.acknowledged = true;
                         verify.textContent = 'قیمت تأیید شد';
-                        const message = `بررسی قیمت ثبت شد و انتشار دوباره در صف قرار گرفت.${warning}`;
+                        if (supplierPricePill && !workbenchPendingSupplierPrices(product)) {
+                            supplierPricePill.textContent = 'قیمت تأمین‌کننده: تأیید شد · انتشار در صف';
+                            supplierPricePill.className = 'molavi-status-pill is-success';
+                        }
+                        nextStep.textContent = workbenchNextStep(product);
+                        const remaining = refreshQueueCounts();
+                        const message = `بررسی قیمت ثبت شد و انتشار دوباره در صف قرار گرفت.${warning}`
+                            + (workbenchQueue === 'supplier_prices' && remaining === 0
+                                ? ' همه موارد این صف رسیدگی شدند.' : '');
                         updateActionStatus(progressStatus, message, warning ? 'warning' : 'success');
-                        await dashboard(message, warning ? 'warning' : 'success',
-                            ['supplier_prices','product_status','publication_holds','operations']);
+                        if (workbenchLiveStatus) {
+                            workbenchLiveStatus.className = `notice notice-${warning ? 'warning' : 'success'} molavi-workbench-live-status`;
+                            workbenchLiveStatus.textContent = message;
+                        }
+                        const needsAttention = attention(product);
+                        statePill.textContent = `وضعیت: ${needsAttention ? 'نیازمند اقدام' : 'وضعیت ثبت‌شده'}`;
+                        statePill.className = `molavi-status-pill${needsAttention ? ' is-warning' : ' is-success'}`;
                     } catch (error) {
                         try { await persistOwnerReviews([reviewRecord(eventId,'supplier_price',offer.product_id,error.remoteRejected?'failed':'pending',context,decision,{error:String(error.message||'request_failed')})]); }
                         catch (_ignored) {}
@@ -853,7 +878,7 @@
             {key:'ai',label:'استخراج',matches:product=>product.ai.length>0},
             {key:'references',label:'تطبیق مرجع',matches:product=>product.references.length>0},
             {key:'conflicts',label:'تعارض شیت',matches:product=>product.conflicts.length>0},
-            {key:'supplier_prices',label:'قیمت تأمین‌کننده',matches:product=>product.supplierPrices.length>0},
+            {key:'supplier_prices',label:'قیمت تأمین‌کننده',matches:product=>workbenchPendingSupplierPrices(product)>0},
             {key:'holds',label:'توقف انتشار',matches:product=>product.holds.length>0},
             {key:'status',label:'وضعیت کالا',matches:product=>Boolean(product.status && product.status.update_needed)}
         ].map(queue=>({...queue,count:products.filter(queue.matches).length}));
@@ -867,6 +892,16 @@
         queueNavigation.setAttribute('role', 'group');
         queueNavigation.setAttribute('aria-label', 'انتخاب نوع کار');
         const queueButtons = new Map();
+        refreshQueueCounts = () => {
+            queueDefinitions.forEach(queue => {
+                queue.count = products.filter(queue.matches).length;
+                const button = queueButtons.get(queue.key);
+                if (!button) return;
+                button.textContent = `${queue.label} · ${queue.count.toLocaleString('fa-IR')}`;
+                button.disabled = queue.count === 0;
+            });
+            return queueDefinitions.find(queue => queue.key === 'supplier_prices')?.count || 0;
+        };
         queueDefinitions.filter(queue=>queue.key==='next'||queue.count>0||queue.key===workbenchQueue).forEach(queue=>{
             const button=node('button',`${queue.label} · ${queue.count.toLocaleString('fa-IR')}`,
                 'button button-secondary molavi-workbench-queue');
