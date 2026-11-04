@@ -2,21 +2,21 @@
 
 Updated: 2026-11-04, Asia/Tehran
 
-## Latest live deployment — 2026-11-04, supplier acknowledgement preserves queue state
+## Latest live deployment — 2026-11-04, supplier acknowledgement does not rebuild the dashboard
 
-WordPress plugin commit `1d9181e2264dcfde073337e1df2a0778e0330494` is live. Supplier-price
-acknowledgement updates its existing card with success feedback instead of rebuilding the
-screen. The shared AJAX form handler and product workbench preserve the owner's current scroll
-position. After acknowledging the last item, the workbench keeps the Supplier prices queue
-selected and displays its completed empty state instead of switching queues and resetting the
-card index.
+WordPress plugin commit `efc42561781138847dc160dbe7701d8879cc6dc4` is live. In the unified
+workbench, a successful supplier-price acknowledgement now updates the same product card,
+marks that offer complete, and refreshes the visible queue counts locally. It does not reload
+all dashboard sources or replace the card. The active supplier queue stays selected and reports
+completion when its count reaches zero.
 
-The protected cPanel deploy script uploaded and read back `includes/admin-ajax-forms.js` and
-`includes/owner-workflows.js` successfully. `node --check` passed for both scripts and the
-interaction test, `node tests/owner_workbench.test.js`, passed with coverage for in-place
-acknowledgement, scroll preservation, and an emptied active queue. `git diff --check` passed.
-No product, supplier-price, order, or Sheet data changed. This plugin-only release did not
-change Railway.
+The protected cPanel deploy script uploaded and read back `includes/owner-workflows.js`.
+The authenticated live admin page and its script both returned HTTP 200; the served script's
+SHA-256 matched the published source. `node tests/owner_workbench.test.js` also passed against
+the downloaded live script, in addition to the local test, JavaScript syntax checks, and
+`git diff --check`. No live acknowledgement was submitted during verification, so no supplier
+price was attested and no publication job or product data was changed. This plugin-only release
+did not change Railway.
 
 ## Latest live deployment — 2026-11-04, generic variant extraction and reference price role
 
