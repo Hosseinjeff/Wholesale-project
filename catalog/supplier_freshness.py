@@ -99,7 +99,13 @@ def source_price_revision(record):
         sale=str(int(number)) if number==number.to_integral_value() else format(number.normalize(),'f')
     except InvalidOperation:
         return ''
-    material=json.dumps([offer_id,sale,str(record.get('Currency') or '').strip()],ensure_ascii=False,separators=(',',':'))
+    material_parts=[offer_id,sale,str(record.get('Currency') or '').strip()]
+    # Keep legacy revisions stable. Once a row records its timestamp basis,
+    # changing that provenance invalidates a previous freshness attestation.
+    basis=str(record.get('Source Timestamp Basis') or '').strip()
+    if basis:
+        material_parts.append(basis)
+    material=json.dumps(material_parts,ensure_ascii=False,separators=(',',':'))
     return hashlib.sha256(material.encode()).hexdigest()
 
 
@@ -131,10 +137,12 @@ def current_supplier_offers(store, ledger, *, now):
         product_id=str(record.get('Product ID') or '').strip()
         if not product_id:
             continue
+        timestamp_basis=str(record.get('Source Timestamp Basis') or '').strip()
+        trusted_source_time=timestamp_basis in {'supplier_channel_update','supplier_channel_forward'}
         revision=source_price_revision(record)
         stamp=source_datetime(record.get('Message Timestamp'))
         invalid_future=stamp is not None and stamp>_utc(now)
-        if revision and stamp:
+        if revision and stamp and trusted_source_time:
             try:
                 ledger.observe_source(offer_id=product_id,source_revision=revision,source_timestamp=stamp,now=now)
             except ValueError:
@@ -146,6 +154,8 @@ def current_supplier_offers(store, ledger, *, now):
             'product_id':product_id,'name':str(record.get('Product Name') or ''),
             'channel':str(record.get('Channel Username') or ''),'sale_price':record.get('Sale Price') or '',
             'source_revision':revision,'source_timestamp':stamp.isoformat() if stamp else None,
+            'source_timestamp_basis':timestamp_basis or 'legacy_unknown',
+            'source_timestamp_trusted':trusted_source_time,
             **state,
         })
     return offers

@@ -57,8 +57,8 @@ _WRITE_LOCK = threading.Lock()
 SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets"
 _PRESERVE_ON_UPDATE = ("Product ID", "Import Timestamp")
 SHEET_PROVENANCE_FIELDS={
-    'Product ID','Channel ID','Channel','Channel Username','Original Message','Message Timestamp',
-    'Forwarded By','Import Timestamp','Last Updated','Batch ID','Latest Offer ID','Offer Count',
+    'Product ID','Channel ID','Channel','Channel Username','Original Message','Message Timestamp','Source Post URL',
+    'Source Timestamp Basis','Forwarded By','Import Timestamp','Last Updated','Batch ID','Latest Offer ID','Offer Count',
     'Previous Sale Price','Previous Consumer Price','Price Changed At','Image File Unique ID',
     'Reference Snapshot ID','Reference Match ID','Reference Decision ID',
 }
@@ -591,6 +591,7 @@ def _finalize_batch(store: MemoryStore | GoogleSheetStore, payload: dict[str, An
                 "Author": message.get("author") or "",
                 "Content": message.get("content") or "",
                 "Timestamp": message.get("timestamp") or "",
+                "Source Timestamp Basis": message.get("source_timestamp_basis") or "",
                 "URL": message.get("url") or "",
                 "Forwarded By": message.get("forwarded_by") or "",
                 "Forwarded At": message.get("forwarded_at") or "",
@@ -888,6 +889,7 @@ def import_product_data(
         fresh_rows = _unseen_offer_rows(existing_offers, offer_headers, opening_rows + offer_rows)
         if fresh_rows:
             _append_at_next_row(store, "Offers", offer_headers, fresh_rows)
+        _verify_offer_ids_written(store, staged_offer_ids)
         if stage_for_review:
             return {"success": True, "products_found": len(products), "row": None,
                     "staged_for_review": True, "staged_offer_ids": staged_offer_ids}
@@ -966,6 +968,7 @@ def reextract_saved_message(store, payload: dict[str, Any], *, write_lock=None) 
         source={
             'ID':source_message_id,'Batch ID':source_batch_id,'Channel':source_channel,
             'Channel Username':source_username,'Timestamp':source_timestamp,
+            'Source Timestamp Basis':offer.get('Source Timestamp Basis') or '',
             'Content':content,'URL':source_url,'Forwarded By':offer.get('Forwarded By') or '',
             'Image File ID':offer.get('Image File ID') or '',
             'Image File Unique ID':offer.get('Image File Unique ID') or '',
@@ -1024,6 +1027,7 @@ def reextract_saved_message(store, payload: dict[str, Any], *, write_lock=None) 
     data={
         'id':message_id,'batch_id':stage_batch_id,'channel':source.get('Channel') or '',
         'channel_username':channel_username,'content':content,'timestamp':source.get('Timestamp') or '',
+        'source_timestamp_basis':source.get('Source Timestamp Basis') or '',
         'url':source.get('URL') or '',
         'forwarded_by':source.get('Forwarded By') or '',
         'image_file_id':source.get('Image File ID') or '',
@@ -1583,6 +1587,8 @@ def _fill_message_from_sheet(store, data: dict[str, Any]) -> None:
                 data["channel_username"] = row[indexes["Channel Username"]] or ""
             if not data.get("content") and "Content" in indexes and indexes["Content"] < len(row):
                 data["content"] = row[indexes["Content"]] or ""
+            if not data.get("source_timestamp_basis") and "Source Timestamp Basis" in indexes and indexes["Source Timestamp Basis"] < len(row):
+                data["source_timestamp_basis"] = row[indexes["Source Timestamp Basis"]] or ""
             return
 
 
@@ -1630,6 +1636,7 @@ def _product_row(headers: list[str], product: dict[str, Any], message: dict[str,
         "Channel": message.get("channel") or "",
         "Channel Username": message.get("channel_username") or "",
         "Message Timestamp": message.get("timestamp") or "",
+        "Source Timestamp Basis": message.get("source_timestamp_basis") or "",
         "Forwarded By": message.get("forwarded_by") or "",
         "Import Timestamp": now,
         "Last Updated": now,
@@ -2181,6 +2188,7 @@ def _offer_fields(product: dict[str, Any], message: dict[str, Any], offer_id: st
         "Message ID": message.get("id") or "",
         "Batch ID": message.get("batch_id") or "",
         "Message Timestamp": message.get("timestamp") or "",
+        "Source Timestamp Basis": message.get("source_timestamp_basis") or "",
         "Forwarded By": message.get("forwarded_by") or "",
         "Import Timestamp": imported_at,
         "Original Message": message.get("content") or "",
@@ -2276,6 +2284,7 @@ def _message_from_offer(offer: dict[str, Any]) -> dict[str, Any]:
         "channel": offer.get("Channel") or "",
         "content": offer.get("Original Message") or "",
         "timestamp": offer.get("Message Timestamp") or "",
+        "source_timestamp_basis": offer.get("Source Timestamp Basis") or "",
         "forwarded_by": offer.get("Forwarded By") or "",
         "batch_id": offer.get("Batch ID") or "",
         "url": offer.get("Source Post URL") or "",
@@ -2351,7 +2360,11 @@ def _sort_offers_by_source_time(offers: list[dict[str, Any]]) -> list[dict[str, 
 
     def order(offer):
         imported = source_datetime(offer.get('Import Timestamp')) or floor
-        source = source_datetime(offer.get('Message Timestamp')) or imported
+        basis=str(offer.get('Source Timestamp Basis') or '').strip()
+        source_time=source_datetime(offer.get('Message Timestamp'))
+        if basis and basis not in {'supplier_channel_update','supplier_channel_forward'}:
+            source_time=None
+        source = source_time or imported
         return source, imported
 
     return sorted(offers, key=order)
@@ -2400,6 +2413,8 @@ def _opening_offer_rows(store, keys: list[tuple[str, str]], offer_headers: list[
             "Status": "imported",
             "Batch ID": "sheet",
             "Message Timestamp": _cell(existing, headers, "Message Timestamp"),
+            "Source Timestamp Basis": _cell(existing, headers, "Source Timestamp Basis"),
+            "Source Post URL": _cell(existing, headers, "Source Post URL"),
             "Forwarded By": _cell(existing, headers, "Forwarded By"),
             "Import Timestamp": imported_at,
             "Original Message": _cell(existing, headers, "Original Message"),
@@ -2596,13 +2611,32 @@ def _set_cell(row: list[Any], headers: list[str], header: str, value: Any) -> No
         row[headers.index(header)] = "" if value is None else value
 
 
-def _append_at_next_row(store, name: str, headers: list[str], rows: list[list[Any]]) -> None:
-    existing = store.read(name)
-    start = max(len(existing) + 1, 2)
-    if isinstance(store, MemoryStore):
-        store.append(name, rows)
+def _append_at_next_row(store, name: str, _headers: list[str], rows: list[list[Any]]) -> None:
+    # Sheets' values.append is atomic with respect to other writers. Computing a
+    # row number from a cached read can overwrite a concurrent Telegram delivery
+    # or manual Sheet edit.
+    store.append(name, rows)
+
+
+def _verify_offer_ids_written(store, offer_ids: list[str]) -> None:
+    """Do not point the editable product book at evidence that Sheets did not retain."""
+    expected={str(value) for value in offer_ids if str(value)}
+    if not expected:
         return
-    store.write_rows(name, start, rows)
+    reader=getattr(store,'read_fresh',None)
+    rows=reader('Offers') if callable(reader) else store.read('Offers')
+    if not rows:
+        raise RuntimeError('offer_write_unverified')
+    headers,records=_records(rows)
+    if 'Offer ID' not in headers:
+        raise RuntimeError('offer_write_unverified')
+    counts={offer_id:0 for offer_id in expected}
+    for row in records:
+        offer_id=str(row.get('Offer ID') or '')
+        if offer_id in counts:
+            counts[offer_id]+=1
+    if any(count != 1 for count in counts.values()):
+        raise RuntimeError('offer_write_unverified')
 
 
 def _headers(store, name: str, fallback: list[str]) -> list[str]:

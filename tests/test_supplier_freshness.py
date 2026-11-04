@@ -35,9 +35,9 @@ class SupplierFreshnessTests(unittest.TestCase):
   with self.assertRaises(ValueError):self.ledger.verify_manually(offer_id='unknown',source_revision='x',actor_id='owner',note='',now=self.now)
 
  def test_sheet_price_edit_invalidates_existing_manual_verification(self):
-  product_headers=['Product ID','Product Name','Channel Username','Sale Price','Currency','Latest Offer ID','Message Timestamp']
+  product_headers=['Product ID','Product Name','Channel Username','Sale Price','Currency','Latest Offer ID','Message Timestamp','Source Timestamp Basis']
   old_stamp=int((self.now-timedelta(days=15)).timestamp())
-  row=['product-1','چای','@supplier',100,'IRR','offer-1',old_stamp]
+  row=['product-1','چای','@supplier',100,'IRR','offer-1',old_stamp,'supplier_channel_update']
   store=MemoryStore();store.sheets['Products']=[product_headers,row]
   offers=current_supplier_offers(store,self.ledger,now=self.now)
   self.assertEqual(offers[0]['state'],'blocked')
@@ -47,6 +47,25 @@ class SupplierFreshnessTests(unittest.TestCase):
   self.assertEqual(current_supplier_offers(store,self.ledger,now=self.now)[0]['state'],'current')
   store.sheets['Products'][1][3]=120
   self.assertEqual(current_supplier_offers(store,self.ledger,now=self.now)[0]['state'],'needs_review')
+
+ def test_owner_submission_timestamp_needs_manual_source_verification(self):
+  headers=['Product ID','Product Name','Channel Username','Sale Price','Currency','Latest Offer ID',
+   'Message Timestamp','Source Timestamp Basis']
+  row=['owner-product','چای','DirectMessage',100,'IRR','owner-offer',int(self.now.timestamp()),'owner_submission']
+  store=MemoryStore();store.sheets['Products']=[headers,row]
+  current=current_supplier_offers(store,self.ledger,now=self.now)[0]
+  self.assertFalse(current['source_timestamp_trusted'])
+  self.assertEqual(current['state'],'needs_review')
+  self.assertIsNone(current['verified_at'])
+  self.ledger.verify_manually(offer_id='owner-product',source_revision=current['source_revision'],
+   actor_id='wp:7',note='checked the current supplier post',now=self.now)
+  self.assertEqual(current_supplier_offers(store,self.ledger,now=self.now)[0]['state'],'current')
+
+ def test_timestamp_basis_change_invalidates_price_verification(self):
+  row={'Product ID':'p1','Sale Price':100,'Currency':'IRR','Latest Offer ID':'o1',
+   'Source Timestamp Basis':'supplier_channel_update'}
+  original=source_price_revision(row)
+  self.assertNotEqual(original,source_price_revision({**row,'Source Timestamp Basis':'owner_submission'}))
 
  def test_later_reimport_of_older_post_does_not_replace_newer_source_row(self):
   store=MemoryStore();store.ensure('Offers',OFFER_HEADERS);store.ensure('Products',PRODUCT_HEADERS)
@@ -71,9 +90,9 @@ class SupplierFreshnessRouteTests(unittest.TestCase):
   self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
   self.now=datetime.now(timezone.utc)
   self.db=str(Path(self.tmp.name)/'pipeline.sqlite')
-  headers=['Product ID','Product Name','Channel Username','Sale Price','Consumer Price','Currency','Latest Offer ID','Message Timestamp','Status','Stock Status']
+  headers=['Product ID','Product Name','Channel Username','Sale Price','Consumer Price','Currency','Latest Offer ID','Message Timestamp','Source Timestamp Basis','Status','Stock Status']
   self.store=MemoryStore()
-  self.store.sheets['Products']=[headers,['product-1','چای','@supplier',40000,50000,'IRR','offer-1',int((self.now-timedelta(days=8)).timestamp()),'imported','Available']]
+  self.store.sheets['Products']=[headers,['product-1','چای','@supplier',40000,50000,'IRR','offer-1',int((self.now-timedelta(days=8)).timestamp()),'supplier_channel_update','imported','Available']]
   self.env={'PIPELINE_DB_PATH':self.db,'REFERENCE_OWNER_IDS':'wp:7','REFERENCE_BRIDGE_TOKEN':'synthetic-reference-token-1234567890'}
   from catalog.supplier_freshness import source_price_revision
   self.revision=source_price_revision(dict(zip(headers,self.store.sheets['Products'][1])))

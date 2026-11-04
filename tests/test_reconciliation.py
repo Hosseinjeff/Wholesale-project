@@ -50,6 +50,7 @@ class ReconciliationReportTests(unittest.TestCase):
         product = {
             'Product ID': 'product-1', 'Latest Offer ID': 'offer-1',
             'Product Name': 'چای سبز', 'Channel Username': '@supplier',
+            'Channel':'telegram','Batch ID':'batch-1','Message Timestamp':'1730574000',
             'Status': 'needs_review', 'Sale Price': 40000,
         }
         self.store.append('Offers', [_row_from_map(OFFER_HEADERS, offer)])
@@ -76,6 +77,7 @@ class ReconciliationReportTests(unittest.TestCase):
         product = {
             'Product ID': 'product-1', 'Latest Offer ID': 'offer-2',
             'Product Name': 'چای سبز', 'Channel Username': '@supplier',
+            'Channel':'telegram','Batch ID':'batch-1','Message Timestamp':'1730574000',
             'Status': 'imported', 'Sale Price': 40000,
         }
         self.store.append('Offers', [
@@ -90,6 +92,18 @@ class ReconciliationReportTests(unittest.TestCase):
         self.assertEqual(report['receipts'][0]['product_count'], 1)
         self.assertEqual(report['receipts'][0]['product_details'][0]['price_basis'], 'unit')
 
+    def test_orphaned_current_product_offer_is_reported_as_source_integrity_issue(self):
+        product = {
+            'Product ID':'product-orphan','Latest Offer ID':'missing-offer',
+            'Product Name':'کالای نمونه','Channel Username':'@supplier',
+            'Channel':'telegram','Batch ID':'batch-1','Message Timestamp':'1730574000',
+            'Status':'imported','Sale Price':40000,'Consumer Price':65000,
+        }
+        self.store.append('Products',[_row_from_map(PRODUCT_HEADERS,product)])
+        report=build_reconciliation_report(self.store,FakeQueue(self.receipt),site_url='')
+        self.assertEqual(report['summary']['products_with_source_integrity_issues'],1)
+        self.assertEqual(report['source_integrity']['issues'][0]['codes'],['offer_not_found'])
+
     def test_woo_reconciliation_uses_publisher_holds_for_missing_customer_prices(self):
         names=['چای ساده','چای با قیمت مصرف‌کننده']
         offers=[];products=[]
@@ -97,13 +111,14 @@ class ReconciliationReportTests(unittest.TestCase):
             offer_id=f'offer-{index}'
             offers.append({
                 'Offer ID':offer_id,'Message ID':'message-1','Batch ID':'batch-1',
-                'Channel Username':'@supplier','Message Timestamp':'1730574000',
+                'Channel Username':'@supplier','Channel':'telegram','Message Timestamp':'1730574000',
                 'Original Message':self.source['Content'],'Product Name':name,
                 'Status':'imported','Sale Price':40000,
             })
             products.append({
                 'Product ID':f'product-{index}','Latest Offer ID':offer_id,
                 'Product Name':name,'Channel Username':'@supplier',
+                'Channel':'telegram','Batch ID':'batch-1','Message Timestamp':'1730574000',
                 'Status':'imported','Sale Price':40000,
                 'Consumer Price':65000 if index==2 else '',
             })

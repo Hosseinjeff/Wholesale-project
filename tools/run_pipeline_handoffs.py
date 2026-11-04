@@ -9,7 +9,8 @@ import sys
 import time
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parent.parent))
-from app import USE_SHEETS, _notice_chat_allowlists, build_store, handoff_queue, run_durable_handoff
+from app import (USE_SHEETS, _notice_chat_allowlists, _wake_reference_waiters_if_eligible,
+                 build_store, handoff_queue, run_durable_handoff)
 from catalog.sheet_projection import observe_sheet_projection
 
 if __name__=='__main__':
@@ -32,6 +33,19 @@ if __name__=='__main__':
         from reference_import.refresh_scheduler import ReferenceRefreshScheduler
         reference_scheduler=ReferenceRefreshScheduler(reference_path,owner_ids=reference_owners,
             interval_seconds=refresh_hours*3600)
+    try:
+        resumed=queue.wake_publication_waiters_if_unblocked()
+        if resumed:
+            print(f'Resumed publication jobs after restart count={resumed}',file=sys.stderr)
+    except Exception:
+        print('Publication wait recovery failed; pending jobs remain durable',file=sys.stderr)
+    if reference_path and reference_owners:
+        try:
+            from reference_import.snapshots import ReferenceStore
+            reference_store=ReferenceStore(reference_path,owner_ids=reference_owners)
+            _wake_reference_waiters_if_eligible(queue,reference_store)
+        except Exception:
+            print('Reference wait recovery failed; pending batches remain durable',file=sys.stderr)
     try:poll_seconds=int(os.getenv('SHEET_SYNC_POLL_SECONDS','60'))
     except ValueError:poll_seconds=60
     poll_seconds=max(30,min(3600,poll_seconds))

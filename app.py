@@ -366,6 +366,25 @@ def run_durable_handoff(queue, job_id=None):
                          reextract=reextract)
 
 
+def _wake_reference_waiters_if_eligible(queue, reference_store):
+    """Resume parked source batches only after the current reference gate is clear."""
+    if queue is None or reference_store is None:
+        return 0
+    try:
+        from datetime import datetime, timezone
+        from reference_import.workflow import active_reference_use
+        eligibility=active_reference_use(reference_store,now=datetime.now(timezone.utc))
+        if not eligibility.get('allow_automatic'):
+            return 0
+        awakened=queue.wake_reference_waiters()
+        if awakened:
+            logger.info('Resumed reference-waiting supplier batches count=%s',awakened)
+        return awakened
+    except Exception:
+        logger.exception('Reference-waiting supplier batches remain parked')
+        return 0
+
+
 def _drain_reextraction_run(queue, run_id):
     """Run the selected saved-message jobs without waiting for another webhook."""
     status=queue.reextraction_status(run_id)
@@ -721,6 +740,23 @@ def inbound_payload(message, channel):
         source = 'direct'
     else:
         return None, 'ignored'
+
+    # A private message proves when the owner sent it, not when the supplier
+    # updated its offer. Preserve that distinction so owner-submitted text cannot
+    # silently reset supplier-price freshness.
+    if source == 'channel':
+        data['source_timestamp_basis'] = 'supplier_channel_update'
+    elif source == 'forward' and channel == 'telegram':
+        origin = message.get('forward_origin') if isinstance(message.get('forward_origin'), dict) else {}
+        data['source_timestamp_basis'] = (
+            'supplier_channel_forward' if origin.get('type') == 'channel' else 'owner_forward'
+        )
+    elif source == 'forward':
+        data['source_timestamp_basis'] = 'forward_receipt'
+    elif private_chat(data):
+        data['source_timestamp_basis'] = 'owner_submission'
+    else:
+        data['source_timestamp_basis'] = 'unverified_direct'
 
     if not data.get('chat_id'):
         data['chat_id'] = (message.get('chat') or {}).get('id')
@@ -1798,11 +1834,14 @@ def reference_decisions_route():
     if auth_error:
         return jsonify({"ok": False, "error": "unauthorized" if auth_error == 401 else "owner_required"}), auth_error
     try:
-        api = DashboardAPI(ReferenceStore(path, owner_ids=owners), bridge_token=token)
+        reference_store = ReferenceStore(path, owner_ids=owners)
+        api = DashboardAPI(reference_store, bridge_token=token)
         code, result = api.handle(request.method,
             token=token,
             actor=actor,
             body=request.get_json(silent=True) if request.method == "POST" else None)
+        if request.method == 'POST' and code == 200 and result.get('ok'):
+            _wake_reference_waiters_if_eligible(handoff_queue(),reference_store)
     except Exception:
         logger.exception("Reference decision store unavailable")
         return jsonify({"ok": False, "error": "unavailable"}), 503
@@ -2038,6 +2077,8 @@ def reference_snapshots_route():
                     'product_reconciliation_state':reconciliation_state,
                     'product_reference_updates':reference_update_summary,
                     'product_status_snapshot':status_snapshot}
+                if reconciliation_state == 'complete':
+                    _wake_reference_waiters_if_eligible(handoff_queue(),store)
         response=jsonify(result)
         response.headers['Cache-Control']='no-store'
         return response

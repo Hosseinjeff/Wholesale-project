@@ -1079,3 +1079,27 @@ The live catalog has two products. Search and basket interactions were not click
 that visual check; no order or payment action was taken. No payment configuration changed.
 `node --check` and `git diff --check` pass locally. PHP CLI is unavailable in this executor;
 the live WordPress page renders without a PHP fatal error.
+
+### 2026-11-04 product-to-shelf integrity audit
+
+The owner authorized a full review from Telegram intake through WooCommerce. Live
+read-only inspection found 125 Products rows, 460 Offers rows, ten orphaned latest-offer
+links, and five affected items that were still purchasable. One duplicate stable Product
+ID was repaired in the Products sheet. The ten Offer rows were not reconstructed from
+AI guesses. A strict source-evidence gate now holds those products, reports the exact
+broken link in the owner product card, and exposes its source post for recovery.
+
+The audit also found timer retries of reference/publication wait states (maximum 836
+attempts on one batch; 63 receipts at 100+). Wait states now park until the owner event
+that can unblock them, with restart recovery. Sheets row appends now use atomic append;
+the writer verifies exact Offer IDs before it updates Products. Owner-private Telegram
+message time is recorded as submission time and no longer counts as automatic supplier
+freshness evidence. Telegram channel update/edit time and channel-origin forward time
+remain eligible; missing stock remains Unknown and explicit supplier sold-out status
+holds the product.
+
+Validation: 166 focused Python tests passed, including the live-path integrity guard,
+durable wait-state wakeups, owner timestamp handling, product-card status, and sheet
+append behavior; one test emits the existing multiprocessing fork warning. The
+WordPress workbench Node test and JavaScript syntax check pass. Live deployment and
+post-deploy reconciliation are recorded below after release verification.

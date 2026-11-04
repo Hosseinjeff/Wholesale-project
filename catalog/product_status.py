@@ -44,8 +44,9 @@ class ProductStatusLedger:
         return hashlib.sha256(material.encode('utf-8')).hexdigest()
 
     @staticmethod
-    def _state(record, supplier_evidence=None):
+    def _state(record, supplier_evidence=None, source_integrity_issues=None):
         supplier_evidence = supplier_evidence or {}
+        source_integrity_issues = list(source_integrity_issues or [])
         approval = str(record.get('Reference Approval State') or '')
         status = str(record.get('Status') or '')
         reference_due = approval in {'outside_margin', 'reference_missing', 'price_unavailable'}
@@ -64,7 +65,8 @@ class ProductStatusLedger:
             reference_update_needed = False
         supplier_state = str(supplier_evidence.get('state') or '')
         supplier_due = supplier_state in {'blocked', 'needs_review'}
-        update_needed = update_needed or supplier_due
+        source_integrity_due = bool(source_integrity_issues)
+        update_needed = update_needed or supplier_due or source_integrity_due
         # Original source text and contact values remain in the sheet, not duplicated
         # in this private status history. The post URL is retained for owner review.
         record_copy = {key: value for key, value in record.items()
@@ -88,16 +90,19 @@ class ProductStatusLedger:
             'supplier_price_state': supplier_state,
             'supplier_price_verified_at': str(supplier_evidence.get('verified_at') or ''),
             'supplier_price_update_due': supplier_due,
+            'source_integrity_issues': source_integrity_issues,
+            'source_integrity_update_due': source_integrity_due,
             'update_needed': bool(update_needed),
             'review_reason': str(record.get('Reference Review Reason') or ''),
             'product_record': record_copy,
         }
 
-    def capture(self, rows, *, reason, supplier_evidence=None, now=None):
+    def capture(self, rows, *, reason, supplier_evidence=None, source_integrity=None, now=None):
         if not isinstance(rows, list) or not rows or not isinstance(rows[0], list):
             rows = []
         headers = [str(value or '') for value in (rows[0] if rows else [])]
         safe_evidence = supplier_evidence or {}
+        safe_integrity = source_integrity or {}
         records = []
         for raw in rows[1:]:
             record = {header: raw[index] if index < len(raw) else ''
@@ -105,7 +110,8 @@ class ProductStatusLedger:
             if not record.get('Product Name') and not record.get('Product ID'):
                 continue
             offer_id = str(record.get('Latest Offer ID') or '')
-            state = self._state(record, safe_evidence.get(offer_id))
+            product_id = str(record.get('Product ID') or '').strip()
+            state = self._state(record, safe_evidence.get(offer_id), safe_integrity.get(product_id))
             records.append((self._key(record), state['product_name'], state))
         records.sort(key=lambda item: item[0])
         captured_at = (now or datetime.now(timezone.utc)).astimezone(timezone.utc).isoformat()
@@ -176,6 +182,12 @@ def capture_from_store(store, database, *, reason):
 
     rows = _fresh_read(store, 'Products')
     _, records = _records(rows)
+    offers_rows = _fresh_read(store, 'Offers')
+    _, offer_records = _records(offers_rows)
+    from catalog.source_integrity import product_offer_link_issues
+    source_integrity = {str(item.get('product_id') or ''): item.get('codes') or []
+                        for item in product_offer_link_issues(records, offer_records)
+                        if item.get('product_id')}
     now = datetime.now(timezone.utc)
     freshness = PriceFreshness(database)
     evidence = {}
@@ -186,4 +198,4 @@ def capture_from_store(store, database, *, reason):
         revision = source_price_revision(record)
         evidence[offer_id] = freshness.state(offer_id, now=now, expected_revision=revision)
     return ProductStatusLedger(database).capture(rows, reason=reason,
-                                                 supplier_evidence=evidence, now=now)
+        supplier_evidence=evidence, source_integrity=source_integrity, now=now)

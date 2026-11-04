@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 
 import requests
 
+from catalog.source_integrity import product_offer_link_issues
 from catalog.sync import _records
 
 
@@ -107,6 +108,7 @@ def build_reconciliation_report(store, queue, *, site_url: str, limit: int = 200
     messages = _read_rows(store, 'MessageData')
     offers = _read_rows(store, 'Offers')
     products = _read_rows(store, 'Products')
+    source_integrity_issues = product_offer_link_issues(products,offers)
     message_index: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
     for row in messages:
         key = (_text(row.get('ID')), _text(row.get('Channel Username')), _text(row.get('Batch ID')))
@@ -155,6 +157,7 @@ def build_reconciliation_report(store, queue, *, site_url: str, limit: int = 200
         'offers': 0, 'offers_needing_review': 0, 'products': 0,
         'publication_done': 0, 'publication_pending': 0,
         'woo_missing': 0, 'woo_blocked': 0,
+        'products_with_source_integrity_issues': len(source_integrity_issues),
     }
     latency_samples = []
     for receipt in receipt_data['receipts']:
@@ -338,5 +341,11 @@ def build_reconciliation_report(store, queue, *, site_url: str, limit: int = 200
         'generated_at': datetime.now(timezone.utc).isoformat(),
         'summary': totals,
         'validation': validation,
+        'source_integrity': {
+            'products_checked': len(products),
+            'products_with_issues': len(source_integrity_issues),
+            'issues': source_integrity_issues[:limit],
+            'issues_truncated': len(source_integrity_issues) > limit,
+        },
         'receipts': receipt_rows,
     }

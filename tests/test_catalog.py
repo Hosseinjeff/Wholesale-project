@@ -7,6 +7,9 @@ from catalog.sync import (
     MemoryStore,
     SheetsRest,
     _product_id,
+    _append_at_next_row,
+    _verify_offer_ids_written,
+    import_product_data,
     extend_header_row,
     finalize_batch,
     grid_expansion_requests,
@@ -710,6 +713,47 @@ class RecordingSheets:
 
 
 class SheetTransportTests(unittest.TestCase):
+    def test_product_book_is_not_updated_when_offer_append_is_missing_or_duplicated(self):
+        store = MemoryStore()
+        store.sheets['Offers'] = [['Offer ID'], ['offer-1'], ['offer-1']]
+        with self.assertRaisesRegex(RuntimeError, 'offer_write_unverified'):
+            _verify_offer_ids_written(store, ['offer-1'])
+        store.sheets['Offers'] = [['Offer ID']]
+
+        class LostOfferStore(MemoryStore):
+            def append(self, name, rows):
+                if name != 'Offers':
+                    super().append(name, rows)
+
+        store = LostOfferStore()
+        result = import_product_data(store, {
+            'id':'message-1','batch_id':'batch-1','channel':'telegram',
+            'channel_username':'@supplier','timestamp':'2026-11-01T10:00:00Z',
+            'source_timestamp_basis':'supplier_channel_forward','content':'Tea offer',
+        }, prepared_products=[{
+            'name':'Tea','sale_price':50000,'consumer_price':75000,'actual_price':75000,
+            'price':50000,'currency':'IRT','packaging':'12 عددی','stock_status':'Unknown',
+            'confidence':0.99,'extraction_confidence':0.99,
+        }])
+        self.assertFalse(result['success'])
+        self.assertEqual(len(store.read('Products')), 1)
+
+    def test_sheet_append_helper_uses_atomic_append_without_row_number_read(self):
+        class AppendStore:
+            def __init__(self):
+                self.rows = []
+                self.read_called = False
+            def append(self, name, rows):
+                self.rows.append((name, rows))
+            def read(self, name):
+                self.read_called = True
+                raise AssertionError('append must not depend on a cached row count')
+
+        store = AppendStore()
+        _append_at_next_row(store, 'Offers', ['Offer ID'], [['offer-1']])
+        self.assertFalse(store.read_called)
+        self.assertEqual(store.rows, [('Offers', [['offer-1']])])
+
     def test_read_and_append_use_small_rest_calls(self):
         http = RecordingSheets()
         store = GoogleSheetStore("sheet-id", {}, http=http)

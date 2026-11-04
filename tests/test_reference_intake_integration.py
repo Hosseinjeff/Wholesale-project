@@ -1,9 +1,18 @@
 import json,unittest
 from datetime import datetime,timezone
+from unittest.mock import patch
 from catalog.sync import MemoryStore,finalize_batch
 from reference_import.importer import parse_rows
 
+def _deterministic_products(content,channel):
+ from catalog.extract import extract_products
+ return extract_products(content,channel)
+
 class IntakeReferenceIntegrationTests(unittest.TestCase):
+ def setUp(self):
+  extractor=patch('catalog.sync._extract_supplier_products',side_effect=_deterministic_products)
+  extractor.start();self.addCleanup(extractor.stop)
+
  def test_batch_records_snapshot_match_and_preserves_supplier_price(self):
   store=MemoryStore();now=datetime.now(timezone.utc).isoformat()
   msg='کنسرو ماهی ۱۸۰ گرمی تاپ\nدونه ای: ۵۲,۰۰۰ تومان\nقیمت مصرف: ۶۵,۰۰۰ تومان\nتعداد در باکس: ۲۴ عددی'
@@ -49,6 +58,10 @@ class IntakeReferenceIntegrationTests(unittest.TestCase):
 if __name__=='__main__':unittest.main()
 
 class ReferenceQueueIntegrationTests(unittest.TestCase):
+ def setUp(self):
+  extractor=patch('catalog.sync._extract_supplier_products',side_effect=_deterministic_products)
+  extractor.start();self.addCleanup(extractor.stop)
+
  def test_missing_snapshot_waits_without_publishing_and_decision_api_is_protected(self):
   import os,tempfile
   from pathlib import Path
@@ -91,14 +104,14 @@ class ReferenceQueueIntegrationTests(unittest.TestCase):
    version=snapshot_store.stage(snapshot);snapshot_store.review(version,actor_id='wp:7',note='synthetic coverage')
    snapshot_store.activate(version,actor_id='wp:7',expected_active_id=None)
    queue=Handoffs(db);queue.receive({'id':'m1','content':msg,'channel_username':'@bonakdarjavan'});job=queue.batch()
-   store=MemoryStore();env={'REFERENCE_STORE_PATH':ref,'REFERENCE_OWNER_IDS':'wp:7','REFERENCE_BRIDGE_TOKEN':'synthetic-reference-token-1234567890'}
+   store=MemoryStore();env={'REFERENCE_STORE_PATH':ref,'PIPELINE_DB_PATH':db,'REFERENCE_OWNER_IDS':'wp:7','REFERENCE_BRIDGE_TOKEN':'synthetic-reference-token-1234567890'}
    with patch.dict(os.environ,env),patch.object(app,'USE_SHEETS',True),patch.object(app,'ensure_telegram_webhook'),patch.object(app,'build_store',return_value=store),patch.object(app,'publish_shop') as publish:
     app.run_durable_handoff(queue,job)
     self.assertEqual(queue.get(job)['state'],'waiting_reference');publish.assert_not_called()
     client=app.app.test_client();headers={'X-Molavi-Reference-Token':env['REFERENCE_BRIDGE_TOKEN'],'X-Molavi-Actor':'wp:7'}
     response=client.post('/reference/decisions',json={'event_id':'stale:'+version,'snapshot_id':version,'choice':'use_last_snapshot'},headers=headers)
     self.assertEqual(response.status_code,200)
-    with queue.connect() as conn:conn.execute('UPDATE jobs SET available=0 WHERE id=?',(job,))
+    self.assertEqual(queue.get(job)['state'],'queued')
     app.run_durable_handoff(queue,job)
    self.assertEqual(queue.get(job)['state'],'done')
    h,r=store.read('Offers')[0],store.read('Offers')[-1]

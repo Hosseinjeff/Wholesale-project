@@ -49,6 +49,7 @@ class GuardTests(unittest.TestCase):
   waiting=self.queue.get(publish_id)
   self.assertEqual(waiting['state'],'waiting_publication')
   self.assertEqual(waiting['error'],'publication_held_for_review')
+  self.assertIsNone(self.queue.claim())
   self.queue.resolve_publication_hold('batch-1',expected_reason='batch_unverified',actor_id='wp:7',
    note='Reviewed the batch before replay.',resume_batch=True)
   self.assertEqual(self.queue.get(publish_id)['state'],'queued')

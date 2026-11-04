@@ -22,6 +22,7 @@ def import_offer(store, batch, post, consumer='۶۵,۰۰۰', sale='۵۲,۰۰۰')
     return finalize_batch(store, {'batch_id': batch, 'expected_count': 1, 'messages': [{
         'id': post, 'channel': 'telegram', 'channel_username': '@bonakdarjavan', 'content': content,
         'timestamp': datetime.now(timezone.utc).isoformat(),
+        'source_timestamp_basis': 'supplier_channel_update',
     }]})
 
 

@@ -373,11 +373,12 @@ class Handoffs:
                     raise JobConflict('batch must reach review state before replay')
                 db.execute("UPDATE jobs SET state='queued',available=?,lease=NULL,expires=NULL,error=NULL WHERE id=?",
                            (time.time(),'batch:'+hold_id))
-                db.execute("""UPDATE jobs SET state='queued',available=?,lease=NULL,expires=NULL,error=NULL
-                    WHERE kind='publish' AND state='waiting_publication'""",(time.time(),))
             db.execute('INSERT INTO publication_hold_resolutions VALUES (NULL,?,?,?,?,?)',
                        (hold_id,expected_reason,actor_id,note,time.time()))
             db.execute('DELETE FROM publication_holds WHERE hold_id=?',(hold_id,))
+            if not db.execute('SELECT 1 FROM publication_holds LIMIT 1').fetchone():
+                db.execute("""UPDATE jobs SET state='queued',available=?,lease=NULL,expires=NULL,error=NULL
+                    WHERE kind='publish' AND state='waiting_publication'""",(time.time(),))
 
     def resolve_publication_holds(self, holds, *, actor_id, note):
         """Atomically authorize one replay for a selected set of held batches."""
@@ -414,9 +415,30 @@ class Handoffs:
                 db.execute('INSERT INTO publication_hold_resolutions VALUES (NULL,?,?,?,?,?)',
                            (item['hold_id'],item['expected_reason'],actor_id,note.strip(),now))
                 db.execute('DELETE FROM publication_holds WHERE hold_id=?',(item['hold_id'],))
-            db.execute("""UPDATE jobs SET state='queued',available=?,lease=NULL,expires=NULL,error=NULL
-                WHERE kind='publish' AND state='waiting_publication'""",(now,))
+            if not db.execute('SELECT 1 FROM publication_holds LIMIT 1').fetchone():
+                db.execute("""UPDATE jobs SET state='queued',available=?,lease=NULL,expires=NULL,error=NULL
+                    WHERE kind='publish' AND state='waiting_publication'""",(now,))
         return [item['hold_id'] for item in prepared]
+
+    def wake_reference_waiters(self):
+        """Queue batches parked for reference review after an owner clears the gate."""
+        now=time.time()
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            changed=db.execute("""UPDATE jobs SET state='queued',available=?,lease=NULL,expires=NULL,error=NULL
+                WHERE kind='batch' AND state='waiting_reference'""",(now,))
+        return int(changed.rowcount)
+
+    def wake_publication_waiters_if_unblocked(self):
+        """Queue held publication jobs only after every publication hold is cleared."""
+        now=time.time()
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            if db.execute('SELECT 1 FROM publication_holds LIMIT 1').fetchone():
+                return 0
+            changed=db.execute("""UPDATE jobs SET state='queued',available=?,lease=NULL,expires=NULL,error=NULL
+                WHERE kind='publish' AND state='waiting_publication'""",(now,))
+        return int(changed.rowcount)
 
     def record_sheet_conflict(self, conflict):
         required=('conflict_id','product_id','product_name','channel','field','source_revision')
@@ -740,7 +762,7 @@ class Handoffs:
         now=time.time(); lease=uuid.uuid4().hex
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
-            row=db.execute('''SELECT * FROM jobs WHERE (state IN ('queued','waiting_reference','waiting_publication') AND available<=?
+            row=db.execute('''SELECT * FROM jobs WHERE (state='queued' AND available<=?
                 OR state='running' AND expires<?) AND (? IS NULL OR id=?) ORDER BY rowid LIMIT 1''',
                 (now,now,job_id,job_id)).fetchone()
             if not row:return None

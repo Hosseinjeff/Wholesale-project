@@ -17,6 +17,10 @@ class HandoffTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
         self.path=str(Path(self.tmp.name)/'pipeline.sqlite');self.queue=Handoffs(self.path)
+        from catalog.extract import extract_products
+        extractor=patch('catalog.sync._extract_supplier_products',
+            side_effect=lambda content,channel:extract_products(content,channel))
+        extractor.start();self.addCleanup(extractor.stop)
         self.store=MemoryStore()
         self.message=dict(id='post-1',channel='telegram',channel_username='@bonakdarjavan',content=TEXT,chat_id=7)
         self.adapters=dict(finalize=lambda p:finalize_batch(self.store,p),
@@ -82,6 +86,27 @@ class HandoffTests(unittest.TestCase):
         new=self.queue.claim()
         with self.assertRaises(JobConflict):self.queue.finish(old,{})
         self.queue.finish(new,{'written':True})
+
+    def test_reference_waiting_batch_stays_parked_until_owner_gate_clears(self):
+        self.queue.receive(self.message);batch=self.queue.batch()
+        with self.queue.connect() as db:
+            db.execute("UPDATE jobs SET state='waiting_reference',error='reference_decision_required' WHERE id=?",(batch,))
+        self.assertIsNone(self.queue.claim())
+        self.assertEqual(self.queue.wake_reference_waiters(),1)
+        claimed=self.queue.claim(batch)
+        self.assertIsNotNone(claimed)
+        self.assertEqual(self.queue.get(batch)['state'],'running')
+        self.assertEqual(claimed['attempts'],1)
+
+    def test_waiting_publication_is_parked_until_last_hold_clears(self):
+        self.queue.hold_publication('batch-blocked','batch_unverified')
+        publish=self.queue.put('publish','blocked',{'batch_id':'batch-blocked'})
+        with self.queue.connect() as db:
+            db.execute("UPDATE jobs SET state='waiting_publication' WHERE id=?",(publish,))
+        self.assertIsNone(self.queue.claim())
+        self.queue.resolve_publication_hold('batch-blocked',expected_reason='batch_unverified',
+            actor_id='wp:7',note='Owner verified the batch.',resume_batch=False)
+        self.assertEqual(self.queue.get(publish)['state'],'queued')
 
     def test_stable_batch_retry_does_not_duplicate_raw_messages_or_offers(self):
         self.queue.receive(self.message);batch=self.queue.batch();job=self.queue.claim(batch)

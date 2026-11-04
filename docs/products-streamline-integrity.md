@@ -87,3 +87,49 @@ review-needed receipts remain intact. Older failed work is deliberately not repl
 as a bulk operation: it needs a bounded reconciliation against its Sheets and Woo
 receipts first, so retries cannot create duplicate offers or resurrect withdrawn
 products.
+
+## 2026-11-04 end-to-end audit
+
+The owner’s Telegram private chat is the authorized operator. That authenticates who
+submitted a message; it does not turn the owner’s send time into a supplier update
+time. New intake records now distinguish a direct supplier-channel update, a forwarded
+supplier-channel post, an owner submission, and a forward without supplier source time.
+Only Telegram channel updates and channel-origin forwards create automatic supplier
+freshness evidence. An owner-submitted post can still be reviewed and priced, but it
+needs an explicit current-price verification before its send time can reopen the shelf.
+That price decision does not set stock to available. Explicit supplier sold-out text
+still holds the item; omitted stock stays Unknown.
+
+A read-only live Sheets audit found 125 Products rows and 460 Offers rows. Ten current
+Products rows pointed to a Latest Offer ID with no matching Offers row. Five of those
+products were still purchasable in WooCommerce. The re-extraction IDs on most affected
+rows and the prior writer's separate read-then-write row allocation make a concurrent
+append overwriting an Offer row a credible failure mechanism; the live ledger alone
+cannot prove that this caused every missing row. The current implementation uses
+Google Sheets' atomic append and verifies each Offer ID exists exactly once before it
+updates the current Products pointer. Catalog publication independently holds any
+row whose Offer ID, immutable source fields, or source post URL no longer match its
+Offer evidence. The owner workbench shows these cases on the product card and the
+reconciliation report; it does not invent replacement Offer evidence.
+
+One duplicate Product ID was repaired in the live Products sheet before this release
+by replacing only the duplicate cell with the canonical stable ID. The follow-up audit
+found all 125 Product IDs unique. The ten orphaned Offer pointers remain source-recovery
+work; their product data is held from Woo until the source Offer is restored from
+verifiable evidence.
+
+The durable worker previously reclaimed `waiting_reference` and `waiting_publication`
+jobs on timer backoff even when only an owner action could unblock them. The live queue
+had a batch at 836 attempts and 63 receipts at 100 or more attempts. These wait states
+now stay parked. A successful owner reference decision or snapshot activation wakes
+reference waiters; clearing the final publication hold wakes publication waiters.
+The worker also performs safe recovery on startup. This stops pointless retries while
+preserving each receipt for audit.
+
+The remaining source timestamp limitation is Telegram's lack of supplier edit time in
+a forwarded message. Forwarding an old post again cannot refresh the supplier clock.
+For automatic edit capture, the bot must receive the supplier channel's
+`edited_channel_post`; otherwise the owner must verify the current price from the
+original source. WordPress continues to persist each dashboard decision context,
+decision, and server receipt in its owner-review table, while Railway retains the
+durable execution queue and supplier freshness ledger.

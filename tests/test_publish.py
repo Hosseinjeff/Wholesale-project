@@ -20,6 +20,11 @@ def _store() -> MemoryStore:
         "Min Qty",
         "Image File ID",
         "Packaging",
+        "Product ID",
+        "Latest Offer ID",
+        "Channel",
+        "Batch ID",
+        "Message Timestamp",
     ], [
         "آب سودا",
         "50000",
@@ -30,6 +35,11 @@ def _store() -> MemoryStore:
         "6",
         "AgACAgQAAxkBAAIB",
         "۶ عددی",
+        "stable-soda",
+        "offer-soda",
+        "telegram",
+        "batch-soda",
+        "1700000000",
     ], [
         "خراب",
         "1000",
@@ -40,6 +50,11 @@ def _store() -> MemoryStore:
         "",
         "",
         "",
+        "stable-bad",
+        "offer-bad",
+        "telegram",
+        "batch-bad",
+        "1700000001",
     ], [
         "بدون قیمت",
         "",
@@ -50,6 +65,16 @@ def _store() -> MemoryStore:
         "",
         "",
         "",
+        "",
+        "",
+        "",
+        "",
+        "",
+    ]]
+    store.sheets["Offers"] = [["Offer ID", "Product Name", "Channel Username", "Channel", "Batch ID", "Message Timestamp"], [
+        "offer-soda", "آب سودا", "@bonakdarjavan", "telegram", "batch-soda", "1700000000",
+    ], [
+        "offer-bad", "خراب", "@top_shop_rahimi", "telegram", "batch-bad", "1700000001",
     ]]
     store.sheets["Shop"] = [["Min Margin", "0.12"]]
     return store
@@ -118,6 +143,13 @@ class PublishTests(unittest.TestCase):
 
     def test_missing_sheet_is_not_an_empty_catalog(self):
         self.assertIsNone(site_products(MemoryStore()))
+
+    def test_product_with_missing_latest_offer_is_held(self):
+        store=_store()
+        store.sheets["Products"][1][store.sheets["Products"][0].index("Latest Offer ID")]='missing-offer'
+        product=next(item for item in site_products(store) if item['name']=='آب سودا')
+        self.assertEqual(product['status'],'hold')
+        self.assertEqual(product['source_integrity_issues'],['offer_not_found'])
 
     def test_publish_skips_when_unconfigured(self):
         with patch.dict(os.environ, {"SHOP_SITE_URL": "", "SHOP_NOTIFY_SECRET": ""}, clear=False):

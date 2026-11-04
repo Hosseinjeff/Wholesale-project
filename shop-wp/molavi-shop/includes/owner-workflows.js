@@ -354,6 +354,8 @@
     }
 
     function workbenchActionKey(product) {
+        if (product.status && Array.isArray(product.status.source_integrity_issues)
+            && product.status.source_integrity_issues.length) return 'source_integrity';
         if (product.ai.length) return 'ai';
         if (product.references.length) return 'references';
         if (product.conflicts.length) return 'conflicts';
@@ -365,6 +367,7 @@
 
     function workbenchNextStep(product, queue = workbenchQueue) {
         const key = queue === 'next' ? workbenchActionKey(product) : queue;
+        if (key === 'source_integrity') return 'اقدام بعدی: پیوند پیشنهاد منبع را بازیابی کنید؛ تا آن زمان کالا روی سایت متوقف می‌ماند.';
         if (key === 'ai') return 'اقدام بعدی: اطلاعات استخراج‌شده را بررسی و تأیید یا اصلاح کنید.';
         if (key === 'references') return 'اقدام بعدی: مرجع درست و مبنای قیمت را انتخاب کنید.';
         if (key === 'conflicts') return 'اقدام بعدی: مقدار سرور را نگه دارید؛ فقط اگر خودتان شیت را دستی تغییر داده‌اید، اصلاح شیت را به فروشگاه بفرستید.';
@@ -375,13 +378,15 @@
     }
 
     function workbenchPriority(product) {
-        if (product.ai.length) return 0;
-        if (product.references.length) return 1;
-        if (product.conflicts.length) return 2;
-        if (workbenchPendingSupplierPrices(product)) return 3;
-        if (product.holds.length) return 4;
-        if (product.status && product.status.update_needed) return 5;
-        return 6;
+        if (product.status && Array.isArray(product.status.source_integrity_issues)
+            && product.status.source_integrity_issues.length) return 0;
+        if (product.ai.length) return 1;
+        if (product.references.length) return 2;
+        if (product.conflicts.length) return 3;
+        if (workbenchPendingSupplierPrices(product)) return 4;
+        if (product.holds.length) return 5;
+        if (product.status && product.status.update_needed) return 6;
+        return 7;
     }
 
     async function dashboard(message = '', messageKind = 'info', refreshKeys = null) {
@@ -699,9 +704,15 @@
                     ? 'قیمت تأیید شد؛ انتشار دوباره در صف است'
                     : ({warning:'نیاز به بررسی تازه',blocked:'قیمت کهنه؛ سفارش متوقف است',needs_review:'مدرک قیمت نیاز به بررسی دارد'}[offer.state] || offer.state || 'نیازمند بررسی');
                 section.appendChild(node('p', `${offer.channel || product.channel || 'تأمین‌کننده نامشخص'} · قیمت: ${amount(offer.sale_price)} · ${statusText}`));
-                if (offer.source_timestamp) section.appendChild(node('p', `زمان منبع: ${offer.source_timestamp}`));
+                if (offer.source_timestamp) {
+                    const timeLabel=offer.source_timestamp_trusted?'زمان به‌روزرسانی تأمین‌کننده':'زمان پیام ارسالی';
+                    section.appendChild(node('p', `${timeLabel}: ${offer.source_timestamp}`));
+                }
                 const sourceLink = safeSourceLink(offer.source_post_url);
                 if (sourceLink) section.appendChild(sourceLink);
+                if (!offer.source_timestamp_trusted && !offer.acknowledged) {
+                    section.appendChild(notice('این پیام از حساب مالک رسیده یا زمان اصلی تأمین‌کننده را ندارد؛ تاریخ ارسال به‌تنهایی تازگی قیمت را ثابت نمی‌کند. قیمت را از منبع فعلی بررسی کنید. این تأیید فقط قیمت است و وضعیت موجودی را تغییر نمی‌دهد.', 'warning'));
+                }
                 const sourceRevision = String(offer.source_revision || '').trim();
                 const verify = node('button', offer.acknowledged ? 'قیمت تأیید شد' : 'منبع فعلی را دیدم؛ قیمت تأیید است', 'button button-primary');
                 verify.type = 'button';
@@ -857,6 +868,18 @@
                 section.appendChild(node('small', 'اگر یک دسته چند محصول دارد، جزئیات و اقدام مشترک آن فقط یک بار در بخش «دسته‌های متوقف‌شده» نمایش داده می‌شود.'));
                 addWorkflowSection(section, 'holds');
             }
+            if (Array.isArray(status.source_integrity_issues) && status.source_integrity_issues.length) {
+                const section = node('section', null, 'molavi-product-subsection molavi-product-hold');
+                section.appendChild(node('h3', 'پیوند پیشنهاد منبع شکسته است'));
+                const labels={missing_product_id:'شناسه کالا ثبت نشده',duplicate_product_id:'شناسه کالا تکراری است',
+                    missing_latest_offer:'شناسه پیشنهاد منبع ثبت نشده',offer_not_found:'پیشنهاد منبع در Offers پیدا نشد',
+                    duplicate_offer_id:'شناسه پیشنهاد تکراری است',source_provenance_mismatch:'اطلاعات مبدأ با پیشنهاد ثبت‌شده نمی‌خواند'};
+                section.appendChild(node('p',status.source_integrity_issues.map(code=>labels[code]||code).join(' · ')));
+                const source = safeSourceLink(status.source_post_url);
+                if (source) section.appendChild(source);
+                section.appendChild(notice('این کالا تا بازیابی پیوند منبع در فروشگاه منتشر نمی‌شود. جزئیات و پست اصلی را بررسی کنید؛ دادهٔ Offer حدس زده یا بازسازی خودکار نمی‌شود.', 'warning'));
+                addWorkflowSection(section, 'source_integrity');
+            }
             if (status.update_needed || status.review_reason || status.source_post_url) {
                 const details = document.createElement('details');
                 details.open = primaryKey === 'status';
@@ -880,6 +903,7 @@
 
         const queueDefinitions = [
             {key:'next',label:'همه کارهای باز',matches:attention},
+            {key:'source_integrity',label:'پیوند منبع',matches:product=>Boolean(product.status && Array.isArray(product.status.source_integrity_issues) && product.status.source_integrity_issues.length)},
             {key:'ai',label:'استخراج',matches:product=>product.ai.length>0},
             {key:'references',label:'تطبیق مرجع',matches:product=>product.references.length>0},
             {key:'conflicts',label:'تعارض شیت',matches:product=>product.conflicts.length>0},
@@ -1138,8 +1162,25 @@
                 try {
                     const url=new URL('/pipeline/reconciliation?limit=200',config.apiUrl).toString();
                     const result=await request('GET',undefined,url); const summary=result.summary||{}; const validation=result.validation||{};
-                    report.replaceChildren(node('p',`پیام‌ها: ${summary.receipts||0} · کالاهای فعلی: ${summary.products||0} · نیازمند بررسی: ${summary.offers_needing_review||0} · انتشار کامل: ${summary.publication_done||0} · انتظار/خطا: ${summary.publication_pending||0} · SKU ناموجود: ${summary.woo_missing||0} · زمان: ${result.generated_at||'نامشخص'}`));
+                    const sourceIntegrity=result.source_integrity||{};
+                    report.replaceChildren(node('p',`پیام‌ها: ${summary.receipts||0} · کالاهای فعلی: ${summary.products||0} · نیازمند بررسی: ${summary.offers_needing_review||0} · پیوند منبع شکسته: ${sourceIntegrity.products_with_issues||0} · انتشار کامل: ${summary.publication_done||0} · انتظار/خطا: ${summary.publication_pending||0} · SKU ناموجود: ${summary.woo_missing||0} · زمان: ${result.generated_at||'نامشخص'}`));
                     report.appendChild(node('p',`وضعیت اتصال فروشگاه: ${({checked:'بررسی شد',truncated:'بررسی بخشی',unavailable:'در دسترس نیست',not_configured:'تنظیم نشده'}[validation.woo_state])||validation.woo_state||'نامشخص'}`));
+                    const linkIssues=Array.isArray(sourceIntegrity.issues)?sourceIntegrity.issues:[];
+                    if(linkIssues.length){
+                        const details=document.createElement('details');
+                        details.appendChild(node('summary',`محصولات نیازمند بازیابی پیشنهاد منبع (${sourceIntegrity.products_with_issues||linkIssues.length})`));
+                        const labels={missing_product_id:'شناسه کالا ثبت نشده',duplicate_product_id:'شناسه کالا تکراری است',missing_latest_offer:'شناسه پیشنهاد منبع ثبت نشده',offer_not_found:'پیشنهاد منبع در فهرست Offers پیدا نشد',duplicate_offer_id:'شناسه پیشنهاد تکراری است',source_provenance_mismatch:'اطلاعات مبدأ با پیشنهاد ثبت‌شده نمی‌خواند'};
+                        linkIssues.forEach(item=>{
+                            const line=document.createElement('li');
+                            const codes=(item.codes||[]).map(code=>labels[code]||code).join('، ');
+                            line.appendChild(document.createTextNode(`${item.product_name||'کالای بدون نام'} · ${item.channel||'کانال نامشخص'} · ${codes}`));
+                            let sourceUrl='';
+                            try { const parsed=new URL(item.source_post_url||''); if(parsed.protocol==='https:'&&['t.me','www.t.me','bale.ai','www.bale.ai'].includes(parsed.hostname)) sourceUrl=parsed.href; } catch(_ignored) {}
+                            if(sourceUrl){ const link=document.createElement('a');link.href=sourceUrl;link.target='_blank';link.rel='noopener noreferrer';link.textContent=' · پست منبع';line.appendChild(link); }
+                            details.appendChild(line);
+                        });
+                        report.appendChild(details);
+                    }
                 } catch(error) { report.replaceChildren(notice(errorText(error.message),'error')); }
                 finally { reportButton.disabled=false; }
             });

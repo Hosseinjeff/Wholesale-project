@@ -22,6 +22,7 @@ from catalog.extract import minimum_purchase
 from catalog.media import safe_file_id
 from catalog.pricing import settings_from_rows
 from catalog.stock import normalize_stock_status
+from catalog.source_integrity import product_offer_link_issues
 from catalog.sync import (
     GoogleSheetStore,
     MemoryStore,
@@ -56,6 +57,19 @@ def site_products(store: MemoryStore | GoogleSheetStore) -> list[dict[str, Any]]
     if not rows:
         return None
     _headers, records = _records(rows)
+    try:
+        offer_rows = store.read_fresh('Offers') if callable(getattr(store,'read_fresh',None)) else store.read('Offers')
+    except Exception:
+        logger.exception('Offer evidence sheet unreadable; refusing catalog publication')
+        return None
+    offer_records = _records(offer_rows)[1]
+    source_issues = product_offer_link_issues(records,offer_records)
+    source_issue_by_row = {int(issue['row_number'])-2:issue for issue in source_issues}
+    if source_issues:
+        logger.warning('Holding products with broken latest-offer links count=%s',len(source_issues))
+    if any('duplicate_product_id' in issue['codes'] for issue in source_issues):
+        logger.error('Duplicate Product IDs prevent a complete safe catalog snapshot')
+        return None
     freshness={}
     conflicted_products=set()
     freshness_path=os.getenv('PIPELINE_DB_PATH') or ''
@@ -71,7 +85,7 @@ def site_products(store: MemoryStore | GoogleSheetStore) -> list[dict[str, Any]]
             logger.exception('Supplier price freshness unavailable; refusing publication')
             return None
     products = []
-    for record in records:
+    for row_index,record in enumerate(records):
         status = str(record.get("Status") or "").strip().lower()
         held = status in {"skipped", "needs_review", "not_product"}
         name = _trim_name(record.get("Product Name"))
@@ -81,6 +95,7 @@ def site_products(store: MemoryStore | GoogleSheetStore) -> list[dict[str, Any]]
             continue
         if sale<=0 and not held and not source_record_id:
             continue
+        source_issue=source_issue_by_row.get(row_index)
         channel = str(record.get("Channel Username") or "").strip()
         evidence=freshness.get(source_record_id,{})
         freshness_state=evidence.get('state','current' if not freshness_path else 'needs_review')
@@ -92,7 +107,7 @@ def site_products(store: MemoryStore | GoogleSheetStore) -> list[dict[str, Any]]
         }.get(stock_status, "unknown")
         held=(held or not name or sale<=0 or shelf<=sale or
               freshness_state not in {'current','warning'} or source_record_id in conflicted_products
-              or availability == 'outofstock')
+              or availability == 'outofstock' or source_issue is not None)
         minimum = _positive_price(record.get("Min Qty")) or minimum_purchase(
             str(record.get("Packaging") or ""),
             name,
@@ -129,6 +144,8 @@ def site_products(store: MemoryStore | GoogleSheetStore) -> list[dict[str, Any]]
             "image_file_id": safe_file_id(record.get("Image File ID")),
             "status": "hold" if held else "sell",
             "supplier_availability": availability,
+            "source_integrity_state": "blocked" if source_issue else "verified",
+            "source_integrity_issues": source_issue.get('codes',[]) if source_issue else [],
         }
         if freshness_path:
             published.update({

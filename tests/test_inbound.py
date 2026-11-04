@@ -20,6 +20,7 @@ class InboundPayloadTests(unittest.TestCase):
         self.assertEqual(data["chat_id"], 42)
         self.assertEqual(data["content"], "hi")
         self.assertEqual(data["channel"], "telegram")
+        self.assertEqual(data["source_timestamp_basis"], "owner_submission")
 
     def test_forwarded_photo_caption_keeps_chat_id(self):
         data, source = inbound_payload({
@@ -41,6 +42,7 @@ class InboundPayloadTests(unittest.TestCase):
         self.assertEqual(data["chat_id"], 99)
         self.assertEqual(data["content"], "catalog")
         self.assertEqual(data["channel_username"], "@shop")
+        self.assertEqual(data["source_timestamp_basis"], "supplier_channel_forward")
 
     def test_bale_direct_message_keeps_chat_id(self):
         data, source = inbound_payload({
@@ -167,3 +169,4 @@ class WebhookRouteTests(unittest.TestCase):
         self.assertEqual(data['source_update_at'],1700003600)
         self.assertEqual(data['url'],'https://t.me/supplier/12')
         self.assertEqual(data['chat_type'],'channel')
+        self.assertEqual(data['source_timestamp_basis'],'supplier_channel_update')
