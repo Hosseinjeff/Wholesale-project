@@ -2,6 +2,31 @@
 
 Updated: 2026-11-03, Asia/Tehran
 
+## Latest live deployment — 2026-11-04, generic variant extraction and reference price role
+
+Commit `566bfb8957e3a60cf3ba10599abb9fc68a996a70` is live in WordPress and Railway.
+The cPanel uploader deployed and read back `includes/owner-workflows.js`; Railway
+deployment `ae46c5fd-4f9f-45b7-bdfe-088fb25fe662` succeeded from `main`. The public
+`/health` endpoint returned HTTP 200 with `healthy`, and Railway reports no pending work.
+
+Variant extraction and dashboard grouping now use the shared rules for flavors, tastes,
+colors, models, types, parenthetical lists, and bare lists. The extractor preserves prices
+scoped to specific variants, and the card reports variants missing from extraction. Persian
+variant normalization no longer drops letters because of a malformed punctuation range.
+Reference scale hints are preselected for review, and a saved package/unit role determines
+the final price action for that case.
+
+The live admin page and owner APIs returned HTTP 200. One historical review's existing
+reference assignment was corrected to package scale and read back successfully. Its final
+price and stock confirmation remain open: the case is a historical post, the public source
+channel's latest page had no newer matching quote, and stock is not stated. No price or stock
+attestation was submitted. All 26 open extraction cases are historical.
+
+Validation passed: 67 extraction/confirmation tests, the owner workbench interaction test,
+JavaScript syntax validation, and the Railway health check. An authenticated visual browser
+click-through was unavailable in this workspace; the live admin request, scoped API read-back,
+cPanel file verification, and interaction test cover the release.
+
 ## Latest live deployment — 2026-11-03, Sheet conflict card recovery
 
 WordPress plugin commit `40b6efa294021a1e8cd9ea5746ec118351cec4f8` is live; Railway
