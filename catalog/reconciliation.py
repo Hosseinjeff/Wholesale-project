@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import os
+import re
 import statistics
-from collections import defaultdict
+from collections import Counter, defaultdict
 from typing import Any
 from urllib.parse import urlparse
 
@@ -74,15 +76,85 @@ def _woo_catalog(site_url: str) -> dict[str, Any]:
         return {
             'state': 'truncated' if pages > 10 else 'checked',
             'products': found,
+            'identity_records': _woo_identity_records(site_url),
             'checked_at': datetime.now(timezone.utc).isoformat(),
         }
     except (requests.RequestException, ValueError):
         return {'state': 'unavailable', 'products': {}, 'checked_at': ''}
 
 
+def _woo_identity_records(site_url: str) -> list[dict[str, Any]] | None:
+    """Read private Woo IDs so preserved legacy SKUs do not look like missing products."""
+    secret = os.getenv('SHOP_NOTIFY_SECRET') or ''
+    parsed = urlparse(str(site_url or '').strip())
+    if (not secret or parsed.scheme != 'https' or not parsed.hostname
+            or parsed.username or parsed.password or parsed.path not in {'', '/'}
+            or parsed.query or parsed.fragment):
+        return None
+    try:
+        response = requests.get(
+            f'{parsed.scheme}://{parsed.netloc}/',
+            params={'molavi-sync': '1', 'mode': 'catalog_identity'},
+            timeout=(3, 8), allow_redirects=False,
+            headers={'Accept': 'application/json', 'X-Shop-Token': secret,
+                     'User-Agent': 'MolaviCatalogAudit/1'},
+        )
+        if response.status_code != 200:
+            return None
+        payload = response.json()
+        records = payload.get('products') if isinstance(payload, dict) and payload.get('ok') is True else None
+        if not isinstance(records, list) or len(records) > 2000:
+            return None
+        return [item for item in records if isinstance(item, dict)]
+    except (requests.RequestException, ValueError):
+        return None
+
+
+def _woo_identity_match(expected: dict[str, Any], woo: dict[str, Any]) -> tuple[dict[str, Any] | None, str]:
+    """Match through the durable source ID first, then safe unique identities."""
+    records = woo.get('identity_records')
+    if not isinstance(records, list):
+        return None, ''
+    checks = []
+    source_record_id = _text(expected.get('source_record_id'))
+    expected_sku = _text(expected.get('id'))
+    if source_record_id:
+        checks.append(('source_record_id', lambda row: _text(row.get('source_record_id')) == source_record_id))
+    if expected_sku:
+        checks.append(('source_sku', lambda row: _text(row.get('source_id')) == expected_sku))
+        checks.append(('sku', lambda row: _text(row.get('sku')) == expected_sku))
+    supplier = _text(expected.get('supplier')).casefold()
+    name = re.sub(r'\s+', ' ', _text(expected.get('display_name') or expected.get('product_name'))).casefold()
+    if supplier and name and not expected.get('supplier_name_ambiguous'):
+        checks.append(('supplier_name', lambda row:
+            _text(row.get('supplier')).casefold() == supplier
+            and re.sub(r'\s+', ' ', _text(row.get('name'))).casefold() == name))
+    for method, predicate in checks:
+        matches = [row for row in records if predicate(row)]
+        if len(matches) == 1:
+            return matches[0], method
+        if len(matches) > 1:
+            return None, 'ambiguous'
+    return None, ''
+
+
 def _woo_state_for(expected: dict[str, Any] | None, woo: dict[str, Any]) -> str:
     if not expected or expected.get('status') == 'no_projection':
         return 'no_catalog_projection'
+    identity, _matched_by = _woo_identity_match(expected, woo)
+    if identity is not None:
+        published = bool(identity.get('published'))
+        purchasable = bool(identity.get('purchasable'))
+        expected_status = _text(expected.get('status'))
+        if expected_status in {'hold', 'needs_review', 'not_product', 'skipped'}:
+            return 'held_but_purchasable' if published and purchasable else 'held'
+        if not published:
+            return 'not_visible'
+        if not purchasable:
+            return 'not_purchasable'
+        if _text(identity.get('sku')) != _text(expected.get('id')):
+            return 'sku_mismatch'
+        return 'purchasable'
     published = woo['products'].get(_text(expected.get('id')))
     expected_status = _text(expected.get('status'))
     if expected_status in {'hold', 'needs_review', 'not_product', 'skipped'}:
@@ -179,6 +251,9 @@ def build_reconciliation_report(store, queue, *, site_url: str, limit: int = 200
         expected_by_source[source_key] = {
             'product_id': source_id,
             'product_name': name,
+            'display_name': _text(projected.get('name')) if projected else name,
+            'supplier': _text(projected.get('supplier')) if projected else '',
+            'source_record_id': source_id,
             'channel': channel,
             'id': sku,
             'status': _text(projected.get('status')) if projected else ('hold' if projection_available else 'no_projection'),
@@ -188,6 +263,16 @@ def build_reconciliation_report(store, queue, *, site_url: str, limit: int = 200
             'source_integrity_codes': source_issue_by_row.get(row_number - 2, {}).get('codes', []),
         }
         expected_keys_by_product_id[source_id].append(source_key)
+    supplier_name_counts = Counter(
+        (_text(expected.get('supplier')).casefold(),
+         re.sub(r'\s+', ' ', _text(expected.get('display_name'))).casefold())
+        for expected in expected_by_source.values()
+        if _text(expected.get('supplier')) and _text(expected.get('display_name'))
+    )
+    for expected in expected_by_source.values():
+        identity = (_text(expected.get('supplier')).casefold(),
+                    re.sub(r'\s+', ' ', _text(expected.get('display_name'))).casefold())
+        expected['supplier_name_ambiguous'] = supplier_name_counts[identity] > 1
     woo = _woo_catalog(site_url)
     catalog_woo_states = {
         product_id: _woo_state_for(expected, woo)
@@ -203,6 +288,7 @@ def build_reconciliation_report(store, queue, *, site_url: str, limit: int = 200
         'purchasable': 0,
         'held': 0,
         'not_visible': 0,
+        'sku_mismatch': 0,
         'not_purchasable': 0,
         'supplier_out_of_stock': 0,
         'held_but_purchasable': 0,
@@ -214,8 +300,11 @@ def build_reconciliation_report(store, queue, *, site_url: str, limit: int = 200
     for state in catalog_woo_states.values():
         if state in catalog_counts:
             catalog_counts[state] += 1
+        if state == 'sku_mismatch':
+            # The product is live, but Woo retains a legacy SKU used by older orders.
+            catalog_counts['purchasable'] += 1
     detail_states = {
-        'not_visible', 'held_but_purchasable', 'ambiguous_product_id',
+        'not_visible', 'sku_mismatch', 'held_but_purchasable', 'ambiguous_product_id',
         'no_catalog_projection', 'not_checked', 'not_checked_catalog_truncated',
     }
     catalog_issue_details = []
@@ -223,11 +312,14 @@ def build_reconciliation_report(store, queue, *, site_url: str, limit: int = 200
         state = catalog_woo_states[source_key]
         if state not in detail_states:
             continue
+        identity, match_method = _woo_identity_match(expected, woo)
         catalog_issue_details.append({
             'product_id': expected['product_id'],
             'product_name': expected['product_name'],
             'channel': expected['channel'],
             'woo_sku': expected['id'],
+            'actual_woo_sku': _text(identity.get('sku')) if identity else '',
+            'woo_match_method': match_method,
             'state': state,
             'product_status': expected['status'],
             'latest_offer_id': expected['latest_offer_id'],

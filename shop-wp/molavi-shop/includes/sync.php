@@ -13,7 +13,19 @@ add_action('init', static function (): void {
     if (($_GET['molavi-sync'] ?? '') !== '1') {
         return;
     }
-    if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+    $method = (string) ($_SERVER['REQUEST_METHOD'] ?? '');
+    if ($method === 'GET' && ($_GET['mode'] ?? '') === 'catalog_identity') {
+        $secret = (string) (molavi_legacy_config()['notify_secret'] ?? '');
+        $sent = (string) ($_SERVER['HTTP_X_SHOP_TOKEN'] ?? '');
+        if ($secret === '' || $sent === '' || !hash_equals($secret, $sent)) {
+            molavi_sync_reply(['ok' => false, 'error' => 'unauthorized'], 401);
+        }
+        if (!function_exists('wc_get_product')) {
+            molavi_sync_reply(['ok' => false, 'error' => 'woocommerce'], 503);
+        }
+        molavi_sync_reply(['ok' => true, 'products' => molavi_catalog_identity_snapshot()]);
+    }
+    if ($method !== 'POST') {
         molavi_sync_reply(['ok' => false, 'error' => 'method'], 405);
     }
     $raw = file_get_contents('php://input');
@@ -46,6 +58,30 @@ function molavi_sync_reply(array $body, int $status = 200): void
     header('Content-Type: application/json; charset=utf-8');
     echo wp_json_encode($body);
     exit;
+}
+
+/** Return private identifiers for an authenticated reconciliation check. */
+function molavi_catalog_identity_snapshot(): array
+{
+    $index = molavi_product_index();
+    $products = [];
+    foreach ($index['managed'] as $productId) {
+        $product = wc_get_product((int) $productId);
+        if (!$product instanceof WC_Product) {
+            continue;
+        }
+        $products[] = [
+            'source_record_id' => (string) get_post_meta((int) $productId, '_molavi_supplier_offer_id', true),
+            'source_id' => (string) get_post_meta((int) $productId, '_molavi_source_id', true),
+            'sku' => (string) $product->get_sku(),
+            'name' => (string) $product->get_name(),
+            'supplier' => (string) get_post_meta((int) $productId, '_molavi_supplier', true),
+            'catalog_state' => (string) get_post_meta((int) $productId, '_molavi_catalog_state', true),
+            'published' => $product->get_status() === 'publish',
+            'purchasable' => (bool) $product->is_purchasable(),
+        ];
+    }
+    return $products;
 }
 
 function molavi_apply_catalog(array $payload): array

@@ -152,6 +152,48 @@ class ReconciliationReportTests(unittest.TestCase):
         self.assertEqual(report['catalog_woo']['issues'][0]['state'], 'not_visible')
         self.assertEqual(report['summary']['woo_missing'], 1)
 
+    def test_catalog_woo_matches_preserved_sku_by_private_supplier_identity(self):
+        product_id = '________________905958'
+        name = 'کروسان پچ‌ پچ ،'
+        offer = {
+            'Offer ID':'offer-legacy-sku', 'Message ID':'older-message',
+            'Batch ID':'older-batch', 'Product Name':name,
+            'Channel Username':'@supplier', 'Channel':'telegram',
+            'Message Timestamp':'1730574000', 'Source Timestamp Basis':'supplier_channel_update',
+            'Source Post URL':'https://t.me/supplier/older', 'Status':'imported',
+            'Sale Price':40000, 'Consumer Price':65000,
+        }
+        product = {
+            'Product ID':product_id, 'Latest Offer ID':'offer-legacy-sku',
+            'Product Name':name, 'Channel Username':'@supplier', 'Channel':'telegram',
+            'Batch ID':'older-batch', 'Message Timestamp':'1730574000',
+            'Source Timestamp Basis':'supplier_channel_update',
+            'Source Post URL':'https://t.me/supplier/older', 'Status':'imported',
+            'Sale Price':40000, 'Consumer Price':65000,
+        }
+        self.store.append('Offers', [_row_from_map(OFFER_HEADERS, offer)])
+        self.store.append('Products', [_row_from_map(PRODUCT_HEADERS, product)])
+        legacy_sku = '171e3fb514c3'
+        with patch.dict('os.environ', {'PIPELINE_DB_PATH':''}), \
+             patch('catalog.reconciliation._woo_catalog', return_value={
+                 'state':'checked', 'products':{}, 'checked_at':'2026-11-04T00:00:00+00:00',
+                 'identity_records':[{
+                     'source_record_id':'', 'source_id':legacy_sku, 'sku':legacy_sku,
+                     'name':'کروسان پچ‌ پچ', 'supplier':'@supplier',
+                     'catalog_state':'sell', 'published':True, 'purchasable':True,
+                 }],
+             }):
+            report = build_reconciliation_report(self.store, FakeQueue(self.receipt), site_url='')
+
+        catalog = report['catalog_woo']
+        self.assertEqual(catalog['not_visible'], 0)
+        self.assertEqual(catalog['purchasable'], 1)
+        self.assertEqual(catalog['sku_mismatch'], 1)
+        self.assertEqual(catalog['issues'][0]['state'], 'sku_mismatch')
+        self.assertEqual(catalog['issues'][0]['actual_woo_sku'], legacy_sku)
+        self.assertEqual(catalog['issues'][0]['woo_match_method'], 'supplier_name')
+        self.assertEqual(report['summary']['woo_missing'], 0)
+
     def test_woo_reconciliation_uses_publisher_holds_for_missing_customer_prices(self):
         names=['چای ساده','چای با قیمت مصرف‌کننده']
         offers=[];products=[]
