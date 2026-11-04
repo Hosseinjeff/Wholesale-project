@@ -658,7 +658,7 @@
                 const scrollY = window.scrollY;
                 updateActionStatus(statusNode, message, kind);
                 await dashboard(message, kind, refreshKeys);
-                window.scrollTo(scrollX, scrollY);
+                window.scrollTo({left:scrollX,top:scrollY,behavior:'instant'});
             };
             groupAiVariantCases(product.ai).forEach(relatedItems => {
                 const item = relatedItems[0];
@@ -858,7 +858,7 @@
             {key:'status',label:'وضعیت کالا',matches:product=>Boolean(product.status && product.status.update_needed)}
         ].map(queue=>({...queue,count:products.filter(queue.matches).length}));
         const currentQueue = queueDefinitions.find(queue=>queue.key===workbenchQueue);
-        if (!currentQueue || (!currentQueue.count && workbenchQueue !== 'next')) {
+        if (!currentQueue) {
             workbenchQueue = queueDefinitions.slice(1).find(queue=>queue.count>0)?.key || 'next';
             workbenchSelectedKey = '';
             workbenchIndex = 0;
@@ -867,7 +867,7 @@
         queueNavigation.setAttribute('role', 'group');
         queueNavigation.setAttribute('aria-label', 'انتخاب نوع کار');
         const queueButtons = new Map();
-        queueDefinitions.filter(queue=>queue.key==='next'||queue.count>0).forEach(queue=>{
+        queueDefinitions.filter(queue=>queue.key==='next'||queue.count>0||queue.key===workbenchQueue).forEach(queue=>{
             const button=node('button',`${queue.label} · ${queue.count.toLocaleString('fa-IR')}`,
                 'button button-secondary molavi-workbench-queue');
             button.type='button';

@@ -82,6 +82,7 @@ async function main() {
     }
     if (path.endsWith('/supplier-price-evidence') && options.method === 'POST') {
       const payload = JSON.parse(options.body);
+      data['supplier-price-evidence'].offers = [];
       return {ok:true,status:200,json:async()=>({ok:true,product_id:payload.product_id,
         source_revision:payload.expected_revision,verified_at:'2026-11-03T08:30:00Z',publish_job:'publish:one'})};
     }
@@ -114,7 +115,10 @@ async function main() {
     token:'scoped-operations',workflowApis,pageUrls:{},reviewStoreUrl:'/admin-ajax.php',reviewStoreNonce:'nonce'},
     parent:null,location:{href:'https://site.test/wp-admin/admin.php?page=molavi-operations',
       pathname:'/wp-admin/admin.php',search:'?page=molavi-operations'},crypto:webcrypto,history:{replaceState(){}},
-    scrollX:0,scrollY:0,scrollTo(x,y){this.scrollX=x;this.scrollY=y;},
+    scrollX:0,scrollY:0,scrollTo(x,y){
+      if (x && typeof x === 'object') { this.scrollX=x.left; this.scrollY=x.top; }
+      else { this.scrollX=x; this.scrollY=y; }
+    },
     addEventListener(){},confirm:()=>true};
   window.parent = window;
   vm.runInNewContext(fs.readFileSync('shop-wp/molavi-shop/includes/owner-workflows.js','utf8'),
@@ -209,6 +213,14 @@ async function main() {
     mountedBoard,'AJAX updates the mounted dashboard instead of replacing or reloading the page');
   assert.deepEqual([window.scrollX,window.scrollY],[13,640],
     'supplier acknowledgement keeps the owner at the same scroll position after its in-place refresh');
+  const activePriceQueue = walk(root).find(element => element.tagName === 'BUTTON'
+    && element.textContent.startsWith('قیمت تأمین‌کننده'));
+  assert(activePriceQueue && activePriceQueue.attributes['aria-pressed']==='true',
+    'the dashboard keeps the supplier-price queue selected after its last item is acknowledged');
+  assert(activePriceQueue.disabled && /۰/.test(activePriceQueue.textContent),
+    'the now-empty supplier-price queue remains visible with a zero count');
+  assert.match(root.text,/همه کارهای این صف انجام شده‌اند/,
+    'an empty acknowledged queue shows completion instead of jumping to a different queue');
   assert.equal(window.location.href,'https://site.test/wp-admin/admin.php?page=molavi-operations',
     'review actions do not navigate or reload the browser page');
 
@@ -494,6 +506,9 @@ async function main() {
   assert.match(visibleCards[0].text,/وضعیت استخراج‌شده نامشخص است/,
     'one variant with an extracted stock value does not hide another variant whose stock is unknown');
 
+  data['supplier-price-evidence'].offers = [{product_id:'product-1',name:'Noodle 12 pack',
+    channel:'@supplier',sale_price:120000,state:'blocked',source_revision:'revision-1',
+    source_timestamp:'2026-11-03T07:00:00Z'}];
   const supplierRoot = new Element('div');
   const supplierDocument = {...document,getElementById:id=>id === 'molavi-owner-workflow' ? supplierRoot : null};
   const supplierWindow = {...window,molaviOwnerWorkflow:{page:'molavi-supplier-prices',
