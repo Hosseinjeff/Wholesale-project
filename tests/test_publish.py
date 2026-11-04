@@ -81,7 +81,21 @@ class PublishTests(unittest.TestCase):
         store.sheets["Products"][1].append("Out of Stock")
         by_name = {item["name"]: item for item in site_products(store)}
         self.assertEqual(by_name["آب سودا"]["supplier_availability"], "outofstock")
+        self.assertEqual(by_name["آب سودا"]["status"], "hold")
         self.assertEqual(by_name["خراب"]["supplier_availability"], "unknown")
+
+    def test_fresh_unknown_stock_stays_listed_but_explicit_persian_sold_out_is_held(self):
+        store = _store()
+        store.sheets["Products"][0].append("Stock Status")
+        store.sheets["Products"][1].append("")
+        store.sheets["Products"][2].append("")
+        first = next(item for item in site_products(store) if item["name"] == "آب سودا")
+        self.assertEqual(first["status"], "sell")
+        self.assertEqual(first["supplier_availability"], "unknown")
+        store.sheets["Products"][1][-1] = "موجود نداریم"
+        revised = next(item for item in site_products(store) if item["name"] == "آب سودا")
+        self.assertEqual(revised["status"], "hold")
+        self.assertEqual(revised["supplier_availability"], "outofstock")
 
     def test_invalid_product_cells_are_projected_as_holds_instead_of_leaving_old_woo_prices_live(self):
         store = MemoryStore()
@@ -148,6 +162,7 @@ class PublishTests(unittest.TestCase):
         self.assertEqual(calls[0][0], "https://shop.example/?molavi-sync=1")
         self.assertEqual(calls[0][2]["X-Shop-Token"], "secret")
         self.assertEqual(calls[0][1]["products"][0]["name"], "آب سودا")
+        self.assertTrue(calls[0][1]["catalog_complete"])
         self.assertIn("settings", calls[0][1])
         self.assertEqual(calls[1][1]["mode"], "images")
         self.assertEqual(calls[1][1]["images"][0]["file"], "AgACAgQAAxkBAAIB")

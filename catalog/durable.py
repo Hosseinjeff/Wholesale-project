@@ -619,9 +619,9 @@ class Handoffs:
                 ('run_id','state','total','completed','counts','scope','case_count','digest')}
 
     def receive(self, message):
-        # Stable source/chat/message/revision identity; re-forward metadata does not create new work.
+        # Source identity ignores re-forward metadata but includes direct channel edit time.
         identity = {k:message.get(k) for k in ('channel','channel_username','id','content',
-                    'image_file_id','media_group_id')}
+                    'image_file_id','media_group_id','source_update_at')}
         if message.get('url'):
             identity['id'] = message['url']  # Original forwarded post survives re-forwarding.
         if not identity['id'] or identity['channel_username'] in (None, '', 'DirectMessage'):
@@ -648,6 +648,65 @@ class Handoffs:
                        (job_id,'batch',self.encode(payload),time.time()))
             db.executemany('UPDATE inbox SET batch_id=? WHERE id=?', [(job_id,r['id']) for r in rows])
         return job_id
+
+    def compact_completed_payloads(self, *, older_than_seconds=90 * 86400, now=None):
+        """Drop duplicated source text from successful old receipts, keeping audit keys.
+
+        Original supplier messages remain in the Sheets offer/message ledger. Failed,
+        waiting, and review-needed jobs are deliberately never compacted.
+        """
+        retention = int(older_than_seconds)
+        if retention < 30 * 86400:
+            raise ValueError('completed payload retention must be at least 30 days')
+        cutoff = (time.time() if now is None else float(now)) - retention
+        jobs_compacted = 0
+        inbox_compacted = 0
+
+        def summary(source):
+            content = str(source.get('content') or '')
+            return {
+                'compacted': True,
+                'id': str(source.get('id') or ''),
+                'channel': str(source.get('channel') or ''),
+                'channel_username': str(source.get('channel_username') or ''),
+                'timestamp': str(source.get('timestamp') or ''),
+                'source_update_at': str(source.get('source_update_at') or ''),
+                'url': str(source.get('url') or ''),
+                'has_media': bool(source.get('has_media')),
+                'media_type': str(source.get('media_type') or ''),
+                'content_length': len(content),
+                'content_sha256': hashlib.sha256(content.encode()).hexdigest() if content else '',
+            }
+
+        with self.connect() as db:
+            old_jobs = db.execute("""SELECT id,payload FROM jobs
+                WHERE kind='batch' AND state='done' AND updated_at<? ORDER BY updated_at LIMIT 1000""",
+                (cutoff,)).fetchall()
+            for row in old_jobs:
+                payload = json.loads(row['payload']) if row['payload'] else {}
+                if not isinstance(payload, dict) or payload.get('compacted'):
+                    continue
+                messages = payload.get('messages') if isinstance(payload.get('messages'), list) else []
+                compact_payload = {
+                    'batch_id': str(payload.get('batch_id') or ''),
+                    'expected_count': int(payload.get('expected_count') or len(messages)),
+                    'transmission_complete': bool(payload.get('transmission_complete')),
+                    'mode': str(payload.get('mode') or 'batch_ingest'),
+                    'compacted': True,
+                    'messages': [summary(item) for item in messages if isinstance(item, dict)],
+                }
+                db.execute('UPDATE jobs SET payload=? WHERE id=?',
+                           (self.encode(compact_payload), str(row['id'])))
+                jobs_compacted += 1
+                inbox_rows = db.execute('SELECT id,payload FROM inbox WHERE batch_id=?',
+                                        (str(row['id']),)).fetchall()
+                for inbox_row in inbox_rows:
+                    source = json.loads(inbox_row['payload']) if inbox_row['payload'] else {}
+                    if isinstance(source, dict) and not source.get('compacted'):
+                        db.execute('UPDATE inbox SET payload=? WHERE id=?',
+                                   (self.encode(summary(source)), str(inbox_row['id'])))
+                        inbox_compacted += 1
+        return {'jobs_compacted': jobs_compacted, 'inbox_compacted': inbox_compacted}
 
     def claim(self, job_id=None):
         now=time.time(); lease=uuid.uuid4().hex

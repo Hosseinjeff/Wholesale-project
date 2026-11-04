@@ -1,5 +1,6 @@
 """Synthetic supplier → pricing/publication → order replay; no external adapters."""
 import os
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -56,6 +57,12 @@ class HandoffTests(unittest.TestCase):
         self.assertEqual(queue.get(batch)['state'],'done')
         rows=self.store.read('Products');self.assertIn('AgACAgQAAxkBAAIB',rows[1])
 
+    def test_edited_channel_post_with_same_text_uses_new_source_update_revision(self):
+        first={**self.message,'id':'channel-post-9','url':'https://t.me/supplier/9',
+               'source_update_at':'1700000000'}
+        revised={**first,'source_update_at':'1700003600'}
+        self.assertNotEqual(self.queue.receive(first),self.queue.receive(revised))
+
     def test_publication_failure_does_not_repeat_extraction(self):
         self.queue.receive(self.message);batch=self.queue.batch()
         self.queue.run_one(**self.adapters)
@@ -82,6 +89,33 @@ class HandoffTests(unittest.TestCase):
         first={k:len(self.store.read(k)) for k in ('MessageData','Offers','Products')}
         finalize_batch(self.store,payload)
         self.assertEqual(first,{k:len(self.store.read(k)) for k in first})
+
+    def test_completed_old_payloads_are_compacted_but_audit_identifiers_remain(self):
+        source={**self.message,'content':TEXT,'timestamp':'2026-10-01T00:00:00Z'}
+        self.queue.receive(source)
+        batch=self.queue.batch()
+        with self.queue.connect() as db:
+            db.execute("UPDATE jobs SET state='done',updated_at=1000 WHERE id=?",(batch,))
+        result=self.queue.compact_completed_payloads(now=1000+90*86400+1)
+        self.assertEqual(result,{'jobs_compacted':1,'inbox_compacted':1})
+        with self.queue.connect() as db:
+            job=json.loads(db.execute('SELECT payload FROM jobs WHERE id=?',(batch,)).fetchone()['payload'])
+            inbox=json.loads(db.execute('SELECT payload FROM inbox WHERE batch_id=?',(batch,)).fetchone()['payload'])
+        self.assertTrue(job['compacted'])
+        self.assertNotIn('content',job['messages'][0])
+        self.assertEqual(inbox['content_sha256'],__import__('hashlib').sha256(TEXT.encode()).hexdigest())
+        self.assertEqual(inbox['timestamp'],'2026-10-01T00:00:00Z')
+
+    def test_failed_and_review_batches_are_never_compacted(self):
+        self.queue.receive(self.message)
+        batch=self.queue.batch()
+        with self.queue.connect() as db:
+            db.execute("UPDATE jobs SET state='needs_review',updated_at=1000 WHERE id=?",(batch,))
+        result=self.queue.compact_completed_payloads(now=1000+365*86400)
+        self.assertEqual(result,{'jobs_compacted':0,'inbox_compacted':0})
+        with self.queue.connect() as db:
+            payload=json.loads(db.execute('SELECT payload FROM inbox WHERE batch_id=?',(batch,)).fetchone()['payload'])
+        self.assertEqual(payload['content'],TEXT)
 
     def test_extraction_rollback_is_held_and_never_published(self):
         self.queue.receive(self.message);batch=self.queue.batch()

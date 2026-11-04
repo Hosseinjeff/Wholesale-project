@@ -519,6 +519,29 @@ async function main() {
   assert.match(visibleCards[0].text,/وضعیت استخراج‌شده نامشخص است/,
     'one variant with an extracted stock value does not hide another variant whose stock is unknown');
 
+  data['supplier-price-evidence'].offers = [{product_id:'product-no-price',name:'Incomplete offer',
+    channel:'@supplier',sale_price:'',state:'needs_review',source_revision:'',source_timestamp:'2026-11-03T07:00:00Z'}];
+  const missingWorkRoot = new Element('div');
+  const missingWorkDocument = {...document,getElementById:id=>id === 'molavi-owner-workflow' ? missingWorkRoot : null};
+  const missingWorkWindow = {...window,molaviOwnerWorkflow:{...window.molaviOwnerWorkflow},location:{...window.location}};
+  missingWorkWindow.parent = missingWorkWindow;
+  vm.runInNewContext(fs.readFileSync(workflowScriptPath,'utf8'),
+    {window:missingWorkWindow,document:missingWorkDocument,fetch,URL,Intl,Map,Set,Promise,TextEncoder,Date,Math,
+      Number,String,Boolean,Array,Object,Error,URLSearchParams,console,setTimeout,clearTimeout});
+  for (let attempt=0; attempt<20; attempt++) {
+    if (missingWorkRoot.text.includes('Incomplete offer')) break;
+    await new Promise(resolve => setTimeout(resolve,0));
+  }
+  const missingPriceQueue = walk(missingWorkRoot).find(element => element.tagName === 'BUTTON'
+    && element.textContent.startsWith('قیمت تأمین‌کننده'));
+  await missingPriceQueue.listeners.click();
+  const missingWorkVerify = walk(missingWorkRoot).find(element => element.tagName === 'BUTTON'
+    && element.textContent.includes('منبع فعلی را دیدم'));
+  assert(missingWorkVerify && missingWorkVerify.disabled,
+    'a product card without a current source revision cannot submit verification');
+  assert.match(missingWorkRoot.text,/قیمت فروش معتبر/,
+    'the product card explains the missing price source before the owner can act');
+
   data['supplier-price-evidence'].offers = [{product_id:'product-1',name:'Noodle 12 pack',
     channel:'@supplier',sale_price:120000,state:'blocked',source_revision:'revision-1',
     source_timestamp:'2026-11-03T07:00:00Z'}];
@@ -551,6 +574,24 @@ async function main() {
   assert(supplierButton.disabled,'the acknowledged supplier price cannot be submitted twice');
   assert.equal(supplierWindow.location.href,'https://site.test/wp-admin/admin.php?page=molavi-supplier-prices',
     'supplier acknowledgement does not navigate or reload the browser page');
+
+  data['supplier-price-evidence'].offers = [{product_id:'product-no-price',name:'Incomplete offer',
+    channel:'@supplier',sale_price:'',state:'needs_review',source_revision:'',source_timestamp:'2026-11-03T07:00:00Z'}];
+  const missingPriceRoot = new Element('div');
+  const missingPriceDocument = {...document,getElementById:id=>id === 'molavi-owner-workflow' ? missingPriceRoot : null};
+  vm.runInNewContext(fs.readFileSync(workflowScriptPath,'utf8'),
+    {window:supplierWindow,document:missingPriceDocument,fetch,URL,Intl,Map,Set,Promise,TextEncoder,Date,Math,
+      Number,String,Boolean,Array,Object,Error,URLSearchParams,console,setTimeout,clearTimeout});
+  for (let attempt=0; attempt<20; attempt++) {
+    if (missingPriceRoot.text.includes('Incomplete offer')) break;
+    await new Promise(resolve => setTimeout(resolve,0));
+  }
+  const missingPriceButton = walk(missingPriceRoot).find(element => element.tagName === 'BUTTON'
+    && element.textContent.includes('قیمت تأمین‌کننده را بررسی کردم'));
+  assert(missingPriceButton && missingPriceButton.disabled,
+    'an offer without a current price revision cannot submit price verification');
+  assert.match(missingPriceRoot.text,/قیمت فروش معتبر/,
+    'the card explains that the source price needs correction before verification');
 }
 
 main().catch(error => { console.error(error); process.exitCode = 1; });

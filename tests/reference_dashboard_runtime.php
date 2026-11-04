@@ -452,19 +452,25 @@ echo "Order handoff runtime checks completed\n";
 
 // Verify explicit supplier unavailability survives the Woo projection.
 $row=['id'=>'a123456789ab','name'=>'Synthetic stock item','status'=>'sell','sale'=>1000,
+      'source_record_id'=>'stock-row',
       'supplier_availability'=>'outofstock'];
 $clean=molavi_clean_product($row);
 $product_id=molavi_upsert_product(0,$clean);
 ref_assert(wc_get_product($product_id)->get_stock_status()==='outofstock', 'supplier out-of-stock becomes unavailable in Woo');
 $row['supplier_availability']='unknown';
 molavi_upsert_product($product_id,molavi_clean_product($row));
-ref_assert(wc_get_product($product_id)->get_stock_status()==='outofstock', 'unknown supplier status cannot silently restore availability');
+ref_assert(wc_get_product($product_id)->get_stock_status()==='instock'
+    && wc_get_product($product_id)->get_meta('_molavi_supplier_availability')==='unknown',
+    'a fresh unknown-stock offer stays visible for a non-guaranteed request');
 $row['supplier_availability']='instock';
 molavi_upsert_product($product_id,molavi_clean_product($row));
 ref_assert(wc_get_product($product_id)->get_stock_status()==='instock', 'explicit current supplier availability restores demand-led checkout');
-$row['status']='hold';
-molavi_upsert_product($product_id,molavi_clean_product($row));
-ref_assert(wc_get_product($product_id)->get_stock_status()==='outofstock', 'held stale offer blocks Woo checkout');
+$row['status']='hold';$row['supplier_price_state']='blocked';
+molavi_apply_catalog(['products'=>[$row]]);
+ref_assert(wc_get_product($product_id)->get_stock_status()==='outofstock'
+    && wc_get_product($product_id)->get_status()==='draft'
+    && apply_filters('woocommerce_is_purchasable',true,wc_get_product($product_id))===false,
+    'held stale or out-of-stock offer is hidden and rejected from Woo carts');
 $verified_row=['id'=>'a123456789ab','name'=>'Synthetic freshness item','status'=>'sell','sale'=>1000,'shelf'=>1200,
     'supplier_availability'=>'instock','source_record_id'=>'product-row-1','supplier_price_state'=>'warning',
     'supplier_price_verified_at'=>gmdate('c',time()-(8*DAY_IN_SECONDS))];
@@ -494,6 +500,26 @@ $empty_clean=molavi_clean_product($empty_hold);
 ref_assert(is_array($empty_clean) && molavi_match_product($empty_clean,molavi_product_index())===$renamed_product->get_id(), 'stable product row identity survives a blank Sheet name');
 molavi_apply_catalog(['products'=>[$empty_hold]]);
 ref_assert(wc_get_product($renamed_product->get_id())->get_status()==='draft', 'invalid Sheet name hides its existing Woo product');
+$sameName=['id'=>'ccddeeff0011','name'=>'Old supplier name','key'=>molavi_name_key('Old supplier name'),
+    'supplier'=>'Different supplier','source_record_id'=>'new-product-row','status'=>'sell','sale'=>1000,
+    'shelf'=>1200,'min'=>1,'pack_size'=>1,'image'=>'','supplier_availability'=>'unknown'];
+ref_assert(molavi_match_product($sameName,molavi_product_index())===0,
+    'a new source row cannot be merged into another supplier product by title alone');
+$beforeSettings=get_option('molavi_price_settings');
+$invalidSnapshot=molavi_apply_catalog(['settings'=>['unlock_target'=>123],
+    'products'=>[['id'=>'bad-id','name'=>'Malformed','status'=>'sell','sale'=>10]],'catalog_complete'=>true]);
+ref_assert(($invalidSnapshot['ok']??true)===false && get_option('molavi_price_settings')===$beforeSettings,
+    'a malformed full snapshot cannot partially change shop settings');
+$duplicateSnapshot=molavi_apply_catalog(['settings'=>['unlock_target'=>123],
+    'products'=>[$row,['id'=>$row['id'],'name'=>'Another row','status'=>'sell','sale'=>1000,
+        'source_record_id'=>'another-row']],'catalog_complete'=>true]);
+ref_assert(($duplicateSnapshot['ok']??true)===false
+    && ($duplicateSnapshot['error']??'')==='duplicate product id'
+    && get_option('molavi_price_settings')===$beforeSettings,
+    'duplicate product identity rejects the whole snapshot before any catalog or settings writes');
+molavi_apply_catalog(['products'=>[],'catalog_complete'=>true]);
+ref_assert(wc_get_product($priced_product_id)->get_status()==='draft',
+    'a complete source snapshot hides plugin products removed from the Products sheet');
 
 // Test the registered shipping method without activating or changing live zones.
 do_action('woocommerce_shipping_init');

@@ -12,6 +12,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
+from catalog.stock import normalize_stock_status
 
 
 class ConfirmationConflict(ValueError):
@@ -226,13 +227,7 @@ def _as_case(offer, ledger, *, include_decided=False):
     latest = ledger.latest(case_id)
     if latest and latest['signature'] == signature and not include_decided:
         return None
-    stock = str(offer.get('Stock Status') or '').strip().lower()
-    if stock in {'available','in stock','instock','موجود'}:
-        stock_status = 'Available'
-    elif stock in {'out of stock','outofstock','unavailable','sold out','ناموجود'}:
-        stock_status = 'Out of Stock'
-    else:
-        stock_status = 'Unknown'
+    stock_status = normalize_stock_status(offer.get('Stock Status'))
     return {
         'case_id': case_id, 'offer_id': offer_id, 'signature': signature,
         'product_name': str(offer.get('Product Name') or ''),

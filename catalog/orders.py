@@ -289,10 +289,19 @@ def operator_chat_ids(store: Any | None = None) -> list[str]:
     """Chats that should hear about a new order."""
     found: list[str] = []
     extra = os.getenv("ORDER_NOTIFY_CHAT_ID") or ""
-    for part in extra.split(","):
+    explicit = extra + "," + (os.getenv("TELEGRAM_OPERATOR_CHAT_IDS") or "")
+    for part in explicit.split(","):
         chat = part.strip()
         if chat and chat not in found:
             found.append(chat)
+    # Once a production allowlist exists, the editable Operators sheet is only a
+    # roster display. It must not be able to redirect private order notices.
+    if os.getenv("TELEGRAM_OPERATOR_CHAT_IDS"):
+        return found
+    # A configured bot with no trusted destination must fail closed rather than
+    # notify every chat that has ever messaged the bot.
+    if os.getenv("TELEGRAM_BOT_TOKEN"):
+        return found
     if store is None:
         return found
     try:

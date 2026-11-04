@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 from datetime import datetime,timedelta,timezone
 from catalog.supplier_freshness import PriceFreshness, current_supplier_offers, source_price_revision
-from catalog.sync import MemoryStore
+from catalog.sync import MemoryStore, PRODUCT_HEADERS, OFFER_HEADERS, _restore_current_book, _row_from_map
 from catalog.durable import Handoffs
 from unittest.mock import patch
 
@@ -48,6 +48,23 @@ class SupplierFreshnessTests(unittest.TestCase):
   store.sheets['Products'][1][3]=120
   self.assertEqual(current_supplier_offers(store,self.ledger,now=self.now)[0]['state'],'needs_review')
 
+ def test_later_reimport_of_older_post_does_not_replace_newer_source_row(self):
+  store=MemoryStore();store.ensure('Offers',OFFER_HEADERS);store.ensure('Products',PRODUCT_HEADERS)
+  newer_time=int((self.now-timedelta(days=2)).timestamp())
+  older_time=int((self.now-timedelta(days=20)).timestamp())
+  newer={'Offer ID':'newer:1','Product Name':'Tuna sample','Channel Username':'@supplier',
+   'Sale Price':50000,'Consumer Price':70000,'Price':50000,'Actual Price':70000,
+   'Currency':'IRT','Stock Status':'Unknown','Status':'imported',
+   'Message Timestamp':newer_time,'Import Timestamp':'2026-10-26T10:00:00Z'}
+  older={**newer,'Offer ID':'older:1','Sale Price':40000,'Price':40000,
+   'Message Timestamp':older_time,'Import Timestamp':'2026-10-28T10:00:00Z'}
+  store.append('Offers',[_row_from_map(OFFER_HEADERS,newer),_row_from_map(OFFER_HEADERS,older)])
+  _restore_current_book(store,[('Tuna sample','@supplier')])
+  rows=store.read('Products');headers=rows[0];current=rows[1]
+  self.assertEqual(current[headers.index('Latest Offer ID')],'newer:1')
+  self.assertEqual(current[headers.index('Sale Price')],50000)
+  self.assertEqual(current[headers.index('Message Timestamp')],newer_time)
+
 
 class SupplierFreshnessRouteTests(unittest.TestCase):
  def setUp(self):
@@ -69,6 +86,9 @@ class SupplierFreshnessRouteTests(unittest.TestCase):
    response=client.get('/pipeline/supplier-price-evidence',headers=headers)
    self.assertEqual(response.get_json()['offers'][0]['state'],'warning')
    self.assertIn('product-1',[p['product_id'] for p in client.get('/api/shop').get_json()['products']])
+   response=client.post('/pipeline/supplier-price-evidence',headers=headers,json={'product_id':'product-1','expected_revision':'','note':'checked supplier price'})
+   self.assertEqual(response.status_code,409)
+   self.assertEqual(response.get_json()['error'],'price_source_missing')
    response=client.post('/pipeline/supplier-price-evidence',headers=headers,json={'product_id':'product-1','expected_revision':'stale-revision','note':'checked supplier price'})
    self.assertEqual(response.status_code,409)
    response=client.post('/pipeline/supplier-price-evidence',headers=headers,json={'product_id':'product-1','expected_revision':self.revision,'note':'checked supplier price today'})

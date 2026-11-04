@@ -314,7 +314,7 @@ def _public_product(source: dict[str, Any], band: dict[str, Any]) -> dict[str, A
         "name": source.get("name") or "",
         "channel": source.get("channel") or "",
         "category": source.get("category") or "",
-        "stock_status": source.get("stock_status") or "Available",
+        "stock_status": source.get("stock_status") or "Unknown",
     }
     for field in ("regular", "floor", "ceiling", "opening_rate", "depth_rate", "max_discount", "spread"):
         product[field] = band[field]
@@ -342,7 +342,7 @@ def product_from_record(record: dict[str, Any], settings: PricingSettings | None
         "name": name,
         "channel": record.get("Channel Username") or "",
         "category": record.get("Category") or "",
-        "stock_status": record.get("Stock Status") or "Available",
+        "stock_status": record.get("Stock Status") or "Unknown",
     }, band)
 
 

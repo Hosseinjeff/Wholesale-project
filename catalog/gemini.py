@@ -13,6 +13,7 @@ from catalog.measurements import (
     parse_measurements,
     strip_measurement_tokens,
 )
+from catalog.stock import explicit_stock_status, normalize_stock_status
 
 DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash-lite'
 _ARABIC_DIGITS = str.maketrans('٠١٢٣٤٥٦٧٨٩', '0123456789')
@@ -211,10 +212,15 @@ PRODUCTS, VARIANTS, PACKS, AND NUMBERS:
 - Emojis are decorative and do not make a listing non-product text. If a line begins
   with emojis and then names a product in Persian or Latin text, preserve the whole line
   as the title when price or package details follow.
-- Preserve explicit stock statements from this post: `اتمام موجودی`, `ناموجود`, or
-  `sold out` means `stock_status` `Out of Stock`; an explicit available/in-stock statement
-  means `Available`. If stock is not stated, use `Unknown`. This field describes the source
-  post only; a historical post never establishes current stock.
+- Preserve only explicit, product-specific stock statements from this post. `اتمام موجودی`,
+  `موجودی تمام شد`, `تمام شد` in the product's own context, `ناموجود`, `موجود نیست`,
+  `موجود نمی‌باشد`, `موجود نداریم`, `sold out`, `out of stock`,
+  or `unavailable` mean `Out of Stock`. `موجود`, `موجود است`, `موجود داریم`, `قابل سفارش`,
+  `available`, or `in stock` mean `Available`. If the post does not state availability for
+  that product or variant, return `Unknown`; never infer availability from a price or from
+  the absence of an out-of-stock statement. Do not apply one variant's stock statement to
+  the other variants. This field describes the source post only; a historical post never
+  establishes current stock.
 
 REVIEW AND OUTPUT:
 - A clear product with no supplier amount is still an item: return it with supplier
@@ -1051,7 +1057,7 @@ def _product(item, content, channel, source_titles=()):
     if confidence < 0.85:
         review = True
         reasons.append('low confidence')
-    stock = str(item.get('stock_status') or 'Unknown').strip()
+    stock = normalize_stock_status(item.get('stock_status'))
     product = {
         'name': name,
         'brand': str(item.get('brand') or '').strip(),
@@ -1146,6 +1152,10 @@ def parse_message_products(response_text, content, channel):
                 expanded['consumer_price'] = consumer or None
                 expanded['actual_price'] = consumer or None
             products.append(expanded)
+    if len(products) == 1:
+        source_stock = explicit_stock_status(content)
+        if source_stock != 'Unknown':
+            products[0]['stock_status'] = source_stock
     return products
 
 

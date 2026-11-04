@@ -69,6 +69,16 @@ class FlakyOffersStore(MemoryStore):
 
 
 class GeminiExtractionTests(unittest.TestCase):
+    def test_source_stock_words_are_normalized_without_assuming_availability(self):
+        item={'name':'چای نمونه','unit_price':12000,'sale_price':12000,
+              'currency':'IRT','confidence':0.96,'stock_status':'Unknown'}
+        out=parse_message_products(json.dumps([item],ensure_ascii=False),
+            'چای نمونه\nقیمت واحد: ۱۲٬۰۰۰ تومان\nموجود نداریم','@supplier')[0]
+        self.assertEqual(out['stock_status'],'Out of Stock')
+        unknown=parse_message_products(json.dumps([item],ensure_ascii=False),
+            'چای نمونه\nقیمت واحد: ۱۲٬۰۰۰ تومان','@supplier')[0]
+        self.assertEqual(unknown['stock_status'],'Unknown')
+
     def test_invalid_json_response_gets_one_constrained_retry(self):
         valid = json.dumps([{
             'name': 'چای', 'sale_price': 10000, 'price_type': 'unit',

@@ -15,6 +15,7 @@ from catalog.sync import (
     release_idle_memory,
     resolve_prompt,
 )
+from catalog.stock import explicit_stock_status, normalize_stock_status
 
 
 BONAKDAR = (
@@ -39,6 +40,21 @@ BONAKDAR_REPRICE = BONAKDAR.replace("۵۲,۰۰۰", "۶۰,۰۰۰").replace("۶۵,
 
 
 class ExtractTests(unittest.TestCase):
+    def test_stock_status_requires_clear_source_wording(self):
+        self.assertEqual(explicit_stock_status('موجود نیست'), 'Out of Stock')
+        self.assertEqual(explicit_stock_status('اتمام موجودی'), 'Out of Stock')
+        self.assertEqual(explicit_stock_status('چای نمونه\nتمام شد'), 'Out of Stock')
+        self.assertEqual(explicit_stock_status('موجود ✅'), 'Available')
+        self.assertEqual(explicit_stock_status('قیمت تمام محصولات تغییر کرد'), 'Unknown')
+        self.assertEqual(explicit_stock_status('ناموجود نیست'), 'Unknown')
+        self.assertEqual(normalize_stock_status('در حال حاضر موجود نداریم'), 'Out of Stock')
+
+    def test_universal_extraction_does_not_invent_stock_or_misread_status_as_title(self):
+        current = extract_products('چای نمونه\nقیمت واحد: ۱۲٬۰۰۰ تومان', '@unknown')[0]
+        self.assertEqual(current['stock_status'], 'Unknown')
+        unavailable = extract_products('چای نمونه\nقیمت واحد: ۱۲٬۰۰۰ تومان\nموجود نیست', '@unknown')[0]
+        self.assertEqual(unavailable['stock_status'], 'Out of Stock')
+
     def test_volume_and_weight_parsing_are_distinct_and_support_shorthand(self):
         self.assertEqual(extract_weight('آبلیمو مجید کوچک180گ(138ف)20ع***'), '180 گرم')
         self.assertEqual(extract_volume('آبلیمو دست چین1/2ل (304ف)6ع***'), '1.2 لیتر')

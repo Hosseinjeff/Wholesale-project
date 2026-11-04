@@ -11,6 +11,7 @@ import re
 from typing import Any
 
 from catalog.measurements import extract_measurement
+from catalog.stock import explicit_stock_status, normalize_stock_status
 
 PERSIAN_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789")
 
@@ -269,7 +270,7 @@ def parse_price(price_str: Any) -> int:
 
 def classify_message(content: str, channel_username: str) -> dict[str, Any]:
     processed = normalize(content or "")
-    is_oos = re.search(r"(?:تمام شد|ناموجود|🚫)", content or "", re.I)
+    is_oos = explicit_stock_status(content) == "Out of Stock"
     if is_oos and not re.search(r"(?:قیمت|تومان)", content or "", re.I):
         return {"type": "out_of_stock", "confidence": 0.9}
 
@@ -480,7 +481,7 @@ def finalize_product(product: dict[str, Any], channel: str) -> dict[str, Any]:
         "packaging": packaging,
         "volume": product.get("volume") or "",
         "weight": product.get("weight") or "",
-        "stock_status": product.get("stock_status") or "Available",
+        "stock_status": normalize_stock_status(product.get("stock_status")),
         "variation_type": product.get("variation_type") or "",
         "channel_username": channel,
         "description": product.get("description") or "",
@@ -581,7 +582,7 @@ def extract_channel_bonakdarjavan(content: str) -> list[dict[str, Any]]:
             "variation_type": variation,
             "channel": "@bonakdarjavan",
             "currency": "IRT",
-            "stock_status": "Available",
+            "stock_status": explicit_stock_status(content),
             "description": content,
             "confidence": confidence,
             "extraction_confidence": confidence,
@@ -638,7 +639,7 @@ def extract_channel_top_shop_rahimi(content: str) -> list[dict[str, Any]]:
             "weight": extract_weight(normalize(chunks[0])),
             "channel": "@top_shop_rahimi",
             "currency": "IRT",
-            "stock_status": "Available",
+            "stock_status": explicit_stock_status(content),
             "description": content,
             "confidence": 0.9,
             "extraction_confidence": 0.9,
@@ -693,7 +694,7 @@ def extract_channel_nobelshop118(content: str) -> list[dict[str, Any]]:
             "extraction_confidence": 0.85,
             "channel": "@nobelshop118",
             "currency": "IRT",
-            "stock_status": "Available",
+            "stock_status": explicit_stock_status(content),
             "variation_type": "",
             "original_message": content,
             "volume": extract_volume(normalized_lines[0]),
@@ -709,9 +710,6 @@ _UNIVERSAL_PRICE = re.compile(
 _UNIVERSAL_CONTACT = re.compile(r"(wa\.me|https?://|@|📞|تماس|واتساپ|خرید\s*آنلاین|خرید\s*انلاین|لینک)", re.I)
 _UNIVERSAL_PRICE_LABEL = re.compile(r"(?:قیمت|Price|فی|Value|Amount|تومان|تومن|ت)", re.I)
 _NEW_PRODUCT_SKIP = re.compile(r"^(?:تعداد|باکس|کارتن|لینک|آدرس|شعبه|تماس|واتساپ|wa\.me|https?://|@|📞)", re.I)
-_OOS = re.compile(r"(?:تمام|ناموجود|❌)", re.I)
-
-
 def extract_universal_products(content: str, channel_username: str) -> list[dict[str, Any]]:
     lines = [line.strip() for line in (content or "").split("\n") if line.strip()]
     products: list[dict[str, Any]] = []
@@ -725,12 +723,14 @@ def extract_universal_products(content: str, channel_username: str) -> list[dict
 
     for line in lines:
         contact_line = bool(_UNIVERSAL_CONTACT.search(line))
+        line_stock = explicit_stock_status(line)
         has_price = bool(_UNIVERSAL_PRICE.search(line)) and bool(re.search(r"\d", line))
         has_price_label = bool(_UNIVERSAL_PRICE_LABEL.search(line))
         is_simple_price = len(line.strip()) < 20 and has_price
         is_price_line = (not contact_line) and ((has_price and has_price_label) or is_simple_price)
         is_new = (
             not is_price_line
+            and line_stock == "Unknown"
             and len(line) > 3
             and not _NEW_PRODUCT_SKIP.search(line)
             and (current is None or current.get("price", 0) > 0)
@@ -747,7 +747,7 @@ def extract_universal_products(content: str, channel_username: str) -> list[dict
                 "packaging": extract_packaging(line),
                 "volume": extract_volume(line),
                 "weight": extract_weight(line),
-                "stock_status": "Out of Stock" if _OOS.search(line) else "Available",
+                "stock_status": normalize_stock_status(explicit_stock_status(line)),
                 "description": line,
                 "extraction_confidence": 0.8,
             }
@@ -755,8 +755,8 @@ def extract_universal_products(content: str, channel_username: str) -> list[dict
         if current is None:
             continue
         current["description"] += "\n" + line
-        if _OOS.search(line):
-            current["stock_status"] = "Out of Stock"
+        if line_stock != "Unknown":
+            current["stock_status"] = line_stock
         if not current.get("packaging"):
             packaging = extract_packaging(line)
             if packaging:

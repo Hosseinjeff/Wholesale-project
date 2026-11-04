@@ -20,6 +20,7 @@ import requests
 from catalog.extract import minimum_purchase
 from catalog.media import safe_file_id
 from catalog.pricing import settings_from_rows
+from catalog.stock import normalize_stock_status
 from catalog.sync import (
     GoogleSheetStore,
     MemoryStore,
@@ -83,8 +84,14 @@ def site_products(store: MemoryStore | GoogleSheetStore) -> list[dict[str, Any]]
         evidence=freshness.get(source_record_id,{})
         freshness_state=evidence.get('state','current' if not freshness_path else 'needs_review')
         shelf = _positive_price(record.get("Consumer Price")) or _positive_price(record.get("Actual Price")) or 0
+        stock_status = normalize_stock_status(record.get("Stock Status"))
+        availability = {
+            "Out of Stock": "outofstock",
+            "Available": "instock",
+        }.get(stock_status, "unknown")
         held=(held or not name or sale<=0 or shelf<=sale or
-              freshness_state not in {'current','warning'} or source_record_id in conflicted_products)
+              freshness_state not in {'current','warning'} or source_record_id in conflicted_products
+              or availability == 'outofstock')
         minimum = _positive_price(record.get("Min Qty")) or minimum_purchase(
             str(record.get("Packaging") or ""),
             name,
@@ -98,13 +105,6 @@ def site_products(store: MemoryStore | GoogleSheetStore) -> list[dict[str, Any]]
                 source_url = ''
         except (TypeError, ValueError):
             source_url = ''
-        stock_status = str(record.get("Stock Status") or "").strip().lower()
-        if stock_status in {"out of stock", "outofstock", "ناموجود"}:
-            availability = "outofstock"
-        elif stock_status in {"available", "in stock", "instock", "موجود"}:
-            availability = "instock"
-        else:
-            availability = "unknown"
         published={
             "id": hashlib.sha256(f"{channel}|{name}".encode()).hexdigest()[:12],
             "name": name,
@@ -169,7 +169,7 @@ def publish_shop(
             products = site_products(store)
             if products is None:
                 return {"ok": False, "pushed": False, "reason": "sheet unread"}
-            payload: dict[str, Any] = {"products": products, "token": secret}
+            payload: dict[str, Any] = {"products": products, "catalog_complete": True, "token": secret}
             settings = site_settings(store)
             if settings:
                 payload["settings"] = settings

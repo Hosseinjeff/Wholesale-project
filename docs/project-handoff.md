@@ -3,10 +3,11 @@
 Snapshot 4.72. Updated 2026-11-04, Asia/Tehran. The canonical roleplay decisions are in
 `roleplay-state.json`; current live evidence and release gates are in
 `pipeline-readiness.md` and `pipeline-readiness-evidence.json`.
+The product intake and shelf policy is documented in `products-streamline-integrity.md`.
 
-## Current live status — 2026-11-04
+## Live baseline before the product-streamline integrity release — 2026-11-04
 
-Railway deployment `74741fbe-5551-4feb-87fa-74da0a0a9b79` runs backend commit `d9bea58` and is
+Railway deployment `ae46c5fd-4f9f-45b7-bdfe-088fb25fe662` runs backend commit `566bfb8` and is
 `SUCCESS`; the service is online without warnings and `/health` returns HTTP 200. WordPress
 plugin assets `includes/owner-workflows.js` and `.css` were deployed and verified by cPanel
 read-back from main commit `5865237`. The authenticated WordPress operations page and the live

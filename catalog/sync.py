@@ -1428,7 +1428,8 @@ def _apply_operator_price(store, prompt: dict[str, Any], sale_price: int) -> Non
         "status": "imported",
         "confidence": 1,
         "extraction_confidence": 1,
-        "stock_status": "Available",
+        # An owner-entered price verifies price only; it does not establish stock.
+        "stock_status": "Unknown",
     }
     store.ensure("Offers", OFFER_HEADERS)
     headers = _headers(store, "Offers", OFFER_HEADERS)
@@ -1768,6 +1769,7 @@ def _restore_current_book(store, keys: list[tuple[str, str]]) -> int | None:
     deletions: list[int] = []
     for name, channel in keys:
         matching = _offers_for_product(offers, name, channel)
+        matching = _sort_offers_by_source_time(matching)
         row_number = _find_product_row(products, headers, name, channel)
         if not row_number and matching:
             row_number=_find_product_row_by_offer_ids(products,headers,{str(o.get('Offer ID') or '') for o in matching})
@@ -2336,6 +2338,20 @@ def _offers_for_product(offers: list[dict[str, Any]], name: str, channel: str) -
         if _product_key(str(offer.get("Product Name") or "")) == target
         and (offer.get("Channel Username") or "") == channel
     ]
+
+
+def _sort_offers_by_source_time(offers: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep a later import of an older forwarded post from replacing newer source data."""
+    from catalog.supplier_freshness import source_datetime
+
+    floor = datetime.min.replace(tzinfo=timezone.utc)
+
+    def order(offer):
+        imported = source_datetime(offer.get('Import Timestamp')) or floor
+        source = source_datetime(offer.get('Message Timestamp')) or imported
+        return source, imported
+
+    return sorted(offers, key=order)
 
 
 def _opening_offer_rows(store, keys: list[tuple[str, str]], offer_headers: list[str], existing_offers: list[list[Any]]) -> list[list[Any]]:

@@ -2,6 +2,7 @@ import unittest
 
 from catalog.price_scale import apply_price_scale, assess_price_scale
 from catalog.extract import OFFER_HEADERS
+from catalog.pricing import product_from_record
 from catalog.sync import MemoryStore, _records, _row_from_map, import_product_data
 from reference_import.importer import HEADERS
 
@@ -20,6 +21,15 @@ def offer(name='Tuna 12 pack', price=100000, *, status='imported', price_type='u
 
 
 class PriceScaleTests(unittest.TestCase):
+    def test_missing_supplier_stock_stays_unknown_in_public_product_data(self):
+        product = product_from_record({
+            'Product ID': 'sample-product',
+            'Product Name': 'Sample product',
+            'Sale Price': 40000,
+            'Consumer Price': 60000,
+        })
+        self.assertEqual(product['stock_status'], 'Unknown')
+
     def test_confirmed_history_fallback_is_applied_during_ai_offer_import(self):
         store=MemoryStore();store.ensure('Offers',OFFER_HEADERS)
         previous={'Offer ID':'history:1','Product Name':'Tuna 12 pack','Channel Username':'@supplier',

@@ -50,10 +50,6 @@ function molavi_sync_reply(array $body, int $status = 200): void
 
 function molavi_apply_catalog(array $payload): array
 {
-    $settings = $payload['settings'] ?? null;
-    if (is_array($settings)) {
-        molavi_apply_settings($settings);
-    }
     $rows = $payload['products'] ?? null;
     if (!is_array($rows)) {
         return ['ok' => false, 'error' => 'products'];
@@ -62,33 +58,64 @@ function molavi_apply_catalog(array $payload): array
         return ['ok' => false, 'error' => 'too many products'];
     }
 
+    // Validate the complete snapshot before changing settings or product rows.
+    // A malformed row must never turn an incomplete payload into deletions.
+    $cleanRows = [];
+    $seenIds = [];
+    $seenRecordIds = [];
+    foreach ($rows as $index => $row) {
+        if (!is_array($row)) {
+            return ['ok' => false, 'error' => 'invalid product', 'row' => (int) $index];
+        }
+        $clean = molavi_clean_product($row);
+        if ($clean === null) {
+            return ['ok' => false, 'error' => 'invalid product', 'row' => (int) $index];
+        }
+        if (isset($seenIds[$clean['id']])) {
+            return ['ok' => false, 'error' => 'duplicate product id', 'row' => (int) $index];
+        }
+        $seenIds[$clean['id']] = true;
+        if ($clean['source_record_id'] !== '') {
+            if (isset($seenRecordIds[$clean['source_record_id']])) {
+                return ['ok' => false, 'error' => 'duplicate source record id', 'row' => (int) $index];
+            }
+            $seenRecordIds[$clean['source_record_id']] = true;
+        }
+        $cleanRows[] = $clean;
+    }
+
     $index = molavi_product_index();
     $created = 0;
     $updated = 0;
     $hidden = 0;
     $queue = [];
-    foreach ($rows as $row) {
-        if (!is_array($row)) {
-            continue;
-        }
-        $clean = molavi_clean_product($row);
-        if ($clean === null) {
-            continue;
-        }
+    $present = [];
+    foreach ($cleanRows as $rowIndex => $clean) {
         $productId = molavi_match_product($clean, $index);
         if ($clean['status'] === 'hold') {
-            if ($productId > 0 && molavi_hide_product($productId)) {
-                $hidden++;
+            if ($productId > 0) {
+                $present[$productId] = true;
+                molavi_mark_product_held($productId, $clean);
+                $wasHidden = molavi_product_is_hidden($productId);
+                if ($wasHidden || molavi_hide_product($productId)) {
+                    if (!$wasHidden) { $hidden++; }
+                } else {
+                    molavi_forget_catalog();
+                    molavi_purge_shop_cache();
+                    return ['ok' => false, 'error' => 'product_hold_failed', 'row' => $rowIndex];
+                }
             }
             continue;
         }
         $wasNew = $productId <= 0;
         $productId = molavi_upsert_product($productId, $clean);
         if ($productId <= 0) {
-            continue;
+            molavi_forget_catalog();
+            molavi_purge_shop_cache();
+            return ['ok' => false, 'error' => 'product_write_failed'];
         }
-        $index['source'][$clean['id']] = $productId;
-        $index['name'][$clean['key']][] = $productId;
+        molavi_index_add($index, $clean, $productId);
+        $present[$productId] = true;
         if ($wasNew) {
             $created++;
         } else {
@@ -97,6 +124,26 @@ function molavi_apply_catalog(array $payload): array
         if ($clean['image'] !== '' && (string) get_post_meta($productId, '_molavi_image_id', true) !== $clean['image']) {
             $queue[] = ['product' => $productId, 'file' => $clean['image']];
         }
+    }
+    if (($payload['catalog_complete'] ?? false) === true) {
+        foreach ($index['managed'] as $productId) {
+            if (!isset($present[$productId])) {
+                update_post_meta((int) $productId, '_molavi_catalog_state', 'removed');
+                $wasHidden = molavi_product_is_hidden((int) $productId);
+                if ($wasHidden || molavi_hide_product((int) $productId)) {
+                    if (!$wasHidden) { $hidden++; }
+                }
+                else {
+                    molavi_forget_catalog();
+                    molavi_purge_shop_cache();
+                    return ['ok' => false, 'error' => 'product_remove_failed'];
+                }
+            }
+        }
+    }
+    $settings = $payload['settings'] ?? null;
+    if (is_array($settings)) {
+        molavi_apply_settings($settings);
     }
     update_option('molavi_image_queue', $queue, false);
     molavi_forget_catalog();
@@ -212,23 +259,37 @@ function molavi_clean_product(array $row): ?array
 
 function molavi_name_key(string $name): string
 {
-    $text = trim($name);
-    $patterns = [
-        '/^(?P<name>.+?)(?:\s*[،,]\s*|\s+)(?P<pack>(?:در\s*)?(?:کارتن|باکس|بسته)\s*[\d۰-۹]+\s*(?:عددی|عدد|تایی))\s*$/u',
-        '/^(?P<name>.+?)\s*[،,]\s*(?P<pack>[\d۰-۹]+\s*(?:عددی|عدد|تایی))\s*$/u',
-    ];
-    foreach ($patterns as $pattern) {
-        if (!preg_match($pattern, $text, $match)) {
-            continue;
-        }
-        $peeled = preg_replace('/[\s،,:：\-]+$/u', '', $match['name']);
-        $peeled = trim(is_string($peeled) ? $peeled : $match['name']);
-        if (mb_strlen($peeled) > 2 && trim($match['pack']) !== '') {
-            $text = $peeled;
-            break;
+    $text = preg_replace('/[\x{200B}-\x{200F}\x{FEFF}]+/u', '', trim($name));
+    $text = preg_replace('/\s+/u', ' ', is_string($text) ? $text : trim($name));
+    return mb_strtolower(trim(is_string($text) ? $text : $name));
+}
+
+function molavi_supplier_name_key(string $supplier, string $key): string
+{
+    return mb_strtolower(trim($supplier)) . "\0" . $key;
+}
+
+function molavi_index_add(array &$index, array $clean, int $productId): void
+{
+    foreach ([
+        ['source', $clean['id']],
+        ['record', $clean['source_record_id']],
+        ['name', $clean['key']],
+        ['supplier_name', molavi_supplier_name_key($clean['supplier'], $clean['key'])],
+    ] as [$bucket, $key]) {
+        if ($key === '') { continue; }
+        if (!isset($index[$bucket][$key])) { $index[$bucket][$key] = []; }
+        if (!in_array($productId, $index[$bucket][$key], true)) {
+            $index[$bucket][$key][] = $productId;
         }
     }
-    return mb_strtolower(trim($text));
+    $index['managed'][$productId] = $productId;
+}
+
+function molavi_unique_index_match(array $index, string $bucket, string $key): int
+{
+    $matches = array_values(array_unique(array_map('intval', $index[$bucket][$key] ?? [])));
+    return count($matches) === 1 ? $matches[0] : 0;
 }
 
 function molavi_product_index(): array
@@ -236,26 +297,25 @@ function molavi_product_index(): array
     $ids = get_posts([
         'post_type' => 'product',
         'post_status' => ['publish', 'draft', 'private', 'pending'],
-        'posts_per_page' => 500,
+        'posts_per_page' => -1,
         'fields' => 'ids',
         'orderby' => 'ID',
         'order' => 'ASC',
     ]);
-    $index = ['source' => [], 'record' => [], 'name' => []];
+    $index = ['source' => [], 'record' => [], 'name' => [], 'supplier_name' => [], 'managed' => []];
     foreach ($ids as $id) {
         $id = (int) $id;
         $source = (string) get_post_meta($id, '_molavi_source_id', true);
-        if ($source !== '') {
-            $index['source'][$source] = $id;
-        }
         $record = (string) get_post_meta($id, '_molavi_supplier_offer_id', true);
-        if ($record !== '') {
-            $index['record'][$record] = $id;
-        }
         $title = get_the_title($id);
         $key = molavi_name_key($title);
-        if ($key !== '') {
-            $index['name'][$key][] = $id;
+        $supplier = (string) get_post_meta($id, '_molavi_supplier', true);
+        if ($source !== '' || $record !== '') {
+            $index['managed'][$id] = $id;
+        }
+        foreach ([['source', $source], ['record', $record], ['name', $key],
+                  ['supplier_name', molavi_supplier_name_key($supplier, $key)]] as [$bucket, $value]) {
+            if ($value !== '') { $index[$bucket][$value][] = $id; }
         }
     }
     return $index;
@@ -263,24 +323,25 @@ function molavi_product_index(): array
 
 function molavi_match_product(array $clean, array $index): int
 {
-    if ($clean['source_record_id'] !== '' && isset($index['record'][$clean['source_record_id']])) {
-        return (int) $index['record'][$clean['source_record_id']];
+    if ($clean['source_record_id'] !== '') {
+        $recordMatch = molavi_unique_index_match($index, 'record', $clean['source_record_id']);
+        if ($recordMatch > 0) { return $recordMatch; }
     }
-    if (isset($index['source'][$clean['id']])) {
-        return (int) $index['source'][$clean['id']];
-    }
-    $candidates = $index['name'][$clean['key']] ?? [];
-    $candidates = array_values(array_unique(array_map('intval', $candidates)));
-    if (count($candidates) === 1) {
-        return $candidates[0];
-    }
-    return 0;
+    $sourceMatch = molavi_unique_index_match($index, 'source', $clean['id']);
+    if ($sourceMatch > 0) { return $sourceMatch; }
+    if ($clean['source_record_id'] !== '' || $clean['supplier'] === '') { return 0; }
+    return molavi_unique_index_match($index, 'supplier_name',
+        molavi_supplier_name_key($clean['supplier'], $clean['key']));
 }
 
 function molavi_upsert_product(int $productId, array $clean): int
 {
-    $product = $productId > 0 ? wc_get_product($productId) : new WC_Product_Simple();
-    if (!$product instanceof WC_Product) {
+    if ($productId > 0) {
+        $product = wc_get_product($productId);
+        if (!$product instanceof WC_Product) {
+            return 0;
+        }
+    } else {
         $product = new WC_Product_Simple();
     }
     $shelf = max(0, (int) $clean['shelf']);
@@ -295,6 +356,8 @@ function molavi_upsert_product(int $productId, array $clean): int
     $product->set_sale_price(!empty($curve['discountable']) ? (string) $curve['ceiling'] : '');
     $product->update_meta_data('_molavi_market_shelf_toman', $shelf);
     $product->update_meta_data('_molavi_supplier_cost_toman', $supplierCost);
+    $product->update_meta_data('_molavi_supplier_availability', $clean['supplier_availability']);
+    $product->update_meta_data('_molavi_catalog_state', 'sell');
     $product->update_meta_data('_molavi_pack_size', $clean['pack_size']);
     $product->update_meta_data('_molavi_source_post_url', $clean['source_post_url']);
     $product->update_meta_data('_molavi_reference_snapshot_id', $clean['reference_snapshot_id']);
@@ -310,12 +373,12 @@ function molavi_upsert_product(int $productId, array $clean): int
         $product->update_meta_data('_molavi_supplier_price_state', $clean['supplier_price_state']);
         $product->update_meta_data('_molavi_supplier_price_verified_at', $clean['supplier_price_verified_at']);
     }
-    // A stale/held offer or explicit supplier out-of-stock state blocks checkout.
-    // A fresh, explicit supplier in-stock state is purchasable in this demand-led flow;
-    // unknown supplier state never restores availability.
+    // Out-of-stock offers are projected as held by the source publisher. A fresh,
+    // current offer with unknown stock remains visible so a customer can submit a
+    // request; the request is not a promise of supplier inventory.
     if ($clean['status'] === 'hold' || $clean['supplier_availability'] === 'outofstock') {
         $product->set_stock_status('outofstock');
-    } elseif ($clean['status'] === 'sell' && $clean['supplier_availability'] === 'instock') {
+    } elseif ($clean['status'] === 'sell') {
         $product->set_stock_status('instock');
     }
 
@@ -350,6 +413,8 @@ function molavi_upsert_product(int $productId, array $clean): int
 function molavi_supplier_offer_is_purchasable(bool $purchasable, $product): bool
 {
     if (!$purchasable || !$product instanceof WC_Product) { return $purchasable; }
+    $catalogState=(string)$product->get_meta('_molavi_catalog_state', true);
+    if ($catalogState !== '' && $catalogState !== 'sell') { return false; }
     if ((string)$product->get_meta('_molavi_supplier_offer_id', true) === '') { return $purchasable; }
     $state=(string)$product->get_meta('_molavi_supplier_price_state', true);
     $verified=strtotime((string)$product->get_meta('_molavi_supplier_price_verified_at', true));
@@ -358,19 +423,45 @@ function molavi_supplier_offer_is_purchasable(bool $purchasable, $product): bool
 }
 add_filter('woocommerce_is_purchasable','molavi_supplier_offer_is_purchasable',10,2);
 
+function molavi_mark_product_held(int $productId, array $clean): void
+{
+    update_post_meta($productId, '_molavi_catalog_state', 'hold');
+    update_post_meta($productId, '_molavi_supplier_availability', $clean['supplier_availability']);
+    if ($clean['source_record_id'] !== '') {
+        update_post_meta($productId, '_molavi_supplier_offer_id', $clean['source_record_id']);
+        update_post_meta($productId, '_molavi_supplier_price_state', $clean['supplier_price_state']);
+        update_post_meta($productId, '_molavi_supplier_price_verified_at', $clean['supplier_price_verified_at']);
+    }
+}
+
+function molavi_product_is_hidden(int $productId): bool
+{
+    $product = wc_get_product($productId);
+    return $product instanceof WC_Product
+        && $product->get_status() === 'draft'
+        && $product->get_catalog_visibility() === 'hidden'
+        && $product->get_stock_status() === 'outofstock';
+}
+
 function molavi_hide_product(int $productId): bool
 {
     $product = wc_get_product($productId);
     if (!$product instanceof WC_Product) {
         return false;
     }
-    if ($product->get_status() === 'draft' && $product->get_catalog_visibility() === 'hidden') {
+    if (molavi_product_is_hidden($productId)) {
         return false;
     }
     $product->set_status('draft');
     $product->set_catalog_visibility('hidden');
-    $product->save();
-    return true;
+    $product->set_stock_status('outofstock');
+    $saved = $product->save();
+    if (!$saved) { return false; }
+    $verified = wc_get_product($productId);
+    return $verified instanceof WC_Product
+        && $verified->get_status() === 'draft'
+        && $verified->get_catalog_visibility() === 'hidden'
+        && $verified->get_stock_status() === 'outofstock';
 }
 
 function molavi_receive_images(array $payload): array

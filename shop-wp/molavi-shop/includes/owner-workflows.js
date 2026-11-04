@@ -702,11 +702,16 @@
                 if (offer.source_timestamp) section.appendChild(node('p', `زمان منبع: ${offer.source_timestamp}`));
                 const sourceLink = safeSourceLink(offer.source_post_url);
                 if (sourceLink) section.appendChild(sourceLink);
+                const sourceRevision = String(offer.source_revision || '').trim();
                 const verify = node('button', offer.acknowledged ? 'قیمت تأیید شد' : 'منبع فعلی را دیدم؛ قیمت تأیید است', 'button button-primary');
                 verify.type = 'button';
-                verify.disabled = offer.acknowledged || !contextStored.supplier_prices;
-                if (!offer.acknowledged && verify.disabled) section.appendChild(notice('ثبت زمینه این بررسی در پایگاه داده وردپرس ناموفق بود؛ اقدام غیرفعال است.', 'error'));
-                if (!offer.acknowledged) verify.addEventListener('click', async () => {
+                verify.disabled = offer.acknowledged || !sourceRevision || !contextStored.supplier_prices;
+                if (!offer.acknowledged && !sourceRevision) {
+                    section.appendChild(notice('برای این ردیف قیمت فروش معتبر در منبع فعلی ثبت نشده است؛ ابتدا داده قیمت را اصلاح کنید. این مورد قابل تأیید نیست.', 'warning'));
+                } else if (!offer.acknowledged && !contextStored.supplier_prices) {
+                    section.appendChild(notice('ثبت زمینه این بررسی در پایگاه داده وردپرس ناموفق بود؛ اقدام غیرفعال است.', 'error'));
+                }
+                if (!offer.acknowledged && sourceRevision) verify.addEventListener('click', async () => {
                     verify.disabled = true;
                     const originalLabel = verify.textContent;
                     verify.textContent = 'در حال ثبت…';
@@ -748,7 +753,7 @@
                         catch (_ignored) {}
                         verify.textContent = originalLabel;
                         updateActionStatus(progressStatus, errorText(error.message), 'error');
-                        errorBox(errorText(error.message), section); verify.disabled = !contextStored.supplier_prices;
+                        errorBox(errorText(error.message), section); verify.disabled = !sourceRevision || !contextStored.supplier_prices;
                     }
                 });
                 section.appendChild(verify);
@@ -2902,17 +2907,22 @@
                 card.appendChild(status);
                 const sourceLink = safeSourceLink(offer.source_post_url);
                 if (sourceLink) card.appendChild(sourceLink);
+                const sourceRevision = String(offer.source_revision || '').trim();
+                if (!sourceRevision) card.appendChild(notice(
+                    'برای این ردیف قیمت فروش معتبر در منبع فعلی ثبت نشده است؛ ابتدا داده قیمت را اصلاح کنید. این مورد قابل تأیید نیست.',
+                    'warning'));
                 const form = document.createElement('form');
                 const submit = node('button', 'قیمت تأمین‌کننده را بررسی کردم', 'button button-primary');
-                submit.type = 'submit'; form.appendChild(submit);
+                submit.type = 'submit'; submit.disabled = !sourceRevision; form.appendChild(submit);
                 form.addEventListener('submit', async event => {
                     event.preventDefault();
+                    if (!sourceRevision) return;
                     submit.disabled = true;
                     try {
                         const receipt = await request('POST', {product_id: offer.product_id,
-                            expected_revision: offer.source_revision,
+                            expected_revision: sourceRevision,
                             note: 'مالک منبع فعلی قیمت را از پنل بررسی تأیید کرد.'});
-                        if (receipt.product_id !== offer.product_id || receipt.source_revision !== offer.source_revision
+                        if (receipt.product_id !== offer.product_id || receipt.source_revision !== sourceRevision
                             || !receipt.verified_at || !receipt.publish_job) throw new Error('invalid_receipt');
                         status.textContent = 'بررسی قیمت ثبت شد و انتشار دوباره به صف فرستاده شد.';
                         status.className = 'notice notice-success';
@@ -2920,7 +2930,7 @@
                         status.setAttribute('aria-live', 'polite');
                         submit.textContent = 'قیمت تأیید شد';
                         submit.disabled = true;
-                    } catch (error) { errorBox(errorText(error.message), card); submit.disabled = false; }
+                    } catch (error) { errorBox(errorText(error.message), card); submit.disabled = !sourceRevision; }
                 });
                 card.appendChild(form); root.appendChild(card);
             }

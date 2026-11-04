@@ -1,10 +1,22 @@
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from catalog.inventory_lots import InventoryLots
 from catalog.order_fulfillment import PaidOrderPlanner
 from catalog.order_operations import OrderOperationConflict, OrderOperations
+from catalog.orders import operator_chat_ids
+from catalog.sync import MemoryStore
+
+
+class OperatorDestinationTests(unittest.TestCase):
+    def test_production_order_notices_ignore_editable_sheet_roster(self):
+        store=MemoryStore()
+        store.sheets['Operators']=[['Chat ID','Username','Name'],['42','test','test'],['99','other','other']]
+        with patch.dict(os.environ,{'TELEGRAM_BOT_TOKEN':'configured','TELEGRAM_OPERATOR_CHAT_IDS':'288165176'},clear=True):
+            self.assertEqual(operator_chat_ids(store),['288165176'])
 
 
 class OrderOperationsTests(unittest.TestCase):

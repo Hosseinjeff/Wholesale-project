@@ -44,7 +44,7 @@ app = Flask(__name__)
 WEB_APP_URL = os.getenv('GOOGLE_WEB_APP_URL')
 BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 BALE_BOT_TOKEN = os.getenv('BALE_BOT_TOKEN')
-APP_VERSION = "2026-11-01-ai-reextraction"
+APP_VERSION = "2026-11-04-products-streamline-integrity"
 setup_logger(logging.INFO, log_file=None)
 logger = logging.getLogger(__name__)
 
@@ -193,6 +193,20 @@ class DurableBatchManager:
             run_durable_handoff(self.queue)
         except Exception:
             logger.exception("Durable handoff remains pending for worker recovery")
+            return
+        try:
+            try:
+                retention_days = int(os.getenv('PIPELINE_PAYLOAD_RETENTION_DAYS') or '90')
+            except (TypeError, ValueError):
+                retention_days = 90
+            retention_days = max(30, min(365, retention_days))
+            compacted = self.queue.compact_completed_payloads(
+                older_than_seconds=retention_days * 86400)
+            if compacted['jobs_compacted'] or compacted['inbox_compacted']:
+                logger.info("Compacted completed pipeline payloads jobs=%s inbox=%s retention_days=%s",
+                            compacted['jobs_compacted'], compacted['inbox_compacted'], retention_days)
+        except Exception:
+            logger.exception("Completed payload compaction failed; business handoff already completed")
 
 
 def handoff_queue():
@@ -478,6 +492,10 @@ def register_telegram_webhook():
     if not BOT_TOKEN or not url:
         logger.info("Skipping Telegram webhook registration")
         return True
+    secret = (os.getenv("TELEGRAM_WEBHOOK_SECRET") or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9_-]{32,256}", secret):
+        logger.error("Skipping Telegram webhook registration: webhook secret is missing or invalid")
+        return False
     try:
         response = requests.post(
             f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook",
@@ -485,6 +503,7 @@ def register_telegram_webhook():
                 "url": url,
                 "allowed_updates": ["message", "edited_message", "channel_post", "edited_channel_post"],
                 "drop_pending_updates": False,
+                "secret_token": secret,
             },
             timeout=15,
         )
@@ -503,8 +522,9 @@ def register_telegram_webhook():
             _register_bot_commands()
             return True
         return False
-    except Exception:
-        logger.exception("setWebhook failed")
+    except Exception as exc:
+        # Do not log the request URL: it contains the bot token.
+        logger.error("setWebhook failed (%s)", exc.__class__.__name__)
         return False
 
 
@@ -635,25 +655,42 @@ def send_to_google_apps_script(data):
 
 def extract_direct_data(message, channel):
     """Extract a private or channel post that was not forwarded."""
+    chat = message.get('chat') if isinstance(message.get('chat'), dict) else {}
+    is_channel_post = str(chat.get('type') or '') == 'channel'
+    channel_username = str(chat.get('username') or '').strip()
+    post_id = str(message.get('message_id') or '')
+    source_timestamp = (message.get('edit_date') or message.get('date')) if is_channel_post else message.get('date')
+    if is_channel_post and channel_username:
+        source_url = f"https://t.me/{channel_username}/{post_id}" if post_id else ''
+    else:
+        source_url = ''
+    author = (chat.get('title') or channel_username or 'Channel') if is_channel_post else (
+        message.get('from', {}).get('username', 'User'))
     return {
-        'id': str(message.get('message_id', '')),
+        'id': post_id,
         'content': message.get('text') or message.get('caption') or '',
         'has_media': bool(message.get('photo') or message.get('document') or message.get('video')),
         'media_type': get_media_type(message),
-        'forwarded_by': message.get('from', {}).get('username', 'Unknown'),
+        'forwarded_by': message.get('from', {}).get('username', '') or author,
         'forwarded_at': message.get('date', ''),
         'channel': channel,
-        'channel_username': 'DirectMessage',
-        'author': message.get('from', {}).get('username', 'User'),
-        'timestamp': message.get('date'),
-        'url': '',
-        'chat_id': (message.get('chat') or {}).get('id'),
+        'channel_username': (f"@{channel_username}" if channel_username else (chat.get('title') or 'Channel')) if is_channel_post else 'DirectMessage',
+        'author': author,
+        'timestamp': source_timestamp,
+        'source_update_at': message.get('edit_date') if is_channel_post else '',
+        'url': source_url,
+        'chat_id': chat.get('id'),
+        'chat_type': chat.get('type') or '',
     }
 
 
 def inbound_payload(message, channel):
     """Build the sheet payload for one Telegram or Bale update."""
-    if channel == 'telegram' and 'forward_origin' in message:
+    chat = message.get('chat') if isinstance(message.get('chat'), dict) else {}
+    if channel == 'telegram' and str(chat.get('type') or '') == 'channel':
+        data = extract_direct_data(message, channel)
+        source = 'channel'
+    elif channel == 'telegram' and 'forward_origin' in message:
         data = extract_forward_data(message)
         source = 'forward'
     elif channel == 'bale' and ('forward_from_chat' in message or 'forward_from' in message):
@@ -696,6 +733,15 @@ def handle_inbound_update(update_json, channel):
     data, source = inbound_payload(message, channel)
     if not data:
         return jsonify({'status': 'ignored'})
+    chat_type = str(data.get('chat_type') or '')
+    if chat_type in {'group', 'supergroup'}:
+        return jsonify({'status': 'ignored'})
+    if private_chat(data):
+        allowlist_name = 'TELEGRAM_OPERATOR_CHAT_IDS' if channel == 'telegram' else 'BALE_OPERATOR_CHAT_IDS'
+        allowlist = {part.strip() for part in (os.getenv(allowlist_name) or '').split(',') if part.strip()}
+        if not allowlist or str(data.get('chat_id')) not in allowlist:
+            logger.warning("Ignoring private %s update from a non-allowlisted chat", channel)
+            return jsonify({'status': 'ignored'})
     command = command_name(data.get("content") or "") if source == "direct" else None
     if command:
         _remember_quiet(data)
@@ -737,6 +783,10 @@ def _release_memory_after_request(_exc):
 @app.route('/webhook', methods=['POST'])
 def telegram_webhook():
     """Handle Telegram webhook."""
+    expected = (os.getenv('TELEGRAM_WEBHOOK_SECRET') or '').strip()
+    sent = request.headers.get('X-Telegram-Bot-Api-Secret-Token') or ''
+    if not expected or not hmac.compare_digest(sent, expected):
+        return jsonify({'status': 'unauthorized'}), 401
     try:
         update_json = request.get_json()
         if not update_json:
@@ -749,6 +799,10 @@ def telegram_webhook():
 @app.route('/bale/webhook', methods=['POST'])
 def bale_webhook():
     """Handle Bale webhook."""
+    expected = (os.getenv('BALE_WEBHOOK_SECRET') or '').strip()
+    sent = request.headers.get('X-Bale-Webhook-Secret') or ''
+    if not expected or not hmac.compare_digest(sent, expected):
+        return jsonify({'status': 'unauthorized'}), 401
     try:
         update_json = request.get_json()
         if not update_json:
@@ -1684,9 +1738,11 @@ def supplier_price_evidence_route():
         if not isinstance(body,dict) or set(body)!={'product_id','expected_revision','note'}:
             return jsonify({'ok':False,'error':'invalid_body'}),400
         product_id,revision,note=(body.get('product_id'),body.get('expected_revision'),body.get('note'))
-        if (not isinstance(product_id,str) or not product_id or len(product_id)>200 or
-                not isinstance(revision,str) or not revision or len(revision)>200 or
-                not isinstance(note,str) or not note.strip() or len(note)>1000):
+        if not isinstance(product_id,str) or not product_id or len(product_id)>200:
+            return jsonify({'ok':False,'error':'invalid_body'}),400
+        if not isinstance(revision,str) or not revision:
+            return jsonify({'ok':False,'error':'price_source_missing'}),409
+        if len(revision)>200 or not isinstance(note,str) or not note.strip() or len(note)>1000:
             return jsonify({'ok':False,'error':'invalid_body'}),400
         offer=next((item for item in offers if item['product_id']==product_id),None)
         if offer is None or offer['source_revision']!=revision:
@@ -2724,7 +2780,7 @@ def shop_api():
                 "regular_price": regular,
                 "price": price,
                 "current_discount": (regular - price) / regular if regular > 0 else 0.0,
-                "stock_status": product.get("stock_status") or "Available",
+                "stock_status": product.get("stock_status") or "Unknown",
             })
         return jsonify({
             "products": products,
@@ -2801,6 +2857,12 @@ def detailed_health_check():
             'error': str(e),
             'timestamp': int(time.time())
         }), 500
+
+
+# Register during worker startup so Telegram has switched to the secret header
+# before it sends the first update to the new deployment.
+if BOT_TOKEN and (os.getenv('TELEGRAM_WEBHOOK_SECRET') or '').strip() and webhook_url_from_env():
+    ensure_telegram_webhook()
 
 if __name__ == '__main__':
     # Production mode for Railway/Render
