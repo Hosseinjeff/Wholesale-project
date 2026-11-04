@@ -11,7 +11,7 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
-from .matching import product_signature, ranked_candidates
+from .matching import product_signature
 from .importer import HEADERS
 
 
@@ -294,9 +294,11 @@ class ItemReviewLedger:
 def review_cases(sheet_store, snapshot, ledger, *, include_decided=False, include_candidates=True):
     """Build owner cases only for current Products rows and the active snapshot."""
     from catalog.sync import _fresh_read, _records
+    from reference_import.matching import RankedCandidateIndex
     snapshot_id = str(snapshot.get('snapshot_id') or '')
     if not snapshot_id:
         return []
+    candidate_index = RankedCandidateIndex(snapshot.get('rows') or []) if include_candidates else None
     _, products = _records(_fresh_read(sheet_store, 'Products'))
     _, offers = _records(_fresh_read(sheet_store, 'Offers'))
     offers_by_id = {str(row.get('Offer ID') or ''): row for row in offers if row.get('Offer ID')}
@@ -345,10 +347,9 @@ def review_cases(sheet_store, snapshot, ledger, *, include_decided=False, includ
                 'source_snapshot_id': str(product.get('Reference Snapshot ID') or ''),
             } if due_update else None,
             'attributes': attrs, 'signature': product_signature(attrs),
-            'candidates': (ranked_candidates(
+            'candidates': (candidate_index.ranked_candidates(
                 {**attrs, 'supplier_price': offer.get('Price') or offer.get('Sale Price') or ''},
-                snapshot.get('rows') or [], limit=12)
-                           if include_candidates else []),
+                limit=12) if candidate_index else []),
             'projection_pending': bool(decision and not decision_projected),
             'projection_pending_reason': (
                 'decision_not_projected' if decision and not decision_marker_matches

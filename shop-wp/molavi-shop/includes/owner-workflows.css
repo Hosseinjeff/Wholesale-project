@@ -63,7 +63,8 @@
 #molavi-owner-workflow .molavi-ai-reference-candidates > p { grid-column:1/-1; margin:.15rem 0; }
 #molavi-owner-workflow .molavi-ai-reference-option { display:flex; flex-direction:column; align-items:flex-start; gap:.25rem; width:100%; min-width:0; padding:.7rem; white-space:normal; text-align:start; text-decoration:none; }
 #molavi-owner-workflow .molavi-ai-reference-option span { display:block; font-size:.9em; line-height:1.55; }
-#molavi-owner-workflow .molavi-ai-reference-assignment { margin:.65rem 0; padding:.7rem; border:1px solid #c3c4c7; border-radius:.45rem; background:#fbfcfd; line-height:1.6; }
+#molavi-owner-workflow .molavi-ai-reference-assignment { margin:.65rem 0; padding:.7rem; border:1px solid #72aee6; border-inline-start:4px solid #2271b1; border-radius:.45rem; background:#f0f6fc; line-height:1.6; }
+#molavi-owner-workflow .molavi-ai-reference-assignment > strong { display:block; }
 #molavi-owner-workflow .molavi-ai-reference-assignment > p { margin:.3rem 0 .55rem; }
 #molavi-owner-workflow .molavi-ai-reference-chooser { display:grid; grid-template-columns:minmax(0,2fr) minmax(10rem,1fr) auto; align-items:end; gap:.5rem; }
 #molavi-owner-workflow .molavi-ai-reference-chooser label { grid-column:1/-1; font-weight:600; }

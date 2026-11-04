@@ -279,6 +279,10 @@ async function main() {
       unit_price:50000,package_price:1200000,package_count:24,price_role_hint:{role:'unit'},
       comparisons:[{key:'package_count',label:'تعداد بسته',source:'24',reference:'24',state:'match'},
         {key:'volume',label:'حجم',source:'220 میلی لیتر',reference:'220 میلی لیتر',state:'match'}]
+    },{
+      reference_id:'REF-JUICE-24-ALT',name:'آبمیوه تکه میوه سانی نس ۲۴ عددی',score:.91,name_similarity:.91,
+      unit_price:52000,package_price:1248000,package_count:24,price_role_hint:{role:'needs_review'},
+      comparisons:[{key:'package_count',label:'تعداد بسته',source:'24',reference:'24',state:'match'}]
     }]
   }];
   await refreshButton.listeners.click();
@@ -297,14 +301,18 @@ async function main() {
   let referenceRole = walk(visibleCards[0]).find(element => element.tagName === 'SELECT'
     && element.attributes['aria-label'] === 'مبنای قیمت مرجع');
   assert(referenceSelect && referenceRole,'the extraction card exposes in-progress reference selection controls');
+  assert.deepEqual(referenceSelect.childNodes.filter(option => option.tagName === 'OPTION' && option.value)
+    .map(option => option.value),['REF-JUICE-24','REF-JUICE-24-ALT'],
+  'the in-card selector exposes multiple reference candidates');
   referenceSelect.value = 'REF-JUICE-24';
   referenceSelect.listeners.change();
   assert.match(visibleCards[0].text,/تعداد بسته: یکسان/,'the selected reference comparison shows matching pack data');
   referenceRole.value = 'unit';
   referenceRole.listeners.change();
   const assignReference = walk(visibleCards[0]).find(element => element.tagName === 'BUTTON'
-    && element.textContent === 'ثبت مرجع برای این مورد');
+    && element.textContent === 'ثبت مرجع این مورد');
   assert(assignReference && !assignReference.disabled,'reference assignment is available before source-price confirmation');
+  const callsBeforeReferenceSave = calls.length;
   await assignReference.listeners.click();
   assert.equal(referenceAssignments.length,1);
   assert.equal(referenceAssignments[0].authorization,'Bearer scoped-reference_items',
@@ -313,8 +321,11 @@ async function main() {
   assert.equal(calls.filter(item => item.options.method === 'POST'
     && item.url === workflowApis.ai_confirmations.url).length,0,
   'assigning a reference does not confirm historical price or stock');
+  assert.deepEqual(calls.slice(callsBeforeReferenceSave).filter(item => item.options.method === 'GET')
+    .map(item => item.url),[workflowApis.ai_confirmations.url],
+  'saving a reference refreshes only its owning extraction queue, not every dashboard endpoint');
   visibleCards = walk(root).filter(element => element.className.split(/\s+/).includes('molavi-product-card'));
-  assert.match(visibleCards[0].text,/مرجع در حال بررسی: آبمیوه تتراپک سون ۲۴ عددی/,
+  assert.match(visibleCards[0].text,/مرجع ذخیره‌شده برای این بررسی: آبمیوه تتراپک سون ۲۴ عددی/,
     'the saved assignment remains visible in the same workbench card');
   const stillGatedConfirm = walk(visibleCards[0]).find(element => element.tagName === 'BUTTON'
     && element.dataset.priceRole === 'package');

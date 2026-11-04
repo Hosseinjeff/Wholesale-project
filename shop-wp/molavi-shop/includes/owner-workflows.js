@@ -310,6 +310,7 @@
     let workbenchBoard = null;
     let workbenchRefresh = null;
     let workbenchLiveStatus = null;
+    let workbenchData = null;
 
     function workbenchNameKey(name) {
         return String(name || '').normalize('NFKC').toLocaleLowerCase()
@@ -372,7 +373,7 @@
         return 6;
     }
 
-    async function dashboard(message = '', messageKind = 'info') {
+    async function dashboard(message = '', messageKind = 'info', refreshKeys = null) {
         if (!workbenchMounted) {
             shell('بررسی کالاها', 'یک کالا در هر نوبت؛ صف را بر اساس نوع کار انتخاب کنید و همان‌جا انجام دهید.');
             const toolbar = node('div', null, 'molavi-workbench-toolbar');
@@ -413,10 +414,22 @@
         };
         const keys = ['product_status','ai_confirmations','reference_items','supplier_prices',
             'sheet_conflicts','publication_holds','reference_decisions'];
-        const loaded = await Promise.all([...keys.map(key => load(key)), load('operations','')]);
+        const allKeys = [...keys, 'operations'];
+        const requested = new Set(Array.isArray(refreshKeys) ? refreshKeys : allKeys);
+        const loaded = await Promise.all(allKeys.map(key => {
+            if (!requested.has(key) && workbenchData && Object.prototype.hasOwnProperty.call(workbenchData, key)) {
+                return Promise.resolve({data:workbenchData[key], error:''});
+            }
+            return load(key, key === 'operations' ? '' : key);
+        }));
         if (thisLoad !== workbenchLoadId) return;
-        const data = Object.fromEntries(keys.map((key,index) => [key,loaded[index].data]));
-        const operations = loaded[loaded.length - 1].data;
+        const data = {...(workbenchData || {})};
+        allKeys.forEach((key,index) => {
+            if (loaded[index].data !== null) data[key] = loaded[index].data;
+            else if (!Object.prototype.hasOwnProperty.call(data, key)) data[key] = null;
+        });
+        workbenchData = data;
+        const operations = data.operations;
         const unavailable = loaded.map(result => result.error).filter(Boolean);
         board.replaceChildren();
         workbenchRefresh.disabled = false;
@@ -629,9 +642,9 @@
             if (status.update_needed) appendStatusPill(stateRow, 'به‌روزرسانی', 'لازم است', 'warning');
             if (product.holds.length) appendStatusPill(stateRow, 'انتشار', 'متوقف', 'warning');
             if (stateRow.childNodes.length) card.appendChild(stateRow);
-            const refreshInPlace = async (message, kind, statusNode) => {
+            const refreshInPlace = async (message, kind, statusNode, refreshKeys) => {
                 updateActionStatus(statusNode, message, kind);
-                await dashboard(message, kind);
+                await dashboard(message, kind, refreshKeys);
             };
             groupAiVariantCases(product.ai).forEach(relatedItems => {
                 const item = relatedItems[0];
@@ -689,7 +702,8 @@
                         verify.textContent = 'قیمت تأیید شد';
                         const message = `بررسی قیمت ثبت شد و انتشار دوباره در صف قرار گرفت.${warning}`;
                         updateActionStatus(progressStatus, message, warning ? 'warning' : 'success');
-                        await dashboard(message, warning ? 'warning' : 'success');
+                        await dashboard(message, warning ? 'warning' : 'success',
+                            ['supplier_prices','product_status','publication_holds','operations']);
                     } catch (error) {
                         try { await persistOwnerReviews([reviewRecord(eventId,'supplier_price',offer.product_id,error.remoteRejected?'failed':'pending',context,decision,{error:String(error.message||'request_failed')})]); }
                         catch (_ignored) {}
@@ -766,17 +780,18 @@
                         catch (_error) { warning = ' تصمیم ثبت شد، اما رسید وردپرس هنوز همگام نشده است.'; }
                         const message = `${serverOwned ? 'مقدار سیستمی با سرور همگام شد.' : sheetPreserved ? 'مقدار اصلی شیت حفظ شد.' : 'اصلاح دستی به فروشگاه فرستاده شد.'}${warning}`;
                         updateActionStatus(progressStatus, message, warning ? 'warning' : 'success');
-                        await dashboard(message, warning ? 'warning' : 'success');
+                        await dashboard(message, warning ? 'warning' : 'success',
+                            ['sheet_conflicts','product_status','supplier_prices','operations']);
                     } catch (error) {
                         try { await persistOwnerReviews([reviewRecord(eventId,'sheet_conflict',conflict.conflict_id,error.remoteRejected?'failed':'pending',{},decision,{error:String(error.message||'request_failed')})]); }
                         catch (_ignored) {}
                         if (error.message === 'source_changed' && error.responseBody
                             && error.responseBody.refreshed === true) {
-                            await dashboard('نسخهٔ این تعارض کهنه بود؛ اطلاعات تازه بارگذاری شد. موردهای باقی‌مانده را بررسی کنید.', 'info');
+                            await dashboard('نسخهٔ این تعارض کهنه بود؛ اطلاعات تازه بارگذاری شد. موردهای باقی‌مانده را بررسی کنید.', 'info', ['sheet_conflicts']);
                             return;
                         }
                         if (error.message === 'conflict_changed') {
-                            await dashboard('این تعارض هم‌زمان تغییر کرد؛ صف تازه شد تا فقط موارد باز را ببینید.', 'info');
+                            await dashboard('این تعارض هم‌زمان تغییر کرد؛ صف تازه شد تا فقط موارد باز را ببینید.', 'info', ['sheet_conflicts']);
                             return;
                         }
                         updateActionStatus(progressStatus, errorText(error.message), 'error');
@@ -970,7 +985,8 @@
                         action.textContent = reconcileWithoutRetry ? 'توقف بسته شد' : 'دسته در صف قرار گرفت';
                         const message = `${reconcileWithoutRetry?'توقف تکراری بسته شد و دسته دوباره اجرا نشد.':'دسته برای یک بار پردازش دوباره در صف قرار گرفت.'}${warning}`;
                         updateActionStatus(progressStatus, message, warning ? 'warning' : 'success');
-                        await dashboard(message, warning ? 'warning' : 'success');
+                        await dashboard(message, warning ? 'warning' : 'success',
+                            ['publication_holds','operations','ai_confirmations','product_status','sheet_conflicts','supplier_prices']);
                     } catch (error) {
                         try { await persistOwnerReviews([reviewRecord(reviewEventId('publication_hold',hold.hold_id),
                             'publication_hold',hold.hold_id,error.remoteRejected?'failed':'pending',{},decision,{error:String(error.message||'request_failed')})]); }
@@ -1044,7 +1060,7 @@
                         const open=receipt.batch_job_ids_left_open.length;
                         await persistOwnerReviews([reviewRecord(eventId,'publication_backlog','failed-publication-backlog','accepted',context,decision,receipt)]);
                         await dashboard(`کاتالوگ همگام شد؛ ${receipt.failed_publications_reconciled} خطای انتشار بسته شد و ${receipt.batch_jobs_reconciled} دسته تأییدشده تطبیق یافت.${open?` ${open} دسته برای بررسی باز ماند.`:''}`,
-                            open?'warning':'success');
+                            open?'warning':'success', ['operations','product_status','supplier_prices','publication_holds','sheet_conflicts','ai_confirmations']);
                     } catch(error) {
                         try { await persistOwnerReviews([reviewRecord(eventId,'publication_backlog','failed-publication-backlog',error.remoteRejected?'failed':'pending',context,decision,{error:String(error.message||'request_failed')})]); }
                         catch(_ignored) {}
@@ -1426,7 +1442,8 @@
         const summary = `${accepted} از ${items.length} مورد ${label}${failed ? `؛ ${failed} مورد ناموفق ماند${firstError ? ` (${firstError})` : ''}` : ''}${localWarning ? ' رسید محلی وردپرس به همگام‌سازی نیاز دارد.' : ''}`;
         updateActionStatus(progressStatus, summary, failed || localWarning ? 'warning' : 'success');
         if (typeof options.refresh === 'function') {
-            await options.refresh(summary, failed || localWarning ? 'warning' : 'success', progressStatus);
+            await options.refresh(summary, failed || localWarning ? 'warning' : 'success', progressStatus,
+                ['ai_confirmations','product_status','supplier_prices','sheet_conflicts','operations']);
         } else {
             await aiConfirmations(summary, failed || localWarning ? 'warning' : 'success');
         }
@@ -1434,13 +1451,15 @@
 
     function aiReferenceAssignmentSection(item, contextStored, decisionsEnabled, options = {}) {
         if (!item.reference_snapshot_id) return null;
-        const candidates = Array.isArray(item.reference_candidates) ? item.reference_candidates.slice(0, 3) : [];
+        const candidates = Array.isArray(item.reference_candidates) ? item.reference_candidates.slice(0, 12) : [];
         const section = node('section', null, 'molavi-ai-reference-assignment');
-        section.appendChild(node('strong', 'انتخاب مرجع کالا'));
+        section.appendChild(node('strong', 'تطبیق با کالای مرجع — انتخاب را همین‌جا ثبت کنید'));
         section.appendChild(node('p', 'این انتخاب فقط مرجع و مبنای مقایسه را ذخیره می‌کند؛ تأیید قیمت/موجودی و انتشار جداگانه می‌ماند.'));
         const assignment = item.reference_assignment || null;
         if (assignment && assignment.choice === 'match') {
             section.appendChild(notice(`مرجع ذخیره‌شده برای این بررسی: ${assignment.reference_name || assignment.reference_id} · ${assignment.price_role === 'package' ? 'قیمت بسته/کارتن' : 'قیمت هر واحد'}؛ با تأیید بعدی استخراج اعمال می‌شود.`, 'success'));
+        } else if (item.reference_match_id) {
+            section.appendChild(notice(`مرجع فعلی: ${item.reference_match_name || item.reference_match_id} · ${item.reference_match_state || 'تطبیق ثبت‌شده'}. برای تغییر، یک گزینهٔ زیر را انتخاب کنید.`, 'info'));
         }
         if (!candidates.length) {
             section.appendChild(notice('برای این مورد از نسخه فعال فهرست، گزینهٔ مرجع مشابهی پیدا نشد.', 'info'));
@@ -1453,7 +1472,7 @@
         referenceSelect.setAttribute('aria-label', 'انتخاب کالای مرجع');
         const placeholder = document.createElement('option');
         placeholder.value = '';
-        placeholder.textContent = 'انتخاب مرجع پیشنهادی';
+        placeholder.textContent = `${new Intl.NumberFormat('fa-IR').format(candidates.length)} گزینهٔ پیشنهادی؛ انتخاب کنید`;
         referenceSelect.appendChild(placeholder);
         const candidateById = new Map();
         candidates.forEach(candidate => {
@@ -1504,7 +1523,7 @@
             } else compare.appendChild(node('p', 'ویژگی قابل مقایسهٔ دیگری در مرجع ثبت نشده است.'));
             compare.appendChild(node('small', 'شباهت و قیمت پیشنهادی فقط راهنما هستند؛ مرجع و نقش قیمت را خودتان انتخاب کنید.'));
         };
-        const save = node('button', assignment ? 'به‌روزرسانی مرجع این مورد' : 'ثبت مرجع برای این مورد', 'button button-secondary');
+        const save = node('button', assignment ? 'ذخیرهٔ مرجع این مورد' : 'ثبت مرجع این مورد', 'button button-secondary');
         save.type = 'button';
         const updateEnabled = () => {
             save.disabled = !contextStored || !decisionsEnabled || !referenceSelect.value || !roleSelect.value;
@@ -1515,7 +1534,7 @@
             const selected = candidateById.get(referenceSelect.value);
             if (!selected || !roleSelect.value) return;
             save.disabled = true;
-            const originalLabel = assignment ? 'به‌روزرسانی مرجع این مورد' : 'ثبت مرجع برای این مورد';
+            const originalLabel = assignment ? 'ذخیرهٔ مرجع این مورد' : 'ثبت مرجع این مورد';
             save.textContent = 'در حال ذخیره…';
             const status = actionStatus(section, 'در حال ذخیره مرجع در وردپرس و نسخه فعال فهرست…');
             const eventId = reviewEventId('reference_item', item.offer_id);
@@ -1555,7 +1574,7 @@
                 } catch (_error) { localWarning = true; }
                 const message = `مرجع «${receipt.reference_name || receipt.reference_id}» ذخیره شد؛ قیمت، موجودی و انتشار هنوز تأیید نشده‌اند.`;
                 if (typeof options.refresh === 'function') {
-                    await options.refresh(message, localWarning ? 'warning' : 'success', status);
+                    await options.refresh(message, localWarning ? 'warning' : 'success', status, ['ai_confirmations']);
                 } else {
                     updateActionStatus(status, message, localWarning ? 'warning' : 'success');
                     save.textContent = 'مرجع ذخیره شد';
@@ -1620,6 +1639,11 @@
             relatedItems.forEach(row => variants.appendChild(node('li', `${aiProductAttributes(row).variationType || row.product_name || 'نوع نامشخص'}${row.product_name && row.product_name !== item.product_name ? ` · ${row.product_name}` : ''}`)));
             card.appendChild(variants);
         }
+        relatedItems.forEach(referenceItem => {
+            const assignmentSection = aiReferenceAssignmentSection(referenceItem,
+                contextStored, decisionsEnabled, options);
+            if (assignmentSection) card.appendChild(assignmentSection);
+        });
         const roleLabels = {unit: 'هر واحد', single: 'هر واحد', per_unit: 'هر واحد',
             pack: 'هر بسته', package: 'هر بسته', carton: 'هر کارتن'};
         const roleLabel = roleLabels[String(item.price_type || '').toLowerCase()]
@@ -1639,26 +1663,6 @@
         }
         card.appendChild(node('p', `قیمت مصرف‌کننده / عادی: ${regularPrice ? amount(regularPrice) : 'در پیام پیدا نشد'} · تأمین‌کننده: ${item.channel || 'نامشخص'}`));
         if (regularPackagePrice) card.appendChild(node('p', `قیمت عادی کل بسته/کارتن: ${amount(regularPackagePrice)}`));
-        const referenceStates = {
-            exact_compatible_identity: 'نام و ویژگی‌ها با مرجع سازگارند؛ نقش قیمت جداگانه بررسی می‌شود',
-            owner_approved_mapping: 'تطبیق قبلاً توسط مالک تأیید شده',
-            no_compatible_reference: 'مرجع سازگار پیدا نشد',
-            multiple_candidates: 'چند مرجع مشابه پیدا شد؛ یک مورد باید انتخاب شود',
-            missing_name: 'نام کالا برای جست‌وجوی مرجع کافی نیست'
-        };
-        const referenceCandidates = Array.isArray(item.reference_candidates) ? item.reference_candidates.slice(0, 3) : [];
-        const assignedReference = item.reference_assignment && item.reference_assignment.choice === 'match'
-            ? `مرجع در حال بررسی: ${item.reference_assignment.reference_name || item.reference_assignment.reference_id} · ${item.reference_assignment.price_role === 'package' ? 'قیمت بسته/کارتن' : 'قیمت هر واحد'}`
-            : item.reference_match_id
-            ? `مرجع ثبت‌شده: ${item.reference_match_name || item.reference_match_id} · ${referenceStates[item.reference_match_state] || item.reference_match_state || 'تطبیق ثبت‌شده'}`
-            : `مرجع کالا: ${referenceStates[item.reference_match_state] || (referenceCandidates.length
-                ? 'هنوز انتخاب نشده؛ گزینه‌ها را در همین کارت بررسی کنید' : 'هنوز انتخاب نشده')}`;
-        card.appendChild(node('p', assignedReference));
-        relatedItems.forEach(referenceItem => {
-            const assignmentSection = aiReferenceAssignmentSection(referenceItem,
-                contextStored, decisionsEnabled, options);
-            if (assignmentSection) card.appendChild(assignmentSection);
-        });
         card.appendChild(node('p', `دلیل بررسی: ${item.reason || 'نیازمند بررسی'} · حداقل خرید: ${item.min_qty || 'ثبت نشده'}`));
         const messageTimestamp = formatSourceTimestamp(item.message_timestamp);
         if (messageTimestamp) card.appendChild(node('p', `زمان پیام منبع: ${messageTimestamp}`));
@@ -2284,7 +2288,8 @@
                 } catch (_error) {
                     updateActionStatus(progressStatus, 'تصمیم در سرویس ثبت شد، اما رسید وردپرس هنوز همگام نشده است.', 'warning');
                     if (typeof options.refresh === 'function') {
-                        await options.refresh('تصمیم در سرویس ثبت شد، اما رسید وردپرس هنوز همگام نشده است.', 'warning', progressStatus);
+                        await options.refresh('تصمیم در سرویس ثبت شد، اما رسید وردپرس هنوز همگام نشده است.', 'warning', progressStatus,
+                            ['reference_items','product_status','supplier_prices','ai_confirmations','operations']);
                     } else {
                         await referenceItems('تصمیم در سرویس ثبت شد، اما رسید وردپرس هنوز همگام نشده است.', 'warning');
                     }
@@ -2293,13 +2298,15 @@
                 if (receipt.projection_state === 'pending_verification') {
                     updateActionStatus(progressStatus, 'تصمیم ذخیره شد؛ ثبت آن در فهرست کالاها هنوز تأیید نشده و مورد باز می‌ماند.', 'warning');
                     if (typeof options.refresh === 'function') {
-                        await options.refresh('تصمیم ذخیره شد؛ ثبت آن در فهرست کالاها هنوز تأیید نشده و مورد برای تکمیل باز می‌ماند.', 'warning', progressStatus);
+                        await options.refresh('تصمیم ذخیره شد؛ ثبت آن در فهرست کالاها هنوز تأیید نشده و مورد برای تکمیل باز می‌ماند.', 'warning', progressStatus,
+                            ['reference_items','product_status','supplier_prices','ai_confirmations','operations']);
                     } else {
                         await referenceItems('تصمیم ذخیره شد؛ ثبت آن در فهرست کالاها هنوز تأیید نشده و مورد برای تکمیل باز می‌ماند.', 'warning');
                     }
                 } else {
                     updateActionStatus(progressStatus, 'تصمیم تطبیق ثبت شد.', 'success');
-                    if (typeof options.refresh === 'function') await options.refresh('تصمیم تطبیق ثبت شد.', 'success', progressStatus);
+                    if (typeof options.refresh === 'function') await options.refresh('تصمیم تطبیق ثبت شد.', 'success', progressStatus,
+                        ['reference_items','product_status','supplier_prices','ai_confirmations','operations']);
                     else await referenceItems('تصمیم تطبیق ثبت شد.', 'success');
                 }
             } catch (error) {

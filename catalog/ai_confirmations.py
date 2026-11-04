@@ -370,8 +370,10 @@ def review_cases(store, ledger, *, include_history=False, limit=200, reference_s
     reference_rows = (reference_snapshot or {}).get('rows') or []
     active_reference_snapshot_id = str((reference_snapshot or {}).get('snapshot_id') or '')
     reference_lookup = {}
+    reference_ranker = None
     if reference_rows:
-        from reference_import.matching import ranked_candidates
+        from reference_import.matching import RankedCandidateIndex
+        reference_ranker = RankedCandidateIndex(reference_rows)
         for row in reference_rows:
             if isinstance(row, (list, tuple)) and len(row) > 16:
                 reference_lookup[str(row[16] or row[2] or '')] = str(row[0] or '')
@@ -439,15 +441,14 @@ def review_cases(store, ledger, *, include_history=False, limit=200, reference_s
                         'reference_name': reference_name,
                         'price_role': reference_decision.get('price_role'),
                     }
-            if reference_rows:
-                from reference_import.matching import ranked_candidates
-                case['reference_candidates'] = ranked_candidates({
+            if reference_ranker:
+                case['reference_candidates'] = reference_ranker.ranked_candidates({
                     'name': case.get('product_name'), 'clean_name': case.get('product_name'),
                     'brand': case.get('brand'), 'category': case.get('category'),
                     'variant': case.get('variation_type'), 'volume': case.get('volume'),
                     'weight': case.get('weight'), 'package_count': case.get('package_count'),
                     'supplier_price': case.get('detected_price') or case.get('sale_price'),
-                }, reference_rows, limit=3)
+                }, limit=12)
             latest_decision = ledger.latest(case['case_id'])
             decided = bool(latest_decision and latest_decision['signature'] == case['signature'])
             duplicate_key = _duplicate_source_offer_key(offer)

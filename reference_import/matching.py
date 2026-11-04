@@ -11,6 +11,18 @@ import re
 from catalog.measurements import normalize_measurement_tokens
 from .importer import normalize_name, HEADERS
 
+try:
+    from rapidfuzz.fuzz import ratio as _rapid_ratio
+except ImportError:  # Keep the matcher usable in minimal desktop/test installs.
+    _rapid_ratio = None
+
+
+def _similarity(left, right):
+    """Return the existing normalized sequence ratio using the fast native scorer."""
+    if _rapid_ratio is not None:
+        return _rapid_ratio(left, right) / 100.0
+    return SequenceMatcher(None, left, right).ratio()
+
 
 def _text(value):
     return normalize_name(str(value or ''))
@@ -89,71 +101,89 @@ def _attribute_comparisons(incoming, candidate, components, source_values):
     return result
 
 
-def ranked_candidates(product, rows, *, limit=10):
-    """Rank suggestions for the owner. A score never approves a match by itself."""
+class RankedCandidateIndex:
+    """Prepare a reference snapshot once, then cheaply rank many incoming products."""
+
     weights = {'name': .45, 'brand': .14, 'category': .12, 'variant': .10,
                'package_count': .07, 'volume': .06, 'weight': .06}
-    columns = {'name': 1, 'brand': 12, 'category': 13, 'variant': 11,
-               'package_count': 6, 'volume': 8, 'weight': 9}
-    incoming = {
-        'name': _name(product.get('clean_name') or product.get('name')),
-        'brand': _text(product.get('brand')),
-        'category': _text(product.get('category')),
-        'variant': _text(product.get('variant') or product.get('variation_type')),
-        'package_count': str(package_count(product) or ''),
-        'volume': _name(product.get('volume')),
-        'weight': _name(product.get('weight')),
-    }
-    source_values = {
-        'name': str(product.get('clean_name') or product.get('name') or '').strip(),
-        'brand': str(product.get('brand') or '').strip(),
-        'category': str(product.get('category') or '').strip(),
-        'variant': str(product.get('variant') or product.get('variation_type') or '').strip(),
-        'package_count': str(package_count(product) or ''),
-        'volume': str(product.get('volume') or '').strip(),
-        'weight': str(product.get('weight') or '').strip(),
-    }
-    if not incoming['name']:
-        return []
-    scored = []
-    for row in rows:
-        if not isinstance(row, (list, tuple)) or len(row) != len(HEADERS):
-            continue
-        components = {}
-        weighted, denominator = 0.0, 0.0
-        for key, weight in weights.items():
-            left = incoming[key]
-            right = str(row[columns[key]] or '') if columns[key] < len(row) else ''
-            if key == 'package_count':
-                right = str(_number(right) or '')
-            else:
-                right = _name(right) if key in {'name', 'volume', 'weight'} else _text(right)
-            if not left:
+
+    def __init__(self, rows):
+        self.rows = []
+        for row in rows:
+            if not isinstance(row, (list, tuple)) or len(row) != len(HEADERS):
                 continue
-            denominator += weight
-            score = SequenceMatcher(None, left, right).ratio() if right else 0.0
-            components[key] = round(score, 4)
-            weighted += weight * score
-        score = weighted / denominator if denominator else 0.0
-        if score < .35:
-            continue
-        candidate = _reference(row)
-        if not candidate['reference_id']:
-            continue
-        candidate.update({
-            'score': round(score, 4), 'component_scores': components,
-            'name_similarity': round(components.get('name', 0), 4),
-            'comparisons': _attribute_comparisons(incoming, candidate, components, source_values),
-        })
-        supplier_price = _number(
-            product.get('supplier_price') or product.get('detected_price')
-            or product.get('sale_price') or product.get('price'))
-        if supplier_price:
-            candidate['supplier_price'] = supplier_price
-            candidate['price_role_hint'] = price_role_hint(supplier_price, candidate)
-        scored.append(candidate)
-    scored.sort(key=lambda item: (-item['score'], item['reference_id']))
-    return scored[:max(1, min(int(limit), 20))]
+            candidate = _reference(row)
+            if not candidate['reference_id']:
+                continue
+            self.rows.append((candidate, {
+                'name': _name(row[1] or row[0]),
+                'brand': _text(row[12]),
+                'category': _text(row[13]),
+                'variant': _text(row[11]),
+                'package_count': str(_number(row[6]) or ''),
+                'volume': _name(row[8]),
+                'weight': _name(row[9]),
+            }))
+
+    def ranked_candidates(self, product, *, limit=10):
+        """Rank suggestions for the owner. A score never approves a match by itself."""
+        weights = self.weights
+        incoming = {
+            'name': _name(product.get('clean_name') or product.get('name')),
+            'brand': _text(product.get('brand')),
+            'category': _text(product.get('category')),
+            'variant': _text(product.get('variant') or product.get('variation_type')),
+            'package_count': str(package_count(product) or ''),
+            'volume': _name(product.get('volume')),
+            'weight': _name(product.get('weight')),
+        }
+        source_values = {
+            'name': str(product.get('clean_name') or product.get('name') or '').strip(),
+            'brand': str(product.get('brand') or '').strip(),
+            'category': str(product.get('category') or '').strip(),
+            'variant': str(product.get('variant') or product.get('variation_type') or '').strip(),
+            'package_count': str(package_count(product) or ''),
+            'volume': str(product.get('volume') or '').strip(),
+            'weight': str(product.get('weight') or '').strip(),
+        }
+        if not incoming['name']:
+            return []
+        scored = []
+        for reference, right_values in self.rows:
+            components = {}
+            weighted, denominator = 0.0, 0.0
+            for key, weight in weights.items():
+                left = incoming[key]
+                if not left:
+                    continue
+                right = right_values[key]
+                denominator += weight
+                score = _similarity(left, right) if right else 0.0
+                components[key] = round(score, 4)
+                weighted += weight * score
+            score = weighted / denominator if denominator else 0.0
+            if score < .35:
+                continue
+            candidate = {**reference}
+            candidate.update({
+                'score': round(score, 4), 'component_scores': components,
+                'name_similarity': round(components.get('name', 0), 4),
+                'comparisons': _attribute_comparisons(incoming, candidate, components, source_values),
+            })
+            supplier_price = _number(
+                product.get('supplier_price') or product.get('detected_price')
+                or product.get('sale_price') or product.get('price'))
+            if supplier_price:
+                candidate['supplier_price'] = supplier_price
+                candidate['price_role_hint'] = price_role_hint(supplier_price, candidate)
+            scored.append(candidate)
+        scored.sort(key=lambda item: (-item['score'], item['reference_id']))
+        return scored[:max(1, min(int(limit), 20))]
+
+
+def ranked_candidates(product, rows, *, limit=10):
+    """Rank suggestions for one product, preserving the shared index API."""
+    return RankedCandidateIndex(rows).ranked_candidates(product, limit=limit)
 
 
 def candidate_match(product, rows, *, overrides=None):
