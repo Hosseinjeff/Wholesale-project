@@ -180,6 +180,14 @@ from WooCommerce until each original Offer can be recovered from a trustworthy s
 the pipeline does not manufacture replacement evidence. This is the remaining known
 source-integrity backlog, even when the service and storefront health checks are green.
 
+The follow-up public endpoint check found a second path around that hold: `/api/shop`
+and `/api/cart` applied price-age and Sheet-conflict checks but did not check the
+Latest Offer link, so a broken row could still be listed or quoted by the Python API
+even while Woo publication held it. Both endpoints now apply the same source-link
+integrity check, and they return no products if the evidence read fails. A regression
+test verifies the valid item remains quotable while the orphaned item is absent and
+reported as missing from the cart quote.
+
 One policy boundary should remain explicit in the store design: a fresh item whose
 supplier did not state stock remains Unknown but can accept a customer request. The
 current Woo adapter maps that state to Woo's internal `instock` flag so the request

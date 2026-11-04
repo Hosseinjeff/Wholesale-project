@@ -2832,10 +2832,25 @@ def _current_supplier_price_evidence(store,ledger,now=None):
 
 
 def _apply_supplier_price_gate(catalog,store):
+    # Do not expose a row with a broken source pointer in a public listing or quote.
+    # The publication path already held these rows, but this separate response used
+    # to check only freshness and Sheet conflicts.
+    try:
+        from catalog.source_integrity import product_offer_link_issues
+        from catalog.sync import _fresh_read, _records
+        product_rows=_fresh_read(store,'Products')
+        offer_rows=_fresh_read(store,'Offers')
+        product_records=_records(product_rows)[1]
+        offer_records=_records(offer_rows)[1]
+        source_issues=product_offer_link_issues(product_records,offer_records)
+    except Exception:
+        logger.exception('Shop source integrity unavailable; failing public catalog closed')
+        catalog['products']=[]
+        return catalog
+    broken_source_ids={str(issue.get('product_id') or '') for issue in source_issues
+                       if issue.get('product_id')}
     ledger=_supplier_price_ledger()
     queue=handoff_queue()
-    if ledger is None and queue is None:
-        return catalog
     eligible=None
     if ledger is not None:
         from datetime import datetime,timezone
@@ -2844,7 +2859,8 @@ def _apply_supplier_price_gate(catalog,store):
     conflicts={row['product_id'] for row in queue.sheet_sync_conflicts()} if queue is not None else set()
     catalog['products']=[product for product in catalog.get('products',[])
                          if (eligible is None or str(product.get('product_id') or '') in eligible)
-                         and str(product.get('product_id') or '') not in conflicts]
+                         and str(product.get('product_id') or '') not in conflicts
+                         and str(product.get('product_id') or '') not in broken_source_ids]
     return catalog
 
 

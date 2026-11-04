@@ -93,6 +93,11 @@ class SupplierFreshnessRouteTests(unittest.TestCase):
   headers=['Product ID','Product Name','Channel Username','Sale Price','Consumer Price','Currency','Latest Offer ID','Message Timestamp','Source Timestamp Basis','Status','Stock Status']
   self.store=MemoryStore()
   self.store.sheets['Products']=[headers,['product-1','چای','@supplier',40000,50000,'IRR','offer-1',int((self.now-timedelta(days=8)).timestamp()),'supplier_channel_update','imported','Available']]
+  offer={'Offer ID':'offer-1','Product Name':'چای','Channel Username':'@supplier',
+   'Sale Price':40000,'Consumer Price':50000,'Currency':'IRR',
+   'Message Timestamp':int((self.now-timedelta(days=8)).timestamp()),
+   'Source Timestamp Basis':'supplier_channel_update'}
+  self.store.sheets['Offers']=[OFFER_HEADERS,_row_from_map(OFFER_HEADERS,offer)]
   self.env={'PIPELINE_DB_PATH':self.db,'REFERENCE_OWNER_IDS':'wp:7','REFERENCE_BRIDGE_TOKEN':'synthetic-reference-token-1234567890'}
   from catalog.supplier_freshness import source_price_revision
   self.revision=source_price_revision(dict(zip(headers,self.store.sheets['Products'][1])))
