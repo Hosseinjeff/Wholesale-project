@@ -147,6 +147,9 @@ class ReconciliationReportTests(unittest.TestCase):
         self.assertEqual(report['receipts'][0]['product_count'], 0)
         self.assertEqual(report['catalog_woo']['products_checked'], 1)
         self.assertEqual(report['catalog_woo']['not_visible'], 1)
+        self.assertEqual(report['catalog_woo']['issues'][0]['product_id'], 'product-unjoined')
+        self.assertEqual(report['catalog_woo']['issues'][0]['product_name'], 'کالای مستقل')
+        self.assertEqual(report['catalog_woo']['issues'][0]['state'], 'not_visible')
         self.assertEqual(report['summary']['woo_missing'], 1)
 
     def test_woo_reconciliation_uses_publisher_holds_for_missing_customer_prices(self):

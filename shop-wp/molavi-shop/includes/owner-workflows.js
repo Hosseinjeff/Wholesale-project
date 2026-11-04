@@ -1171,6 +1171,24 @@
                     report.replaceChildren(node('p',`پیام‌ها: ${summary.receipts||0} · کالاهای فعلی: ${summary.products||0} · نیازمند بررسی: ${summary.offers_needing_review||0} · پیوند منبع شکسته: ${sourceIntegrity.products_with_issues||0} · انتشار کامل: ${summary.publication_done||0} · انتظار/خطا: ${summary.publication_pending||0} · SKU ناموجود: ${summary.woo_missing||0} · زمان: ${result.generated_at||'نامشخص'}`));
                     report.appendChild(node('p',`وضعیت اتصال فروشگاه: ${({checked:'بررسی شد',truncated:'بررسی بخشی',unavailable:'در دسترس نیست',not_configured:'تنظیم نشده'}[validation.woo_state])||validation.woo_state||'نامشخص'}`));
                     report.appendChild(node('p',`بررسی کامل کاتالوگ: ${catalogWoo.products_checked||0} · قابل خرید: ${catalogWoo.purchasable||0} · نگه‌داشته: ${catalogWoo.held||0} · در سایت پیدا نشد: ${catalogWoo.not_visible||0} · قابل خرید با وجود توقف: ${catalogWoo.held_but_purchasable||0}`));
+                    const catalogIssues=Array.isArray(catalogWoo.issues)?catalogWoo.issues:[];
+                    if(catalogIssues.length){
+                        const details=document.createElement('details');
+                        details.appendChild(node('summary',`جزئیات ناهماهنگی کاتالوگ (${catalogIssues.length})`));
+                        const list=document.createElement('ul');
+                        const labels={not_visible:'در فروشگاه پیدا نشد',held_but_purchasable:'متوقف است اما هنوز قابل خرید است',ambiguous_product_id:'شناسه محصول تکراری است',no_catalog_projection:'پروژکشن کاتالوگ در دسترس نیست',not_checked:'اتصال فروشگاه بررسی نشد',not_checked_catalog_truncated:'فهرست فروشگاه کامل دریافت نشد'};
+                        catalogIssues.forEach(issue=>{
+                            const item=document.createElement('li');
+                            item.appendChild(node('span',`${issue.product_name||issue.product_id||'کالای بدون شناسه'} · ${labels[issue.state]||issue.state} · شناسه: ${issue.product_id||'—'} · SKU: ${issue.woo_sku||'—'}`));
+                            const sourceLink=safeSourceLink(issue.source_post_url);
+                            if(sourceLink)item.appendChild(sourceLink);
+                            if(Array.isArray(issue.source_integrity_codes)&&issue.source_integrity_codes.length){
+                                item.appendChild(node('small',` · پیوند منبع: ${issue.source_integrity_codes.join('، ')}`));
+                            }
+                            list.appendChild(item);
+                        });
+                        details.appendChild(list);report.appendChild(details);
+                    }
                     const linkIssues=Array.isArray(sourceIntegrity.issues)?sourceIntegrity.issues:[];
                     if(linkIssues.length){
                         const details=document.createElement('details');

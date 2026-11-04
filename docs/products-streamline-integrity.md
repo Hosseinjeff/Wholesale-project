@@ -163,7 +163,9 @@ catalog, including products outside the recent receipt window. It separately cou
 products that should sell, are held, are missing, are unexpectedly purchasable while
 held, or could not be checked because the Woo catalog read was incomplete. Duplicate
 complete product identities are reported as source-integrity errors rather than
-silently merged.
+silently merged. Each exception now includes the product name, ID, expected SKU, latest
+Offer ID, and source post URL, and the owner screen displays those details so a missing
+product is identifiable without searching another tab.
 
 One burst of 42 POSTs to the owner supplier-price endpoint returned HTTP 400 during a
 single browser session. The same endpoint later recorded 71 successful POSTs and no

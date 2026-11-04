@@ -161,6 +161,10 @@ def build_reconciliation_report(store, queue, *, site_url: str, limit: int = 200
         if isinstance(item, dict) and _text(item.get('id'))
     }
     projection_available = projection_rows is not None
+    source_issue_by_row = {
+        int(issue.get('row_number') or 0) - 2: issue
+        for issue in source_integrity_issues
+    }
     expected_by_source = {}
     expected_keys_by_product_id = defaultdict(list)
     for row_number, row in enumerate(products, start=2):
@@ -174,9 +178,14 @@ def build_reconciliation_report(store, queue, *, site_url: str, limit: int = 200
         projected = projection_by_sku.get(sku)
         expected_by_source[source_key] = {
             'product_id': source_id,
+            'product_name': name,
+            'channel': channel,
             'id': sku,
             'status': _text(projected.get('status')) if projected else ('hold' if projection_available else 'no_projection'),
             'supplier_availability': _text(projected.get('supplier_availability')) if projected else '',
+            'latest_offer_id': _text(row.get('Latest Offer ID')),
+            'source_post_url': _text(row.get('Source Post URL')),
+            'source_integrity_codes': source_issue_by_row.get(row_number - 2, {}).get('codes', []),
         }
         expected_keys_by_product_id[source_id].append(source_key)
     woo = _woo_catalog(site_url)
@@ -205,6 +214,27 @@ def build_reconciliation_report(store, queue, *, site_url: str, limit: int = 200
     for state in catalog_woo_states.values():
         if state in catalog_counts:
             catalog_counts[state] += 1
+    detail_states = {
+        'not_visible', 'held_but_purchasable', 'ambiguous_product_id',
+        'no_catalog_projection', 'not_checked', 'not_checked_catalog_truncated',
+    }
+    catalog_issue_details = []
+    for source_key, expected in expected_by_source.items():
+        state = catalog_woo_states[source_key]
+        if state not in detail_states:
+            continue
+        catalog_issue_details.append({
+            'product_id': expected['product_id'],
+            'product_name': expected['product_name'],
+            'channel': expected['channel'],
+            'woo_sku': expected['id'],
+            'state': state,
+            'product_status': expected['status'],
+            'latest_offer_id': expected['latest_offer_id'],
+            'source_post_url': expected['source_post_url'],
+            'source_integrity_codes': expected['source_integrity_codes'],
+        })
+    catalog_counts['issues'] = catalog_issue_details[:limit]
     receipt_rows = []
     totals = {
         'receipts': len(receipt_data['receipts']), 'message_data': 0,
