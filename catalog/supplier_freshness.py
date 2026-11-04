@@ -6,6 +6,7 @@ import sqlite3
 from datetime import datetime, timezone
 from contextlib import contextmanager
 from decimal import Decimal, InvalidOperation
+from urllib.parse import urlparse
 from .launch_policies import supplier_price_state
 
 
@@ -123,6 +124,30 @@ def source_datetime(value):
         return parsed.astimezone(timezone.utc)
     except (OverflowError,OSError,TypeError,ValueError):
         return None
+
+
+def infer_legacy_source_timestamp_basis(record):
+    """Recognize an old saved channel forward without treating its receipt time as source time."""
+    basis=str(record.get('Source Timestamp Basis') or record.get('source_timestamp_basis') or '').strip()
+    if basis:
+        return basis
+    channel=str(record.get('Channel Username') or record.get('channel_username') or '').strip().lstrip('@').casefold()
+    source_url=str(record.get('Source Post URL') or record.get('URL') or record.get('url') or '').strip()
+    forwarded_by=str(record.get('Forwarded By') or record.get('forwarded_by') or '').strip()
+    source_time=source_datetime(record.get('Message Timestamp') or record.get('Timestamp') or record.get('timestamp'))
+    forwarded_at=source_datetime(record.get('Forwarded At') or record.get('forwarded_at'))
+    try:
+        parsed=urlparse(source_url)
+        host=parsed.hostname
+    except ValueError:
+        return ''
+    path=[part for part in parsed.path.split('/') if part]
+    is_matching_public_channel=(parsed.scheme=='https' and host in {'t.me','www.t.me'}
+        and bool(channel) and len(path)>=2 and path[0].casefold()==channel)
+    if (is_matching_public_channel and forwarded_by and source_time and forwarded_at
+            and forwarded_at>source_time):
+        return 'supplier_channel_forward'
+    return ''
 
 
 def current_supplier_offers(store, ledger, *, now):

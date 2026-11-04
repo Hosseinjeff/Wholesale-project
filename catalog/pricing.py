@@ -212,10 +212,21 @@ def quote_lines(lines: list[dict[str, Any]], unlock_target: int) -> dict[str, An
     """Price the current cart. Adding or removing a line reprices every line."""
     prepared = [line for line in lines if int(line.get("qty") or 0) > 0 and int(line.get("regular") or 0) > 0]
     regular_total = sum(int(line["regular"]) * int(line["qty"]) for line in prepared)
-    if regular_total <= 0 or int(unlock_target or 0) <= 0:
+    discountable_total = 0
+    for line in prepared:
+        try:
+            discountable = float(line.get("max_discount") or 0) > 0
+        except (TypeError, ValueError, OverflowError):
+            discountable = False
+        if "max_discount" not in line:
+            discountable = min(int(line.get("floor") or 0), int(line.get("ceiling") or 0)) < int(line["regular"])
+        if discountable:
+            discountable_total += int(line["regular"]) * int(line["qty"])
+    if discountable_total <= 0 or int(unlock_target or 0) <= 0:
         progress = 0.0
     else:
-        progress = min(1.0, regular_total / int(unlock_target))
+        # WordPress only lets discountable products advance the shared cart curve.
+        progress = min(1.0, discountable_total / int(unlock_target))
 
     quoted = []
     discount_total = 0
@@ -335,7 +346,11 @@ def product_from_record(record: dict[str, Any], settings: PricingSettings | None
     if cost is None or regular is None:
         return None
     band = price_band(cost, regular, settings)
-    if not band["discountable"]:
+    # A positive-margin product can still be sold at its consumer price when the
+    # configured minimum profit leaves no room for a discount. WordPress keeps
+    # these products on the shelf at that price; do not make the Railway catalog
+    # disagree by dropping them entirely.
+    if regular <= cost:
         return None
     return _public_product({
         "product_id": record.get("Product ID") or "",

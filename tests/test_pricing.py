@@ -64,6 +64,15 @@ class BandTests(unittest.TestCase):
         self.assertFalse(band["discountable"])
         self.assertEqual(band["max_discount"], 0)
 
+        product = product_from_record({
+            "Product ID":"thin-margin", "Product Name":"کالای کم‌حاشیه",
+            "Sale Price":90000, "Consumer Price":100000, "Status":"imported",
+        })
+        self.assertIsNotNone(product)
+        self.assertEqual(product["floor"], 100000)
+        self.assertEqual(product["ceiling"], 100000)
+        self.assertEqual(product["max_discount"], 0)
+
     def test_percent_typed_as_a_whole_number_is_read_as_a_rate(self):
         settings = settings_from_rows([["Min Margin", "18"], ["Unlock Target", "250000"]])
         self.assertAlmostEqual(settings.min_margin, 0.18)
@@ -79,6 +88,20 @@ class BandTests(unittest.TestCase):
 
 
 class CartTests(unittest.TestCase):
+    def test_no_discount_products_stay_at_retail_and_do_not_advance_cart_discounts(self):
+        eligible = {**price_band(40000, 50000), "product_id":"eligible", "name":"کالای تخفیف‌دار", "qty":1}
+        retail_only = product_from_record({
+            "Product ID":"retail-only", "Product Name":"کالای کم‌حاشیه",
+            "Sale Price":90000, "Consumer Price":100000, "Status":"imported",
+        })
+        self.assertIsNotNone(retail_only)
+        quote = quote_lines([eligible, {**retail_only, "qty":1}], 100000)
+
+        self.assertEqual(quote["regular_total"], 150000)
+        self.assertEqual(quote["progress"], 0.5)
+        retail_line = next(line for line in quote["lines"] if line["product_id"] == "retail-only")
+        self.assertEqual(retail_line["unit_price"], 100000)
+
     def test_adding_and_removing_reprices_every_line_and_the_aggregate(self):
         bear = price_band(30833, 60000)
         tuna = price_band(40000, 50000)

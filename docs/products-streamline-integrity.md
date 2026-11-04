@@ -196,3 +196,51 @@ current Woo adapter maps that state to Woo's internal `instock` flag so the requ
 flow remains usable; the product card does not claim stock. If the public flow later
 labels an item as available or accepts payment before the supplier confirms it, add a
 separate request-only availability state rather than treating Unknown as stock proof.
+
+### Final live comparison — 2026-11-04
+
+The live Railway health routes returned HTTP 200, the owner workflow had zero
+actionable items, zero attention items, zero publication holds, zero sheet conflicts,
+and no failed backlog. It was still running commit `e250f27`. The receipt report
+showed 146 offers needing review and 26 supplier-price evidence cases (24 review, 2
+blocked); those are evidence work, not durable worker retries. Do not approve a price
+from a private owner submission's send time.
+
+The source-integrity scan found ten Products rows whose Latest Offer IDs are absent
+from Offers. A read-only join found one exact saved MessageData row for every source
+message and the original supplier URL in all ten messages. Nine Products rows already
+carry that URL; one has lost its copy. These rows remain held. Rebuilding an Offer row
+from only its Product row would invent missing extraction fields and could refresh a
+stale timestamp, so recovery must replay or verify the saved source while preserving
+its original supplier timestamp. All ten legacy MessageData rows also lack the newer
+timestamp-basis field. The prepared re-extraction path infers `supplier_channel_forward`
+only when the original t.me URL matches the stored supplier channel and Telegram's
+forward receipt time is later than the original source time. Explicit bases such as
+`owner_submission` remain untouched. The affected Product rows were written by a
+historical re-extraction run; the current atomic append and Offer-ID verification
+prevent a new Product pointer from being written unless its Offer row is present.
+
+The apparent WooCommerce-missing croissant was a false alarm. Its stable Product ID
+matched a live, purchasable Woo product, but WordPress had retained the legacy SKU
+`171e3fb514c3` while the current title-derived SKU would be `28829636abc1`. The SKU is
+part of order handoff records, so WordPress keeps it. The protected catalog-identity
+read is live and rejects unauthenticated requests with HTTP 401; the authenticated
+read verified the Product ID, retained SKU, published state, and purchasability. The
+prepared Railway reconciliation change reports this as `sku_mismatch`, counts it as
+live, and shows both SKUs instead of reporting a missing product.
+
+The same comparison found three published WordPress products missing from Railway's
+public `/api/shop`. Their prices have a positive spread but no room for a discount
+under the configured minimum-profit curve. WordPress already sells them at consumer
+price with no discount; Railway had omitted them entirely. The prepared API change
+keeps positive-margin retail-only products at consumer price with zero discount,
+while excluding them from the shared cart-discount progress just as WordPress does.
+Rows with supplier price at or above consumer price remain excluded. This changes
+neither the WordPress price nor the discount threshold.
+
+The owner Telegram account is allowlisted. A private submission authenticates the
+operator but does not refresh supplier evidence. For forwarded supplier posts, the
+source message timestamp remains the shelf clock; forwarding time does not refresh
+it. Keep the seven-day warning and fourteen-day block until supplier posting-cycle
+measurements justify a different window. A supplier's explicit sold-out statement
+still hides the item immediately, and omitted stock stays Unknown.

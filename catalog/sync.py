@@ -914,7 +914,7 @@ def reextract_saved_message(store, payload: dict[str, Any], *, write_lock=None) 
     """Re-run extraction for one saved source and let quality checks decide review."""
     from catalog.ai_confirmations import AIConfirmationLedger, reextraction_source_key, review_cases
     from catalog.launch_policies import BLOCKING_AGE
-    from catalog.supplier_freshness import source_datetime
+    from catalog.supplier_freshness import infer_legacy_source_timestamp_basis, source_datetime
     message_id=str(payload.get('message_id') or '')
     batch_id=str(payload.get('batch_id') or '')
     channel_username=str(payload.get('channel_username') or '')
@@ -1012,6 +1012,9 @@ def reextract_saved_message(store, payload: dict[str, Any], *, write_lock=None) 
             source_url=source.get('URL'),channel=channel_username,message_id=message_id,
             timestamp=timestamp,content=source.get('Content'))
 
+    if not str(source.get('Source Timestamp Basis') or '').strip():
+        source=dict(source)
+        source['Source Timestamp Basis']=infer_legacy_source_timestamp_basis(source)
     content=str(source.get('Content') or '')
     if not content.strip():
         return {'ok':True,'message_id':message_id,'status':'no_text','products_found':0,

@@ -2,7 +2,8 @@ import tempfile,unittest
 import os
 from pathlib import Path
 from datetime import datetime,timedelta,timezone
-from catalog.supplier_freshness import PriceFreshness, current_supplier_offers, source_price_revision
+from catalog.supplier_freshness import (PriceFreshness, current_supplier_offers,
+ infer_legacy_source_timestamp_basis, source_price_revision)
 from catalog.sync import MemoryStore, PRODUCT_HEADERS, OFFER_HEADERS, _restore_current_book, _row_from_map
 from catalog.durable import Handoffs
 from unittest.mock import patch
@@ -12,6 +13,16 @@ class SupplierFreshnessTests(unittest.TestCase):
   self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
   self.path=Path(self.tmp.name)/'freshness.sqlite';self.ledger=PriceFreshness(self.path)
   self.now=datetime(2026,10,28,tzinfo=timezone.utc)
+ def test_legacy_owner_forward_uses_supplier_time_not_forward_receipt_time(self):
+  source=int((self.now-timedelta(days=8)).timestamp())
+  forwarded=source+3600
+  record={'Channel Username':'@bonakdarjavan','URL':'https://t.me/bonakdarjavan/1531',
+   'Timestamp':source,'Forwarded At':forwarded,'Forwarded By':'HosseinJeff'}
+  self.assertEqual(infer_legacy_source_timestamp_basis(record),'supplier_channel_forward')
+  self.assertEqual(infer_legacy_source_timestamp_basis({**record,'Source Timestamp Basis':'owner_submission'}),
+   'owner_submission')
+  self.assertEqual(infer_legacy_source_timestamp_basis({**record,'Channel Username':'DirectMessage','URL':''}), '')
+  self.assertEqual(infer_legacy_source_timestamp_basis({**record,'Forwarded At':source-60}), '')
  def test_old_post_does_not_become_fresh_on_reimport(self):
   post=self.now-timedelta(days=15)
   self.ledger.observe_source(offer_id='A',source_revision='post1',source_timestamp=post,now=self.now)
