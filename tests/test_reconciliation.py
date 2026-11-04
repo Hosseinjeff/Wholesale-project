@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from catalog.extract import MESSAGE_HEADERS, OFFER_HEADERS, PRODUCT_HEADERS
 from catalog.reconciliation import build_reconciliation_report
@@ -88,6 +89,42 @@ class ReconciliationReportTests(unittest.TestCase):
         self.assertEqual(report['receipts'][0]['owner_decisions'], 1)
         self.assertEqual(report['receipts'][0]['product_count'], 1)
         self.assertEqual(report['receipts'][0]['product_details'][0]['price_basis'], 'unit')
+
+    def test_woo_reconciliation_uses_publisher_holds_for_missing_customer_prices(self):
+        names=['چای ساده','چای با قیمت مصرف‌کننده']
+        offers=[];products=[]
+        for index,name in enumerate(names,1):
+            offer_id=f'offer-{index}'
+            offers.append({
+                'Offer ID':offer_id,'Message ID':'message-1','Batch ID':'batch-1',
+                'Channel Username':'@supplier','Message Timestamp':'1730574000',
+                'Original Message':self.source['Content'],'Product Name':name,
+                'Status':'imported','Sale Price':40000,
+            })
+            products.append({
+                'Product ID':f'product-{index}','Latest Offer ID':offer_id,
+                'Product Name':name,'Channel Username':'@supplier',
+                'Status':'imported','Sale Price':40000,
+                'Consumer Price':65000 if index==2 else '',
+            })
+        self.store.append('Offers',[_row_from_map(OFFER_HEADERS,row) for row in offers])
+        self.store.append('Products',[_row_from_map(PRODUCT_HEADERS,row) for row in products])
+
+        class EmptyWoo:
+            status_code=200
+            headers={'X-WP-TotalPages':'1'}
+            def json(self):return []
+
+        with patch.dict('os.environ',{'PIPELINE_DB_PATH':''}), \
+             patch('catalog.reconciliation.requests.get',return_value=EmptyWoo()):
+            report=build_reconciliation_report(
+                self.store,FakeQueue(self.receipt),site_url='https://shop.example')
+
+        states={item['name']:item['woo_state'] for item in report['receipts'][0]['product_details']}
+        self.assertEqual(report['summary']['woo_missing'],1)
+        self.assertEqual(states['چای ساده'],'held')
+        self.assertEqual(states['چای با قیمت مصرف‌کننده'],'not_visible')
+        self.assertEqual(report['validation']['catalog_projection'],'checked')
 
 
 if __name__ == '__main__':

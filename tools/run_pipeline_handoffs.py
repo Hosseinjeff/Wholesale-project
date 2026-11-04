@@ -9,13 +9,19 @@ import sys
 import time
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parent.parent))
-from app import USE_SHEETS, build_store, handoff_queue, run_durable_handoff
+from app import USE_SHEETS, _notice_chat_allowlists, build_store, handoff_queue, run_durable_handoff
 from catalog.sheet_projection import observe_sheet_projection
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser();parser.add_argument('--once',action='store_true')
     args=parser.parse_args();queue=handoff_queue()
     if queue is None:parser.error('PIPELINE_DB_PATH must name persistent private storage')
+    try:
+        cancelled_notices=queue.cancel_unroutable_notice_jobs(_notice_chat_allowlists())
+        if cancelled_notices:
+            print('Cancelled pending operational notices with untrusted recipients',file=sys.stderr)
+    except Exception:
+        print('Notice recipient cleanup failed; runtime allowlist remains enforced',file=sys.stderr)
     reference_scheduler=None
     reference_path=os.getenv('REFERENCE_STORE_PATH') or ''
     reference_owners=[value.strip() for value in (os.getenv('REFERENCE_OWNER_IDS') or '').split(',') if value.strip()]

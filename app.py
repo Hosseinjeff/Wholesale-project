@@ -214,15 +214,29 @@ def handoff_queue():
     return Handoffs(path) if path else None
 
 
+def _notice_chat_allowlists():
+    """Explicit recipients allowed to receive private operational notices."""
+    def values(*names):
+        return {part.strip() for name in names
+                for part in (os.getenv(name) or '').split(',') if part.strip()}
+    return {
+        'telegram': values('TELEGRAM_OPERATOR_CHAT_IDS', 'ORDER_NOTIFY_CHAT_ID'),
+        'bale': values('BALE_OPERATOR_CHAT_IDS'),
+    }
+
+
 def run_durable_handoff(queue, job_id=None):
     if not USE_SHEETS:
         raise RuntimeError("Durable pipeline requires the server Sheets writer")
 
     def notice(key, chat_id, text, channel="telegram"):
-        if not chat_id:
-            return
+        if (channel not in {'telegram', 'bale'}
+                or str(chat_id or '').strip() not in _notice_chat_allowlists()[channel]):
+            logger.warning("Skipped operational notice for a non-allowlisted recipient")
+            return False
         queue.put("notice", key + ":" + str(chat_id) + ":" + channel,
                   {"chat_id": chat_id, "text": text, "channel": channel})
+        return True
 
     def finalize(payload):
         with queue.publication_lock():
@@ -302,14 +316,20 @@ def run_durable_handoff(queue, job_id=None):
         if result.get("written") is True and payload.get("notify"):
             import hashlib
             key = hashlib.sha256(queue.encode(payload).encode()).hexdigest()
-            for chat in operator_chat_ids(store):
-                for channel, token in (("telegram", BOT_TOKEN), ("bale", BALE_BOT_TOKEN)):
-                    if token:
+            recipients = _notice_chat_allowlists()
+            for channel, token, chats in (
+                    ("telegram", BOT_TOKEN, operator_chat_ids(store)),
+                    ("bale", BALE_BOT_TOKEN, sorted(recipients['bale']))):
+                if token:
+                    for chat in chats:
                         notice("order:" + key, chat, format_order_notice(order), channel)
         return result
 
     def notify(payload):
         channel = payload["channel"]
+        if (channel not in {'telegram', 'bale'}
+                or str(payload.get('chat_id') or '').strip() not in _notice_chat_allowlists().get(channel, set())):
+            return {"delivered": False, "skipped": "recipient_not_allowlisted"}
         token = BALE_BOT_TOKEN if channel == "bale" else BOT_TOKEN
         host = "https://tapi.bale.ai" if channel == "bale" else "https://api.telegram.org"
         if not token:
@@ -1076,7 +1096,10 @@ def reconcile_publication_backlog_route():
             except (TypeError,ValueError,OverflowError):
                 images_left=-1
             if sync.get('ok') is not True or sync.get('pushed') is not True or images_left!=0:
+                sync_error = re.sub(r'[^A-Za-z0-9_. -]+','',str(sync.get('error') or sync.get('reason') or ''))[:100]
+                sync_row = sync.get('row') if type(sync.get('row')) is int and sync.get('row') >= 0 else None
                 return jsonify({'ok':False,'error':'catalog_sync_incomplete',
+                    'sync_error':sync_error,'sync_row':sync_row,
                     'images_left':max(0,images_left) if images_left>=0 else None}),502
             digest_after=sheet_projection_digest(store)
             if digest_after!=digest_before:
@@ -1113,9 +1136,10 @@ def reconcile_publication_backlog_route():
         return response
     except JobConflict:
         return jsonify({'ok':False,'error':'backlog_changed'}),409
-    except Exception:
+    except Exception as error:
         logger.exception('Failed publication backlog reconciliation failed')
-        return jsonify({'ok':False,'error':'backlog_reconcile_unavailable'}),503
+        return jsonify({'ok':False,'error':'backlog_reconcile_unavailable',
+            'cause':type(error).__name__}),503
 
 
 @app.route('/pipeline/reconciliation', methods=['GET'])
@@ -2861,7 +2885,8 @@ def detailed_health_check():
 
 # Register during worker startup so Telegram has switched to the secret header
 # before it sends the first update to the new deployment.
-if BOT_TOKEN and (os.getenv('TELEGRAM_WEBHOOK_SECRET') or '').strip() and webhook_url_from_env():
+if (os.getenv('PIPELINE_HANDOFF_WORKER') != '1' and BOT_TOKEN
+        and (os.getenv('TELEGRAM_WEBHOOK_SECRET') or '').strip() and webhook_url_from_env()):
     ensure_telegram_webhook()
 
 if __name__ == '__main__':

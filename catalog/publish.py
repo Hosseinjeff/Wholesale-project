@@ -10,6 +10,7 @@ import base64
 import hashlib
 import logging
 import os
+import re
 import threading
 from datetime import datetime, timezone
 from typing import Any
@@ -270,6 +271,13 @@ def _post_shop(url: str, secret: str, payload: dict[str, Any]) -> dict[str, Any]
     if not isinstance(body, dict):
         body = {}
     if response.status_code >= 400 or not body.get("ok"):
-        logger.warning("Shop publish rejected: %s", response.status_code)
-        return {"ok": False, "status": response.status_code, "error": str(body.get("error") or "")[:120]}
+        error = re.sub(r'[^A-Za-z0-9_. -]+', '', str(body.get("error") or ""))[:80]
+        row = body.get("row") if type(body.get("row")) is int and body.get("row") >= 0 else None
+        logger.warning("Shop publish rejected: status=%s error=%s row=%s",
+                       response.status_code, error or 'unspecified', row)
+        failure = {"ok": False, "status": response.status_code,
+                   "error": error or 'unspecified'}
+        if row is not None:
+            failure['row'] = row
+        return failure
     return body

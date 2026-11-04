@@ -367,7 +367,9 @@ function molavi_upsert_product(int $productId, array $clean): int
     $product->update_meta_data('_molavi_reference_price_change_percent', $clean['reference_price_change_percent']);
     $product->update_meta_data('_molavi_reference_price_checked_at', $clean['reference_price_checked_at']);
     $product->update_meta_data('_molavi_reference_review_reason', $clean['reference_review_reason']);
-    $product->set_short_description($clean['supplier']);
+    // Supplier identity remains private catalog metadata; never expose it as
+    // the customer's product description or excerpt.
+    $product->set_short_description('');
     if ($clean['source_record_id'] !== '') {
         $product->update_meta_data('_molavi_supplier_offer_id', $clean['source_record_id']);
         $product->update_meta_data('_molavi_supplier_price_state', $clean['supplier_price_state']);

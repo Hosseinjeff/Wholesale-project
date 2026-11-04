@@ -121,6 +121,19 @@ def build_reconciliation_report(store, queue, *, site_url: str, limit: int = 200
         if latest_offer_id:
             product_by_latest_offer.setdefault(latest_offer_id, []).append(row)
 
+    try:
+        # Reuse the publisher's exact hold rules so rows with missing prices,
+        # stale supplier evidence, or explicit stock holds are not misreported
+        # as missing from WooCommerce.
+        from catalog.publish import site_products
+        projection_rows = site_products(store)
+    except Exception:
+        projection_rows = None
+    projection_by_sku = {
+        _text(item.get('id')): item for item in projection_rows or []
+        if isinstance(item, dict) and _text(item.get('id'))
+    }
+    projection_available = projection_rows is not None
     expected_by_source = {}
     for row in products:
         source_id = _text(row.get('Product ID'))
@@ -129,10 +142,11 @@ def build_reconciliation_report(store, queue, *, site_url: str, limit: int = 200
         if not source_id or (not name and _text(row.get('Status')).lower() not in {'needs_review','not_product','skipped'}):
             continue
         sku = hashlib.sha256(f'{channel}|{name}'.encode()).hexdigest()[:12]
+        projected = projection_by_sku.get(sku)
         expected_by_source[source_id] = {
             'id': sku,
-            'status': _text(row.get('Status')).lower(),
-            'supplier_availability': _text(row.get('Stock Status')).lower(),
+            'status': _text(projected.get('status')) if projected else ('hold' if projection_available else 'no_projection'),
+            'supplier_availability': _text(projected.get('supplier_availability')) if projected else '',
         }
     woo = _woo_catalog(site_url)
     receipt_rows = []
@@ -206,12 +220,12 @@ def build_reconciliation_report(store, queue, *, site_url: str, limit: int = 200
         woo_states_by_product = {}
         for product_id in product_ids:
             expected = expected_by_source.get(product_id)
-            if not expected:
+            if not expected or expected.get('status') == 'no_projection':
                 woo_states_by_product[product_id] = 'no_catalog_projection'
                 continue
             published = woo['products'].get(_text(expected.get('id')))
             expected_status = _text(expected.get('status'))
-            if expected_status in {'needs_review', 'not_product', 'skipped'}:
+            if expected_status in {'hold', 'needs_review', 'not_product', 'skipped'}:
                 if published and published['purchasable']:
                     state = 'held_but_purchasable'
                     totals['woo_blocked'] += 1
@@ -304,7 +318,9 @@ def build_reconciliation_report(store, queue, *, site_url: str, limit: int = 200
         })
 
     validation = {
-        'state': 'partial' if not products or woo['state'] in {'unavailable', 'not_configured', 'truncated'} else 'checked',
+        'state': 'partial' if (not products or not projection_available
+            or woo['state'] in {'unavailable', 'not_configured', 'truncated'}) else 'checked',
+        'catalog_projection': 'checked' if projection_available else 'unavailable',
         'woo_state': woo['state'],
         'woo_checked_at': woo['checked_at'],
         'woo_product_count': len(woo['products']),

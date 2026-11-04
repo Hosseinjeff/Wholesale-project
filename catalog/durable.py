@@ -183,6 +183,34 @@ class Handoffs:
             'items':items,
         }
 
+    def cancel_unroutable_notice_jobs(self, allowed_chat_ids):
+        """Cancel pending private notices whose destination is outside the channel allowlist."""
+        allowed = {
+            str(channel): {str(chat).strip() for chat in chats if str(chat).strip()}
+            for channel, chats in (allowed_chat_ids or {}).items()
+        }
+        now = time.time()
+        cancelled = 0
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            rows = db.execute("""SELECT id,kind,state,payload FROM jobs
+                WHERE kind='notice' AND state IN ('queued','failed','waiting_reference','waiting_publication')""").fetchall()
+            for row in rows:
+                try:
+                    payload = json.loads(row['payload']) if row['payload'] else {}
+                except (TypeError, ValueError):
+                    payload = {}
+                channel = str(payload.get('channel') or '') if isinstance(payload, dict) else ''
+                chat_id = str(payload.get('chat_id') or '').strip() if isinstance(payload, dict) else ''
+                if chat_id and chat_id in allowed.get(channel, set()):
+                    continue
+                result = self.encode({'delivered': False, 'skipped': 'recipient_not_allowlisted'})
+                changed = db.execute("""UPDATE jobs SET state='cancelled',result=?,error=?,lease=NULL,
+                    expires=NULL,updated_at=? WHERE id=? AND state=?""",
+                    (result, 'recipient_not_allowlisted', now, str(row['id']), str(row['state'])))
+                cancelled += changed.rowcount
+        return cancelled
+
     def failed_backlog_snapshot(self):
         """Return IDs for the only failed job classes eligible for sync reconciliation."""
         with self.connect() as db:
@@ -754,13 +782,24 @@ class Handoffs:
                     self.finish(job,result,state='waiting_publication',error='publication_held_for_review')
                     return True
                 if not result.get('ok') or not result.get('pushed') or int(result.get('images_left') or 0)>0:
-                    raise RuntimeError('publication_incomplete')
+                    details={'ok':False}
+                    for key in ('status','error','row','reason','images_left'):
+                        value=result.get(key)
+                        if isinstance(value,(str,int,float)) and not isinstance(value,bool):
+                            details[key]=value
+                    error=re.sub(r'[^A-Za-z0-9_. -]+','',
+                        str(result.get('error') or result.get('reason') or 'publication_incomplete'))[:100]
+                    self.finish(job,details,state='failed' if job['attempts']>=8 else 'queued',error=error or 'publication_incomplete')
+                    return True
             elif job['kind']=='order':
                 result=order_write(job['payload'])
                 if result.get('written') is not True:raise RuntimeError('order_not_written')
             elif job['kind']=='notice':
                 if notify is None:raise RuntimeError('notice_sender_unconfigured')
                 result=notify(job['payload'])
+                if result.get('skipped')=='recipient_not_allowlisted':
+                    self.finish(job,result,state='cancelled',error='recipient_not_allowlisted')
+                    return True
                 if result.get('delivered') is not True:raise RuntimeError('notice_not_delivered')
             elif job['kind']=='reextract':
                 if reextract is None:raise RuntimeError('re-extraction_worker_unconfigured')

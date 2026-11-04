@@ -106,6 +106,37 @@ class HandoffTests(unittest.TestCase):
         self.assertEqual(inbox['content_sha256'],__import__('hashlib').sha256(TEXT.encode()).hexdigest())
         self.assertEqual(inbox['timestamp'],'2026-10-01T00:00:00Z')
 
+    def test_unallowlisted_notice_jobs_are_cancelled_without_touching_valid_recipients(self):
+        trusted=self.queue.put('notice','trusted:telegram',
+            {'chat_id':'288165176','channel':'telegram','text':'trusted'})
+        stale=self.queue.put('notice','stale:telegram',
+            {'chat_id':'-1','channel':'telegram','text':'synthetic'})
+        with self.queue.connect() as db:
+            db.execute("UPDATE jobs SET state='failed',attempts=8 WHERE id=?",(stale,))
+        self.assertEqual(self.queue.cancel_unroutable_notice_jobs(
+            {'telegram':{'288165176'},'bale':set()}),1)
+        self.assertEqual(self.queue.get(trusted)['state'],'queued')
+        cancelled=self.queue.get(stale)
+        self.assertEqual(cancelled['state'],'cancelled')
+        self.assertEqual(cancelled['error'],'recipient_not_allowlisted')
+        self.assertEqual(cancelled['result'],{'delivered':False,'skipped':'recipient_not_allowlisted'})
+
+    def test_skipped_notice_is_cancelled_and_publish_failure_keeps_safe_diagnostic(self):
+        notice=self.queue.put('notice','untrusted:telegram',
+            {'chat_id':'-1','channel':'telegram','text':'synthetic'})
+        self.queue.run_one(**self.adapters,
+            notify=lambda payload:{'delivered':False,'skipped':'recipient_not_allowlisted'})
+        self.assertEqual(self.queue.get(notice)['state'],'cancelled')
+
+        publish=self.queue.put('publish','diagnostic',{})
+        self.queue.run_one(**self.adapters,
+            publish_with_payload=lambda payload:{'ok':False,'pushed':False,'status':200,
+                'error':'product_hold_failed','row':3,'text':'must not be persisted'})
+        failed=self.queue.get(publish)
+        self.assertEqual(failed['state'],'queued')
+        self.assertEqual(failed['error'],'product_hold_failed')
+        self.assertEqual(failed['result'],{'ok':False,'status':200,'error':'product_hold_failed','row':3})
+
     def test_failed_and_review_batches_are_never_compacted(self):
         self.queue.receive(self.message)
         batch=self.queue.batch()

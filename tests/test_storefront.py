@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 import app
 from catalog.extract import minimum_purchase, pack_count
@@ -175,15 +176,18 @@ class CommandTests(unittest.TestCase):
         app.send_chat_text = lambda chat_id, text: sent.append((chat_id, text))
         app.USE_SHEETS = False
         try:
-            response = app.app.test_client().post("/webhook", json={
-                "update_id": 2,
-                "message": {
-                    "message_id": 4,
-                    "text": "/orders",
-                    "chat": {"id": 7, "type": "private"},
-                    "from": {"username": "owner"},
-                },
-            })
+            with patch.dict('os.environ', {
+                    'TELEGRAM_WEBHOOK_SECRET': 'test-webhook-secret-32-characters-minimum',
+                    'TELEGRAM_OPERATOR_CHAT_IDS': '7'}):
+                response = app.app.test_client().post("/webhook", json={
+                    "update_id": 2,
+                    "message": {
+                        "message_id": 4,
+                        "text": "/orders",
+                        "chat": {"id": 7, "type": "private"},
+                        "from": {"username": "owner"},
+                    },
+                }, headers={'X-Telegram-Bot-Api-Secret-Token': 'test-webhook-secret-32-characters-minimum'})
         finally:
             app.enqueue_message = original
             app.send_chat_text = original_send

@@ -39,6 +39,16 @@ add_shortcode('molavi_storefront', '\\Molavi\\Elementor\\molavi_storefront_short
 add_action('wp_body_open', '\\Molavi\\Elementor\\molavi_render_site_header', 5);
 add_action('wp_footer', '\\Molavi\\Elementor\\molavi_render_site_footer', 5);
 
+// Supplier inventory remains internal. Do not expose Woo's stock badge in
+// Elementor/product templates; an available cart action is a request, not a
+// supplier-stock promise.
+add_filter('woocommerce_get_stock_html', static function ($html, $product): string {
+    return '';
+}, 99, 2);
+add_filter('woocommerce_get_availability_text', static function ($text, $product): string {
+    return '';
+}, 99, 2);
+
 add_filter('language_attributes', static function (string $attributes): string {
     if (is_admin()) {
         return $attributes;

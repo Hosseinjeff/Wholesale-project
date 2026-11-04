@@ -453,10 +453,15 @@ echo "Order handoff runtime checks completed\n";
 // Verify explicit supplier unavailability survives the Woo projection.
 $row=['id'=>'a123456789ab','name'=>'Synthetic stock item','status'=>'sell','sale'=>1000,
       'source_record_id'=>'stock-row',
-      'supplier_availability'=>'outofstock'];
+      'supplier'=>'Synthetic Supplier','supplier_availability'=>'outofstock'];
 $clean=molavi_clean_product($row);
 $product_id=molavi_upsert_product(0,$clean);
 ref_assert(wc_get_product($product_id)->get_stock_status()==='outofstock', 'supplier out-of-stock becomes unavailable in Woo');
+ref_assert(wc_get_product($product_id)->get_short_description()===''
+    && wc_get_product($product_id)->get_meta('_molavi_supplier')==='Synthetic Supplier',
+    'supplier stays in private matching metadata and is removed from the product description');
+ref_assert(apply_filters('woocommerce_get_stock_html','<p class="stock">In stock</p>',wc_get_product($product_id))==='',
+    'Woo stock badges are suppressed from storefront output');
 $row['supplier_availability']='unknown';
 molavi_upsert_product($product_id,molavi_clean_product($row));
 ref_assert(wc_get_product($product_id)->get_stock_status()==='instock'

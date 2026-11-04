@@ -111,15 +111,12 @@ function molavi_render_site_footer(bool $elementorOnly = false): void
         return;
     }
     if ($elementorOnly) {
-        if (function_exists('elementor_theme_do_location')) {
-            elementor_theme_do_location('footer');
+        if (function_exists('elementor_theme_do_location') && elementor_theme_do_location('footer')) {
+            return;
         }
+    } elseif (function_exists('molavi_is_storefront_request') && molavi_is_storefront_request()) {
         return;
-    }
-    if (function_exists('molavi_is_storefront_request') && molavi_is_storefront_request()) {
-        return;
-    }
-    if (function_exists('elementor_theme_do_location') && elementor_theme_do_location('footer')) {
+    } elseif (function_exists('elementor_theme_do_location') && elementor_theme_do_location('footer')) {
         return;
     }
     $shopUrl = function_exists('wc_get_page_permalink') ? wc_get_page_permalink('shop') : home_url('/');
