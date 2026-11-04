@@ -1947,6 +1947,10 @@ def _apply_reference_item_review(product, offer, ledger, active_snapshot_id):
     from reference_import.item_reviews import review_case_id
     decision = ledger.get(review_case_id(offer_id, active_snapshot_id))
     if not decision:
+        source_offer_id = str(offer.get('Derived From Offer ID') or '')
+        if source_offer_id:
+            decision = ledger.get(review_case_id(source_offer_id, active_snapshot_id))
+    if not decision:
         source_snapshot_id = str(offer.get('Reference Snapshot ID') or '')
         if source_snapshot_id == active_snapshot_id:
             decision = ledger.get(review_case_id(offer_id, source_snapshot_id))

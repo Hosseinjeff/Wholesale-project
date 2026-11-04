@@ -63,6 +63,16 @@
 #molavi-owner-workflow .molavi-ai-reference-candidates > p { grid-column:1/-1; margin:.15rem 0; }
 #molavi-owner-workflow .molavi-ai-reference-option { display:flex; flex-direction:column; align-items:flex-start; gap:.25rem; width:100%; min-width:0; padding:.7rem; white-space:normal; text-align:start; text-decoration:none; }
 #molavi-owner-workflow .molavi-ai-reference-option span { display:block; font-size:.9em; line-height:1.55; }
+#molavi-owner-workflow .molavi-ai-reference-assignment { margin:.65rem 0; padding:.7rem; border:1px solid #c3c4c7; border-radius:.45rem; background:#fbfcfd; line-height:1.6; }
+#molavi-owner-workflow .molavi-ai-reference-assignment > p { margin:.3rem 0 .55rem; }
+#molavi-owner-workflow .molavi-ai-reference-chooser { display:grid; grid-template-columns:minmax(0,2fr) minmax(10rem,1fr) auto; align-items:end; gap:.5rem; }
+#molavi-owner-workflow .molavi-ai-reference-chooser label { grid-column:1/-1; font-weight:600; }
+#molavi-owner-workflow .molavi-ai-reference-chooser select { width:100%; max-width:100%; min-height:2.6rem; }
+#molavi-owner-workflow .molavi-ai-reference-chooser button { min-height:2.6rem; }
+#molavi-owner-workflow .molavi-ai-reference-comparison { margin-top:.55rem; padding:.55rem .7rem; border-inline-start:3px solid #72aee6; background:#f0f6fc; }
+#molavi-owner-workflow .molavi-ai-reference-comparison p { margin:.25rem 0; }
+#molavi-owner-workflow .molavi-ai-reference-comparison ul { margin:.3rem 1rem; }
+#molavi-owner-workflow .molavi-ai-reference-comparison small { display:block; margin-top:.3rem; }
 #molavi-owner-workflow .molavi-ai-quick-actions { display:flex; flex-wrap:wrap; align-items:center; gap:.6rem; margin:.75rem 0; }
 #molavi-owner-workflow .molavi-ai-quick-actions button { min-height:2.75rem; }
 #molavi-owner-workflow .molavi-ai-price-basis-hint { flex:1 1 100%; margin:.25rem 0; padding:.55rem .7rem; border-inline-start:3px solid #dba617; background:#fcf9e8; line-height:1.65; }
@@ -106,6 +116,8 @@
     #molavi-owner-workflow .molavi-product-position { font-size:.9em; text-align:center; }
     #molavi-owner-workflow .molavi-workbench-toolbar .button,
     #molavi-owner-workflow .molavi-global-links .button { width:100%; }
+    #molavi-owner-workflow .molavi-ai-reference-chooser { grid-template-columns:minmax(0,1fr); }
+    #molavi-owner-workflow .molavi-ai-reference-chooser label { grid-column:auto; }
     #molavi-owner-workflow .molavi-workbench-queues { grid-template-columns:repeat(2,minmax(0,1fr)); }
     #molavi-owner-workflow .molavi-workbench-queue { min-width:0; padding:.45rem; }
     #molavi-owner-workflow label { width:100%; min-width:0; }

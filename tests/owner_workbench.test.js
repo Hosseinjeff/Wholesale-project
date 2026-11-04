@@ -66,6 +66,7 @@ async function main() {
   };
   const calls = [];
   const storedReviewRows = [];
+  const referenceAssignments = [];
   const fetch = async (url, options = {}) => {
     calls.push({url:String(url),options});
     if (String(url) === '/admin-ajax.php') {
@@ -83,6 +84,19 @@ async function main() {
       const payload = JSON.parse(options.body);
       return {ok:true,status:200,json:async()=>({ok:true,product_id:payload.product_id,
         source_revision:payload.expected_revision,verified_at:'2026-11-03T08:30:00Z',publish_job:'publish:one'})};
+    }
+    if (path.endsWith('/item-reviews') && options.method === 'POST') {
+      const payload = JSON.parse(options.body);
+      referenceAssignments.push({payload,authorization:options.headers.Authorization});
+      const receipt = {ok:true,case_id:payload.case_id,offer_id:payload.offer_id,
+        snapshot_id:payload.snapshot_id,choice:'match',reference_id:payload.reference_id,
+        reference_name:'آبمیوه تتراپک سون ۲۴ عددی',decision_id:'a'.repeat(64),
+        price_role:payload.price_role,projection_state:'awaiting_ai_confirmation',publish_job:null};
+      data['ai-confirmations'].cases = data['ai-confirmations'].cases.map(item => item.offer_id === payload.offer_id
+        ? {...item,reference_assignment:{choice:'match',reference_id:payload.reference_id,
+          reference_name:receipt.reference_name,decision_id:receipt.decision_id,
+          price_role:payload.price_role,snapshot_id:payload.snapshot_id}} : item);
+      return {ok:true,status:200,json:async()=>receipt};
     }
     const key = path.split('/').pop();
     const response = key === 'operations-dashboard' ? data.operations
@@ -260,7 +274,12 @@ async function main() {
     message_id:'7286',source_post_url:'',message_timestamp:'1787571328',historical_reextract:true,
     price_type:'unit',detected_price:'1200000',sale_price:'1200000',actual_price:'95000',
     package_count:'24',stock_status:'Unknown',reason:'Unusual discount -1163%; Historical price needs current supplier verification',
-    original_message:juiceMessage
+    original_message:juiceMessage,reference_snapshot_id:'snapshot-current',reference_candidates:[{
+      reference_id:'REF-JUICE-24',name:'آبمیوه تتراپک سون ۲۴ عددی',score:.96,name_similarity:.96,
+      unit_price:50000,package_price:1200000,package_count:24,price_role_hint:{role:'unit'},
+      comparisons:[{key:'package_count',label:'تعداد بسته',source:'24',reference:'24',state:'match'},
+        {key:'volume',label:'حجم',source:'220 میلی لیتر',reference:'220 میلی لیتر',state:'match'}]
+    }]
   }];
   await refreshButton.listeners.click();
   visibleCards = walk(root).filter(element => element.className.split(/\s+/).includes('molavi-product-card'));
@@ -273,9 +292,41 @@ async function main() {
     'the alternate package-price confirmation remains gated until the current historical price is checked');
   const currentSourceCheck = walk(visibleCards[0]).find(element => element.tagName === 'INPUT');
   assert(currentSourceCheck,'historical price decisions require an explicit current-source check');
-  currentSourceCheck.checked = true;
-  currentSourceCheck.listeners.change();
-  assert(!packageConfirm.disabled,'checking the current source unlocks only the previously presented price-basis option');
+  let referenceSelect = walk(visibleCards[0]).find(element => element.tagName === 'SELECT'
+    && element.attributes['aria-label'] === 'انتخاب کالای مرجع');
+  let referenceRole = walk(visibleCards[0]).find(element => element.tagName === 'SELECT'
+    && element.attributes['aria-label'] === 'مبنای قیمت مرجع');
+  assert(referenceSelect && referenceRole,'the extraction card exposes in-progress reference selection controls');
+  referenceSelect.value = 'REF-JUICE-24';
+  referenceSelect.listeners.change();
+  assert.match(visibleCards[0].text,/تعداد بسته: یکسان/,'the selected reference comparison shows matching pack data');
+  referenceRole.value = 'unit';
+  referenceRole.listeners.change();
+  const assignReference = walk(visibleCards[0]).find(element => element.tagName === 'BUTTON'
+    && element.textContent === 'ثبت مرجع برای این مورد');
+  assert(assignReference && !assignReference.disabled,'reference assignment is available before source-price confirmation');
+  await assignReference.listeners.click();
+  assert.equal(referenceAssignments.length,1);
+  assert.equal(referenceAssignments[0].authorization,'Bearer scoped-reference_items',
+    'in-card reference assignment uses its own route-scoped AJAX token');
+  assert.equal(referenceAssignments[0].payload.action,'assign_ai_reference');
+  assert.equal(calls.filter(item => item.options.method === 'POST'
+    && item.url === workflowApis.ai_confirmations.url).length,0,
+  'assigning a reference does not confirm historical price or stock');
+  visibleCards = walk(root).filter(element => element.className.split(/\s+/).includes('molavi-product-card'));
+  assert.match(visibleCards[0].text,/مرجع در حال بررسی: آبمیوه تتراپک سون ۲۴ عددی/,
+    'the saved assignment remains visible in the same workbench card');
+  const stillGatedConfirm = walk(visibleCards[0]).find(element => element.tagName === 'BUTTON'
+    && element.dataset.priceRole === 'package');
+  assert(stillGatedConfirm && stillGatedConfirm.disabled,
+    'saving a reference does not unlock historical price confirmation');
+  const sourceCheckAfterAssignment = walk(visibleCards[0]).find(element => element.tagName === 'INPUT');
+  sourceCheckAfterAssignment.checked = true;
+  sourceCheckAfterAssignment.listeners.change();
+  const confirmAfterVerification = walk(visibleCards[0]).find(element => element.tagName === 'BUTTON'
+    && element.dataset.priceRole === 'package');
+  assert(confirmAfterVerification && !confirmAfterVerification.disabled,
+    'the existing current-price guard still unlocks confirmation only after its own check');
   assert.equal(calls.filter(item => item.options.method === 'POST'
     && item.url === workflowApis.ai_confirmations.url).length,0,
   'reviewing the ambiguous package basis never submits an owner decision');

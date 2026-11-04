@@ -80,6 +80,94 @@ class OwnerWorkflowBrowserAPITests(unittest.TestCase):
             self.assertEqual(decisions.status_code, 200, decisions.get_json())
             self.assertEqual(decisions.get_json()['events'], [])
 
+    def test_open_ai_case_can_be_linked_to_reference_before_price_confirmation(self):
+        import app as server
+        from catalog.ai_confirmations import AIConfirmationLedger, review_cases
+        from catalog.extract import OFFER_HEADERS, PRODUCT_HEADERS
+        from catalog.sync import MemoryStore, _row_from_map
+        from reference_import.item_reviews import ItemReviewLedger, offer_attributes, product_signature, review_case_id
+        from reference_import.snapshots import ReferenceStore
+        from reference_fixtures import staged_candidate, woocommerce_product
+
+        queue = Handoffs(self.db_path)
+        store = MemoryStore()
+        store.ensure('Offers', OFFER_HEADERS)
+        store.ensure('Products', PRODUCT_HEADERS)
+        source = {'Offer ID':'reextract:run-1:message-1:0', 'Product Name':'Beans 12 pack',
+            'Channel':'telegram', 'Channel Username':'@supplier', 'Sale Price':0,
+            'Detected Price':120000, 'Actual Price':160000, 'Package Price':'',
+            'Price Type':'needs_review', 'Currency':'IRT', 'Packaging':'12 pack',
+            'Package Count':12, 'Min Qty':1, 'Status':'needs_review',
+            'Review Reason':'Historical price needs current verification', 'Stock Status':'Unknown',
+            'Message ID':'message-1', 'Batch ID':'reextract:run-1',
+            'Message Timestamp':'2026-10-20T10:00:00Z',
+            'Source Post URL':'https://t.me/supplier/1',
+            'Original Message':'Beans 12 pack, supplier price 120000 toman'}
+        store.append('Offers', [_row_from_map(OFFER_HEADERS, source)])
+        references = ReferenceStore(self.reference_path, owner_ids=['wp:7'])
+        candidate = staged_candidate(products=[woocommerce_product(id=991, sku='REF-BEANS-12',
+            name='Beans 12 pack', prices={'price':'150000','regular_price':'160000',
+                'sale_price':'150000','currency_code':'IRT','currency_minor_unit':0})])
+        snapshot_id = references.stage(candidate)
+        references.review(snapshot_id, actor_id='wp:7', note='Synthetic test snapshot')
+        references.activate(snapshot_id, actor_id='wp:7', expected_active_id=None)
+        env = {'PIPELINE_DB_PATH':self.db_path, 'REFERENCE_STORE_PATH':self.reference_path,
+            'REFERENCE_OWNER_IDS':'wp:7', 'REFERENCE_BRIDGE_TOKEN':self.secret}
+        with patch.dict(os.environ, env), patch.object(server, 'USE_SHEETS', True), \
+                patch.object(server, 'handoff_queue', return_value=queue), \
+                patch.object(server, 'build_store', return_value=store):
+            client = server.app.test_client()
+            ai_headers = {'Authorization':'Bearer '+owner_token(self.secret,
+                scope='owner:/pipeline/ai-confirmations')}
+            reference_headers = {'Authorization':'Bearer '+owner_token(self.secret,
+                scope='owner:/reference/item-reviews')}
+            case = next(item for item in review_cases(store, AIConfirmationLedger(self.db_path))
+                if item['offer_id'] == source['Offer ID'])
+            listing = client.get('/pipeline/ai-confirmations', headers=ai_headers)
+            self.assertEqual(listing.status_code, 200, listing.get_json())
+            visible = next(item for item in listing.get_json()['cases']
+                if item['offer_id'] == source['Offer ID'])
+            self.assertEqual(visible['reference_snapshot_id'], snapshot_id)
+            self.assertEqual(visible['reference_candidates'][0]['reference_id'], 'REF-BEANS-12')
+            self.assertNotIn('reference_assignment', visible)
+
+            payload = {'action':'assign_ai_reference', 'case_id':case['case_id'],
+                'offer_id':case['offer_id'], 'signature':case['signature'],
+                'snapshot_id':snapshot_id, 'reference_id':'REF-BEANS-12',
+                'price_role':'unit', 'expected_decision_id':None}
+            assigned = client.post('/reference/item-reviews', json=payload, headers=reference_headers)
+            self.assertEqual(assigned.status_code, 200, assigned.get_json())
+            receipt = assigned.get_json()
+            self.assertEqual(receipt['projection_state'], 'awaiting_ai_confirmation')
+            self.assertIsNone(receipt['publish_job'])
+            self.assertEqual(len(store.read('Products')), 1, 'reference assignment does not project a product')
+            self.assertEqual(len(store.read('Offers')), 2, 'reference assignment does not append an approved offer')
+
+            item_ledger = ItemReviewLedger(self.reference_path, owner_ids=['wp:7'])
+            mapping = item_ledger.get(review_case_id(source['Offer ID'], snapshot_id))
+            self.assertEqual(mapping['reference_id'], 'REF-BEANS-12')
+            self.assertEqual(mapping['signature'], product_signature(offer_attributes(source)))
+            refreshed = client.get('/pipeline/ai-confirmations', headers=ai_headers).get_json()
+            assigned_case = next(item for item in refreshed['cases']
+                if item['offer_id'] == source['Offer ID'])
+            self.assertEqual(assigned_case['reference_assignment']['decision_id'], receipt['decision_id'])
+
+            confirm_headers = {'Authorization':'Bearer '+owner_token(self.secret,
+                scope='owner:/pipeline/ai-confirmations')}
+            confirmed = client.post('/pipeline/ai-confirmations', json={
+                'case_id':case['case_id'], 'offer_id':case['offer_id'], 'signature':case['signature'],
+                'choice':'confirm', 'fields':{'price_role':'unit','sale_price':120000,
+                    'actual_price':160000,'package_count':12,'min_qty':1,'stock_status':'Unknown'},
+                'note':'Checked current price source', 'expected_decision_id':None,
+                'source_current_verified':True}, headers=confirm_headers)
+            self.assertEqual(confirmed.status_code, 200, confirmed.get_json())
+            headers, product_row = store.read('Products')[0], store.read('Products')[1]
+            self.assertEqual(product_row[headers.index('Reference Match ID')], 'REF-BEANS-12')
+            self.assertEqual(product_row[headers.index('Reference Decision ID')], receipt['decision_id'])
+            with queue.connect() as db:
+                jobs = db.execute("SELECT COUNT(*) FROM jobs WHERE id LIKE 'publish:%'").fetchone()[0]
+            self.assertEqual(jobs, 1, 'only final AI confirmation queues publication')
+
     def test_reextraction_start_dispatches_jobs_without_waiting_for_a_new_webhook(self):
         import app as server
         from catalog.extract import MESSAGE_HEADERS, OFFER_HEADERS, PRODUCT_HEADERS

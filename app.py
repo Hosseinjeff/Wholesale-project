@@ -2041,11 +2041,13 @@ def ai_confirmations_route():
                 response.headers['Cache-Control']='no-store'
                 return response
             reference_snapshot = None
+            reference_item_ledger = None
             reference_path = os.getenv('REFERENCE_STORE_PATH') or ''
             if reference_path and os.path.isfile(reference_path):
                 try:
                     from datetime import datetime, timezone
                     from reference_import.snapshots import ReferenceStore
+                    from reference_import.item_reviews import ItemReviewLedger
                     from reference_import.workflow import active_reference_use
                     reference_store = ReferenceStore(reference_path, owner_ids=sorted(owners))
                     candidate_snapshot = reference_store.active_snapshot()
@@ -2053,10 +2055,13 @@ def ai_confirmations_route():
                     if (candidate_snapshot and reference_state.get('allow_automatic')
                             and candidate_snapshot.get('snapshot_id') == reference_state.get('snapshot_id')):
                         reference_snapshot = candidate_snapshot
+                        reference_item_ledger = ItemReviewLedger(reference_path, owner_ids=sorted(owners))
                 except Exception:
                     reference_snapshot = None
+                    reference_item_ledger = None
             cases, recent = review_cases(store, ledger, include_history=True,
-                                         reference_snapshot=reference_snapshot)
+                                         reference_snapshot=reference_snapshot,
+                                         reference_item_ledger=reference_item_ledger)
             response = jsonify({'ok': True, 'cases': cases, 'recent_decisions': recent,
                                 'publication_held': bool(queue.publication_holds())})
             response.headers['Cache-Control'] = 'no-store'
@@ -2310,7 +2315,7 @@ def reference_item_reviews_route():
     """Owner-only item correction; source Offers stay append-only."""
     from reference_import.snapshots import ReferenceStore
     from reference_import.item_reviews import (ItemReviewConflict, ItemReviewLedger,
-        review_cases, review_case_id)
+        offer_attributes, product_signature, review_cases, review_case_id)
     from reference_import.matching import package_count, ranked_candidates
     from reference_import.importer import normalize_name
     from reference_import.workflow import active_reference_use
@@ -2353,6 +2358,77 @@ def reference_item_reviews_route():
             response.headers['Cache-Control'] = 'no-store'
             return response
         body = request.get_json(silent=True)
+        if isinstance(body, dict) and body.get('action') == 'assign_ai_reference':
+            required = {'action', 'case_id', 'offer_id', 'signature', 'snapshot_id',
+                        'reference_id', 'price_role', 'expected_decision_id'}
+            if set(body) != required:
+                return jsonify({'ok': False, 'error': 'invalid_body'}), 400
+            for field, maximum in (('case_id', 100), ('offer_id', 300), ('signature', 64),
+                                   ('snapshot_id', 300), ('reference_id', 300), ('price_role', 20)):
+                value = body[field]
+                if not isinstance(value, str) or not value or len(value) > maximum:
+                    return jsonify({'ok': False, 'error': 'invalid_fields'}), 400
+            expected = body['expected_decision_id']
+            if expected is not None and (not isinstance(expected, str)
+                    or not re.fullmatch(r'[a-f0-9]{64}', expected)):
+                return jsonify({'ok': False, 'error': 'invalid_fields'}), 400
+            if not re.fullmatch(r'[a-f0-9]{64}', body['signature']):
+                return jsonify({'ok': False, 'error': 'invalid_fields'}), 400
+            if body['snapshot_id'] != snapshot['snapshot_id']:
+                return jsonify({'ok': False, 'error': 'stale_snapshot'}), 409
+            if body['price_role'] not in {'unit', 'package'}:
+                return jsonify({'ok': False, 'error': 'invalid_price_role'}), 400
+            reference_rows = [row for row in snapshot.get('rows') or []
+                              if isinstance(row, (list, tuple)) and len(row) > 16]
+            references = {str(row[16] or row[2]): row for row in reference_rows}
+            selected_reference = references.get(body['reference_id'])
+            if not selected_reference:
+                return jsonify({'ok': False, 'error': 'unknown_reference'}), 400
+
+            from catalog.ai_confirmations import AIConfirmationLedger, find_case
+            from catalog.sync import _read_sheet_if_present, _records
+            ai_ledger = AIConfirmationLedger(queue.path)
+            with queue.publication_lock():
+                with reference_store.activation_lock():
+                    current_snapshot = reference_store.active_snapshot()
+                    current_eligibility = active_reference_use(
+                        reference_store, now=datetime.now(timezone.utc))
+                    if (not current_eligibility.get('allow_automatic') or not current_snapshot
+                            or current_snapshot.get('snapshot_id') != body['snapshot_id']):
+                        return jsonify({'ok': False, 'error': 'stale_snapshot'}), 409
+                    current_case = find_case(sheet_store, ai_ledger, body['case_id'], body['offer_id'])
+                    if (not current_case or current_case.get('signature') != body['signature']
+                            or (ai_ledger.latest(body['case_id']) or {}).get('signature') == body['signature']):
+                        return jsonify({'ok': False, 'error': 'stale_case'}), 409
+                    _, offers = _records(_read_sheet_if_present(sheet_store, 'Offers'))
+                    source_offer = next((row for row in offers
+                                         if str(row.get('Offer ID') or '') == body['offer_id']), None)
+                    if not source_offer:
+                        return jsonify({'ok': False, 'error': 'stale_case'}), 409
+                    reference_case_id = review_case_id(body['offer_id'], body['snapshot_id'])
+                    latest_reference_decision = ledger.get(reference_case_id)
+                    latest_reference_id = (latest_reference_decision or {}).get('decision_id')
+                    if expected != latest_reference_id:
+                        return jsonify({'ok': False, 'error': 'review_conflict'}), 409
+                    attributes = offer_attributes(source_offer)
+                    if body['price_role'] == 'package' and not (
+                            package_count(attributes) or float(selected_reference[6] or 0)):
+                        return jsonify({'ok': False, 'error': 'package_count_required'}), 400
+                    decision = ledger.decide(
+                        case_id=reference_case_id, offer_id=body['offer_id'],
+                        snapshot_id=body['snapshot_id'], signature=product_signature(attributes),
+                        choice='match', reference_id=body['reference_id'],
+                        price_role=body['price_role'], actor_id=actor,
+                        note='Owner assigned a reference from the in-progress extraction card.',
+                        expected_decision_id=expected)
+            response = jsonify({'ok': True, 'case_id': body['case_id'],
+                'offer_id': body['offer_id'], 'snapshot_id': body['snapshot_id'],
+                'choice': 'match', 'reference_id': body['reference_id'],
+                'reference_name': str(selected_reference[0] or body['reference_id']),
+                'decision_id': decision['decision_id'], 'price_role': decision['price_role'],
+                'projection_state': 'awaiting_ai_confirmation', 'publish_job': None})
+            response.headers['Cache-Control'] = 'no-store'
+            return response
         required = {'case_id', 'offer_id', 'snapshot_id', 'choice', 'reference_id', 'price_role',
                     'note', 'expected_decision_id'}
         if not isinstance(body, dict) or set(body) != required:

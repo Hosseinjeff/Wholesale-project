@@ -361,12 +361,14 @@ def _duplicate_source_offer_key(offer):
     return hashlib.sha256(_stable(identity)).hexdigest()
 
 
-def review_cases(store, ledger, *, include_history=False, limit=200, reference_snapshot=None):
+def review_cases(store, ledger, *, include_history=False, limit=200, reference_snapshot=None,
+                 reference_item_ledger=None):
     from catalog.sync import _records, _read_sheet_if_present
     raw = _read_sheet_if_present(store, 'Offers')
     _, offers = _records(raw)
     cases = []
     reference_rows = (reference_snapshot or {}).get('rows') or []
+    active_reference_snapshot_id = str((reference_snapshot or {}).get('snapshot_id') or '')
     reference_lookup = {}
     if reference_rows:
         from reference_import.matching import ranked_candidates
@@ -416,7 +418,28 @@ def review_cases(store, ledger, *, include_history=False, limit=200, reference_s
         if case:
             case['reference_match_name'] = reference_lookup.get(str(case.get('reference_match_id') or ''), '')
             case['reference_candidates'] = []
-            if reference_rows and not case.get('reference_match_id'):
+            if active_reference_snapshot_id:
+                case['reference_snapshot_id'] = active_reference_snapshot_id
+            if reference_item_ledger and active_reference_snapshot_id:
+                from reference_import.item_reviews import (offer_attributes, product_signature,
+                    review_case_id as reference_review_case_id)
+                attributes = offer_attributes(offer)
+                reference_decision = reference_item_ledger.get(
+                    reference_review_case_id(offer_id, active_reference_snapshot_id))
+                if (reference_decision
+                        and reference_decision.get('snapshot_id') == active_reference_snapshot_id
+                        and reference_decision.get('signature') == product_signature(attributes)):
+                    reference_id = str(reference_decision.get('reference_id') or '')
+                    reference_name = reference_lookup.get(reference_id, reference_id)
+                    case['reference_assignment'] = {
+                        'decision_id': reference_decision.get('decision_id'),
+                        'snapshot_id': active_reference_snapshot_id,
+                        'choice': reference_decision.get('choice'),
+                        'reference_id': reference_id,
+                        'reference_name': reference_name,
+                        'price_role': reference_decision.get('price_role'),
+                    }
+            if reference_rows:
                 from reference_import.matching import ranked_candidates
                 case['reference_candidates'] = ranked_candidates({
                     'name': case.get('product_name'), 'clean_name': case.get('product_name'),

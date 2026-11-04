@@ -103,7 +103,9 @@
             unknown_reextraction_run: 'اجرای بازاستخراج پیدا نشد؛ فهرست را تازه کنید.',
             reextraction_sources_unavailable: 'بعضی کارت‌ها به پیام اصلی متصل نیستند؛ چیزی اجرا نشد تا منبع همه موارد مشخص شود.',
             reextraction_conflict: 'صف بازاستخراج تغییر کرده است؛ صفحه را تازه کنید و دوباره تلاش کنید.',
-            reextraction_price_not_verified: 'برای تأیید قیمت بازاستخراج‌شده، تازگی آن را در منبع فعلی تأیید کنید.'
+            reextraction_price_not_verified: 'برای تأیید قیمت بازاستخراج‌شده، تازگی آن را در منبع فعلی تأیید کنید.',
+            package_count_required: 'برای انتخاب قیمت بسته، تعداد در بسته یا کارتن باید مشخص باشد.',
+            unknown_reference: 'این مرجع در نسخه فعال فهرست نیست؛ فهرست را تازه کنید.'
         };
         return labels[code] || 'ارتباط با سرور برقرار نشد. کد پیگیری: ' + (code || 'نامشخص');
     }
@@ -1430,6 +1432,154 @@
         }
     }
 
+    function aiReferenceAssignmentSection(item, contextStored, decisionsEnabled, options = {}) {
+        if (!item.reference_snapshot_id) return null;
+        const candidates = Array.isArray(item.reference_candidates) ? item.reference_candidates.slice(0, 3) : [];
+        const section = node('section', null, 'molavi-ai-reference-assignment');
+        section.appendChild(node('strong', 'انتخاب مرجع کالا'));
+        section.appendChild(node('p', 'این انتخاب فقط مرجع و مبنای مقایسه را ذخیره می‌کند؛ تأیید قیمت/موجودی و انتشار جداگانه می‌ماند.'));
+        const assignment = item.reference_assignment || null;
+        if (assignment && assignment.choice === 'match') {
+            section.appendChild(notice(`مرجع ذخیره‌شده برای این بررسی: ${assignment.reference_name || assignment.reference_id} · ${assignment.price_role === 'package' ? 'قیمت بسته/کارتن' : 'قیمت هر واحد'}؛ با تأیید بعدی استخراج اعمال می‌شود.`, 'success'));
+        }
+        if (!candidates.length) {
+            section.appendChild(notice('برای این مورد از نسخه فعال فهرست، گزینهٔ مرجع مشابهی پیدا نشد.', 'info'));
+            return section;
+        }
+
+        const chooser = node('div', null, 'molavi-ai-reference-chooser');
+        chooser.appendChild(node('label', `مرجع برای ${item.variation_type || item.product_name || 'این مورد'}`));
+        const referenceSelect = document.createElement('select');
+        referenceSelect.setAttribute('aria-label', 'انتخاب کالای مرجع');
+        const placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.textContent = 'انتخاب مرجع پیشنهادی';
+        referenceSelect.appendChild(placeholder);
+        const candidateById = new Map();
+        candidates.forEach(candidate => {
+            const referenceId = String(candidate.reference_id || '');
+            if (!referenceId) return;
+            candidateById.set(referenceId, candidate);
+            const option = document.createElement('option');
+            option.value = referenceId;
+            const nameScore = candidate.name_similarity ?? candidate.component_scores?.name ?? candidate.score;
+            const score = Number(nameScore);
+            const scoreText = Number.isFinite(score)
+                ? ` · شباهت نام ${Math.round(score * 100).toLocaleString('fa-IR')}٪` : '';
+            const hint = candidate.price_role_hint && candidate.price_role_hint.role;
+            const priceText = hint === 'unit' ? ' · قیمت مرجع واحد'
+                : hint === 'package' ? ' · قیمت مرجع بسته' : '';
+            option.textContent = `${candidate.name || referenceId}${scoreText}${priceText}`;
+            referenceSelect.appendChild(option);
+        });
+        const roleSelect = document.createElement('select');
+        roleSelect.setAttribute('aria-label', 'مبنای قیمت مرجع');
+        [['', 'انتخاب مبنای قیمت'], ['unit', 'قیمت هر واحد'], ['package', 'قیمت کل بسته / کارتن']]
+            .forEach(([value, label]) => {
+                const option = document.createElement('option');
+                option.value = value;
+                option.textContent = label;
+                roleSelect.appendChild(option);
+            });
+        referenceSelect.value = assignment && candidateById.has(assignment.reference_id)
+            ? assignment.reference_id : '';
+        roleSelect.value = assignment && ['unit', 'package'].includes(assignment.price_role)
+            ? assignment.price_role : '';
+        const compare = node('div', null, 'molavi-ai-reference-comparison');
+        const renderComparison = () => {
+            compare.replaceChildren();
+            const candidate = candidateById.get(referenceSelect.value);
+            if (!candidate) {
+                compare.appendChild(node('span', 'برای دیدن تطبیق نام، طعم، اندازه، تعداد و قیمت، یک مرجع را انتخاب کنید.'));
+                return;
+            }
+            compare.appendChild(node('strong', candidate.name || candidate.reference_id));
+            const prices = referencePriceSummary(candidate, item.sale_price || item.detected_price);
+            if (prices) compare.appendChild(node('p', prices));
+            const comparisons = referenceComparisonSummary(candidate);
+            if (comparisons.length) {
+                const list = document.createElement('ul');
+                comparisons.forEach(value => list.appendChild(node('li', value)));
+                compare.appendChild(list);
+            } else compare.appendChild(node('p', 'ویژگی قابل مقایسهٔ دیگری در مرجع ثبت نشده است.'));
+            compare.appendChild(node('small', 'شباهت و قیمت پیشنهادی فقط راهنما هستند؛ مرجع و نقش قیمت را خودتان انتخاب کنید.'));
+        };
+        const save = node('button', assignment ? 'به‌روزرسانی مرجع این مورد' : 'ثبت مرجع برای این مورد', 'button button-secondary');
+        save.type = 'button';
+        const updateEnabled = () => {
+            save.disabled = !contextStored || !decisionsEnabled || !referenceSelect.value || !roleSelect.value;
+        };
+        referenceSelect.addEventListener('change', () => { renderComparison(); updateEnabled(); });
+        roleSelect.addEventListener('change', updateEnabled);
+        save.addEventListener('click', async () => {
+            const selected = candidateById.get(referenceSelect.value);
+            if (!selected || !roleSelect.value) return;
+            save.disabled = true;
+            const originalLabel = assignment ? 'به‌روزرسانی مرجع این مورد' : 'ثبت مرجع برای این مورد';
+            save.textContent = 'در حال ذخیره…';
+            const status = actionStatus(section, 'در حال ذخیره مرجع در وردپرس و نسخه فعال فهرست…');
+            const eventId = reviewEventId('reference_item', item.offer_id);
+            const payload = {
+                action: 'assign_ai_reference', case_id: item.case_id, offer_id: item.offer_id,
+                signature: item.signature, snapshot_id: item.reference_snapshot_id,
+                reference_id: String(selected.reference_id), price_role: roleSelect.value,
+                expected_decision_id: assignment && assignment.decision_id || null
+            };
+            const context = storedReviewContext('ai_confirmation', item);
+            const decision = {action:payload.action, reference_id:payload.reference_id,
+                price_role:payload.price_role, snapshot_id:payload.snapshot_id,
+                expected_decision_id:payload.expected_decision_id};
+            try {
+                await persistOwnerReviews([reviewRecord(eventId, 'reference_item', item.offer_id,
+                    'pending', context, decision)]);
+            } catch (_error) {
+                updateActionStatus(status, 'ذخیرهٔ سابقه در وردپرس ناموفق بود؛ درخواست مرجع ارسال نشد.', 'error');
+                errorBox('مرجع ارسال نشد چون ذخیرهٔ محلی وردپرس ناموفق بود.', section);
+                save.textContent = originalLabel;
+                updateEnabled();
+                return;
+            }
+            try {
+                const receipt = await request('POST', payload, undefined, 'reference_items');
+                if (receipt.case_id !== item.case_id || receipt.offer_id !== item.offer_id
+                    || receipt.snapshot_id !== item.reference_snapshot_id
+                    || receipt.reference_id !== payload.reference_id || receipt.price_role !== payload.price_role
+                    || !/^[a-f0-9]{64}$/.test(receipt.decision_id || '')
+                    || receipt.projection_state !== 'awaiting_ai_confirmation' || receipt.publish_job !== null) {
+                    throw new Error('invalid_receipt');
+                }
+                let localWarning = false;
+                try {
+                    await persistOwnerReviews([reviewRecord(eventId, 'reference_item', item.offer_id,
+                        'accepted', context, decision, receipt)]);
+                } catch (_error) { localWarning = true; }
+                const message = `مرجع «${receipt.reference_name || receipt.reference_id}» ذخیره شد؛ قیمت، موجودی و انتشار هنوز تأیید نشده‌اند.`;
+                if (typeof options.refresh === 'function') {
+                    await options.refresh(message, localWarning ? 'warning' : 'success', status);
+                } else {
+                    updateActionStatus(status, message, localWarning ? 'warning' : 'success');
+                    save.textContent = 'مرجع ذخیره شد';
+                }
+            } catch (error) {
+                try {
+                    await persistOwnerReviews([reviewRecord(eventId, 'reference_item', item.offer_id,
+                        error.remoteRejected ? 'failed' : 'pending', context, decision,
+                        {error:String(error.message || 'request_failed'), request_status:error.requestStatus || null})]);
+                } catch (_ignored) {}
+                updateActionStatus(status, errorText(error.message), 'error');
+                errorBox(errorText(error.message), section);
+                save.textContent = originalLabel;
+                updateEnabled();
+            }
+        });
+        renderComparison();
+        updateEnabled();
+        chooser.append(referenceSelect, roleSelect, save);
+        section.append(chooser, compare);
+        if (!contextStored) section.appendChild(notice('ثبت سابقهٔ این بررسی در وردپرس ناموفق بود؛ ابتدا صفحه را تازه کنید.', 'error'));
+        return section;
+    }
+
     function aiCaseCard(item, onSelect = null, contextStored = true, decisionsEnabled = true,
         relatedItems = [item], options = {}) {
         const card = node('section', null, options.embedded ? 'molavi-product-subsection' : 'card');
@@ -1497,49 +1647,18 @@
             missing_name: 'نام کالا برای جست‌وجوی مرجع کافی نیست'
         };
         const referenceCandidates = Array.isArray(item.reference_candidates) ? item.reference_candidates.slice(0, 3) : [];
-        const assignedReference = item.reference_match_id
+        const assignedReference = item.reference_assignment && item.reference_assignment.choice === 'match'
+            ? `مرجع در حال بررسی: ${item.reference_assignment.reference_name || item.reference_assignment.reference_id} · ${item.reference_assignment.price_role === 'package' ? 'قیمت بسته/کارتن' : 'قیمت هر واحد'}`
+            : item.reference_match_id
             ? `مرجع ثبت‌شده: ${item.reference_match_name || item.reference_match_id} · ${referenceStates[item.reference_match_state] || item.reference_match_state || 'تطبیق ثبت‌شده'}`
             : `مرجع کالا: ${referenceStates[item.reference_match_state] || (referenceCandidates.length
-                ? 'هنوز انتخاب نشده؛ گزینه‌های مقایسه در همین کارت هستند' : 'هنوز انتخاب نشده؛ جست‌وجوی مرجع را باز کنید')}`;
+                ? 'هنوز انتخاب نشده؛ گزینه‌ها را در همین کارت بررسی کنید' : 'هنوز انتخاب نشده')}`;
         card.appendChild(node('p', assignedReference));
-        if (referenceCandidates.length && !options.embedded) {
-            const candidateList = node('div', null, 'molavi-ai-reference-candidates');
-            candidateList.appendChild(node('strong', 'مقایسه با کالاهای مرجع'));
-            candidateList.appendChild(node('p', 'هر گزینه، همان پیشنهاد را در فرم تطبیق باز می‌کند و مرجع را از قبل انتخاب می‌کند.'));
-            referenceCandidates.forEach(candidate => {
-                const option = document.createElement('a');
-                option.className = 'button button-secondary molavi-ai-reference-option';
-                const target = config.pageUrls && config.pageUrls['molavi-reference-items']
-                    || 'admin.php?page=molavi-reference-items';
-                const matchUrl = new URL(target, window.location.href);
-                if (item.offer_id) matchUrl.searchParams.set('offer_id', item.offer_id);
-                if (candidate.reference_id) matchUrl.searchParams.set('reference_id', candidate.reference_id);
-                option.href = matchUrl.toString();
-                const nameScore = candidate.name_similarity ?? candidate.component_scores?.name;
-                const score = Number(nameScore ?? candidate.score);
-                option.appendChild(node('strong', candidate.name || candidate.reference_id));
-                option.appendChild(node('span', `${nameScore === undefined ? 'امتیاز کلی پیشنهاد' : 'شباهت نام'}: ${Number.isFinite(score) ? Math.round(score * 100).toLocaleString('fa-IR') + '٪' : 'قابل محاسبه نیست'}`));
-                const comparisons = referenceComparisonSummary(candidate);
-                if (comparisons.length) option.appendChild(node('span', comparisons.join(' · ')));
-                const prices = referencePriceSummary(candidate, visibleSupplierPrice);
-                if (prices) option.appendChild(node('span', prices));
-                option.appendChild(node('span', 'باز کردن فرم تطبیق با این مرجع'));
-                candidateList.appendChild(option);
-            });
-            card.appendChild(candidateList);
-            card.appendChild(node('small', 'شباهت نام راهنماست، نه احتمال تأیید. مرجع فقط پس از بازبینی و تأیید صریح در فرم تطبیق ثبت می‌شود.'));
-        }
-        if (!options.embedded && !item.reference_match_id && !referenceCandidates.length) {
-            const matchLink = document.createElement('a');
-            matchLink.className = 'button';
-            const target = config.pageUrls && config.pageUrls['molavi-reference-items']
-                || 'admin.php?page=molavi-reference-items';
-            const matchUrl = new URL(target, window.location.href);
-            if (item.offer_id) matchUrl.searchParams.set('offer_id', item.offer_id);
-            matchLink.href = matchUrl.toString();
-            matchLink.textContent = 'جست‌وجوی مرجع برای این کالا';
-            card.appendChild(matchLink);
-        }
+        relatedItems.forEach(referenceItem => {
+            const assignmentSection = aiReferenceAssignmentSection(referenceItem,
+                contextStored, decisionsEnabled, options);
+            if (assignmentSection) card.appendChild(assignmentSection);
+        });
         card.appendChild(node('p', `دلیل بررسی: ${item.reason || 'نیازمند بررسی'} · حداقل خرید: ${item.min_qty || 'ثبت نشده'}`));
         const messageTimestamp = formatSourceTimestamp(item.message_timestamp);
         if (messageTimestamp) card.appendChild(node('p', `زمان پیام منبع: ${messageTimestamp}`));
