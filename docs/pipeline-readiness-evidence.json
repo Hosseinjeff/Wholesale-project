@@ -1,6 +1,36 @@
 {
-  "date": "2026-10-31",
-  "mode": "Persian slash-decimal correction deployed; supplier API timeout blocked a corrected refresh; no customer order/payment or reference activation",
+  "date": "2026-11-04",
+  "mode": "Owner review responsiveness and in-card reference assignment verified; no product decision submitted",
+  "latest_owner_review_recheck": {
+    "date": "2026-11-04",
+    "commit": "d9bea58a4d404ec8acf4299f3f9ec21b0a172703",
+    "railway_deployment": "74741fbe-5551-4feb-87fa-74da0a0a9b79",
+    "railway_status": "SUCCESS",
+    "wordpress_asset_readback": true,
+    "served_owner_workflows_js_matches_source": true,
+    "wordpress_operations_page_http": 200,
+    "dashboard_api_reads": {
+      "operations": {"http": 200, "seconds": 0.47},
+      "ai_confirmations": {"http": 200, "seconds": 2.91, "open_cases": 26, "cases_with_active_reference_snapshot": 26, "candidate_suggestions_total": 185, "max_candidates_per_case": 12},
+      "reference_items": {"http": 200, "seconds": 1.39},
+      "supplier_prices": {"http": 200, "seconds": 1.21},
+      "sheet_conflicts": {"http": 200, "seconds": 0.38},
+      "publication_holds": {"http": 200, "seconds": 0.5},
+      "product_status": {"http": 200, "seconds": 0.43},
+      "reference_decisions": {"http": 200, "seconds": 0.37}
+    },
+    "ai_confirmations_seconds_before_optimization": 22.69,
+    "cors_preflight_http": {"ai_confirmations": 200, "reference_items": 200},
+    "dashboard_actions_refresh_only_affected_queues": true,
+    "production_reference_assignment_submitted": false,
+    "production_product_decision_submitted": false,
+    "local_validation": {
+      "reference_and_ai_python_tests": 25,
+      "owner_api_integration_tests": 8,
+      "javascript_workbench_test": "passed",
+      "syntax_and_diff_checks": "passed"
+    }
+  },
   "results": {
     "health": {
       "http": 200,

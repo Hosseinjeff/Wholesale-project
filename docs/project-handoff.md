@@ -1,10 +1,33 @@
 # MolaviSale — whole-workflow handoff
 
-Snapshot 4.70. Updated 2026-11-03, Asia/Tehran. The canonical roleplay decisions are in
+Snapshot 4.71. Updated 2026-11-04, Asia/Tehran. The canonical roleplay decisions are in
 `roleplay-state.json`; current live evidence and release gates are in
 `pipeline-readiness.md` and `pipeline-readiness-evidence.json`.
 
-## Current live status — 2026-11-03
+## Current live status — 2026-11-04
+
+Railway deployment `74741fbe-5551-4feb-87fa-74da0a0a9b79` runs backend commit `d9bea58` and is
+`SUCCESS`; the service is online without warnings and `/health` returns HTTP 200. WordPress
+plugin assets `includes/owner-workflows.js` and `.css` were deployed and verified by cPanel
+read-back. The authenticated WordPress operations page and the live
+JavaScript asset both return HTTP 200; the asset hash matches the checked-in file.
+
+The dashboard's eight initial reads all returned HTTP 200. The extraction API now loads in
+2.91 seconds (it took 22.69 seconds before candidate scoring was optimized); it returns 26
+open cases, each tied to the active reference snapshot, with 185 candidate suggestions in
+total and up to 12 candidates per case. Reference assignment is now a highlighted selector
+near the top of each extraction card, with a separate unit/package choice and comparison.
+Saving it records only the reference mapping; price, stock and publication approval remain
+separate. The historical-current-price check still applies to extraction confirmation.
+
+After an action, the workbench now refreshes only the affected queue endpoints and reuses
+the other loaded queues. This avoids making unrelated actions depend on every API read.
+The `ai_confirmations` and `reference_items` POST preflights both returned HTTP 200 with the
+WordPress origin and expected headers. No production reference assignment or product
+decision was submitted during verification. The focused Python suites passed (25 core tests
+and 8 owner API integration tests), as did the JavaScript workbench test and syntax checks.
+
+## Previous extraction audit — 2026-11-03
 
 The WordPress plugin is live at main commit `40b6efa`; Railway remains on backend commit
 `71b2657`. cPanel read-back verified the updated `includes/owner-workflows.js`. Railway deployment

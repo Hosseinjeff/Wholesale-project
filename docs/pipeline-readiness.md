@@ -1,4 +1,26 @@
-# Whole-pipeline readiness — checkpoints through 2026-11-02
+# Whole-pipeline readiness — checkpoints through 2026-11-04
+
+## Owner review responsiveness and reference assignment — 2026-11-04
+
+Railway deployment `74741fbe-5551-4feb-87fa-74da0a0a9b79` runs backend commit `d9bea58`;
+the WordPress plugin files are deployed and read-back verified. The extraction API now
+returns its 26 open cases in 2.91 seconds,
+down from 22.69 seconds before reusing normalized reference-candidate data and accelerating
+similarity scoring. The response includes 185 candidate suggestions in total, with up to 12
+options per case. The active snapshot is attached to all 26 cases.
+
+The reference selector appears near the top of each extraction card. It compares the
+selected candidate's identity and price fields, records a reference and unit/package role,
+and does not confirm current price or stock or publish the product. The existing current
+source check remains required for historical price confirmation. Successful workbench
+actions now refresh their affected queues instead of reloading every dashboard API.
+
+Authenticated reads for all eight dashboard endpoints returned HTTP 200; the AI queue,
+supplier price, and reference-item reads completed in 2.91, 1.21, and 1.39 seconds. The
+WordPress page returned HTTP 200, its served JavaScript hash matches the deployed source,
+and the AI and reference-item CORS preflights returned HTTP 200. No product decision or
+reference assignment was submitted in this check. The focused local Python tests and the
+JavaScript workbench interaction test passed.
 
 ## Live recovery checkpoint — 2026-11-02
 

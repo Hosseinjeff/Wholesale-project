@@ -311,6 +311,7 @@
     let workbenchRefresh = null;
     let workbenchLiveStatus = null;
     let workbenchData = null;
+    let workbenchErrors = {};
 
     function workbenchNameKey(name) {
         return String(name || '').normalize('NFKC').toLocaleLowerCase()
@@ -429,8 +430,13 @@
             else if (!Object.prototype.hasOwnProperty.call(data, key)) data[key] = null;
         });
         workbenchData = data;
+        const errors = {...workbenchErrors};
+        allKeys.forEach((key,index) => {
+            if (requested.has(key)) errors[key] = loaded[index].error;
+        });
+        workbenchErrors = errors;
         const operations = data.operations;
-        const unavailable = loaded.map(result => result.error).filter(Boolean);
+        const unavailable = Object.values(workbenchErrors).filter(Boolean);
         board.replaceChildren();
         workbenchRefresh.disabled = false;
         workbenchRefresh.textContent = 'به‌روزرسانی صف';
