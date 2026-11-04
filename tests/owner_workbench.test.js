@@ -276,7 +276,7 @@ async function main() {
     package_count:'24',stock_status:'Unknown',reason:'Unusual discount -1163%; Historical price needs current supplier verification',
     original_message:juiceMessage,reference_snapshot_id:'snapshot-current',reference_candidates:[{
       reference_id:'REF-JUICE-24',name:'آبمیوه تتراپک سون ۲۴ عددی',score:.96,name_similarity:.96,
-      unit_price:50000,package_price:1200000,package_count:24,price_role_hint:{role:'unit'},
+      unit_price:50000,package_price:1200000,package_count:24,price_role_hint:{role:'package'},
       comparisons:[{key:'package_count',label:'تعداد بسته',source:'24',reference:'24',state:'match'},
         {key:'volume',label:'حجم',source:'220 میلی لیتر',reference:'220 میلی لیتر',state:'match'}]
     },{
@@ -296,6 +296,10 @@ async function main() {
     'the alternate package-price confirmation remains gated until the current historical price is checked');
   const currentSourceCheck = walk(visibleCards[0]).find(element => element.tagName === 'INPUT');
   assert(currentSourceCheck,'historical price decisions require an explicit current-source check');
+  const manualConfirm = walk(visibleCards[0]).find(element => element.tagName === 'BUTTON'
+    && element.type === 'submit' && element.textContent === 'تأیید مشخصات استخراج‌شده');
+  assert(manualConfirm && manualConfirm.disabled,
+    'manual final price registration is disabled until the current-price check is explicit');
   let referenceSelect = walk(visibleCards[0]).find(element => element.tagName === 'SELECT'
     && element.attributes['aria-label'] === 'انتخاب کالای مرجع');
   let referenceRole = walk(visibleCards[0]).find(element => element.tagName === 'SELECT'
@@ -312,6 +316,9 @@ async function main() {
   const assignReference = walk(visibleCards[0]).find(element => element.tagName === 'BUTTON'
     && element.textContent === 'ثبت مرجع این مورد');
   assert(assignReference && !assignReference.disabled,'reference assignment is available before source-price confirmation');
+  currentSourceCheck.checked = true;
+  currentSourceCheck.listeners.change();
+  assert(!manualConfirm.disabled,'the explicit current-price check enables final registration');
   const callsBeforeReferenceSave = calls.length;
   await assignReference.listeners.click();
   assert.equal(referenceAssignments.length,1);
@@ -327,13 +334,15 @@ async function main() {
   visibleCards = walk(root).filter(element => element.className.split(/\s+/).includes('molavi-product-card'));
   assert.match(visibleCards[0].text,/مرجع ذخیره‌شده برای این بررسی: آبمیوه تتراپک سون ۲۴ عددی/,
     'the saved assignment remains visible in the same workbench card');
+  assert.match(visibleCards[0].text,/نقش ثبت‌شده .* با راهنمای مقایسهٔ مرجع/,
+    'a saved reference role that conflicts with its price-scale hint is surfaced for review');
   const stillGatedConfirm = walk(visibleCards[0]).find(element => element.tagName === 'BUTTON'
     && element.dataset.priceRole === 'package');
-  assert(stillGatedConfirm && stillGatedConfirm.disabled,
-    'saving a reference does not unlock historical price confirmation');
+  assert(stillGatedConfirm && !stillGatedConfirm.disabled,
+    'the prior explicit current-price check remains effective after reference assignment');
   const sourceCheckAfterAssignment = walk(visibleCards[0]).find(element => element.tagName === 'INPUT');
-  sourceCheckAfterAssignment.checked = true;
-  sourceCheckAfterAssignment.listeners.change();
+  assert(sourceCheckAfterAssignment.checked,
+    'the explicitly checked source verification survives the in-card reference AJAX refresh');
   const confirmAfterVerification = walk(visibleCards[0]).find(element => element.tagName === 'BUTTON'
     && element.dataset.priceRole === 'package');
   assert(confirmAfterVerification && !confirmAfterVerification.disabled,

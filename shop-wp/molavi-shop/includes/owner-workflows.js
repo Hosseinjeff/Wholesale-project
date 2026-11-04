@@ -2,6 +2,11 @@
     const root = document.getElementById('molavi-owner-workflow');
     const config = window.molaviOwnerWorkflow;
     if (!root || !config) return;
+    const verifiedCurrentPriceCases = new Set();
+
+    function currentPriceVerificationKey(item) {
+        return `${item && item.case_id || ''}:${item && item.signature || ''}`;
+    }
 
     function node(tag, text, className) {
         const item = document.createElement(tag);
@@ -103,7 +108,7 @@
             unknown_reextraction_run: 'اجرای بازاستخراج پیدا نشد؛ فهرست را تازه کنید.',
             reextraction_sources_unavailable: 'بعضی کارت‌ها به پیام اصلی متصل نیستند؛ چیزی اجرا نشد تا منبع همه موارد مشخص شود.',
             reextraction_conflict: 'صف بازاستخراج تغییر کرده است؛ صفحه را تازه کنید و دوباره تلاش کنید.',
-            reextraction_price_not_verified: 'برای تأیید قیمت بازاستخراج‌شده، تازگی آن را در منبع فعلی تأیید کنید.',
+            reextraction_price_not_verified: 'برای ثبت نهایی، قیمت را در منبع فعلی بررسی و گزینهٔ بررسی قیمت را علامت بزنید.',
             package_count_required: 'برای انتخاب قیمت بسته، تعداد در بسته یا کارتن باید مشخص باشد.',
             unknown_reference: 'این مرجع در نسخه فعال فهرست نیست؛ فهرست را تازه کنید.'
         };
@@ -1439,6 +1444,7 @@
                 continue;
             }
             accepted += 1;
+            verifiedCurrentPriceCases.delete(currentPriceVerificationKey(item));
             try {
                 await persistOwnerReviews([reviewRecord(eventId, 'ai_confirmation', item.case_id,
                     'accepted', context, decision, receipt)]);
@@ -1521,6 +1527,14 @@
             compare.appendChild(node('strong', candidate.name || candidate.reference_id));
             const prices = referencePriceSummary(candidate, item.sale_price || item.detected_price);
             if (prices) compare.appendChild(node('p', prices));
+            const suggestedRole = candidate.price_role_hint && candidate.price_role_hint.role;
+            const savedRole = assignment && assignment.choice === 'match'
+                && assignment.reference_id === candidate.reference_id ? assignment.price_role : '';
+            if (['unit','package'].includes(savedRole) && ['unit','package'].includes(suggestedRole)
+                && savedRole !== suggestedRole) {
+                const roleName = value => value === 'package' ? 'قیمت کل بسته/کارتن' : 'قیمت هر واحد';
+                compare.appendChild(notice(`نقش ثبت‌شده «${roleName(savedRole)}» با راهنمای مقایسهٔ مرجع («${roleName(suggestedRole)}») متفاوت است. مبلغ پیام به قیمت ${roleName(suggestedRole)} نزدیک‌تر است؛ پیش از تأیید نهایی، این نقش را در منوی بالا بازبینی کنید.`, 'warning'));
+            }
             const comparisons = referenceComparisonSummary(candidate);
             if (comparisons.length) {
                 const list = document.createElement('ul');
@@ -1732,21 +1746,54 @@
         const quickActions = node('div', null, 'molavi-ai-quick-actions');
         const quickButtons = [];
         let currentPriceVerified = null;
+        let manualConfirmButton = null;
+        const sourceVerificationItems = relatedItems.filter(row => row && row.historical_reextract);
+        const sourcePriceNeedsReview = Boolean(options.sourcePriceGap
+            && (options.sourcePriceGap.unverified || options.sourcePriceGap.missing.length));
+        const sourceVariantNeedsReview = Boolean(options.sourceVariantGap);
         if (item.historical_reextract) {
             const checkLabel = node('label', null, 'molavi-reextract-current-check');
             currentPriceVerified = document.createElement('input');
             currentPriceVerified.type = 'checkbox';
+            currentPriceVerified.checked = sourceVerificationItems.length > 0
+                && sourceVerificationItems.every(row => verifiedCurrentPriceCases.has(currentPriceVerificationKey(row)));
             checkLabel.append(currentPriceVerified, document.createTextNode(' قیمت را در پیام جدیدتر یا مستقیماً از تأمین‌کننده بررسی کردم؛ پست مبدأ تاریخی است. اگر موجودی ذکر نشده، نامشخص می‌ماند.'));
             card.appendChild(checkLabel);
+            card.appendChild(notice('ثبت مرجع و ثبت نهایی قیمت دو مرحلهٔ جدا هستند. پس از بررسی قیمت در منبع فعلی، گزینهٔ بالا را علامت بزنید تا دکمهٔ ثبت نهایی فعال شود.', 'info'));
         }
+        const refreshConfirmationGates = () => {
+            quickButtons.forEach(button => {
+                if (button.dataset.choice === 'not_product') {
+                    button.disabled = !contextStored || !decisionsEnabled;
+                    return;
+                }
+                button.disabled = !contextStored || !decisionsEnabled
+                    || !aiDecisionFields(item, button.dataset.priceRole)
+                    || Boolean(item.historical_reextract && !currentPriceVerified.checked)
+                    || sourcePriceNeedsReview || sourceVariantNeedsReview;
+            });
+            if (manualConfirmButton) {
+                manualConfirmButton.disabled = !contextStored || !decisionsEnabled
+                    || Boolean(item.historical_reextract && !currentPriceVerified.checked)
+                    || sourcePriceNeedsReview || sourceVariantNeedsReview;
+                manualConfirmButton.title = item.historical_reextract && !currentPriceVerified.checked
+                    ? 'برای ثبت نهایی، قیمت فعلی را در منبع بررسی و گزینهٔ بررسی قیمت بالاتر را علامت بزنید.'
+                    : '';
+            }
+        };
+        if (currentPriceVerified) currentPriceVerified.addEventListener('change', () => {
+            sourceVerificationItems.forEach(row => {
+                const key = currentPriceVerificationKey(row);
+                if (currentPriceVerified.checked) verifiedCurrentPriceCases.add(key);
+                else verifiedCurrentPriceCases.delete(key);
+            });
+            refreshConfirmationGates();
+        });
         const addQuickConfirm = (selectedRole, label) => {
             const selectedFields = aiDecisionFields(item, selectedRole);
             const button = node('button', label, 'button button-primary');
             button.type = 'button';
             button.dataset.priceRole = selectedRole;
-            const sourcePriceNeedsReview = Boolean(options.sourcePriceGap
-                && (options.sourcePriceGap.unverified || options.sourcePriceGap.missing.length));
-            const sourceVariantNeedsReview = Boolean(options.sourceVariantGap);
             button.disabled = !contextStored || !decisionsEnabled || !selectedFields
                 || Boolean(item.historical_reextract && !currentPriceVerified.checked)
                 || sourcePriceNeedsReview || sourceVariantNeedsReview;
@@ -1782,20 +1829,6 @@
                 packageButton.title = 'تعداد داخل بسته در داده استخراج‌شده موجود نیست.';
             }
         }
-        if (currentPriceVerified) currentPriceVerified.addEventListener('change', () => {
-            quickButtons.forEach(button => {
-                if (button.dataset.choice === 'not_product') {
-                    button.disabled = !contextStored || !decisionsEnabled;
-                    return;
-                }
-                const sourcePriceNeedsReview = Boolean(options.sourcePriceGap
-                    && (options.sourcePriceGap.unverified || options.sourcePriceGap.missing.length));
-                const sourceVariantNeedsReview = Boolean(options.sourceVariantGap);
-                button.disabled = !contextStored || !decisionsEnabled
-                    || !aiDecisionFields(item, button.dataset.priceRole)
-                    || !currentPriceVerified.checked || sourcePriceNeedsReview || sourceVariantNeedsReview;
-            });
-        });
         const notProduct = node('button', relatedItems.length > 1
             ? `ردّ هر ${relatedItems.length} نوع؛ کالا نیست` : 'این مورد کالا نیست', 'button');
         notProduct.type = 'button';
@@ -1805,6 +1838,7 @@
             quickButtons, false, options));
         quickActions.appendChild(notProduct);
         quickButtons.push(notProduct);
+        refreshConfirmationGates();
         card.appendChild(quickActions);
 
         const form = document.createElement('form');
@@ -1830,7 +1864,8 @@
             : item.decision ? 'ثبت اصلاح و تأیید دوباره' : 'تأیید مشخصات استخراج‌شده';
         const confirm = node('button', confirmLabel, 'button button-primary');
         confirm.type = 'submit'; confirm.value = 'confirm';
-        confirm.disabled = !contextStored || !decisionsEnabled;
+        manualConfirmButton = confirm;
+        refreshConfirmationGates();
         confirm.textContent = relatedItems.length > 1 ? `ثبت اصلاح برای هر ${relatedItems.length} نوع` : confirmLabel;
         form.append(confirm);
         if (visibleSupplierPrice) {
@@ -1843,7 +1878,7 @@
             event.preventDefault();
             if (!form.reportValidity()) return;
             if (item.historical_reextract && !currentPriceVerified.checked) {
-                errorBox('پیش از تأیید، قیمت را در پست فعلی بررسی کنید؛ موجودی فقط با تصریح منبع قابل تأیید است.', card);
+                errorBox('پست مبدأ تاریخی است. برای ثبت نهایی، قیمت را در منبع فعلی بررسی و گزینهٔ بررسی قیمت را علامت بزنید.', card);
                 return;
             }
             if (options.sourceVariantGap || (options.sourcePriceGap && options.sourcePriceGap.missing
