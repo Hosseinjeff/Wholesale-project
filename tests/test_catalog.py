@@ -6,6 +6,7 @@ from catalog.sync import (
     GoogleSheetStore,
     MemoryStore,
     SheetsRest,
+    _product_id,
     extend_header_row,
     finalize_batch,
     grid_expansion_requests,
@@ -40,6 +41,16 @@ BONAKDAR_REPRICE = BONAKDAR.replace("۵۲,۰۰۰", "۶۰,۰۰۰").replace("۶۵,
 
 
 class ExtractTests(unittest.TestCase):
+    def test_product_ids_are_stable_unique_and_persian_safe(self):
+        first=_product_id('نودل لیوانی شف هو،۱۲ عددی فلفلی','@bonakdarjavan')
+        same=_product_id('نودل لیوانی شف هو،۱۲ عددی فلفلی','@bonakdarjavan')
+        other_product=_product_id('نودل لیوانی شف هو،۱۲ عددی سبزیجات','@bonakdarjavan')
+        other_supplier=_product_id('نودل لیوانی شف هو،۱۲ عددی فلفلی','@another-supplier')
+        self.assertEqual(first,same)
+        self.assertRegex(first,r'^p_[a-f0-9]{24}$')
+        self.assertNotEqual(first,other_product)
+        self.assertNotEqual(first,other_supplier)
+
     def test_stock_status_requires_clear_source_wording(self):
         self.assertEqual(explicit_stock_status('موجود نیست'), 'Out of Stock')
         self.assertEqual(explicit_stock_status('اتمام موجودی'), 'Out of Stock')

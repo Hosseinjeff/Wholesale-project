@@ -1605,7 +1605,10 @@ def _product_row(headers: list[str], product: dict[str, Any], message: dict[str,
     now = _now()
     return _row_from_map(headers, {
         "Channel ID": message.get("channel_username") or message.get("channel") or "",
-        "Product ID": _product_id(product.get("name") or ""),
+        "Product ID": _product_id(
+            product.get("name") or "",
+            message.get("channel_username") or message.get("channel") or "",
+        ),
         "Product Name": product.get("name") or "",
         "Variation Type": product.get("variation_type") or "",
         "Sale Price": product.get("sale_price"),
@@ -2621,9 +2624,10 @@ def _row_from_map(headers: list[str], data_map: dict[str, Any]) -> list[Any]:
     return row
 
 
-def _product_id(product_name: str) -> str:
-    slug = re.sub(r"[^a-z0-9]", "_", (product_name or "").lower())[:20]
-    return f"{slug}_{str(int(time.time() * 1000))[-6:]}"
+def _product_id(product_name: str, channel_username: str = "") -> str:
+    """Stable unique source-row identity across languages, workers, and time."""
+    identity = f"{str(channel_username or '').strip().casefold()}|{_product_key(product_name or '')}"
+    return "p_" + hashlib.sha256(identity.encode("utf-8")).hexdigest()[:24]
 
 
 def _first_index(headers: list[Any], names: list[str]) -> int | None:
