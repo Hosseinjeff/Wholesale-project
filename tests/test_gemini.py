@@ -214,6 +214,84 @@ class GeminiExtractionTests(unittest.TestCase):
                 self.assertEqual(product['price_type'], 'unit')
                 self.assertFalse(product['needs_review'])
 
+    def test_parenthetical_color_variants_expand_and_keep_scoped_consumer_prices(self):
+        title = 'کیکس مکس قوطی در ۳ طعم(زرد و آبی و بنفش)'
+        content = (
+            title + '\nباکس :۲۴عددی\n'
+            'بنفش با قیمت مصرف: ۱۴۵/۰۰۰تومن\n'
+            'آبی و زرد بدون قیمت مصرف'
+        )
+        products = parse_message_products(json.dumps([{
+            'name': title, 'variation_type': '(زرد و آبی و بنفش) زرد',
+            'package_count': 24, 'unit_price': 66250, 'consumer_price': 145000,
+            'currency': 'IRT', 'confidence': 0.98,
+        }], ensure_ascii=False), content, '@supplier')
+
+        self.assertEqual([row['variation_type'] for row in products], ['زرد', 'آبی', 'بنفش'])
+        self.assertEqual([row['name'] for row in products], [
+            'کیکس مکس قوطی طعم زرد', 'کیکس مکس قوطی طعم آبی', 'کیکس مکس قوطی طعم بنفش',
+        ])
+        self.assertEqual([row['consumer_price'] for row in products], [None, None, 145000])
+        self.assertEqual([row['package_count'] for row in products], [24, 24, 24])
+        self.assertTrue(all(row['needs_review'] for row in products),
+                        'the carton count label is not a supplier price')
+
+    def test_variant_specific_supplier_and_consumer_prices_are_not_shared(self):
+        title = 'آبمیوه سون ۲۲۰ میلی لیتر'
+        content = (
+            title + '\nطعم‌ها: انبه،هلو\n'
+            'انبه قیمت فروش ما: ۱۸/۵۰۰ تومان\n'
+            'هلو قیمت فروش ما: ۲۰/۰۰۰ تومان\n'
+            'انبه قیمت مصرف کننده: ۵۰/۰۰۰ تومان\n'
+            'هلو قیمت مصرف کننده: ۵۵/۰۰۰ تومان'
+        )
+        products = parse_message_products(json.dumps([{
+            'name': title, 'variation_type': 'طعم انبه', 'unit_price': 18500,
+            'consumer_price': 50000, 'package_count': 36,
+            'currency': 'IRT', 'confidence': 0.98,
+        }], ensure_ascii=False), content, '@supplier')
+
+        self.assertEqual([row['variation_type'] for row in products], ['انبه', 'هلو'])
+        self.assertEqual([row['sale_price'] for row in products], [18500, 20000])
+        self.assertEqual([row['consumer_price'] for row in products], [50000, 55000])
+        self.assertTrue(all(not row['needs_review'] for row in products))
+
+    def test_available_prefix_is_not_part_of_expanded_variant(self):
+        title = 'آبمیوه شیشه ای موکوکوکو(تیکه نارگیل)'
+        content = (
+            title + '\nطعم های موجود : بلوبری،هندوانه،نارگیل،پرتقال،طالبی،توت فرنگی و انبه\n'
+            'کارتن ۱۲ عددی\nقیمت فروش ما: ۵۵/۰۰۰ تومان\n'
+            'قیمت مصرف کننده: ۱۰۰/۰۰۰ تومان'
+        )
+        products = parse_message_products(json.dumps([{
+            'name': title + ' بلوبری', 'variation_type': 'موجود : بلوبری',
+            'unit_price': 55000, 'consumer_price': 100000, 'package_count': 12,
+            'currency': 'IRT', 'confidence': 0.98,
+        }], ensure_ascii=False), content, '@supplier')
+
+        self.assertEqual([row['variation_type'] for row in products], [
+            'بلوبری', 'هندوانه', 'نارگیل', 'پرتقال', 'طالبی', 'توت فرنگی', 'انبه',
+        ])
+        self.assertTrue(all('موجود' not in row['name'] for row in products))
+        self.assertTrue(all(row['sale_price'] == 55000 for row in products))
+        self.assertTrue(all(row['consumer_price'] == 100000 for row in products))
+
+    def test_bare_variant_line_expands_even_when_model_omits_variant(self):
+        title = 'آبمیوه سون ۲۲۰ میلی لیتر'
+        content = (
+            title + '\nانبه،هلو\nتعداد در کارتن ۳۶ عدد\n'
+            'قیمت فروش ما: ۱۸/۵۰۰ تومان\nقیمت مصرف کننده: ۵۰/۰۰۰ تومان'
+        )
+        products = parse_message_products(json.dumps([{
+            'name': title, 'unit_price': 18500, 'consumer_price': 50000,
+            'package_count': 36, 'currency': 'IRT', 'confidence': 0.98,
+        }], ensure_ascii=False), content, '@supplier')
+
+        self.assertEqual([row['variation_type'] for row in products], ['انبه', 'هلو'])
+        self.assertEqual([row['name'] for row in products], [title + ' انبه', title + ' هلو'])
+        self.assertTrue(all(row['sale_price'] == 18500 for row in products))
+        self.assertTrue(all(row['consumer_price'] == 50000 for row in products))
+
     def test_flavor_suffix_with_taam_marker_uses_unique_base_title(self):
         base = 'آبمیوه تتراپک سون،۲۲۰ میلی لیتر'
         title = base + ' طعم هلو'
@@ -708,6 +786,9 @@ class GeminiExtractionTests(unittest.TestCase):
         self.assertIn('bare comma-separated flavor/model list directly after a base title', prompt)
         self.assertIn('`گوشت،مرغ،فلفلی،قارچ پنیر،سبزیجات`', prompt)
         self.assertIn('one record per flavor with the shared source price', prompt)
+        self.assertIn('Apply the same rule to every product family and choice type', prompt)
+        self.assertIn('marker such as `موجود:` or', prompt)
+        self.assertIn('Preserve different explicit prices as separate offer records', prompt)
         self.assertIn('`تتراپک` is packaging', prompt)
         self.assertIn('do not ask the owner to confirm the flavor or volume', prompt)
         self.assertIn('All source channels are wholesalers', prompt)

@@ -343,6 +343,25 @@ async function main() {
   const sourceCheckAfterAssignment = walk(visibleCards[0]).find(element => element.tagName === 'INPUT');
   assert(sourceCheckAfterAssignment.checked,
     'the explicitly checked source verification survives the in-card reference AJAX refresh');
+  referenceRole = walk(visibleCards[0]).find(element => element.tagName === 'SELECT'
+    && element.attributes['aria-label'] === 'مبنای قیمت مرجع');
+  referenceRole.value = 'package';
+  referenceRole.listeners.change();
+  const updateReference = walk(visibleCards[0]).find(element => element.tagName === 'BUTTON'
+    && element.textContent === 'ذخیرهٔ مرجع این مورد');
+  assert(updateReference && !updateReference.disabled,
+    'the saved owner can correct a mismatched reference price role in the same card');
+  await updateReference.listeners.click();
+  assert.equal(referenceAssignments.length,2,'the package role correction is persisted to the reference review');
+  assert.equal(referenceAssignments[1].payload.price_role,'package');
+  visibleCards = walk(root).filter(element => element.className.split(/\s+/).includes('molavi-product-card'));
+  const packageDefault = walk(visibleCards[0]).find(element => element.tagName === 'BUTTON'
+    && element.dataset.priceRole === 'package');
+  assert(packageDefault && packageDefault.textContent.includes('قیمت بسته'),
+    'final price confirmation follows the saved package basis after a reference correction');
+  assert.equal(calls.filter(item => item.options.method === 'POST'
+    && item.url === workflowApis.ai_confirmations.url).length,0,
+  'correcting the reference basis does not silently register historical price or stock');
   const confirmAfterVerification = walk(visibleCards[0]).find(element => element.tagName === 'BUTTON'
     && element.dataset.priceRole === 'package');
   assert(confirmAfterVerification && !confirmAfterVerification.disabled,
@@ -368,6 +387,10 @@ async function main() {
     'same-source, same-price, same-package flavors share one dashboard review card');
   assert.match(visibleCards[0].text,/انواع هم‌قیمت از یک پیام/,
     'the grouped card tells the owner exactly why variants are reviewed together');
+  const groupedTitles = walk(visibleCards[0]).filter(element => element.tagName === 'H2');
+  assert(groupedTitles.length >= 1,'the grouped card has a readable product title');
+  assert(groupedTitles.every(element => !element.textContent.includes('موجود')),
+    'a source availability prefix never leaks into the dashboard product title');
   for (const variant of mookokoVariants) assert(visibleCards[0].text.includes(variant),`grouped card shows ${variant}`);
   const groupedConfirm = walk(visibleCards[0]).find(element => element.tagName === 'BUTTON'
     && /تأیید هر (۷|7) نوع/.test(element.textContent));
@@ -416,8 +439,8 @@ async function main() {
   await refreshButton.listeners.click();
   visibleCards = walk(root).filter(element => element.className.split(/\s+/).includes('molavi-product-card'));
   assert.equal(visibleCards.length,1,'the two same-price cake flavors are grouped for review');
-  assert.match(visibleCards[0].text,/فقط 2 مورد در صف استخراج/,
-    'the source says three flavors while only two extracted cases exist');
+  assert.match(visibleCards[0].text,/موارد جاافتاده یا ناهماهنگ: آبی/,
+    'the source names the exact blue flavor missing from the two extracted cases');
   assert.match(visibleCards[0].text,/قیمت فروش تأمین‌کننده: ۶۶٬۲۵۰ تومان/,
     'the card shows the per-unit sale field instead of its raw carton total');
   assert.match(visibleCards[0].text,/قیمت کل بسته\/کارتن تأمین‌کننده: ۱٬۵۹۰٬۰۰۰ تومان/);

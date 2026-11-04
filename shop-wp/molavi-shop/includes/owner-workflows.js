@@ -1123,7 +1123,8 @@
 
     function aiPriceRole(item) {
         const fields = item.decision && item.decision.fields || {};
-        const role = String(fields.price_role || item.price_type || item.reference_price_role_hint || '').toLowerCase();
+        const assignedRole = item.reference_assignment && item.reference_assignment.price_role;
+        const role = String(fields.price_role || assignedRole || item.price_type || item.reference_price_role_hint || '').toLowerCase();
         if (['unit', 'single', 'per_unit'].includes(role)) return 'unit';
         if (['pack', 'package', 'carton'].includes(role)) return 'package';
         return '';
@@ -1193,38 +1194,36 @@
         const source = String(item && item.original_message || '');
         if (!source) return null;
         const sourceLines = source.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
-        const countMatch = source.match(/در\s*([0-9۰-۹٠-٩]+)\s*طعم\s*(?=[(（:：])/iu);
-        let sourceCount = normalizedAiInteger(countMatch && countMatch[1]);
-        if (!sourceCount) {
-            const variantLabels = cases.map(candidate => String(candidate.variation_type || aiProductAttributes(candidate).variationType || '').trim())
-                .filter(Boolean);
-            const labels = new Set(variantLabels.map(value => value.normalize('NFKC').replace(/\s+/g, ' ').toLocaleLowerCase('fa')));
-            let listLine = sourceLines.find(line => /(?:طعم|مزه)[^:：]*[:：]/iu.test(line));
-            if (!listLine) {
-                listLine = sourceLines.find(line => /[،,]/.test(line) && !/[\d۰-۹٠-٩]/.test(line)
-                    && !/(?:قیمت|تومان|تومن|ریال|تعداد|کارتن|باکس|بسته)/u.test(line)
-                    && labels.size > 0 && [...labels].filter(label => line.normalize('NFKC')
-                        .replace(/\s+/g, ' ').toLocaleLowerCase('fa').includes(label)).length >= 2);
-            }
-            if (listLine) {
-                const hasVariantCue = /(?:طعم|مزه)/iu.test(listLine);
-                let list = hasVariantCue ? listLine.split(/[:：]/).slice(1).join(':').trim() : listLine;
-                if (hasVariantCue && !list) list = (listLine.match(/طعم[^(:：]*\(([^)]+)\)/iu) || [])[1] || '';
-                if (list) {
-                    sourceCount = (list.match(/[،,]/g) || []).length + 1;
-                    const conjunctionPattern = /([^،,؛;]+?)\s+و\s+([^،,؛;]+?)(?=$|[،,؛;])/gu;
-                    for (const match of list.matchAll(conjunctionPattern)) {
-                        const left = match[1].trim().normalize('NFKC').replace(/\s+/g, ' ').toLocaleLowerCase('fa');
-                        const right = match[2].trim().normalize('NFKC').replace(/\s+/g, ' ').toLocaleLowerCase('fa');
-                        if (labels.has(left) && labels.has(right)) sourceCount += 1;
-                    }
-                }
+        const extractedLabels = new Set(cases.map(candidate => normalizeAiVariant(
+            candidate.variation_type || aiProductAttributes(candidate).variationType || ''))
+            .map(value => value.toLocaleLowerCase('fa')).filter(Boolean));
+        const countMatch = source.match(/در\s*([0-9۰-۹٠-٩]+)\s*(?:طعم|مزه|رنگ|مدل|نوع)\s*(?=[(（:：])/iu);
+        const countHint = normalizedAiInteger(countMatch && countMatch[1]);
+        const listLinePattern = /(?:طعم|مزه|رنگ|مدل|نوع)[\s\u200c]*(?:های|ها)[^\n]*[:：]/iu;
+        let listLine = sourceLines.find(line => listLinePattern.test(line));
+        let variants = [];
+        if (listLine) {
+            const list = listLine.split(/[:：]/).slice(1).join(':').trim();
+            variants = splitAiVariantValues(list);
+        } else {
+            const parenthetical = sourceLines.find(line => /(?:در\s*[0-9۰-۹٠-٩]+\s*)?(?:طعم|مزه|رنگ|مدل|نوع)\s*[（(][^()]+[)）]/iu.test(line));
+            if (parenthetical) {
+                const match = parenthetical.match(/(?:در\s*[0-9۰-۹٠-٩]+\s*)?(?:طعم|مزه|رنگ|مدل|نوع)\s*[（(]([^()]+)[)）]/iu);
+                variants = splitAiVariantValues(match && match[1]);
             }
         }
-        const extractedCount = new Set(cases.map(candidate => String(candidate.variation_type
-            || aiProductAttributes(candidate).variationType || '').trim().normalize('NFKC')
-            .replace(/\s+/g, ' ').toLocaleLowerCase('fa')).filter(Boolean)).size;
-        return sourceCount > extractedCount ? {sourceCount, extractedCount} : null;
+        if (!variants.length && extractedLabels.size) {
+            listLine = sourceLines.find(line => /[،,؛;]/.test(line) && !/[\d۰-۹٠-٩]/.test(line)
+                && !/(?:قیمت|تومان|تومن|ریال|تعداد|کارتن|باکس|بسته)/u.test(line)
+                && [...extractedLabels].filter(label => aiVariantOccursInLine(line, label)).length >= 2);
+            if (listLine) variants = splitAiVariantValues(listLine);
+        }
+        const sourceLabels = new Set(variants.map(value => value.toLocaleLowerCase('fa')).filter(Boolean));
+        const sourceCount = countHint || sourceLabels.size;
+        const extractedCount = extractedLabels.size;
+        const missingLabels = [...sourceLabels].filter(label => !extractedLabels.has(label));
+        return sourceCount > extractedCount || missingLabels.length
+            ? {sourceCount, extractedCount, missingLabels} : null;
     }
 
     function aiSourceStockGap(item, cases) {
@@ -1311,9 +1310,51 @@
         };
     }
 
+    function cleanAiVariantToken(value) {
+        return String(value || '').normalize('NFKC')
+            .replace(/^\s*(?:(?:موجود|در\s*دسترس|available)\s*[:：]?\s*)+/iu, '')
+            .trim().replace(/^[\s:：،,؛;*–—()（）-]+|[\s:：،,؛;*–—()（）-]+$/gu, '');
+    }
+
+    function splitAiVariantValues(value) {
+        const parts = String(value || '').split(/[،,؛;]+/);
+        if (parts.length === 1 && /\s+و\s+/u.test(parts[0])) {
+            parts.splice(0, 1, ...parts[0].split(/\s+و\s+/u));
+        } else if (parts.length && /\s+و\s+/u.test(parts[parts.length - 1])) {
+            parts.splice(parts.length - 1, 1, ...parts[parts.length - 1].split(/\s+و\s+/u));
+        }
+        return [...new Set(parts.map(cleanAiVariantToken).filter(Boolean))];
+    }
+
+    function normalizeAiVariant(value) {
+        const raw = String(value || '').normalize('NFKC').trim();
+        const parenthetical = raw.match(/[（(]([^()]+)[)）]\s*(.+)$/u);
+        if (parenthetical) {
+            const listed = splitAiVariantValues(parenthetical[1]);
+            if (listed.length > 1) {
+                const tail = cleanAiVariantToken(parenthetical[2]);
+                return listed.some(item => item.toLocaleLowerCase('fa') === tail.toLocaleLowerCase('fa'))
+                    ? tail : '';
+            }
+        }
+        let text = cleanAiVariantToken(raw);
+        const fullList = text.match(/[（(]([^()]+)[)）]$/u);
+        if (fullList && splitAiVariantValues(fullList[1]).length > 1) return '';
+        return text.replace(/^(?:طعم|مزه|رنگ|مدل|نوع)\s*[:：]\s*/u, '').trim();
+    }
+
+    function aiVariantOccursInLine(line, variant) {
+        const normalize = value => String(value || '').normalize('NFKC')
+            .replace(/[،,؛;:()[\]{}]/g, ' ').replace(/\s+/g, ' ').trim().toLocaleLowerCase('fa');
+        const source = normalize(line).split(' ').filter(Boolean);
+        const value = normalize(variant).split(' ').filter(Boolean);
+        if (!value.length) return false;
+        return source.some((_, index) => value.every((token, offset) => source[index + offset] === token));
+    }
+
     function aiProductAttributes(item) {
         const title = String(item.product_name || '');
-        const variantMatch = title.match(/(?:با\s*)?(?:طعم|مزه)\s*[:：]?\s*([^،,؛;\n]+)/i);
+        const variantMatch = title.match(/(?:با\s*)?(?:طعم|مزه|رنگ|مدل|نوع)\s*[:：]?\s*([^،,؛;\n]+)/i);
         const inferredVariant = variantMatch
             ? variantMatch[1].split(/\s+(?:قیمت|price|تومان|تومن|ریال|تعداد)\b/i)[0].trim()
             : '';
@@ -1322,7 +1363,7 @@
         const explicitPackaging = packagingMatch ? 'تتراپک' : '';
         const modelPackaging = String(item.packaging || '');
         return {
-            variationType: String(item.variation_type || inferredVariant).trim(),
+            variationType: normalizeAiVariant(item.variation_type || inferredVariant),
             volume: String(item.volume || (volumeMatch && volumeMatch[0].replace(/\s+/g, ' ')) || ''),
             weight: String(item.weight || ''),
             packaging: explicitPackaging && !modelPackaging.includes(explicitPackaging)
@@ -1336,6 +1377,10 @@
     function aiVariantBaseName(item, attributes = aiProductAttributes(item)) {
         let name = String(item.product_name || '');
         const variant = attributes.variationType;
+        const list = name.match(/(?:در\s*[0-9۰-۹٠-٩]+\s*)?(?:طعم|مزه|رنگ|مدل|نوع)\s*[（(]([^()]+)[)）]/u);
+        if (list && splitAiVariantValues(list[1]).length > 1) {
+            name = name.replace(list[0], ' ');
+        }
         if (variant) {
             const escaped = variant.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             name = name.replace(new RegExp(`(?:با\\s*)?(?:طعم|مزه)\\s*[:：]?\\s*${escaped}`, 'iu'), ' ');
@@ -1516,6 +1561,7 @@
             ? assignment.reference_id : '';
         roleSelect.value = assignment && ['unit', 'package'].includes(assignment.price_role)
             ? assignment.price_role : '';
+        let roleTouched = Boolean(assignment && ['unit', 'package'].includes(assignment.price_role));
         const compare = node('div', null, 'molavi-ai-reference-comparison');
         const renderComparison = () => {
             compare.replaceChildren();
@@ -1548,8 +1594,15 @@
         const updateEnabled = () => {
             save.disabled = !contextStored || !decisionsEnabled || !referenceSelect.value || !roleSelect.value;
         };
-        referenceSelect.addEventListener('change', () => { renderComparison(); updateEnabled(); });
-        roleSelect.addEventListener('change', updateEnabled);
+        referenceSelect.addEventListener('change', () => {
+            if (!roleTouched) {
+                const selected = candidateById.get(referenceSelect.value);
+                const suggestedRole = selected && selected.price_role_hint && selected.price_role_hint.role;
+                roleSelect.value = ['unit','package'].includes(suggestedRole) ? suggestedRole : '';
+            }
+            renderComparison(); updateEnabled();
+        });
+        roleSelect.addEventListener('change', () => { roleTouched = true; updateEnabled(); });
         save.addEventListener('click', async () => {
             const selected = candidateById.get(referenceSelect.value);
             if (!selected || !roleSelect.value) return;
@@ -1632,7 +1685,8 @@
             selection.append(checkbox, document.createTextNode(' انتخاب برای رد گروهی'));
             card.appendChild(selection);
         }
-        card.appendChild(node('h2', item.product_name || 'کالای بدون نام'));
+        const cardName = relatedItems.length > 1 ? aiVariantBaseName(item) || item.product_name : item.product_name;
+        card.appendChild(node('h2', cardName || 'کالای بدون نام'));
         const sourceVariant = aiSourceVariantLabel(item);
         if (sourceVariant) card.appendChild(node('p', `برچسب نوع در متن پیام: ${sourceVariant}`, 'molavi-ai-source-variant'));
         if (Number(item.duplicate_count) > 1) {
@@ -1710,7 +1764,9 @@
             }
         }
         if (options.sourceVariantGap) {
-            card.appendChild(notice(`متن منبع ${options.sourceVariantGap.sourceCount} طعم یا نوع را مشخص می‌کند، اما فقط ${options.sourceVariantGap.extractedCount} مورد در صف استخراج دیده می‌شود؛ پیش از تأیید گروه، استخراج این پیام باید کامل شود.`, 'warning'));
+            const missing = Array.isArray(options.sourceVariantGap.missingLabels)
+                ? options.sourceVariantGap.missingLabels.join('، ') : '';
+            card.appendChild(notice(`متن منبع ${options.sourceVariantGap.sourceCount} طعم یا نوع را مشخص می‌کند، اما فقط ${options.sourceVariantGap.extractedCount} مورد در صف استخراج دیده می‌شود${missing ? `؛ موارد جاافتاده یا ناهماهنگ: ${missing}` : ''}؛ پیش از تأیید گروه، استخراج این پیام باید کامل شود.`, 'warning'));
         }
         if (options.sourceStockGap) {
             card.appendChild(notice('پست مبدأ تاریخی صریحاً اتمام موجودی را ذکر می‌کند، اما وضعیت استخراج‌شده نامشخص است؛ وضعیت امروز را در منبع فعلی بررسی کنید.', 'warning'));

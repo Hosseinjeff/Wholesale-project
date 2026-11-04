@@ -3,6 +3,7 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import json
 import os
 import re
+import unicodedata
 from urllib.parse import quote
 
 from catalog.extract import extract_category, pack_count, persian_to_english_numbers
@@ -30,8 +31,12 @@ _PACKAGE_PRICE_LABEL = re.compile(
 _CONSUMER_PRICE_LABEL = re.compile(
     r'(?:قیمت\s*(?:مصرف\s*(?:کننده)?|خرده\s*فروشی)|'
     r'\b(?:consumer|retail)\s+price\b)', re.I)
+_VARIANT_KIND = r'(?:طعم|مزه|رنگ|مدل|نوع)'
 _VARIANT_LIST_LABEL = re.compile(
-    r'(?:طعم|مزه)[\s\u200c]*(?:های|ها)\s*[:：]?\s*(.+)', re.I)
+    rf'{_VARIANT_KIND}[\s\u200c]*(?:های|ها)\s*[:：]?\s*'
+    r'(?:(?:موجود|در\s*دسترس|available)\s*[:：]?\s*)?(.+)', re.I)
+_VARIANT_PARENTHETICAL = re.compile(
+    rf'(?:در\s*\d+\s*)?{_VARIANT_KIND}[\s\u200c]*[（(]([^()]+)[)）]', re.I)
 _KNOWN_VARIANT_SUFFIXES = (
     'سیب موز', 'سبزیجات', 'آناناس', 'آلبالو', 'پرتقال', 'انبه', 'انار', 'هلو',
     'مرغ', 'گوشت', 'قارچ', 'پنیر', 'شکلات', 'تند', 'مخلوط',
@@ -180,6 +185,14 @@ PRODUCTS, VARIANTS, PACKS, AND NUMBERS:
   supplier price fields null for every flavor; do not derive or invent a supplier amount
   from consumer prices, carton count, or expected discount. Assign the explicitly labeled
   consumer price only to its named flavor when that is the only one with a consumer price.
+- Apply the same rule to every product family and choice type (flavor, taste, color, model,
+  or other named option), not only the examples above. A marker such as `موجود:` or
+  `available:` is a stock/list label, never part of the variant name. If every variant uses
+  one shared price line, copy that source-backed value to each variant. If a price line
+  names one or more variants, attach it only to those variants; do not copy that amount to
+  unnamed variants. When the source explicitly says a named variant has no consumer price,
+  leave that variant's consumer field null. Preserve different explicit prices as separate
+  offer records instead of averaging them or collapsing them into one shared offer.
 - `package_count` is the explicit number of product units in the supplier carton/package
   relevant to the offer. Distinguish an inner retail-pack count in the title from the
   number of inner packs in a carton; do not merge levels or assume they are equal. Fill
@@ -300,19 +313,64 @@ def _count(value):
     return int(number)
 
 
-_VARIANT_LABEL = re.compile(r'(?:با\s*)?(?:طعم|مزه)\s*[:：]?\s*([^،,؛;\n]+)', re.I)
 _VARIANT_TRAILING_DETAILS = re.compile(
     r'\s+(?:قیمت|قیمت\s*(?:مصرف|فروش)|price|تومان|تومن|ریال|تعداد|در\s+کارتن)\b.*$', re.I)
 
 
+def _strip_variant_prefix(value):
+    value = unicodedata.normalize('NFKC', str(value or '')).strip()
+    value = re.sub(r'^(?:(?:موجود|در\s*دسترس|available)\s*[:：]?\s*)+', '', value, flags=re.I)
+    return value.strip(' :،,؛;*-–—()（）')
+
+
+def _split_variant_value(value):
+    """Split an explicitly listed set while keeping multiword variant names intact."""
+    parts = re.split(r'[،,؛;]+', str(value or ''))
+    if parts and re.search(r'\s+و\s+', parts[-1]):
+        parts[-1:] = re.split(r'\s+و\s+', parts[-1])
+    variants = []
+    for part in parts:
+        variant = _strip_variant_prefix(re.sub(r'\s+', ' ', part))
+        if variant and variant not in variants:
+            variants.append(variant)
+    return variants
+
+
+def _clean_variant(value):
+    """Keep only the individual choice when a model repeats a full variant list."""
+    text = unicodedata.normalize('NFKC', str(value or '')).strip()
+    parenthetical = re.search(r'[（(]([^()]+)[)）]\s*(.+)$', text)
+    if parenthetical:
+        listed = _split_variant_value(parenthetical.group(1))
+        if len(listed) > 1:
+            tail = _strip_variant_prefix(parenthetical.group(2))
+            if tail and _title_identity(tail) in {_title_identity(item) for item in listed}:
+                return tail
+            return ''
+    text = _strip_variant_prefix(text)
+    if not text or _VARIANT_LIST_LABEL.search(text):
+        return ''
+    text = re.sub(rf'^(?:با\s*)?{_VARIANT_KIND}\s*[:：]?\s*', '', text, flags=re.I)
+    return re.sub(r'\s+', ' ', text).strip()
+
+
 def _explicit_variant(text):
-    match = _VARIANT_LABEL.search(str(text or ''))
+    text = str(text or '').strip()
+    if not text or _VARIANT_LIST_LABEL.search(text):
+        return ''
+    parenthetical = _VARIANT_PARENTHETICAL.search(text)
+    if parenthetical:
+        tail = text[parenthetical.end():].strip()
+        return _clean_variant(tail) if tail else ''
+    if re.search(rf'(?:در\s*\d+\s*)?{_VARIANT_KIND}\s+(?:متفاوت|مختلف|متنوع)\b', text, re.I):
+        return ''
+    match = re.search(rf'(?:با\s*)?{_VARIANT_KIND}\s*[:：]?\s*([^،,؛;\n]+)', text, re.I)
     if not match:
         return ''
     value = _VARIANT_TRAILING_DETAILS.sub('', match.group(1)).strip(' :،,؛;*-–—')
     value = strip_measurement_tokens(value)
     value = re.sub(r'(?<!\d)\d+\s*(?:عددی|عدد|تایی|ع)(?=$|[^\w])', ' ', value)
-    return re.sub(r'\s+', ' ', value).strip()
+    return _clean_variant(re.sub(r'\s+', ' ', value).strip())
 
 
 def _variant_list_parts(line, *, allow_bare=False):
@@ -320,24 +378,35 @@ def _variant_list_parts(line, *, allow_bare=False):
     match = _VARIANT_LIST_LABEL.search(str(line or ''))
     if match:
         value = match.group(1).strip()
-    elif allow_bare and re.search(r'[،,؛;]|\s+و\s+', str(line or '')):
-        value = str(line or '').strip()
     else:
-        return []
-    variants = []
-    parts = re.split(r'[،,؛;]+', value)
-    if parts and re.search(r'\s+و\s+', parts[-1]):
-        parts[-1:] = re.split(r'\s+و\s+', parts[-1])
-    for part in parts:
-        variant = re.sub(r'\s+', ' ', part).strip(' :،,؛;*-–—')
-        if variant and variant not in variants:
-            variants.append(variant)
-    return variants
+        parenthetical = _VARIANT_PARENTHETICAL.search(str(line or ''))
+        parenthetical_values = _split_variant_value(parenthetical.group(1)) if parenthetical else []
+        if len(parenthetical_values) > 1:
+            value = parenthetical.group(1)
+        elif allow_bare and _looks_like_bare_variant_list(line):
+            value = str(line or '').strip()
+        else:
+            return []
+    return _split_variant_value(value)
+
+
+def _looks_like_bare_variant_list(line):
+    text = unicodedata.normalize('NFKC', str(line or '')).strip()
+    if not re.search(r'[،,؛;]|\s+و\s+', text) or re.search(r'\d|https?://', _english_numbers(text), re.I):
+        return False
+    if re.search(
+            r'(?:قیمت|تومان|تومن|ریال|تعداد|کارتن|کارتون|باکس|بسته|آدرس|تلفن|تماس|'
+            r'ثبت\s*سفارش|لینک|whatsapp|telegram|price|address|contact)', text, re.I):
+        return False
+    variants = _split_variant_value(text)
+    return (2 <= len(variants) <= 12
+            and all(len(value) <= 48 and len(value.split()) <= 4
+                    and re.search(r'[A-Za-z\u0600-\u06FF]', value) for value in variants))
 
 
 def _bare_variant_list_matches(line, variant):
     """Confirm that a bare comma list contains the model's extracted variant."""
-    identity = _title_identity(variant)
+    identity = _title_identity(_clean_variant(variant))
     return bool(identity and any(
         _title_identity(part) == identity
         for part in _variant_list_parts(line, allow_bare=True)
@@ -349,27 +418,113 @@ def _listed_source_variants(source_context, variant_hint=''):
     variants = []
     for line in source_context:
         labeled = bool(_VARIANT_LIST_LABEL.search(line))
-        if not labeled and not _bare_variant_list_matches(line, variant_hint):
+        parsed = _variant_list_parts(line, allow_bare=True)
+        explicit = len(parsed) > 1
+        if not labeled and not explicit and not _bare_variant_list_matches(line, variant_hint):
             continue
-        for variant in _variant_list_parts(line, allow_bare=not labeled):
+        for variant in parsed:
             if variant and variant not in variants:
                 variants.append(variant)
     return variants
 
 
-def _title_for_variant(name, base_title, variant):
-    """Build each listed flavor title from the uniquely matched source title."""
+def _variant_mentions(line, variants):
+    line_key = _title_identity(line)
+    matches = []
+    for variant in variants:
+        variant_key = _title_identity(variant)
+        if not variant_key:
+            continue
+        pattern = r'(?<!\w)' + re.escape(variant_key).replace(r'\ ', r'\s+') + r'(?!\w)'
+        if re.search(pattern, line_key):
+            matches.append(variant_key)
+    return matches
+
+
+def _variant_price_evidence(source_context, variants, label_pattern, *, package=False):
+    scoped = {}
+    shared = set()
+    for line in source_context:
+        amounts = _labeled_amounts(
+            line, label_pattern, skip_leading_package_count=package)
+        if not amounts:
+            continue
+        mentions = _variant_mentions(line, variants)
+        if not mentions:
+            shared.update(amounts)
+            continue
+        for variant_key in mentions:
+            scoped.setdefault(variant_key, set()).update(amounts)
+    return scoped, shared
+
+
+def _variant_consumer_prices(source_context, variants):
+    scoped, shared = _variant_price_evidence(
+        source_context, variants, _CONSUMER_PRICE_LABEL)
+    no_price = set()
+    no_consumer = re.compile(
+        r'(?:بدون\s*(?:قیمت\s*)?(?:مصرف|خرده)|'
+        r'قیمت\s*(?:مصرف\s*(?:کننده)?|خرده\s*فروشی)\s*'
+        r'(?:ندارد|نداره|نیست|ثبت\s*نشده|وجود\s*ندارد))', re.I)
+    for line in source_context:
+        if not no_consumer.search(line):
+            continue
+        no_price.update(_variant_mentions(line, variants))
+    if not scoped and not no_price:
+        return None
+    result = {}
+    for variant in variants:
+        key = _title_identity(variant)
+        values = scoped.get(key, set())
+        if key in no_price:
+            result[key] = 0
+        elif len(values) == 1:
+            result[key] = next(iter(values))
+        elif len(values) > 1:
+            result[key] = 0
+        elif len(shared) == 1:
+            result[key] = next(iter(shared))
+        else:
+            result[key] = 0
+    return result
+
+
+def _variant_marker_kind(value):
+    match = re.search(r'(?:در\s*\d+\s*)?(طعم|مزه|رنگ|مدل|نوع)', str(value or ''), re.I)
+    return match.group(1) if match else ''
+
+
+def _variant_base_title(value):
+    text = re.sub(r'[\s:：]+$', '', str(value or '').strip())
+    parenthetical = _VARIANT_PARENTHETICAL.search(text)
+    if parenthetical and len(_split_variant_value(parenthetical.group(1))) > 1:
+        return text[:parenthetical.start()].rstrip(' :：،,;')
+    single = re.search(r'\s*(طعم|مزه|رنگ|مدل|نوع)\s*[:：]?\s*([^\n]+)$', text, re.I)
+    if single and _clean_variant(single.group(2)):
+        return text[:single.start()].rstrip(' :：،,;')
+    return text
+
+
+def _title_for_variant(name, base_title, variant, variant_kind=''):
+    """Build an individual variant title without repeating a full listed set."""
     title = str(name or '').strip()
-    base = str(base_title or '').strip()
+    raw_base = str(base_title or '').strip()
+    base = _variant_base_title(raw_base or title)
+    kind = (_variant_marker_kind(raw_base) or _variant_marker_kind(title)
+            or str(variant_kind or '').strip())
     if not base:
-        return title + ' طعم ' + str(variant)
-    if _title_identity(title) == _title_identity(base):
-        return title + ' طعم ' + str(variant)
-    label_match = re.search(r'(?:طعم|مزه)[\s\u200c]*[^،,؛;\n]+\s*$', title, re.I)
-    if label_match:
-        label = re.match(r'(طعم|مزه)', label_match.group(), re.I).group(1)
-        return base + ' ' + label + ' ' + str(variant)
-    return base + ' ' + str(variant)
+        base = _variant_base_title(title)
+    return f'{base} {kind} {variant}'.strip() if kind else f'{base} {variant}'.strip()
+
+
+def _source_title_for_variant(base_title, variant, variant_kind=''):
+    """Keep the matched source title intact while adding one target variant."""
+    base = str(base_title or '').strip()
+    parenthetical = _VARIANT_PARENTHETICAL.search(base)
+    if not (parenthetical and len(_split_variant_value(parenthetical.group(1))) > 1):
+        base = _variant_base_title(base)
+    kind = str(variant_kind or _variant_marker_kind(base_title)).strip()
+    return f'{base} {kind} {variant}'.strip() if kind else f'{base} {variant}'.strip()
 
 
 def _explicit_packaging(text):
@@ -427,8 +582,10 @@ def _source_title_evidence(name, content, variant=''):
     # the extracted title. Match that suffix only when it is an explicit model
     # attribute or a recognized flavor; the matched source line remains the
     # sole authority for price and pack details.
+    raw_variant = str(variant or '').strip()
+    clean_variant = _clean_variant(variant)
     for title in (str(name or '').strip(), first_line):
-        for suffix in (str(variant or '').strip(), *_KNOWN_VARIANT_SUFFIXES):
+        for suffix in (raw_variant, clean_variant, *_KNOWN_VARIANT_SUFFIXES):
             if not suffix:
                 continue
             base = re.sub(
@@ -545,7 +702,8 @@ def _source_title_context(source_title, content, source_titles=(), ambiguous=Fal
             continue
         if index in other_indexes or footer.search(line):
             break
-        if _bare_variant_list_matches(line, variant_hint):
+        if (_bare_variant_list_matches(line, variant_hint)
+                or len(_variant_list_parts(line, allow_bare=True)) > 1):
             context.append(line)
             continue
         has_price_marker = bool(
@@ -568,10 +726,17 @@ def _source_price_role(source_title, content, candidate_amounts, source_titles=(
     if not context:
         return {}
     candidates = {int(amount) for amount in candidate_amounts if amount and int(amount) > 0}
+    variants = _listed_source_variants(context, variant_hint)
+    variant_key = _title_identity(_clean_variant(variant_hint))
     roles = {}
     for role, pattern in (('unit', _UNIT_PRICE_LABEL), ('package', _PACKAGE_PRICE_LABEL)):
-        labeled = _labeled_amounts(
-            '\n'.join(context), pattern, skip_leading_package_count=(role == 'package'))
+        if variant_key and variants:
+            scoped, shared = _variant_price_evidence(
+                context, variants, pattern, package=(role == 'package'))
+            labeled = scoped.get(variant_key, set()) | shared
+        else:
+            labeled = _labeled_amounts(
+                '\n'.join(context), pattern, skip_leading_package_count=(role == 'package'))
         matches = candidates.intersection(labeled)
         # A single amount under an explicit label is stronger evidence than a
         # missing or malformed model field. Retain model disambiguation only when
@@ -654,7 +819,7 @@ def _product(item, content, channel, source_titles=()):
     explicit_weight = extract_measurement(name, 'weight')
     measurement_review_reasons = []
     variant_value = item.get('variation_type') or item.get('variant') or ''
-    variation_type = _explicit_variant(name) or str(variant_value or '').strip()
+    variation_type = _explicit_variant(name) or _clean_variant(variant_value)
     source_title, ambiguous_source_title = _source_title_evidence(name, content, variant_value)
     source_title_verified = bool(source_title)
     source_context = _source_title_context(
@@ -936,28 +1101,50 @@ def parse_message_products(response_text, content, channel):
     groups = {}
     for item in items:
         product = _product(item, content, channel, source_titles)
-        source_title, ambiguous = _source_title_evidence(product['name'], content, product.get('variation_type'))
-        variant_hint = str(item.get('variation_type') or item.get('variant') or '').strip()
+        raw_variant_hint = item.get('variation_type') or item.get('variant') or product.get('variation_type')
+        source_title, ambiguous = _source_title_evidence(product['name'], content, raw_variant_hint)
+        variant_hint = _clean_variant(raw_variant_hint)
         context = _source_title_context(
             source_title, content, source_titles, ambiguous, variant_hint)
         variants = _listed_source_variants(context, variant_hint)
         if variants:
             key = source_title[0]
             groups.setdefault(key, {
-                'variants': variants, 'products': [], 'base_title': source_title[0],
-            })['products'].append(product)
+                'variants': variants, 'products': [], 'items': [], 'base_title': source_title[0],
+                'source_context': context,
+            })
+            groups[key]['products'].append(product)
+            groups[key]['items'].append(item)
         else:
             products.append(product)
 
-    # A single explicit flavor list shares the source listing's price/count data.
-    # Emit one actionable record per flavor even when the model omitted the list.
+    # Expand every explicit variant list. Preserve model-returned fields per variant;
+    # only missing variants inherit shared listing fields from a prototype.
     for group in groups.values():
         prototype = group['products'][0]
+        by_variant_item = {}
+        for product, item in zip(group['products'], group['items']):
+            variant_key = _title_identity(_clean_variant(product.get('variation_type')))
+            if variant_key:
+                by_variant_item.setdefault(variant_key, item)
+        consumer_prices = _variant_consumer_prices(
+            group['source_context'], group['variants'])
+        variant_kind = next((kind for line in group['source_context']
+                             for kind in [_variant_marker_kind(line)] if kind), '')
         for variant in group['variants']:
-            expanded = dict(prototype)
+            variant_key = _title_identity(variant)
+            source_item = dict(by_variant_item.get(variant_key) or group['items'][0])
+            source_item['variation_type'] = variant
+            source_item['name'] = _source_title_for_variant(
+                group.get('base_title'), variant, variant_kind)
+            expanded = _product(source_item, content, channel, source_titles)
             expanded['variation_type'] = variant
             expanded['name'] = _title_for_variant(
-                prototype['name'], group.get('base_title'), variant)
+                expanded['name'], group.get('base_title'), variant, variant_kind)
+            if consumer_prices is not None:
+                consumer = consumer_prices.get(variant_key, 0)
+                expanded['consumer_price'] = consumer or None
+                expanded['actual_price'] = consumer or None
             products.append(expanded)
     return products
 
