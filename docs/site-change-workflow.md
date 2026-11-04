@@ -1,6 +1,20 @@
 # Site changes and preservation workflow
 
-Updated: 2026-11-03, Asia/Tehran
+Updated: 2026-11-04, Asia/Tehran
+
+## Latest live deployment — 2026-11-04, supplier acknowledgement stays in place
+
+WordPress plugin commit `e9673a69a48b26ca31e603ef236a4b419eec769b` is live. Supplier-price
+acknowledgement now updates its existing card with success feedback instead of rebuilding
+the screen. The shared AJAX form handler and product workbench preserve the owner's current
+scroll position after a saved action. This keeps the next supplier review in view and prevents
+the page from jumping to the top.
+
+The protected cPanel deploy script uploaded and read back `includes/admin-ajax-forms.js` and
+`includes/owner-workflows.js` successfully. `node --check` passed for both scripts and the
+interaction test, `node tests/owner_workbench.test.js`, passed with coverage for in-place
+acknowledgement and scroll preservation. `git diff --check` passed. No product, supplier-price,
+order, or Sheet data changed. This plugin-only release did not change Railway.
 
 ## Latest live deployment — 2026-11-04, generic variant extraction and reference price role
 
