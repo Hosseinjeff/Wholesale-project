@@ -3,7 +3,8 @@
 ## Owner review responsiveness and reference assignment — 2026-11-04
 
 Railway deployment `74741fbe-5551-4feb-87fa-74da0a0a9b79` runs backend commit `d9bea58`;
-the WordPress plugin files are deployed and read-back verified. The extraction API now
+the WordPress plugin files are deployed and read-back verified from commit `308c189`.
+The extraction API now
 returns its 26 open cases in 2.91 seconds,
 down from 22.69 seconds before reusing normalized reference-candidate data and accelerating
 similarity scoring. The response includes 185 candidate suggestions in total, with up to 12

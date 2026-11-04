@@ -3,9 +3,10 @@
   "mode": "Owner review responsiveness and in-card reference assignment verified; no product decision submitted",
   "latest_owner_review_recheck": {
     "date": "2026-11-04",
-    "commit": "d9bea58a4d404ec8acf4299f3f9ec21b0a172703",
+    "commit": "d9bea58a4d404ec8acf4299f9f3ec21b0a172703",
     "railway_deployment": "74741fbe-5551-4feb-87fa-74da0a0a9b79",
     "railway_status": "SUCCESS",
+    "wordpress_revision": "308c189e75d0aa75848230f6961b63bcabddb47d",
     "wordpress_asset_readback": true,
     "served_owner_workflows_js_matches_source": true,
     "wordpress_operations_page_http": 200,
