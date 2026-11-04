@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from catalog.extract import MESSAGE_HEADERS, OFFER_HEADERS, PRODUCT_HEADERS
 from catalog.reconciliation import build_reconciliation_report
+from catalog.source_integrity import product_offer_link_issues
 from catalog.sync import MemoryStore, _row_from_map
 
 
@@ -103,6 +104,50 @@ class ReconciliationReportTests(unittest.TestCase):
         report=build_reconciliation_report(self.store,FakeQueue(self.receipt),site_url='')
         self.assertEqual(report['summary']['products_with_source_integrity_issues'],1)
         self.assertEqual(report['source_integrity']['issues'][0]['codes'],['offer_not_found'])
+
+    def test_duplicate_dimensions_are_reported_as_duplicate_product_identity(self):
+        products = [
+            {'Product ID':'product-a','Product Name':'نوشیدنی آلوورا','Channel Username':'@supplier',
+             'Volume':'250 میل','Package Count':24},
+            {'Product ID':'product-b','Product Name':'نوشیدنی آلوورا','Channel Username':'@supplier',
+             'Volume':'250 میلی لیتر','Package Count':24},
+        ]
+        issues = product_offer_link_issues(products, [])
+        self.assertTrue(all('duplicate_product_identity' in issue['codes'] for issue in issues))
+
+    def test_catalog_woo_counts_products_outside_the_receipt_window(self):
+        product = {
+            'Product ID':'product-unjoined','Latest Offer ID':'offer-unjoined',
+            'Product Name':'کالای مستقل','Channel Username':'@supplier','Channel':'telegram',
+            'Batch ID':'older-batch','Message Timestamp':'1730574000',
+            'Source Timestamp Basis':'supplier_channel_update','Source Post URL':'https://t.me/supplier/older',
+            'Status':'imported','Sale Price':40000,'Consumer Price':65000,
+            'Stock Status':'Unknown',
+        }
+        offer = {
+            'Offer ID':'offer-unjoined','Message ID':'older-message','Batch ID':'older-batch',
+            'Product Name':'کالای مستقل','Channel Username':'@supplier','Channel':'telegram',
+            'Message Timestamp':'1730574000','Source Timestamp Basis':'supplier_channel_update',
+            'Source Post URL':'https://t.me/supplier/older','Status':'imported',
+            'Sale Price':40000,'Consumer Price':65000,
+        }
+        self.store.append('Offers', [_row_from_map(OFFER_HEADERS, offer)])
+        self.store.append('Products', [_row_from_map(PRODUCT_HEADERS, product)])
+
+        class EmptyWoo:
+            state = 'checked'
+            products = {}
+            checked_at = '2026-11-04T00:00:00+00:00'
+
+        with patch.dict('os.environ', {'PIPELINE_DB_PATH':''}), \
+             patch('catalog.reconciliation._woo_catalog', return_value={
+                 'state':'checked','products':{},'checked_at':'2026-11-04T00:00:00+00:00'}):
+            report = build_reconciliation_report(self.store, FakeQueue(self.receipt), site_url='')
+
+        self.assertEqual(report['receipts'][0]['product_count'], 0)
+        self.assertEqual(report['catalog_woo']['products_checked'], 1)
+        self.assertEqual(report['catalog_woo']['not_visible'], 1)
+        self.assertEqual(report['summary']['woo_missing'], 1)
 
     def test_woo_reconciliation_uses_publisher_holds_for_missing_customer_prices(self):
         names=['چای ساده','چای با قیمت مصرف‌کننده']

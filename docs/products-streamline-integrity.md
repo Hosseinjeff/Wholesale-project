@@ -133,3 +133,56 @@ For automatic edit capture, the bot must receive the supplier channel's
 original source. WordPress continues to persist each dashboard decision context,
 decision, and server receipt in its owner-review table, while Railway retains the
 durable execution queue and supplier freshness ledger.
+
+### Follow-up identity and live failure audit — 2026-11-04
+
+The sender's private Telegram account is the owner's allowlisted operator account. A
+private submission is accepted as owner input, but its send time remains
+`owner_submission`; it is not evidence that the supplier refreshed price or stock.
+Supplier channel posts and edits provide the automatic source clock. A forwarded
+channel post preserves its original date, so re-forwarding it does not extend the
+window. The existing seven-day warning and fourteen-day hide rule remains a reasonable
+starting point until a full supplier posting-cycle review gives better cadence data.
+Explicit supplier out-of-stock language hides the item immediately. Missing stock
+language stays Unknown. A price check can refresh price evidence only; it must never
+override a recorded out-of-stock statement or be presented as an availability check.
+
+The live Sheets snapshot contained 125 Products rows and 460 Offers rows. There were
+no exact same-supplier/title duplicates in the Products sheet, but pending same-title
+offers with different sizes could previously collapse because matching and the Woo SKU
+both used supplier plus title alone. New product identities now include an explicit
+variant, normalized volume, normalized weight, and pack count. Product restoration,
+conflict resolution, owner-confirmation projection, source-integrity checks, and Woo
+publication carry those dimensions together. Existing row IDs and legacy Woo SKUs are
+preserved; only rows whose IDs match the new canonical dimension-aware scheme receive
+a variant-specific SKU. This prevents a new size variant from overwriting its sibling
+without renaming the already published catalog.
+
+The reconciliation report now evaluates every Products row against the complete Woo
+catalog, including products outside the recent receipt window. It separately counts
+products that should sell, are held, are missing, are unexpectedly purchasable while
+held, or could not be checked because the Woo catalog read was incomplete. Duplicate
+complete product identities are reported as source-integrity errors rather than
+silently merged.
+
+One burst of 42 POSTs to the owner supplier-price endpoint returned HTTP 400 during a
+single browser session. The same endpoint later recorded 71 successful POSTs and no
+further 400s after that session. Railway retained status and request metadata but not
+the rejected bodies, so the original malformed field cannot be identified
+retrospectively. The endpoint now returns distinct safe validation errors and records
+only the fixed error code; it never logs a note, product text, request body, or token.
+The WordPress card maps those codes to a useful next step. Two transient publication
+backlog reconciliation failures were followed by a successful run; the failures were
+remote disconnects, and no durable job was changed by a failed attempt.
+
+Ten Products rows still point to missing Offers evidence. Those rows remain blocked
+from WooCommerce until each original Offer can be recovered from a trustworthy source;
+the pipeline does not manufacture replacement evidence. This is the remaining known
+source-integrity backlog, even when the service and storefront health checks are green.
+
+One policy boundary should remain explicit in the store design: a fresh item whose
+supplier did not state stock remains Unknown but can accept a customer request. The
+current Woo adapter maps that state to Woo's internal `instock` flag so the request
+flow remains usable; the product card does not claim stock. If the public flow later
+labels an item as available or accepts payment before the supplier confirms it, add a
+separate request-only availability state rather than treating Unknown as stock proof.

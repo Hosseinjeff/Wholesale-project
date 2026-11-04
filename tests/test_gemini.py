@@ -807,6 +807,7 @@ class GeminiExtractionTests(unittest.TestCase):
         self.assertIn('Count all such blocks first and never skip a middle size', prompt)
         self.assertIn('with volumes 1.5 liters, 500 ml, and 250 ml; counts 6, 20, and 24', prompt)
         self.assertIn('matching supplier/consumer prices for each block', prompt)
+        self.assertIn('Product identity includes the exact flavor/model, volume, weight, and supplier', prompt)
 
     def test_distinct_size_price_blocks_keep_each_price_count_and_volume(self):
         base = 'نوشيدنى آلوورا بر پايه عسل'

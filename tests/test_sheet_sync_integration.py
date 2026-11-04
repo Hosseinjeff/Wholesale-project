@@ -380,6 +380,52 @@ class SheetSyncIntegrationTests(unittest.TestCase):
         self.assertEqual(cell(self.store, 'Reference Approval State'), 'owner_approved')
         self.assertEqual(self.queue.get_sheet_conflict(conflict_id)['choice'], 'server')
 
+    def test_same_title_different_volumes_keep_separate_rows_and_latest_offers(self):
+        from catalog.extract import OFFER_HEADERS
+        from catalog.sync import (_offer_fields, _product_restore_key, _records,
+                                  _restore_current_book, _row_from_map)
+
+        name = 'نوشیدنی آلوورا بر پایه عسل'
+        channel = '@supplier'
+        timestamp = datetime.now(timezone.utc).isoformat()
+
+        def add_offer(message_id, volume, sale):
+            product = {'name': name, 'volume': volume, 'sale_price': sale, 'price': sale,
+                'consumer_price': sale + 20000, 'actual_price': sale + 20000,
+                'price_type': 'unit', 'currency': 'IRT', 'stock_status': 'Unknown',
+                'confidence': .99, 'extraction_confidence': .99}
+            message = {'id': message_id, 'batch_id': 'volume-batch', 'channel': 'telegram',
+                'channel_username': channel, 'timestamp': timestamp,
+                'source_timestamp_basis': 'supplier_channel_update', 'content': f'{name} {volume}',
+                'url': f'https://t.me/supplier/{message_id}'}
+            self.store.ensure('Offers', OFFER_HEADERS)
+            headers = self.store.read('Offers')[0]
+            self.store.append('Offers', [_row_from_map(headers, _offer_fields(
+                product, message, f'volume-batch:{message_id}:0', timestamp, ''))])
+
+        small = {'name': name, 'volume': '250 میل'}
+        large = {'name': name, 'volume': '1.5 لیتر'}
+        add_offer('volume-250', '250 میل', 50000)
+        add_offer('volume-1500', '1.5 لیتر', 70000)
+        _restore_current_book(self.store, [
+            _product_restore_key(small, channel), _product_restore_key(large, channel)])
+
+        products = _records(self.store.read('Products'))[1]
+        matching = [row for row in products if row.get('Product Name') == name]
+        self.assertEqual(len(matching), 2)
+        self.assertEqual({row.get('Volume') for row in matching}, {'250 میل', '1.5 لیتر'})
+        self.assertEqual(len({row.get('Product ID') for row in matching}), 2)
+
+        add_offer('volume-250-new', '250 میل', 55000)
+        _restore_current_book(self.store, [_product_restore_key(small, channel)])
+        products = _records(self.store.read('Products'))[1]
+        matching = [row for row in products if row.get('Product Name') == name]
+        small_row = next(row for row in matching if row.get('Volume') == '250 میل')
+        large_row = next(row for row in matching if row.get('Volume') == '1.5 لیتر')
+        self.assertEqual(small_row.get('Sale Price'), 55000)
+        self.assertEqual(small_row.get('Latest Offer ID'), 'volume-batch:volume-250-new:0')
+        self.assertEqual(large_row.get('Sale Price'), 70000)
+
     def test_last_updated_server_value_uses_the_latest_offer_import_timestamp(self):
         import app as server
         from catalog.sync import SHEET_SERVER_OWNED_FIELDS

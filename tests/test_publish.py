@@ -5,6 +5,7 @@ import unittest
 from unittest.mock import patch
 
 from catalog.publish import publish_shop, site_products
+from catalog.product_identity import product_row_id
 from catalog.sync import MemoryStore
 
 
@@ -99,6 +100,32 @@ class PublishTests(unittest.TestCase):
             hashlib.sha256("@bonakdarjavan|آب سودا".encode()).hexdigest()[:12],
         )
         self.assertEqual(by_name["خراب"]["status"], "hold")
+
+    def test_volume_variants_publish_distinct_woo_skus(self):
+        store = _store()
+        products = store.sheets['Products']
+        products[0].append('Volume')
+        products[0].append('Variation Type')
+        products[0].append('Package Count')
+        products[1].extend(['250 میل', '', 24])
+        products[2].extend(['', '', ''])
+        second = list(products[1])
+        second[products[0].index('Latest Offer ID')] = 'offer-soda-1.5l'
+        second[products[0].index('Volume')] = '1.5 لیتر'
+        identity = dict(zip(products[0], second))
+        second[products[0].index('Product ID')] = product_row_id(identity)
+        store.sheets['Products'].append(second)
+        offer_headers = store.sheets['Offers'][0]
+        store.sheets['Offers'].append([
+            {'Offer ID':'offer-soda-1.5l','Product Name':'آب سودا',
+             'Channel Username':'@bonakdarjavan','Channel':'telegram',
+             'Batch ID':'batch-soda','Message Timestamp':'1700000000'}[header]
+            for header in offer_headers
+        ])
+
+        variants = [item for item in site_products(store) if item['name'] == 'آب سودا']
+        self.assertEqual(len(variants), 2)
+        self.assertEqual(len({item['id'] for item in variants}), 2)
 
     def test_explicit_supplier_unavailability_is_carried_but_unknown_is_not_stock_proof(self):
         store = _store()

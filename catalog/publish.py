@@ -7,7 +7,6 @@ service sends, then pulls photo bytes from /media/file without a bot token.
 from __future__ import annotations
 
 import base64
-import hashlib
 import logging
 import os
 import re
@@ -20,6 +19,7 @@ import requests
 
 from catalog.extract import minimum_purchase
 from catalog.media import safe_file_id
+from catalog.product_identity import woo_sku
 from catalog.pricing import settings_from_rows
 from catalog.stock import normalize_stock_status
 from catalog.source_integrity import product_offer_link_issues
@@ -122,7 +122,7 @@ def site_products(store: MemoryStore | GoogleSheetStore) -> list[dict[str, Any]]
         except (TypeError, ValueError):
             source_url = ''
         published={
-            "id": hashlib.sha256(f"{channel}|{name}".encode()).hexdigest()[:12],
+            "id": woo_sku(record),
             "name": name,
             "key": _product_key(name),
             "channel": channel,

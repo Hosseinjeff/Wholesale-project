@@ -10,6 +10,8 @@ from datetime import datetime, timezone
 
 
 class ProductStatusLedger:
+    STATE_SCHEMA_VERSION = 2
+
     def __init__(self, database):
         self.database = os.path.realpath(os.fspath(database))
         with self.connect() as db:
@@ -22,6 +24,10 @@ class ProductStatusLedger:
                 state_json TEXT NOT NULL, PRIMARY KEY(snapshot_id, product_key));
                 CREATE INDEX IF NOT EXISTS product_status_captured_idx
                 ON product_status_snapshots(captured_at DESC);''')
+            columns = {row['name'] for row in db.execute('PRAGMA table_info(product_status_snapshots)')}
+            if 'schema_version' not in columns:
+                db.execute('ALTER TABLE product_status_snapshots '
+                           'ADD COLUMN schema_version INTEGER NOT NULL DEFAULT 0')
         os.chmod(self.database, 0o600)
 
     @contextmanager
@@ -72,6 +78,7 @@ class ProductStatusLedger:
         record_copy = {key: value for key, value in record.items()
                        if key not in {'Original Message', 'Contact Info'}}
         return {
+            'status_schema_version': ProductStatusLedger.STATE_SCHEMA_VERSION,
             'product_id': str(record.get('Product ID') or ''),
             'product_name': str(record.get('Product Name') or ''),
             'channel': str(record.get('Channel Username') or ''),
@@ -133,9 +140,10 @@ class ProductStatusLedger:
             snapshot_id = hashlib.sha256(
                 f'{captured_at}\0{reason}\0{digest}'.encode('utf-8')).hexdigest()
             db.execute('''INSERT OR IGNORE INTO product_status_snapshots
-                (snapshot_id,captured_at,reason,product_count,changed_count,record_digest)
-                VALUES (?,?,?,?,?,?)''',
-                (snapshot_id, captured_at, str(reason)[:120], len(records), changed, digest))
+                (snapshot_id,captured_at,reason,product_count,changed_count,record_digest,schema_version)
+                VALUES (?,?,?,?,?,?,?)''',
+                (snapshot_id, captured_at, str(reason)[:120], len(records), changed, digest,
+                 self.STATE_SCHEMA_VERSION))
             db.executemany('''INSERT OR IGNORE INTO product_status_records
                 (snapshot_id,product_key,product_name,state_json) VALUES (?,?,?,?)''',
                 [(snapshot_id, key, name, json.dumps(state, ensure_ascii=False,
@@ -148,7 +156,7 @@ class ProductStatusLedger:
         limit = max(1, min(int(limit), 100))
         with self.connect() as db:
             snapshots = [dict(row) for row in db.execute(
-                'SELECT snapshot_id,captured_at,reason,product_count,changed_count '
+                'SELECT snapshot_id,captured_at,reason,product_count,changed_count,schema_version '
                 'FROM product_status_snapshots ORDER BY captured_at DESC LIMIT ?', (limit,))]
             latest_id = snapshots[0]['snapshot_id'] if snapshots else None
             selected_id = str(snapshot_id or latest_id or '')
@@ -173,6 +181,12 @@ class ProductStatusLedger:
             row = db.execute('SELECT captured_at FROM product_status_snapshots '
                              'ORDER BY captured_at DESC LIMIT 1').fetchone()
         return row['captured_at'] if row else None
+
+    def latest_schema_version(self):
+        with self.connect() as db:
+            row = db.execute('SELECT schema_version FROM product_status_snapshots '
+                             'ORDER BY captured_at DESC LIMIT 1').fetchone()
+        return int(row['schema_version']) if row else 0
 
 
 def capture_from_store(store, database, *, reason):

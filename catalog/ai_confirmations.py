@@ -732,7 +732,7 @@ def apply_decision(store, ledger, case, decision):
     from datetime import datetime, timezone
     from catalog.sync import (
         OFFER_HEADERS, _append_at_next_row, _headers, _offer_fields, _positive_price,
-        _read_sheet_if_present, _records, _restore_current_book, _row_from_map,
+        _product_restore_key, _read_sheet_if_present, _records, _restore_current_book, _row_from_map,
     )
     source_rows = _read_sheet_if_present(store, 'Offers')
     headers, offers = _records(source_rows)
@@ -744,8 +744,7 @@ def apply_decision(store, ledger, case, decision):
     decision_id = decision['decision_id']
     derived_id = 'owner-confirm:' + decision_id
     if any(str(item.get('Offer ID') or '') == derived_id for item in offers):
-        _restore_current_book(store, [(str(source.get('Product Name') or ''),
-                                       str(source.get('Channel Username') or ''))])
+        _restore_current_book(store, [_product_restore_key(source)])
         return derived_id
     store.ensure('Offers', OFFER_HEADERS)
     headers = _headers(store, 'Offers', OFFER_HEADERS)
@@ -806,5 +805,6 @@ def apply_decision(store, ledger, case, decision):
         'Owner Decision Actor': decision['actor_id'], 'Owner Decision At': now,
     })
     _append_at_next_row(store, 'Offers', headers, [_row_from_map(headers, imported)])
-    _restore_current_book(store, [(str(product['name']), str(source.get('Channel Username') or ''))])
+    _restore_current_book(store, [_product_restore_key(
+        product, str(source.get('Channel Username') or ''))])
     return derived_id

@@ -116,6 +116,22 @@ class SupplierFreshnessRouteTests(unittest.TestCase):
    self.assertEqual(client.get('/pipeline/supplier-price-evidence',headers=headers).get_json()['offers'],[])
    self.assertIn('product-1',[p['product_id'] for p in client.get('/api/shop').get_json()['products']])
 
+ def test_invalid_price_verification_requests_return_specific_safe_errors(self):
+  import app
+  with patch.dict(os.environ,self.env),patch.object(app,'USE_SHEETS',True),patch.object(app,'build_store',return_value=self.store),patch.object(app,'ensure_telegram_webhook'):
+   client=app.app.test_client();headers={'X-Molavi-Reference-Token':self.env['REFERENCE_BRIDGE_TOKEN'],'X-Molavi-Actor':'wp:7'}
+   cases=[
+    ({'product_id':'product-1','expected_revision':self.revision,'note':'checked','extra':'unexpected'},'invalid_body'),
+    ({'product_id':7,'expected_revision':self.revision,'note':'checked'},'invalid_product_id'),
+    ({'product_id':'product-1','expected_revision':self.revision,'note':'  '},'invalid_note'),
+    ({'product_id':'product-1','expected_revision':'r'*201,'note':'checked'},'invalid_source_revision'),
+   ]
+   for body,error in cases:
+    with self.subTest(error=error):
+     response=client.post('/pipeline/supplier-price-evidence',headers=headers,json=body)
+     self.assertEqual(response.status_code,400)
+     self.assertEqual(response.get_json()['error'],error)
+
  def test_fourteen_day_offer_is_hidden_from_quote_until_reviewed(self):
   import app
   row=self.store.sheets['Products'][1]

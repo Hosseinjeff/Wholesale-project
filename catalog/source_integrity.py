@@ -4,6 +4,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from typing import Any
 
+from catalog.product_identity import product_identity_key
 
 _SOURCE_FIELDS = ('Channel Username', 'Channel', 'Batch ID', 'Message Timestamp',
                   'Source Timestamp Basis', 'Source Post URL')
@@ -21,6 +22,8 @@ def product_offer_link_issues(products: list[dict[str, Any]],
     product_id_counts = Counter(str(row.get('Product ID') or '').strip()
                                 for row in products
                                 if str(row.get('Product ID') or '').strip())
+    product_identity_counts = Counter(product_identity_key(row) for row in products
+        if str(row.get('Product Name') or '').strip())
     issues = []
     for index, product in enumerate(products):
         product_id = str(product.get('Product ID') or '').strip()
@@ -31,6 +34,9 @@ def product_offer_link_issues(products: list[dict[str, Any]],
             codes.append('missing_product_id')
         elif product_id_counts[product_id] > 1:
             codes.append('duplicate_product_id')
+        if (str(product.get('Product Name') or '').strip()
+                and product_identity_counts[product_identity_key(product)] > 1):
+            codes.append('duplicate_product_identity')
         if not latest_offer_id:
             codes.append('missing_latest_offer')
         else:

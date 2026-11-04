@@ -31,6 +31,17 @@ class ProductStatusSourceIntegrityTests(unittest.TestCase):
         self.assertTrue(status['update_needed'])
         self.assertEqual(status['source_post_url'], 'https://t.me/supplier/1')
 
+    def test_snapshot_schema_version_is_available_for_forcing_a_new_card_capture(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database = str(Path(directory) / 'pipeline.sqlite')
+            ledger = ProductStatusLedger(database)
+            ledger.capture([['Product ID', 'Product Name'], ['product-1', 'چای نمونه']],
+                           reason='test')
+            self.assertEqual(ledger.latest_schema_version(), ledger.STATE_SCHEMA_VERSION)
+            with ledger.connect() as db:
+                db.execute('UPDATE product_status_snapshots SET schema_version=0')
+            self.assertEqual(ledger.latest_schema_version(), 0)
+
 
 if __name__ == '__main__':
     unittest.main()

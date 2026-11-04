@@ -170,6 +170,11 @@ PRICE ROLE AND BASIS:
   review instead of choosing one arbitrarily.
 
 PRODUCTS, VARIANTS, PACKS, AND NUMBERS:
+- Product identity includes the exact flavor/model, volume, weight, and supplier
+  package count. When the same base title has different sizes or counts, return a
+  separate record for each and keep its exact size/count in `name` as well as the
+  structured fields. Never merge differently sized or counted items into one product
+  just because the base words match.
 - A product with a suffix such as `طعم هلو` or `سبزیجات` remains one product unless the
   post separately lists multiple variants. Keep the exact full title and set `variant`
   when the choice is clear.

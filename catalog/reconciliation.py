@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-import hashlib
 import statistics
+from collections import defaultdict
 from typing import Any
 from urllib.parse import urlparse
 
@@ -80,6 +80,30 @@ def _woo_catalog(site_url: str) -> dict[str, Any]:
         return {'state': 'unavailable', 'products': {}, 'checked_at': ''}
 
 
+def _woo_state_for(expected: dict[str, Any] | None, woo: dict[str, Any]) -> str:
+    if not expected or expected.get('status') == 'no_projection':
+        return 'no_catalog_projection'
+    published = woo['products'].get(_text(expected.get('id')))
+    expected_status = _text(expected.get('status'))
+    if expected_status in {'hold', 'needs_review', 'not_product', 'skipped'}:
+        if published and published['purchasable']:
+            return 'held_but_purchasable'
+        if published or woo['state'] == 'checked':
+            return 'held'
+        return ('not_checked_catalog_truncated' if woo['state'] == 'truncated'
+                else 'not_checked')
+    if not published:
+        if woo['state'] == 'checked':
+            return 'not_visible'
+        return ('not_checked_catalog_truncated' if woo['state'] == 'truncated'
+                else 'not_checked')
+    if not published['purchasable']:
+        stock = _text(expected.get('supplier_availability')).lower()
+        return ('supplier_out_of_stock' if stock in {'out of stock', 'outofstock', 'ناموجود'}
+                else 'not_purchasable')
+    return 'purchasable'
+
+
 def _matching_offers(message: dict[str, Any], offers: list[dict[str, Any]]) -> list[dict[str, Any]]:
     message_id = _text(message.get('message_id'))
     channel = _text(message.get('channel'))
@@ -128,6 +152,7 @@ def build_reconciliation_report(store, queue, *, site_url: str, limit: int = 200
         # stale supplier evidence, or explicit stock holds are not misreported
         # as missing from WooCommerce.
         from catalog.publish import site_products
+        from catalog.product_identity import woo_sku
         projection_rows = site_products(store)
     except Exception:
         projection_rows = None
@@ -137,26 +162,58 @@ def build_reconciliation_report(store, queue, *, site_url: str, limit: int = 200
     }
     projection_available = projection_rows is not None
     expected_by_source = {}
-    for row in products:
+    expected_keys_by_product_id = defaultdict(list)
+    for row_number, row in enumerate(products, start=2):
         source_id = _text(row.get('Product ID'))
         name = _text(row.get('Product Name'))
         channel = _text(row.get('Channel Username'))
         if not source_id or (not name and _text(row.get('Status')).lower() not in {'needs_review','not_product','skipped'}):
             continue
-        sku = hashlib.sha256(f'{channel}|{name}'.encode()).hexdigest()[:12]
+        source_key = source_id if source_id not in expected_by_source else f'{source_id}#row-{row_number}'
+        sku = woo_sku(row)
         projected = projection_by_sku.get(sku)
-        expected_by_source[source_id] = {
+        expected_by_source[source_key] = {
+            'product_id': source_id,
             'id': sku,
             'status': _text(projected.get('status')) if projected else ('hold' if projection_available else 'no_projection'),
             'supplier_availability': _text(projected.get('supplier_availability')) if projected else '',
         }
+        expected_keys_by_product_id[source_id].append(source_key)
     woo = _woo_catalog(site_url)
+    catalog_woo_states = {
+        product_id: _woo_state_for(expected, woo)
+        for product_id, expected in expected_by_source.items()
+    }
+    for product_keys in expected_keys_by_product_id.values():
+        if len(product_keys) > 1:
+            for product_key in product_keys:
+                catalog_woo_states[product_key] = 'ambiguous_product_id'
+    catalog_counts = {
+        'products_checked': len(expected_by_source),
+        'woo_state': woo['state'],
+        'purchasable': 0,
+        'held': 0,
+        'not_visible': 0,
+        'not_purchasable': 0,
+        'supplier_out_of_stock': 0,
+        'held_but_purchasable': 0,
+        'no_catalog_projection': 0,
+        'not_checked': 0,
+        'not_checked_catalog_truncated': 0,
+        'ambiguous_product_id': 0,
+    }
+    for state in catalog_woo_states.values():
+        if state in catalog_counts:
+            catalog_counts[state] += 1
     receipt_rows = []
     totals = {
         'receipts': len(receipt_data['receipts']), 'message_data': 0,
         'offers': 0, 'offers_needing_review': 0, 'products': 0,
         'publication_done': 0, 'publication_pending': 0,
-        'woo_missing': 0, 'woo_blocked': 0,
+        'woo_missing': catalog_counts['not_visible'],
+        'woo_blocked': (catalog_counts['not_purchasable']
+                        + catalog_counts['supplier_out_of_stock']
+                        + catalog_counts['held_but_purchasable']),
         'products_with_source_integrity_issues': len(source_integrity_issues),
     }
     latency_samples = []
@@ -212,7 +269,7 @@ def build_reconciliation_report(store, queue, *, site_url: str, limit: int = 200
                 'reference_approval_state': _text(product.get('Reference Approval State')),
                 'reference_price_change_percent': _text(product.get('Reference Price Change Percent')),
                 'source_post_url': _text(product.get('Source Post URL') or latest_offer.get('Source Post URL')),
-                'woo_sku': hashlib.sha256(f'{channel}|{name}'.encode()).hexdigest()[:12],
+                'woo_sku': woo_sku(product),
             })
         latest_review_offers = ([row for row in matched_offers if _text(row.get('Offer ID')) in current_offer_ids]
                                 if current_offer_ids else matched_offers)
@@ -222,33 +279,11 @@ def build_reconciliation_report(store, queue, *, site_url: str, limit: int = 200
         woo_states = []
         woo_states_by_product = {}
         for product_id in product_ids:
-            expected = expected_by_source.get(product_id)
-            if not expected or expected.get('status') == 'no_projection':
-                woo_states_by_product[product_id] = 'no_catalog_projection'
-                continue
-            published = woo['products'].get(_text(expected.get('id')))
-            expected_status = _text(expected.get('status'))
-            if expected_status in {'hold', 'needs_review', 'not_product', 'skipped'}:
-                if published and published['purchasable']:
-                    state = 'held_but_purchasable'
-                    totals['woo_blocked'] += 1
-                elif published or woo['state'] == 'checked':
-                    state = 'held'
-                else:
-                    state = ('not_checked_catalog_truncated' if woo['state'] == 'truncated'
-                             else 'not_checked')
-            elif not published:
-                state = ('not_checked_catalog_truncated' if woo['state'] == 'truncated'
-                         else 'not_checked' if woo['state'] != 'checked' else 'not_visible')
-                if state == 'not_visible':
-                    totals['woo_missing'] += 1
-            elif not published['purchasable']:
-                stock = _text(expected.get('supplier_availability')).lower()
-                state = ('supplier_out_of_stock' if stock in {'out of stock', 'outofstock', 'ناموجود'}
-                         else 'not_purchasable')
-                totals['woo_blocked'] += 1
-            else:
-                state = 'purchasable'
+            product_keys = expected_keys_by_product_id.get(product_id, [])
+            state = (catalog_woo_states.get(product_keys[0], 'no_catalog_projection')
+                     if len(product_keys) == 1 else
+                     'ambiguous_product_id' if len(product_keys) > 1 else
+                     'no_catalog_projection')
             woo_states_by_product[product_id] = state
             woo_states.append(state)
         for product in product_details:
@@ -341,6 +376,7 @@ def build_reconciliation_report(store, queue, *, site_url: str, limit: int = 200
         'generated_at': datetime.now(timezone.utc).isoformat(),
         'summary': totals,
         'validation': validation,
+        'catalog_woo': catalog_counts,
         'source_integrity': {
             'products_checked': len(products),
             'products_with_issues': len(source_integrity_issues),

@@ -79,6 +79,10 @@
             workflow_route_unavailable: 'اتصال این بخش تنظیم نشده است؛ از مدیریت سایت کمک بگیرید.',
             conflict_or_invalid: 'وضعیت توقف تغییر کرده است؛ صفحه را تازه کنید و دوباره بررسی کنید.',
             offer_changed: 'نسخه قیمت تغییر کرده است؛ دوباره منبع را بررسی کنید.',
+            invalid_body: 'درخواست تأیید قیمت ناقص بود؛ صفحه را تازه کنید و دوباره تلاش کنید.',
+            invalid_product_id: 'شناسه این کالا معتبر نیست؛ فهرست را تازه کنید.',
+            invalid_source_revision: 'نسخه منبع معتبر نیست؛ فهرست را تازه کنید و منبع فعلی را دوباره بررسی کنید.',
+            invalid_note: 'یادداشت بررسی قیمت معتبر نیست؛ دوباره تلاش کنید.',
             verification_rejected: 'تأیید قیمت ثبت نشد؛ یادداشت و نسخه منبع را دوباره بررسی کنید.',
             conflict_changed: 'این تعارض قبلاً تغییر کرده یا تعیین تکلیف شده است؛ فهرست را تازه کنید.',
             field_read_only: 'این فیلد فقط از مسیر تأییدشده قابل تغییر است.',
@@ -1163,13 +1167,15 @@
                     const url=new URL('/pipeline/reconciliation?limit=200',config.apiUrl).toString();
                     const result=await request('GET',undefined,url); const summary=result.summary||{}; const validation=result.validation||{};
                     const sourceIntegrity=result.source_integrity||{};
+                    const catalogWoo=result.catalog_woo||{};
                     report.replaceChildren(node('p',`پیام‌ها: ${summary.receipts||0} · کالاهای فعلی: ${summary.products||0} · نیازمند بررسی: ${summary.offers_needing_review||0} · پیوند منبع شکسته: ${sourceIntegrity.products_with_issues||0} · انتشار کامل: ${summary.publication_done||0} · انتظار/خطا: ${summary.publication_pending||0} · SKU ناموجود: ${summary.woo_missing||0} · زمان: ${result.generated_at||'نامشخص'}`));
                     report.appendChild(node('p',`وضعیت اتصال فروشگاه: ${({checked:'بررسی شد',truncated:'بررسی بخشی',unavailable:'در دسترس نیست',not_configured:'تنظیم نشده'}[validation.woo_state])||validation.woo_state||'نامشخص'}`));
+                    report.appendChild(node('p',`بررسی کامل کاتالوگ: ${catalogWoo.products_checked||0} · قابل خرید: ${catalogWoo.purchasable||0} · نگه‌داشته: ${catalogWoo.held||0} · در سایت پیدا نشد: ${catalogWoo.not_visible||0} · قابل خرید با وجود توقف: ${catalogWoo.held_but_purchasable||0}`));
                     const linkIssues=Array.isArray(sourceIntegrity.issues)?sourceIntegrity.issues:[];
                     if(linkIssues.length){
                         const details=document.createElement('details');
                         details.appendChild(node('summary',`محصولات نیازمند بازیابی پیشنهاد منبع (${sourceIntegrity.products_with_issues||linkIssues.length})`));
-                        const labels={missing_product_id:'شناسه کالا ثبت نشده',duplicate_product_id:'شناسه کالا تکراری است',missing_latest_offer:'شناسه پیشنهاد منبع ثبت نشده',offer_not_found:'پیشنهاد منبع در فهرست Offers پیدا نشد',duplicate_offer_id:'شناسه پیشنهاد تکراری است',source_provenance_mismatch:'اطلاعات مبدأ با پیشنهاد ثبت‌شده نمی‌خواند'};
+                        const labels={missing_product_id:'شناسه کالا ثبت نشده',duplicate_product_id:'شناسه کالا تکراری است',duplicate_product_identity:'کالا با مشخصات یکسان دوباره ثبت شده',missing_latest_offer:'شناسه پیشنهاد منبع ثبت نشده',offer_not_found:'پیشنهاد منبع در فهرست Offers پیدا نشد',duplicate_offer_id:'شناسه پیشنهاد تکراری است',source_provenance_mismatch:'اطلاعات مبدأ با پیشنهاد ثبت‌شده نمی‌خواند'};
                         linkIssues.forEach(item=>{
                             const line=document.createElement('li');
                             const codes=(item.codes||[]).map(code=>labels[code]||code).join('، ');

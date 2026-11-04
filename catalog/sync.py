@@ -50,6 +50,12 @@ from catalog.pricing import (
     shop_formulas,
     shop_setting_rows,
 )
+from catalog.product_identity import (
+    identity_fields as _identity_fields,
+    legacy_product_id as _legacy_product_id,
+    product_identity_key as _product_identity_key,
+    product_row_id as _product_row_id,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -814,7 +820,7 @@ def import_product_data(
         _, existing_offer_records = _records(existing_offers)
         imported_at = _now()
         offer_rows = []
-        keys: list[tuple[str, str]] = []
+        keys: list[tuple[Any, ...]] = []
         staged_offer_ids=[]
         for index, product in enumerate(products):
             if stage_for_review:
@@ -883,7 +889,7 @@ def import_product_data(
                     existing_reason = str(fields.get('Review Reason') or '').strip()
                     fields["Review Reason"] = '; '.join(part for part in (existing_reason, reference_review_reason) if part)
             offer_rows.append(_row_from_map(offer_headers, fields))
-            keys.append((product.get("name") or "", data.get("channel_username") or ""))
+            keys.append(_product_restore_key(product, data.get("channel_username") or ""))
 
         opening_rows = [] if stage_for_review or defer_current_book else _opening_offer_rows(store, keys, offer_headers, existing_offers)
         fresh_rows = _unseen_offer_rows(existing_offers, offer_headers, opening_rows + offer_rows)
@@ -1203,6 +1209,73 @@ def _product_key(name: str) -> str:
     return re.sub(r"[\s،,:：\-]+$", "", peeled).strip().lower()
 
 
+def _product_restore_key(product: dict[str, Any], channel: str = "") -> tuple[Any, ...]:
+    """Carry all size/variant fields when rebuilding one current product row."""
+    name = product.get("Product Name") or product.get("name") or ""
+    product_channel = (channel or product.get("Channel Username")
+                       or product.get("channel_username") or product.get("channel") or "")
+    identity = _identity_fields(product)
+    return (
+        str(name or ""), str(product_channel or ""),
+        identity["Variation Type"], identity["Volume"], identity["Weight"],
+        identity["Package Count"], identity["Packaging"],
+    )
+
+
+def _resolve_restore_key(key: Any, rows: list[list[Any]], headers: list[str],
+                         offers: list[dict[str, Any]] | None = None):
+    """Resolve a legacy two-field key or a complete dimension-aware product key."""
+    if isinstance(key, dict):
+        product_id = str(key.get("Product ID") or key.get("product_id") or "").strip()
+        if product_id:
+            row_number = _find_product_row_by_id(rows, headers, product_id)
+            if row_number:
+                row = rows[row_number - 1]
+                key = {str(header): row[index] if index < len(row) else ""
+                       for index, header in enumerate(headers)}
+        name = str(key.get("Product Name") or key.get("name") or "")
+        channel = str(key.get("Channel Username") or key.get("channel_username")
+                      or key.get("channel") or "")
+        return name, channel, _identity_fields(key)
+    values = list(key or ())
+    name = str(values[0] or "") if values else ""
+    channel = str(values[1] or "") if len(values) > 1 else ""
+    if len(values) <= 2:
+        row_matches = []
+        if len(rows) > 1 and "Product Name" in headers and "Channel Username" in headers:
+            name_index = headers.index("Product Name")
+            channel_index = headers.index("Channel Username")
+            for row_number, row in enumerate(rows[1:], start=2):
+                existing_name = row[name_index] if name_index < len(row) else ""
+                existing_channel = row[channel_index] if channel_index < len(row) else ""
+                if (_product_key(str(existing_name or "")) == _product_key(name)
+                        and str(existing_channel or "") == channel):
+                    row_matches.append((row_number, row))
+        if len(row_matches) > 1:
+            return "", channel, {}
+        if row_matches:
+            _row_number, row = row_matches[0]
+            record = {str(header): row[index] if index < len(row) else ""
+                      for index, header in enumerate(headers)}
+            latest_id = str(record.get("Latest Offer ID") or "")
+            linked = [offer for offer in offers or []
+                      if str(offer.get("Offer ID") or "") == latest_id]
+            if len(linked) == 1:
+                return name, channel, _identity_fields(linked[0])
+            return name, channel, _identity_fields(record)
+        offer_matches = [offer for offer in offers or []
+                         if _product_key(str(offer.get("Product Name") or "")) == _product_key(name)
+                         and str(offer.get("Channel Username") or "") == channel]
+        if len({_product_identity_key(offer) for offer in offer_matches}) > 1:
+            return "", channel, {}
+        if offer_matches:
+            return name, channel, _identity_fields(offer_matches[0])
+    dimension_names = ("Variation Type", "Volume", "Weight", "Package Count", "Packaging")
+    identity = {field: values[index + 2] for index, field in enumerate(dimension_names)
+                if len(values) > index + 2}
+    return name, channel, identity
+
+
 def _item_key(channel: str, name: str) -> str:
     return f"{(channel or '').strip()}|{_product_key(name)}"
 
@@ -1438,7 +1511,7 @@ def _apply_operator_price(store, prompt: dict[str, Any], sale_price: int) -> Non
     store.ensure("Offers", OFFER_HEADERS)
     headers = _headers(store, "Offers", OFFER_HEADERS)
     _append_at_next_row(store, "Offers", headers, [_row_from_map(headers, _offer_fields(product, message, offer_id, imported_at, ""))])
-    _restore_current_book(store, [(product["name"], message["channel_username"])])
+    _restore_current_book(store, [_product_restore_key(product, message["channel_username"])])
 
 
 def _product_consumer(store, prompt: dict[str, Any]) -> Any:
@@ -1592,29 +1665,40 @@ def _fill_message_from_sheet(store, data: dict[str, Any]) -> None:
             return
 
 
-def _find_product_row(rows: list[list[Any]], headers: list[str], product_name: str, channel_username: str) -> int | None:
+def _find_product_row(rows: list[list[Any]], headers: list[str], product_name: str,
+                      channel_username: str, identity: dict[str, Any] | None = None) -> int | None:
     try:
         name_idx = headers.index("Product Name")
         channel_idx = headers.index("Channel Username")
     except ValueError:
         return None
-    target = _product_key(product_name)
+    target = _product_identity_key({
+        "Product Name": product_name,
+        "Channel Username": channel_username,
+        **(identity or {}),
+    })
+    matches = []
     for index, row in enumerate(rows[1:], start=2):
         existing_name = row[name_idx] if name_idx < len(row) else ""
         existing_channel = row[channel_idx] if channel_idx < len(row) else ""
-        if existing_name and _product_key(str(existing_name)) == target and existing_channel == channel_username:
-            return index
-    return None
+        if not existing_name or str(existing_channel or "") != str(channel_username or ""):
+            continue
+        record = {str(header): row[position] if position < len(row) else ""
+                  for position, header in enumerate(headers)}
+        if _product_identity_key(record) == target:
+            matches.append(index)
+    return matches[0] if len(matches) == 1 else None
 
 
 def _product_row(headers: list[str], product: dict[str, Any], message: dict[str, Any]) -> list[Any]:
     now = _now()
     return _row_from_map(headers, {
         "Channel ID": message.get("channel_username") or message.get("channel") or "",
-        "Product ID": _product_id(
-            product.get("name") or "",
-            message.get("channel_username") or message.get("channel") or "",
-        ),
+        "Product ID": _product_row_id({
+            **product,
+            "Product Name": product.get("name") or "",
+            "Channel Username": message.get("channel_username") or message.get("channel") or "",
+        }),
         "Product Name": product.get("name") or "",
         "Variation Type": product.get("variation_type") or "",
         "Sale Price": product.get("sale_price"),
@@ -1763,7 +1847,7 @@ def _rollback_catalog(store, batch_id: str) -> None:
     _restore_current_book(store, _dedupe_keys(keys))
 
 
-def _restore_current_book(store, keys: list[tuple[str, str]]) -> int | None:
+def _restore_current_book(store, keys: list[Any]) -> int | None:
     """Rewrite current-book rows from the offer log. Returns the last row written."""
     if not keys:
         return None
@@ -1777,10 +1861,13 @@ def _restore_current_book(store, keys: list[tuple[str, str]]) -> int | None:
     active_reference_id=_active_reference_snapshot_id(review_ledger) if review_ledger else ''
     last_row = None
     deletions: list[int] = []
-    for name, channel in keys:
-        matching = _offers_for_product(offers, name, channel)
+    for key in keys:
+        name, channel, identity = _resolve_restore_key(key, products, headers, offers)
+        if not name:
+            continue
+        matching = _offers_for_product(offers, name, channel, identity=identity)
         matching = _sort_offers_by_source_time(matching)
-        row_number = _find_product_row(products, headers, name, channel)
+        row_number = _find_product_row(products, headers, name, channel, identity=identity)
         if not row_number and matching:
             row_number=_find_product_row_by_offer_ids(products,headers,{str(o.get('Offer ID') or '') for o in matching})
         if not matching:
@@ -2114,7 +2201,10 @@ def _reconcile_current_row(store,queue,row_number,existing,headers,base_row,serv
         if prior_offer_id:
             live_row_number=_find_product_row_by_offer_ids(live_rows,live_headers,{prior_offer_id})
     if not live_row_number:
-        live_row_number=_find_product_row(live_rows,live_headers,product_name,channel)
+        server_record={str(header):server[index] if index<len(server) else ''
+                       for index,header in enumerate(headers)}
+        live_row_number=_find_product_row(live_rows,live_headers,product_name,channel,
+                                          identity=_identity_fields(server_record))
     if live_row_number is None or live_row_number<2 or live_row_number>len(live_rows):
         # The row moved, vanished or lost every trusted identity since the first read.
         # Do not fall back to a stale row number and overwrite an unrelated product.
@@ -2343,12 +2433,16 @@ def _consumer_price(offer: dict[str, Any]) -> int | None:
     return _positive_price(offer.get("Consumer Price")) or _positive_price(offer.get("Actual Price"))
 
 
-def _offers_for_product(offers: list[dict[str, Any]], name: str, channel: str) -> list[dict[str, Any]]:
-    target = _product_key(name)
+def _offers_for_product(offers: list[dict[str, Any]], name: str, channel: str,
+                        identity: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    target = _product_identity_key({
+        "Product Name": name,
+        "Channel Username": channel,
+        **(identity or {}),
+    })
     return [
         offer for offer in offers
-        if _product_key(str(offer.get("Product Name") or "")) == target
-        and (offer.get("Channel Username") or "") == channel
+        if _product_identity_key(offer) == target
     ]
 
 
@@ -2370,7 +2464,7 @@ def _sort_offers_by_source_time(offers: list[dict[str, Any]]) -> list[dict[str, 
     return sorted(offers, key=order)
 
 
-def _opening_offer_rows(store, keys: list[tuple[str, str]], offer_headers: list[str], existing_offers: list[list[Any]]) -> list[list[Any]]:
+def _opening_offer_rows(store, keys: list[tuple[Any, ...]], offer_headers: list[str], existing_offers: list[list[Any]]) -> list[list[Any]]:
     """Record the price already on the sheet once, so later changes keep it."""
     products = _read_sheet_if_present(store, "Products")
     if len(products) < 2:
@@ -2379,12 +2473,15 @@ def _opening_offer_rows(store, keys: list[tuple[str, str]], offer_headers: list[
     _, known = _records(existing_offers)
     rows = []
     seen = set()
-    for name, channel in keys:
-        marker = ((name or "").strip().lower(), channel or "")
-        if marker in seen or _offers_for_product(known, name, channel):
+    for key in keys:
+        name, channel, identity = _resolve_restore_key(key, products, headers, known)
+        marker = _product_identity_key({
+            "Product Name": name, "Channel Username": channel, **identity,
+        })
+        if marker in seen or _offers_for_product(known, name, channel, identity=identity):
             continue
         seen.add(marker)
-        row_number = _find_product_row(products, headers, name, channel)
+        row_number = _find_product_row(products, headers, name, channel, identity=identity)
         if not row_number:
             continue
         existing = products[row_number - 1]
@@ -2397,6 +2494,7 @@ def _opening_offer_rows(store, keys: list[tuple[str, str]], offer_headers: list[
             "Offer ID": f"sheet:{channel}:{marker[0]}",
             "Product Name": name,
             "Channel Username": channel,
+            "Variation Type": identity.get("Variation Type") or _cell(existing, headers, "Variation Type"),
             "Channel": _cell(existing, headers, "Channel"),
             "Sale Price": sale if sale is not None else "",
             "Consumer Price": consumer if consumer is not None else "",
@@ -2406,6 +2504,8 @@ def _opening_offer_rows(store, keys: list[tuple[str, str]], offer_headers: list[
             "Currency": _cell(existing, headers, "Currency"),
             "Packaging": _cell(existing, headers, "Packaging"),
             "Volume": _cell(existing, headers, "Volume"),
+            "Weight": _cell(existing, headers, "Weight"),
+            "Package Count": _cell(existing, headers, "Package Count"),
             "Package Price": _cell(existing, headers, "Double Pack Price"),
             "Category": _cell(existing, headers, "Category"),
             "Stock Status": _cell(existing, headers, "Stock Status"),
@@ -2434,7 +2534,7 @@ def _unseen_offer_rows(existing: list[list[Any]], headers: list[str], rows: list
     return [row for row in rows if index >= len(row) or str(row[index]) not in seen]
 
 
-def _keys_in_batch(store, sheet: str, batch_id: str) -> list[tuple[str, str]]:
+def _keys_in_batch(store, sheet: str, batch_id: str) -> list[tuple[Any, ...]]:
     rows = _read_sheet_if_present(store, sheet)
     if len(rows) < 2:
         return []
@@ -2442,27 +2542,30 @@ def _keys_in_batch(store, sheet: str, batch_id: str) -> list[tuple[str, str]]:
     if "Batch ID" not in headers or "Product Name" not in headers:
         return []
     batch_index = headers.index("Batch ID")
-    name_index = headers.index("Product Name")
-    channel_index = headers.index("Channel Username") if "Channel Username" in headers else None
     keys = []
     for row in rows[1:]:
         if batch_index >= len(row) or str(row[batch_index] or "") != str(batch_id):
             continue
-        name = row[name_index] if name_index < len(row) else ""
-        channel = row[channel_index] if channel_index is not None and channel_index < len(row) else ""
-        keys.append((str(name or ""), str(channel or "")))
+        record = {header: row[index] if index < len(row) else ""
+                  for index, header in enumerate(headers)}
+        name = record.get("Product Name") or ""
+        channel = record.get("Channel Username") or ""
+        keys.append(_product_restore_key(record, str(channel or "")))
     return keys
 
 
-def _dedupe_keys(keys: list[tuple[str, str]]) -> list[tuple[str, str]]:
+def _dedupe_keys(keys: list[tuple[Any, ...]]) -> list[tuple[Any, ...]]:
     seen = set()
     unique = []
-    for name, channel in keys:
-        marker = ((name or "").strip().lower(), channel or "")
+    for key in keys:
+        name, channel, identity = _resolve_restore_key(key, [], [])
+        marker = _product_identity_key({
+            "Product Name": name, "Channel Username": channel, **identity,
+        })
         if marker in seen:
             continue
         seen.add(marker)
-        unique.append((name, channel))
+        unique.append(tuple(key))
     return unique
 
 
@@ -2658,10 +2761,17 @@ def _row_from_map(headers: list[str], data_map: dict[str, Any]) -> list[Any]:
     return row
 
 
-def _product_id(product_name: str, channel_username: str = "") -> str:
+def _product_id(product_name: str, channel_username: str = "",
+                product: dict[str, Any] | None = None) -> str:
     """Stable unique source-row identity across languages, workers, and time."""
-    identity = f"{str(channel_username or '').strip().casefold()}|{_product_key(product_name or '')}"
-    return "p_" + hashlib.sha256(identity.encode("utf-8")).hexdigest()[:24]
+    if product is None:
+        return _legacy_product_id(product_name, channel_username)
+    return _product_row_id({
+        **product,
+        "Product Name": product.get("Product Name") or product.get("name") or product_name,
+        "Channel Username": (product.get("Channel Username") or product.get("channel_username")
+                             or channel_username),
+    })
 
 
 def _first_index(headers: list[Any], names: list[str]) -> int | None:

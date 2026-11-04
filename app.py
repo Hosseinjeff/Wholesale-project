@@ -1231,12 +1231,15 @@ def product_status_snapshots_route():
             if requested_snapshot_id and not re.fullmatch(r'[a-f0-9]{64}', requested_snapshot_id):
                 return jsonify({'ok': False, 'error': 'invalid_snapshot_id'}), 400
             latest = ledger.latest_captured_at()
-            due = True
+            due = ledger.latest_schema_version() < ledger.STATE_SCHEMA_VERSION
             if latest:
                 try:
-                    due = datetime.fromisoformat(latest) <= datetime.now(timezone.utc) - timedelta(hours=24)
+                    due = (due or datetime.fromisoformat(latest)
+                           <= datetime.now(timezone.utc) - timedelta(hours=24))
                 except ValueError:
                     due = True
+            else:
+                due = True
             if due:
                 capture_from_store(build_store(), queue.path, reason='daily_status_checkpoint')
             payload = ledger.list_snapshots(limit=30, snapshot_id=requested_snapshot_id or None)
@@ -1664,9 +1667,9 @@ def sheet_conflicts_route():
         }[choice]
         from catalog.sheet_reconcile import field_values_equal
         from catalog.sync import (_active_reference_snapshot_id, _apply_reference_item_review,
-            _cell, _find_product_row_by_id, _fresh_read, _offers_for_product,
+            _cell, _find_product_row_by_id, _fresh_read, _identity_fields, _offers_for_product,
             _product_from_offers, _product_row, _message_from_offer, _records,
-            _restore_current_book,
+            _product_restore_key, _restore_current_book,
             _read_sheet_if_present, _reference_item_review_ledger)
         try:
             with queue.publication_lock():
@@ -1702,19 +1705,25 @@ def sheet_conflicts_route():
                 row_number=_find_product_row_by_id(products,headers,conflict['product_id'])
                 if not row_number or conflict['field'] not in headers:return jsonify({'ok':False,'error':'row_changed'}),409
                 row=products[row_number-1]
+                product_record={str(header):row[index] if index<len(row) else ''
+                                for index,header in enumerate(headers)}
                 sheet_value=_cell(row,headers,conflict['field'])
                 same_sheet=field_values_equal(conflict['field'],sheet_value,conflict['sheet'])
                 already_server=field_values_equal(conflict['field'],sheet_value,conflict['server'])
                 offers_rows=_read_sheet_if_present(store,'Offers')
                 _,offer_records=_records(offers_rows)
-                matching=_offers_for_product(offer_records,conflict['product_name'],conflict['channel'])
+                linked_offer_id=str(product_record.get('Latest Offer ID') or '')
+                linked_offer=next((item for item in offer_records
+                    if str(item.get('Offer ID') or '')==linked_offer_id),None) if linked_offer_id else None
+                matching=_offers_for_product(offer_records,conflict['product_name'],conflict['channel'],
+                    identity=_identity_fields(linked_offer or product_record))
                 if not matching:
                     return jsonify({'ok':False,'error':'source_changed'}),409
                 if str(matching[-1].get('Offer ID') or '')!=conflict['source_revision']:
                     # A stale conflict cannot be dismissed against its old offer. Rebuild
                     # this product from the latest source so reconciliation supersedes the
                     # obsolete card and exposes any still-current conflict on the next GET.
-                    _restore_current_book(store, [(conflict['product_name'], conflict['channel'])])
+                    _restore_current_book(store, [_product_restore_key(matching[-1])])
                     return jsonify({'ok':False,'error':'source_changed','refreshed':True}),409
                 server_product=_product_from_offers(matching)
                 review_ledger=_reference_item_review_ledger()
@@ -1794,16 +1803,24 @@ def supplier_price_evidence_route():
     if request.method=='GET':
         result={'ok':True,'offers':[item for item in offers if item['state']!='current']}
     else:
+        def reject(reason, status=400):
+            # Log only the fixed validation code. Never log the owner note, product
+            # text, request body, or authentication material.
+            logger.info('Supplier price evidence request rejected: %s', reason)
+            return jsonify({'ok':False,'error':reason}),status
+
         body=request.get_json(silent=True)
         if not isinstance(body,dict) or set(body)!={'product_id','expected_revision','note'}:
-            return jsonify({'ok':False,'error':'invalid_body'}),400
+            return reject('invalid_body')
         product_id,revision,note=(body.get('product_id'),body.get('expected_revision'),body.get('note'))
         if not isinstance(product_id,str) or not product_id or len(product_id)>200:
-            return jsonify({'ok':False,'error':'invalid_body'}),400
+            return reject('invalid_product_id')
         if not isinstance(revision,str) or not revision:
-            return jsonify({'ok':False,'error':'price_source_missing'}),409
-        if len(revision)>200 or not isinstance(note,str) or not note.strip() or len(note)>1000:
-            return jsonify({'ok':False,'error':'invalid_body'}),400
+            return reject('price_source_missing',409)
+        if len(revision)>200:
+            return reject('invalid_source_revision')
+        if not isinstance(note,str) or not note.strip() or len(note)>1000:
+            return reject('invalid_note')
         offer=next((item for item in offers if item['product_id']==product_id),None)
         if offer is None or offer['source_revision']!=revision:
             return jsonify({'ok':False,'error':'offer_changed'}),409
@@ -2605,9 +2622,12 @@ def reference_item_reviews_route():
         projection_state = 'held_for_review'
         publish_job = None
         with queue.publication_lock():
-            from catalog.sync import (_restore_current_book, _read_sheet_if_present, _records)
+            from catalog.sync import (_product_restore_key, _restore_current_book,
+                                      _read_sheet_if_present, _records)
             from catalog.sheet_projection import sheet_projection_digest
-            _restore_current_book(sheet_store, [(current['product_name'], current['channel'])])
+            restore_record={'Product Name':current['product_name'],
+                'Channel Username':current['channel'], **(current.get('attributes') or {})}
+            _restore_current_book(sheet_store, [_product_restore_key(restore_record)])
             _, products = _records(_read_sheet_if_present(sheet_store, 'Products'))
             projected = next((row for row in products
                 if str(row.get('Latest Offer ID') or '') == current['offer_id']), None)
