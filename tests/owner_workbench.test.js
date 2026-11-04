@@ -114,6 +114,7 @@ async function main() {
     token:'scoped-operations',workflowApis,pageUrls:{},reviewStoreUrl:'/admin-ajax.php',reviewStoreNonce:'nonce'},
     parent:null,location:{href:'https://site.test/wp-admin/admin.php?page=molavi-operations',
       pathname:'/wp-admin/admin.php',search:'?page=molavi-operations'},crypto:webcrypto,history:{replaceState(){}},
+    scrollX:0,scrollY:0,scrollTo(x,y){this.scrollX=x;this.scrollY=y;},
     addEventListener(){},confirm:()=>true};
   window.parent = window;
   vm.runInNewContext(fs.readFileSync('shop-wp/molavi-shop/includes/owner-workflows.js','utf8'),
@@ -194,6 +195,8 @@ async function main() {
     && element.textContent.includes('منبع فعلی را دیدم'));
   assert(verifyButton && !verifyButton.disabled, 'one-click supplier price review stays inside its product card');
   const mountedBoard = walk(root).find(element => element.className.split(/\s+/).includes('molavi-workbench-board'));
+  window.scrollX = 13;
+  window.scrollY = 640;
   await verifyButton.listeners.click();
   const verification = calls.find(item => item.options.method === 'POST'
     && item.url === workflowApis.supplier_prices.url);
@@ -204,6 +207,8 @@ async function main() {
   assert.match(root.text,/بررسی قیمت ثبت شد/,'success feedback remains visible after the in-place refresh');
   assert.equal(walk(root).find(element => element.className.split(/\s+/).includes('molavi-workbench-board')),
     mountedBoard,'AJAX updates the mounted dashboard instead of replacing or reloading the page');
+  assert.deepEqual([window.scrollX,window.scrollY],[13,640],
+    'supplier acknowledgement keeps the owner at the same scroll position after its in-place refresh');
   assert.equal(window.location.href,'https://site.test/wp-admin/admin.php?page=molavi-operations',
     'review actions do not navigate or reload the browser page');
 
@@ -488,6 +493,36 @@ async function main() {
   visibleCards = walk(root).filter(element => element.className.split(/\s+/).includes('molavi-product-card'));
   assert.match(visibleCards[0].text,/وضعیت استخراج‌شده نامشخص است/,
     'one variant with an extracted stock value does not hide another variant whose stock is unknown');
+
+  const supplierRoot = new Element('div');
+  const supplierDocument = {...document,getElementById:id=>id === 'molavi-owner-workflow' ? supplierRoot : null};
+  const supplierWindow = {...window,molaviOwnerWorkflow:{page:'molavi-supplier-prices',
+    apiUrl:base+'/pipeline/supplier-price-evidence',token:'scoped-supplier_prices'},
+    location:{href:'https://site.test/wp-admin/admin.php?page=molavi-supplier-prices',
+      pathname:'/wp-admin/admin.php',search:'?page=molavi-supplier-prices'}};
+  supplierWindow.parent = supplierWindow;
+  vm.runInNewContext(fs.readFileSync('shop-wp/molavi-shop/includes/owner-workflows.js','utf8'),
+    {window:supplierWindow,document:supplierDocument,fetch,URL,Intl,Map,Set,Promise,TextEncoder,Date,Math,
+      Number,String,Boolean,Array,Object,Error,URLSearchParams,console,setTimeout,clearTimeout});
+  for (let attempt=0; attempt<20; attempt++) {
+    if (supplierRoot.text.includes('Noodle 12 pack')) break;
+    await new Promise(resolve => setTimeout(resolve,0));
+  }
+  const supplierCard = walk(supplierRoot).find(element => element.className.split(/\s+/).includes('card'));
+  const supplierForm = walk(supplierCard).find(element => element.tagName === 'FORM');
+  const supplierButton = walk(supplierForm).find(element => element.tagName === 'BUTTON');
+  assert(supplierCard && supplierForm && supplierButton,'the supplier acknowledgement screen renders its offer card');
+  let acknowledgementPrevented = false;
+  await supplierForm.listeners.submit({preventDefault(){acknowledgementPrevented=true;}});
+  assert(acknowledgementPrevented,'supplier acknowledgement remains an AJAX action');
+  assert.equal(walk(supplierRoot).find(element => element === supplierCard),supplierCard,
+    'supplier acknowledgement updates the existing card instead of rebuilding the page');
+  assert.match(supplierCard.text,/بررسی قیمت ثبت شد و انتشار دوباره به صف فرستاده شد/,
+    'the acknowledged offer shows success in place');
+  assert.equal(supplierButton.textContent,'قیمت تأیید شد');
+  assert(supplierButton.disabled,'the acknowledged supplier price cannot be submitted twice');
+  assert.equal(supplierWindow.location.href,'https://site.test/wp-admin/admin.php?page=molavi-supplier-prices',
+    'supplier acknowledgement does not navigate or reload the browser page');
 }
 
 main().catch(error => { console.error(error); process.exitCode = 1; });

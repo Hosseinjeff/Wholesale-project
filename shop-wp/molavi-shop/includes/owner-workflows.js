@@ -654,8 +654,11 @@
             if (product.holds.length) appendStatusPill(stateRow, 'انتشار', 'متوقف', 'warning');
             if (stateRow.childNodes.length) card.appendChild(stateRow);
             const refreshInPlace = async (message, kind, statusNode, refreshKeys) => {
+                const scrollX = window.scrollX;
+                const scrollY = window.scrollY;
                 updateActionStatus(statusNode, message, kind);
                 await dashboard(message, kind, refreshKeys);
+                window.scrollTo(scrollX, scrollY);
             };
             groupAiVariantCases(product.ai).forEach(relatedItems => {
                 const item = relatedItems[0];
@@ -2860,7 +2863,8 @@
                 const card = node('section', null, 'card');
                 card.appendChild(node('h2', offer.name || 'کالای بدون نام'));
                 card.appendChild(node('p', `تأمین‌کننده: ${offer.channel || 'نامشخص'} · قیمت ثبت‌شده: ${amount(offer.sale_price)}`));
-                card.appendChild(node('p', labels[offer.state] || labels.needs_review));
+                const status = node('p', labels[offer.state] || labels.needs_review);
+                card.appendChild(status);
                 const sourceLink = safeSourceLink(offer.source_post_url);
                 if (sourceLink) card.appendChild(sourceLink);
                 const form = document.createElement('form');
@@ -2875,7 +2879,12 @@
                             note: 'مالک منبع فعلی قیمت را از پنل بررسی تأیید کرد.'});
                         if (receipt.product_id !== offer.product_id || receipt.source_revision !== offer.source_revision
                             || !receipt.verified_at || !receipt.publish_job) throw new Error('invalid_receipt');
-                        await supplierPrices('بررسی قیمت ثبت و انتشار دوباره به صف فرستاده شد.', 'success');
+                        status.textContent = 'بررسی قیمت ثبت شد و انتشار دوباره به صف فرستاده شد.';
+                        status.className = 'notice notice-success';
+                        status.setAttribute('role', 'status');
+                        status.setAttribute('aria-live', 'polite');
+                        submit.textContent = 'قیمت تأیید شد';
+                        submit.disabled = true;
                     } catch (error) { errorBox(errorText(error.message), card); submit.disabled = false; }
                 });
                 card.appendChild(form); root.appendChild(card);

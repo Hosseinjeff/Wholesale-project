@@ -60,6 +60,8 @@
       data.append(submitter.name, submitter.value);
     }
 
+    var scrollX = window.scrollX;
+    var scrollY = window.scrollY;
     form.dataset.molaviAjaxBusy = '1';
     form.setAttribute('aria-busy', 'true');
     var buttons = Array.prototype.slice.call(form.querySelectorAll('button[type="submit"], button:not([type]), input[type="submit"]'));
@@ -91,7 +93,7 @@
         var updated = document.querySelector('.wrap');
         var savedNotice = notice(updated, 'success', 'ذخیره شد؛ فهرست به‌روزرسانی شد.');
         savedNotice.focus({ preventScroll: true });
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        window.scrollTo(scrollX, scrollY);
       });
     }).catch(function (error) {
       var liveContainer = document.querySelector('.wrap') || container;
