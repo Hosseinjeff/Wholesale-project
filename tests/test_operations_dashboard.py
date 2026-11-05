@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from catalog.durable import Handoffs
-from catalog.sync import MemoryStore, MESSAGE_HEADERS
+from catalog.sync import MemoryStore, MESSAGE_HEADERS, _row_from_map
 
 
 class OperationsSnapshotTests(unittest.TestCase):
@@ -217,19 +217,23 @@ class OperationsSnapshotTests(unittest.TestCase):
     def test_owner_can_reconcile_failed_jobs_only_after_complete_current_sync(self):
         import app
         pub=self.queue.put('publish','old-sync',{'secret_payload':'not returned'})
-        batch=self.queue.put('batch','old-batch',{'batch_id':'old-batch','messages':[{'id':'source-1'}],
-            'expected_count':1})
+        batch=self.queue.put('batch','old-batch',{'batch_id':'old-batch',
+            'messages':[{'id':'source-1','channel_username':'@supplier'}],'expected_count':1})
         with self.queue.connect() as db:
             db.execute("UPDATE jobs SET state='failed',attempts=8,error='RuntimeError' WHERE id=?",(pub,))
-            db.execute("UPDATE jobs SET state='failed',attempts=8,error='JobConflict' WHERE id=?",(batch,))
+            db.execute("UPDATE jobs SET state='failed',attempts=8,error='RuntimeError' WHERE id=?",(batch,))
+        store=MemoryStore();store.ensure('MessageData',MESSAGE_HEADERS)
+        store.append('MessageData',[_row_from_map(MESSAGE_HEADERS,{
+            'ID':'source-1','Channel Username':'@supplier','Batch ID':'old-batch',
+            'AI Status':'ai_processed','AI Processed At':'2026-11-05T10:00:00Z'})])
         env={'PIPELINE_DB_PATH':self.path,'REFERENCE_OWNER_IDS':'wp:7',
              'REFERENCE_BRIDGE_TOKEN':'synthetic-bridge-token-0123456789'}
         headers={'X-Molavi-Reference-Token':env['REFERENCE_BRIDGE_TOKEN'],'X-Molavi-Actor':'wp:7'}
-        with patch.object(app,'USE_SHEETS',True), patch.object(app,'build_store',return_value=MemoryStore()), \
+        with patch.object(app,'USE_SHEETS',True), patch.object(app,'build_store',return_value=store), \
                 patch.object(app,'publish_shop',return_value={'ok':True,'pushed':True,'images_left':0,
                     'count':2,'created':0,'updated':2,'hidden':0}), \
                 patch('catalog.sheet_projection.sheet_projection_digest',return_value='a'*64), \
-                patch.object(app,'_batch_sources_reconciled',return_value=True), patch.dict(os.environ,env):
+                patch.dict(os.environ,env):
             client=app.app.test_client()
             response=client.post('/pipeline/reconcile-publication-backlog',headers=headers,json={
                 'expected_publish_ids':[pub],'expected_batch_ids':[batch]})
@@ -242,6 +246,49 @@ class OperationsSnapshotTests(unittest.TestCase):
         self.assertEqual(self.queue.get(pub)['result']['actor_id'],'wp:7')
         self.assertEqual(self.queue.get(batch)['state'],'done')
         self.assertTrue(self.queue.get(batch)['result']['source_rows_verified'])
+        self.assertEqual(self.queue.get(batch)['result']['previous_error'],'RuntimeError')
+
+    def test_generic_failed_batch_stays_open_when_sources_are_incomplete(self):
+        import app
+        batch=self.queue.put('batch','incomplete-batch',{'batch_id':'incomplete-batch',
+            'messages':[{'id':'missing-source','channel_username':'@supplier'}],'expected_count':1})
+        with self.queue.connect() as db:
+            db.execute("UPDATE jobs SET state='failed',attempts=8,error='RuntimeError' WHERE id=?",(batch,))
+        env={'PIPELINE_DB_PATH':self.path,'REFERENCE_OWNER_IDS':'wp:7',
+             'REFERENCE_BRIDGE_TOKEN':'synthetic-bridge-token-0123456789'}
+        headers={'X-Molavi-Reference-Token':env['REFERENCE_BRIDGE_TOKEN'],'X-Molavi-Actor':'wp:7'}
+        with patch.object(app,'USE_SHEETS',True), patch.object(app,'build_store',return_value=MemoryStore()), \
+                patch.object(app,'publish_shop',return_value={'ok':True,'pushed':True,'images_left':0}), \
+                patch('catalog.sheet_projection.sheet_projection_digest',return_value='a'*64), patch.dict(os.environ,env):
+            response=app.app.test_client().post('/pipeline/reconcile-publication-backlog',headers=headers,json={
+                'expected_publish_ids':[],'expected_batch_ids':[batch]})
+        self.assertEqual(response.status_code,200,response.get_json())
+        self.assertEqual(response.get_json()['batch_jobs_reconciled'],0)
+        self.assertEqual(response.get_json()['batch_job_ids_left_open'],[batch])
+        self.assertEqual(self.queue.get(batch)['state'],'failed')
+
+    def test_owner_can_reconcile_one_source_verified_batch_from_a_larger_backlog(self):
+        import app
+        first=self.queue.put('batch','first-failed',{'batch_id':'first-failed','messages':[{'id':'one'}],
+            'expected_count':1})
+        second=self.queue.put('batch','second-failed',{'batch_id':'second-failed','messages':[{'id':'two'}],
+            'expected_count':1})
+        with self.queue.connect() as db:
+            for job in (first,second):
+                db.execute("UPDATE jobs SET state='failed',attempts=8,error='RuntimeError' WHERE id=?",(job,))
+        env={'PIPELINE_DB_PATH':self.path,'REFERENCE_OWNER_IDS':'wp:7',
+             'REFERENCE_BRIDGE_TOKEN':'synthetic-bridge-token-0123456789'}
+        headers={'X-Molavi-Reference-Token':env['REFERENCE_BRIDGE_TOKEN'],'X-Molavi-Actor':'wp:7'}
+        with patch.object(app,'USE_SHEETS',True), patch.object(app,'build_store',return_value=MemoryStore()), \
+                patch.object(app,'publish_shop',return_value={'ok':True,'pushed':True,'images_left':0}), \
+                patch('catalog.sheet_projection.sheet_projection_digest',return_value='a'*64), \
+                patch.object(app,'_batch_sources_reconciled',return_value=True), patch.dict(os.environ,env):
+            response=app.app.test_client().post('/pipeline/reconcile-publication-backlog',headers=headers,json={
+                'expected_publish_ids':[],'expected_batch_ids':[first]})
+        self.assertEqual(response.status_code,200,response.get_json())
+        self.assertEqual(response.get_json()['batch_job_ids_reconciled'],[first])
+        self.assertEqual(self.queue.get(first)['state'],'done')
+        self.assertEqual(self.queue.get(second)['state'],'failed')
 
     def test_failed_catalog_sync_leaves_all_backlog_jobs_open(self):
         import app
@@ -278,7 +325,7 @@ class OperationsSnapshotTests(unittest.TestCase):
         job=self.queue.put('batch','verified-batch',{'batch_id':'verified-batch','messages':[source],
             'expected_count':1})
         with self.queue.connect() as db:
-            db.execute("UPDATE jobs SET state='failed',error='JobConflict' WHERE id=?",(job,))
+            db.execute("UPDATE jobs SET state='failed',error='RuntimeError' WHERE id=?",(job,))
         store=MemoryStore();store.ensure('MessageData',MESSAGE_HEADERS)
         recorded={'ID':'source-1','Channel Username':'@supplier','Batch ID':'verified-batch',
             'AI Status':'ai_processed','AI Processed At':'2026-11-02T20:00:00Z'}

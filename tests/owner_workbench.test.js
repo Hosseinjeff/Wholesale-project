@@ -68,7 +68,8 @@ async function main() {
     operations: {operations:{by_state:{queued:0,running:0},items:[{id:'batch:queue-1',kind:'batch',
       state:'waiting_reference',attempts:2,error:'reference_decision_required',
       next_action:'resolve_reference_decision',age_seconds:3600}],actionable_count:2,
-      next_cursor:'cursor-next',has_more:true,failed_publication_ids:[],failed_batch_ids:[],
+      next_cursor:'cursor-next',has_more:true,failed_publication_ids:['publish:failed-1'],
+      failed_batch_ids:['batch:failed-1'],
       publication_holds:0,sheet_conflicts:1,worker:{status:'alive',heartbeat_age_seconds:4,
         state:'idle',progress_status:'active',progress_age_seconds:4,current_job_id:null,last_error_code:''},
       pending_telegram_chats:[]}},
@@ -107,6 +108,16 @@ async function main() {
       return {ok:true,status:200,json:async()=>({ok:true,chat_id:payload.chat_id,
         state:payload.action === 'approve' ? 'approved' : 'rejected',
         revision:payload.expected_revision,already_done:false})};
+    }
+    if (path.endsWith('/reconcile-publication-backlog') && options.method === 'POST') {
+      const payload = JSON.parse(options.body);
+      data.operations.operations.failed_publication_ids = [];
+      data.operations.operations.failed_batch_ids = [];
+      return {ok:true,status:200,json:async()=>({ok:true,sheet_digest:'a'.repeat(64),
+        failed_publications_reconciled:payload.expected_publish_ids.length,
+        failed_publication_ids:payload.expected_publish_ids,batch_jobs_reconciled:payload.expected_batch_ids.length,
+        batch_job_ids_reconciled:payload.expected_batch_ids,batch_job_ids_left_open:[],
+        catalog_sync:{images_left:0}})};
     }
     if (path.endsWith('/item-reviews') && options.method === 'POST') {
       const payload = JSON.parse(options.body);
@@ -661,6 +672,20 @@ async function main() {
   const accessEvents = storedReviewRows.filter(row => row.review_type === 'telegram_operator');
   assert(accessEvents.some(row => row.state === 'pending') && accessEvents.some(row => row.state === 'accepted'),
     'the approval and its receipt are durably recorded in the WordPress review database');
+  const reconcileButton = walk(root).find(element => element.tagName === 'BUTTON'
+    && element.textContent === 'همگام‌سازی کاتالوگ و بستن خطاهای قابل اثبات');
+  assert(reconcileButton,'failed publication and batch receipts have one owner reconciliation action');
+  await reconcileButton.listeners.click();
+  const reconcileRequest = calls.find(item => new URL(item.url,base).pathname.endsWith('/reconcile-publication-backlog')
+    && item.options.method === 'POST');
+  assert(reconcileRequest,'the failed backlog action uses the asynchronous reconciliation endpoint');
+  assert.deepEqual(JSON.parse(reconcileRequest.options.body),{
+    expected_publish_ids:['publish:failed-1'],expected_batch_ids:['batch:failed-1']
+  },'the owner action reconciles the exact failed receipt set shown in the dashboard');
+  const backlogEvents = storedReviewRows.filter(row => row.review_type === 'publication_backlog'
+    && row.review_id === 'failed-publication-backlog');
+  assert(backlogEvents.some(row => row.state === 'pending') && backlogEvents.some(row => row.state === 'accepted'),
+    'the complete catalog sync and reconciliation receipt are recorded in WordPress');
 }
 
 main().catch(error => { console.error(error); process.exitCode = 1; });

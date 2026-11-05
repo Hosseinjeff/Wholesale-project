@@ -1112,8 +1112,7 @@ def _batch_sources_reconciled(store, queue, job_id):
         expected=int(context.get('expected_messages') or 0)
     except (TypeError,ValueError,OverflowError):
         return False
-    if (context.get('batch_state')!='failed' or context.get('batch_error')!='JobConflict'
-            or not sources or expected!=len(sources)):
+    if (context.get('batch_state')!='failed' or not sources or expected!=len(sources)):
         return False
     from catalog.ai_confirmations import review_case_id
     from catalog.sync import _ai_review_reason,_fresh_read,_records
@@ -1163,7 +1162,7 @@ def _batch_sources_reconciled(store, queue, job_id):
 
 @app.route('/pipeline/reconcile-publication-backlog', methods=['POST','OPTIONS'])
 def reconcile_publication_backlog_route():
-    """One current Sheet→Woo sync safely supersedes old publish failures and verified batch conflicts."""
+    """One current Sheet→Woo sync closes superseded publish failures and source-verified batch failures."""
     if request.method=='OPTIONS':
         return '',204
     token=os.getenv('REFERENCE_BRIDGE_TOKEN') or ''
@@ -1192,8 +1191,8 @@ def reconcile_publication_backlog_route():
             if queue.publication_holds():
                 return jsonify({'ok':False,'error':'publication_held_for_review'}),409
             snapshot=queue.failed_backlog_snapshot()
-            if (set(snapshot['publication_ids'])!=set(publish_ids)
-                    or set(snapshot['batch_ids'])!=set(batch_ids)):
+            if (not set(publish_ids).issubset(snapshot['publication_ids'])
+                    or not set(batch_ids).issubset(snapshot['batch_ids'])):
                 return jsonify({'ok':False,'error':'backlog_changed'}),409
             store=build_store()
             from catalog.sheet_projection import sheet_projection_digest
@@ -1215,8 +1214,8 @@ def reconcile_publication_backlog_route():
                 return jsonify({'ok':False,'error':'catalog_projection_changed',
                     'current_projection_queued':True}),409
             latest=queue.failed_backlog_snapshot()
-            if (set(latest['publication_ids'])!=set(publish_ids)
-                    or set(latest['batch_ids'])!=set(batch_ids)):
+            if (not set(publish_ids).issubset(latest['publication_ids'])
+                    or not set(batch_ids).issubset(latest['batch_ids'])):
                 return jsonify({'ok':False,'error':'backlog_changed'}),409
             queue.mark_sheet_projection_published(digest_after)
             reconciled_batches=[]

@@ -427,13 +427,13 @@ class Handoffs:
         return cancelled
 
     def failed_backlog_snapshot(self):
-        """Return IDs for the only failed job classes eligible for sync reconciliation."""
+        """Return failed receipts for owner reconciliation after source/sync verification."""
         with self.connect() as db:
             publications = db.execute(
                 "SELECT id FROM jobs WHERE kind='publish' AND state='failed' ORDER BY id"
             ).fetchall()
             batches = db.execute(
-                "SELECT id FROM jobs WHERE kind='batch' AND state='failed' AND error='JobConflict' ORDER BY id"
+                "SELECT id FROM jobs WHERE kind='batch' AND state='failed' ORDER BY id"
             ).fetchall()
         return {
             'publication_ids': [str(row['id']) for row in publications],
@@ -473,7 +473,7 @@ class Handoffs:
             batch_rows=[]
             if batch_ids:
                 marks=','.join('?' for _ in batch_ids)
-                batch_rows=db.execute(f"SELECT id,error FROM jobs WHERE id IN ({marks}) AND kind='batch' AND state='failed' AND error='JobConflict'",
+                batch_rows=db.execute(f"SELECT id,error FROM jobs WHERE id IN ({marks}) AND kind='batch' AND state='failed'",
                     tuple(batch_ids)).fetchall()
             if ({str(row['id']) for row in publication_rows} != set(publication_ids)
                     or {str(row['id']) for row in batch_rows} != set(batch_ids)):
@@ -497,7 +497,7 @@ class Handoffs:
                     'previous_error': str(row['error'] or ''), 'sync': summary,
                 }
                 db.execute("""UPDATE jobs SET state='done',result=?,error=NULL,lease=NULL,expires=NULL,updated_at=?
-                    WHERE id=? AND kind='batch' AND state='failed' AND error='JobConflict'""",
+                    WHERE id=? AND kind='batch' AND state='failed'""",
                     (self.encode(receipt), reconciled_at, str(row['id'])))
         return {'publication_ids':[str(row['id']) for row in publication_rows],
                 'batch_ids':[str(row['id']) for row in batch_rows]}
