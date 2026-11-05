@@ -2265,7 +2265,7 @@
             const aiConfigured = supportsAiOnly && preview.ai_configured;
             panel.appendChild(node('p', `در صف بررسی: ${counts.pending || 0} پیام · همه پیام‌های متنی آماده: ${counts.all_available || 0}`));
             panel.appendChild(node('p', `کارت‌های باز استخراج: ${openCases.case_count || 0} · پیام‌های اصلی یکتا: ${openCases.message_count || 0} · قبلاً بازاستخراج‌شده: ${counts.already_reprocessed || 0}`));
-            panel.appendChild(node('p', `پیام‌های بدون متن: ${counts.without_text || 0} · تصمیم‌های مالک حفظ‌شده: ${counts.owner_decisions_preserved || 0} · موارد «کالا نیست» حفظ‌شده: ${counts.not_product_preserved || 0} · ردشده توسط مالک: ${counts.dismissed_by_owner || 0} · قبلاً در صف بررسی بازاستخراج‌شده: ${counts.already_staged || 0}`));
+            panel.appendChild(node('p', `پیام‌های بدون متن: ${counts.without_text || 0} · خروجی بدون نامزد محصول و آماده بازبینی: ${counts.no_product_candidates || 0} · تصمیم‌های مالک حفظ‌شده: ${counts.owner_decisions_preserved || 0} · ردشده توسط مالک: ${counts.dismissed_by_owner || 0} · قبلاً در صف بررسی بازاستخراج‌شده: ${counts.already_staged || 0}`));
             if (openCases.unmatched_case_count > 0) {
                 panel.appendChild(notice(`${openCases.unmatched_case_count} کارت به متن پیام اصلی وصل نیست و در بازاستخراج گروهی وارد نمی‌شود.`, 'warning'));
             }

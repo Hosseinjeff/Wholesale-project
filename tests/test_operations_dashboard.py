@@ -287,6 +287,26 @@ class OperationsSnapshotTests(unittest.TestCase):
         store.sheets['MessageData']=[list(MESSAGE_HEADERS)]
         self.assertFalse(app._batch_sources_reconciled(store,self.queue,job))
 
+    def test_empty_extraction_and_owner_rejection_are_terminal_batch_states(self):
+        import app
+        states=('no_product_candidate','owner_rejected','not_product')
+        sources=[{'id':f'source-{index}','channel_username':'@supplier','content':'private source'}
+                 for index,_ in enumerate(states)]
+        job=self.queue.put('batch','empty-result-batch',{
+            'batch_id':'empty-result-batch','messages':sources,'expected_count':len(sources)})
+        with self.queue.connect() as db:
+            db.execute("UPDATE jobs SET state='failed',error='JobConflict' WHERE id=?",(job,))
+        store=MemoryStore();store.ensure('MessageData',MESSAGE_HEADERS)
+        rows=[]
+        for index,state in enumerate(states):
+            rows.append({
+                'ID':f'source-{index}','Channel Username':'@supplier',
+                'Batch ID':'empty-result-batch','AI Status':state,
+                'AI Processed At':'2026-11-05T10:00:00Z',
+            })
+        store.append('MessageData',[[row.get(header,'') for header in MESSAGE_HEADERS] for row in rows])
+        self.assertTrue(app._batch_sources_reconciled(store,self.queue,job))
+
 
 if __name__=='__main__':
     unittest.main()

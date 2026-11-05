@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from catalog.ai_confirmations import (
     AIConfirmationLedger, ConfirmationConflict, apply_decision, case_reextraction_inventory,
-    review_cases, review_case_id, validate_choice,
+    reextraction_inventory, review_cases, review_case_id, validate_choice,
 )
 from catalog.extract import MESSAGE_HEADERS, OFFER_HEADERS, PRODUCT_HEADERS
 from catalog.pricing import catalog_from_records, default_settings
@@ -299,7 +299,63 @@ class AIConfirmationTests(unittest.TestCase):
         self.assertEqual(catalog, [])
         refresh_ai_message_status(self.store,{'id':'msg-1','batch_id':'batch-1','channel':'telegram'})
         _,messages=_records(self.store.read('MessageData'))
-        self.assertEqual(messages[0]['AI Status'],'not_product')
+        self.assertEqual(messages[0]['AI Status'],'owner_rejected')
+        inventory=reextraction_inventory(self.store,self.ledger)
+        self.assertEqual(inventory['counts']['owner_decisions_preserved'],1)
+        self.assertEqual(inventory['counts']['pending'],0)
+
+    def test_zero_candidate_message_is_distinct_and_remains_reextractable(self):
+        store=MemoryStore()
+        store.ensure('Offers',OFFER_HEADERS)
+        store.ensure('MessageData',MESSAGE_HEADERS)
+        store.append('MessageData',[_row_from_map(MESSAGE_HEADERS,{
+            'ID':'msg-empty','Channel':'telegram','Channel Username':'@supplier',
+            'Content':'No product fields found','Timestamp':'2026-11-05T10:00:00Z',
+            'Status':'product','Batch ID':'batch-empty','AI Status':'pending_ai'})])
+        status_saved=refresh_ai_message_status(store,{'id':'msg-empty','batch_id':'batch-empty','channel':'telegram'})
+        self.assertTrue(status_saved)
+        _,messages=_records(store.read('MessageData'))
+        self.assertEqual(messages[0]['AI Status'],'no_product_candidate')
+        inventory=reextraction_inventory(store,self.ledger)
+        self.assertEqual(inventory['counts']['pending'],1)
+        self.assertEqual(inventory['counts']['no_product_candidates'],1)
+        self.assertEqual(inventory['pending_messages'][0]['ai_status'],'no_product_candidate')
+
+    def test_empty_reextraction_stays_available_for_a_later_retry(self):
+        from catalog.sync import reextract_saved_message
+        from catalog.ai_confirmations import reextraction_message_key
+        content='Source post whose extraction returned no products'
+        store=MemoryStore()
+        store.ensure('Offers',OFFER_HEADERS)
+        store.ensure('MessageData',MESSAGE_HEADERS)
+        store.append('MessageData',[_row_from_map(MESSAGE_HEADERS,{
+            'ID':'msg-empty-retry','Channel':'telegram','Channel Username':'@supplier',
+            'Content':content,'Timestamp':'2026-11-05T10:00:00Z','Status':'product',
+            'Batch ID':'batch-empty-retry','AI Status':'no_product_candidate'})])
+        item=reextraction_inventory(store,self.ledger)['pending_messages'][0]
+        payload={**item,'content_sha256':hashlib.sha256(content.encode()).hexdigest(),
+            'run_id':'c'*32,'actor_id':'wp:7'}
+        payload['message_key']=reextraction_message_key(payload)
+
+        with patch('catalog.sync._extract_supplier_products',return_value=[]):
+            result=reextract_saved_message(store,payload)
+
+        self.assertEqual(result['status'],'no_products')
+        retry_inventory=reextraction_inventory(store,self.ledger)
+        self.assertEqual(retry_inventory['counts']['pending'],1)
+        self.assertEqual(retry_inventory['pending_messages'][0]['message_id'],'msg-empty-retry')
+
+    def test_legacy_not_product_state_without_owner_decision_is_recoverable(self):
+        store=MemoryStore()
+        store.ensure('Offers',OFFER_HEADERS)
+        store.ensure('MessageData',MESSAGE_HEADERS)
+        store.append('MessageData',[_row_from_map(MESSAGE_HEADERS,{
+            'ID':'msg-legacy-empty','Channel':'telegram','Channel Username':'@supplier',
+            'Content':'Source text saved before the status split','Timestamp':'2026-11-05T10:00:00Z',
+            'Status':'product','Batch ID':'batch-legacy','AI Status':'not_product'})])
+        inventory=reextraction_inventory(store,self.ledger)
+        self.assertEqual(inventory['counts']['no_product_candidates'],1)
+        self.assertEqual(inventory['pending_messages'][0]['ai_status'],'no_product_candidate')
 
     def test_choice_validation_requires_explicit_price_role_and_package_count(self):
         payload = {'case_id':self.case['case_id'],'offer_id':self.case['offer_id'],

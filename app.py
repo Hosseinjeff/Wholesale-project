@@ -986,7 +986,8 @@ def publication_holds_route():
                             continue
                         row=matches[0]
                         ai_state=str(row.get('AI Status') or '').strip().lower()
-                        if (ai_state not in {'needs_confirmation','ai_processed','not_product'}
+                        if (ai_state not in {'needs_confirmation','ai_processed','no_product_candidate',
+                                             'owner_rejected','not_product'}
                                 or not str(row.get('AI Processed At') or '').strip()):
                             return jsonify({"ok":False,"error":"batch_not_reconciled"}),409
                         if ai_state=='needs_confirmation':
@@ -1138,7 +1139,8 @@ def _batch_sources_reconciled(store, queue, job_id):
             continue
         row=matches[0]
         ai_state=str(row.get('AI Status') or '').strip().lower()
-        if (ai_state not in {'needs_confirmation','ai_processed','not_product'}
+        if (ai_state not in {'needs_confirmation','ai_processed','no_product_candidate',
+                             'owner_rejected','not_product'}
                 or not str(row.get('AI Processed At') or '').strip()):
             return False
         if ai_state=='needs_confirmation':

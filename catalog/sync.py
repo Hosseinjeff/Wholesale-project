@@ -775,12 +775,17 @@ def refresh_ai_message_status(store, message):
     case_ids=[review_case_id(str(offer.get('Offer ID') or '')) for offer in pending if offer.get('Offer ID')]
     if case_ids:
         status='needs_confirmation'
-    elif current and all(str(offer.get('Status') or '').lower()=='not_product' for offer in current):
-        status='not_product'
+    elif not current:
+        status='no_product_candidate'
+    elif all(str(offer.get('Status') or '').strip().lower()=='not_product' for offer in current):
+        if all(str(offer.get('Owner Decision ID') or '').strip() for offer in current):
+            status='owner_rejected'
+        else:
+            # A not-product projection without a durable owner decision is not a
+            # rejection. Keep it reviewable so an empty/uncertain extraction can retry.
+            status='needs_review'
     elif current:
         status='ai_processed'
-    else:
-        status='not_product'
     message.setdefault('batch_id',batch_id)
     return _write_ai_message_status(store,message,status,case_ids)
 

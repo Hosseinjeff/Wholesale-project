@@ -616,7 +616,8 @@ def reextraction_inventory(store, ledger=None):
     pending=[]
     no_content=0
     excluded_owner=0
-    excluded_not_product=0
+    explicitly_rejected=0
+    no_product_candidates=0
     already_staged=0
     dismissed_by_owner=0
     already_reprocessed=0
@@ -648,8 +649,9 @@ def reextraction_inventory(store, ledger=None):
         if message_key in dismissed_keys:
             dismissed_by_owner+=1
             continue
-        if ai_status=='not_product':
-            excluded_not_product+=1
+        if ai_status=='owner_rejected':
+            excluded_owner+=1
+            explicitly_rejected+=1
             continue
         if marker in owner_decisions:
             excluded_owner+=1
@@ -663,17 +665,23 @@ def reextraction_inventory(store, ledger=None):
         item={
             'message_id':message_id,'batch_id':batch_id,'channel_username':channel,
             'channel':str(message.get('Channel') or ''),'timestamp':str(message.get('Timestamp') or ''),
-            'content':content,'ai_status':ai_status,'message_key':message_key,
+            'content':content,
+            'ai_status':'no_product_candidate' if ai_status=='not_product' else ai_status,
+            'message_key':message_key,
         }
         candidates.append(item)
-        if ai_status in {'','pending_ai','needs_confirmation','needs_review','pending'}:
+        if item['ai_status']=='no_product_candidate':
+            no_product_candidates+=1
+        if item['ai_status'] in {'','pending_ai','needs_confirmation','needs_review','pending',
+                                 'not_product','no_product_candidate'}:
             pending.append(item)
     return {
         'all_messages':candidates,
         'pending_messages':pending,
         'counts':{
             'all_available':len(candidates),'pending':len(pending),'without_text':no_content,
-            'owner_decisions_preserved':excluded_owner,'not_product_preserved':excluded_not_product,
+            'owner_decisions_preserved':excluded_owner,'not_product_preserved':explicitly_rejected,
+            'no_product_candidates':no_product_candidates,
             'already_staged':already_staged,'already_reprocessed':already_reprocessed,
             'dismissed_by_owner':dismissed_by_owner,
         },
