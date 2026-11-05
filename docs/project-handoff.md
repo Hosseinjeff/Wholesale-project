@@ -50,9 +50,10 @@ allowlists remain intact.
 
 The five unapproved messages received at 15:04 UTC before the new capture code was live
 were acknowledged and discarded by the previous webhook, so their sender ID is no
-longer available. The secondary account has not yet been registered; one fresh message
-from it will produce an owner card. The dashboard interaction test covers approval,
-the WordPress audit receipt, and in-place refresh. The live browser profile has no
+longer available. On 2026-11-05, a fresh private message from the secondary account was
+captured and approved; its WordPress audit receipt is saved and no account remains
+pending. That enrollment message was not processed as supplier content. The dashboard
+interaction test covers approval, the WordPress audit receipt, and in-place refresh. The live browser profile has no
 WordPress sign-in recorded, so visual browser inspection was unavailable; the changed
 files were verified from cPanel and the owner workbench interaction test passed.
 
@@ -63,11 +64,11 @@ The image-review release is live at Railway commit `2707d9b11a4eb4f33a6683a8212d
 in deployment `cfca825d-e8c0-4f43-8954-5ef24aa2835a`; WordPress JavaScript deployed and
 read back through cPanel. Inventory shows 31 photos, 22 with no saved file ID, and 229
 unsupported sticker items grouped outside OCR. One real saved photo fetched through the
-live media endpoint successfully. The pending-account queue remained empty; HTTP logs
-since 16:40 UTC contained no Telegram webhook deliveries. The messages mentioned for
-the second account did not reach the capture path. A fresh private message is required;
-once it appears, approve it in the operations dashboard so WordPress stores its decision
-and receipt.
+live media endpoint successfully. The earlier webhook log check showed no deliveries
+after 16:40 UTC; a later message from the secondary account reached the capture path
+and was approved through the owner workflow. Its WordPress decision and receipt are
+saved. Resend product posts if they should be extracted; the enrollment message was not
+treated as product content.
 
 ## 2026-11-05 extraction no-result and rejection states
 

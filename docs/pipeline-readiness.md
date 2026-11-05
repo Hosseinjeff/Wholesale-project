@@ -21,12 +21,13 @@ HTTP 200 (`image/jpeg`, 156,220 bytes). Validation passed 161 focused Python tes
 the owner-workbench interaction test, JavaScript and PHP parsing, Python compilation,
 and `git diff --check`.
 
-The Telegram enrollment queue still had zero pending identities after this release.
-Railway HTTP logs since 16:40 UTC showed no webhook deliveries, so the messages
-mentioned for the second account were not captured by the live endpoint. The five
-earlier deliveries at 15:04 UTC predate identity capture and contain no recoverable
-sender ID. The account is not registered; one fresh private message to the bot will
-create its auditable approval card.
+At the time of the release check, the Telegram enrollment queue was empty and no
+webhook delivery had arrived since 16:40 UTC. The five earlier deliveries at 15:04 UTC
+predate identity capture and contain no recoverable sender ID. On 2026-11-05, a fresh
+private update from the secondary account was captured and approved through the owner
+workflow. Its WordPress audit receipt was saved, and the pending queue returned to zero.
+The enrollment message was intentionally not processed as supplier content; resend any
+product posts that should be extracted.
 
 ## Extraction no-result recovery — 2026-11-05
 
