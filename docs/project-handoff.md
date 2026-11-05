@@ -12,6 +12,12 @@ decision and outbox tables were initialized by the authenticated, scoped REST ro
 the route returned HTTP 200 with zero due commands. The plugin files read back from
 cPanel byte-for-byte. No Sheet or catalog record changed.
 
+WordPress plugin follow-up `5c22feaf0a8a859abc4a1462941d68cc79c5d31b` is also live. It
+keeps the conflict dashboard working with the current older Railway request schema by
+retrying only its `invalid_body` response without the revision field. The exact revision
+remains stored in WordPress. The stricter backend revision check is still waiting on a
+Railway deployment.
+
 The same commit is pushed to GitHub `main`, but Railway still runs commit
 `c2b44480afb422176d4ebcc7eaf8e3b181fd51dc`. The Railway worker poller, route-side
 expected-revision check, and receipt writer are not live yet. Automatic review rejected
