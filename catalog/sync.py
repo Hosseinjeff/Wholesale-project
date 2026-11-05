@@ -781,9 +781,9 @@ def refresh_ai_message_status(store, message):
         if all(str(offer.get('Owner Decision ID') or '').strip() for offer in current):
             status='owner_rejected'
         else:
-            # A not-product projection without a durable owner decision is not a
-            # rejection. Keep it reviewable so an empty/uncertain extraction can retry.
-            status='needs_review'
+            # Model-generated not-product output is still a candidate for owner review
+            # or a later extraction. Only a durable owner decision closes that path.
+            status='no_product_candidate'
     elif current:
         status='ai_processed'
     message.setdefault('batch_id',batch_id)

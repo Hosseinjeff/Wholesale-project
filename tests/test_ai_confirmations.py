@@ -321,6 +321,25 @@ class AIConfirmationTests(unittest.TestCase):
         self.assertEqual(inventory['counts']['no_product_candidates'],1)
         self.assertEqual(inventory['pending_messages'][0]['ai_status'],'no_product_candidate')
 
+    def test_model_not_product_output_is_not_treated_as_owner_rejection(self):
+        store=MemoryStore()
+        store.ensure('Offers',OFFER_HEADERS)
+        store.ensure('MessageData',MESSAGE_HEADERS)
+        source={**self.source,'Status':'not_product','Owner Decision ID':''}
+        store.append('Offers',[_row_from_map(OFFER_HEADERS,source)])
+        store.append('MessageData',[_row_from_map(MESSAGE_HEADERS,{
+            'ID':'msg-1','Channel':'telegram','Channel Username':'@supplier',
+            'Content':'Saved source text','Timestamp':'2026-11-05T10:00:00Z',
+            'Status':'product','Batch ID':'batch-1','AI Status':'pending_ai'})])
+
+        refresh_ai_message_status(store,{'id':'msg-1','batch_id':'batch-1','channel':'telegram'})
+
+        _,messages=_records(store.read('MessageData'))
+        self.assertEqual(messages[0]['AI Status'],'no_product_candidate')
+        inventory=reextraction_inventory(store,self.ledger)
+        self.assertEqual(inventory['counts']['pending'],1)
+        self.assertEqual(inventory['pending_messages'][0]['ai_status'],'no_product_candidate')
+
     def test_empty_reextraction_stays_available_for_a_later_retry(self):
         from catalog.sync import reextract_saved_message
         from catalog.ai_confirmations import reextraction_message_key
