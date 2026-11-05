@@ -17,11 +17,12 @@ normalization.
 The first recovery slice adds durable worker heartbeat/progress metadata, reports stale
 or stalled worker state, exposes keyset-paginated queue pages, and shows each receipt's
 age, stable ID, and next recovery decision in the owner workbench. The worker table is
-additive; no product, Sheet, order, or WooCommerce rows were changed. The local owner
-API route was covered by its authenticated test client (synthetic owner token); this
-runner did not have the production bridge token for a direct authenticated payload
-read. Validation passed: 33 focused Python tests, the owner workbench Node test,
-JavaScript syntax, Python compilation, and `git diff --check`.
+additive; no product, Sheet, order, or WooCommerce rows were changed. The owner-only
+operations route was also read live with a short-lived, route-scoped WordPress
+capability signed in memory from protected configuration; no secret was printed or
+stored. It returned HTTP 200, zero actionable receipts, and a worker marked alive/idle
+with a fresh heartbeat. Validation passed: 33 focused Python tests, the owner workbench
+Node test, JavaScript syntax, Python compilation, and `git diff --check`.
 
 This release improves recovery visibility and prevents the queue view from ending at
 its first hundred rows. It does not yet narrow publication holds or move canonical

@@ -872,10 +872,12 @@ The first recovery-observability slice is live in Railway and WordPress at commi
 
 Railway deployment `1a95390a-1865-4fa9-8c0f-985b95a598cf` reached `SUCCESS`; its deploy
 logs show the worker and web processes running, and `/health` returned HTTP 200. cPanel
-read-back verified the changed WordPress asset against the commit. The live owner queue
-payload was not read directly from this runner because the production bridge token was
-not available in its local process; the authenticated route and pagination are covered
-by local tests with a synthetic owner token.
+read-back verified the changed WordPress asset against the commit. The owner-only
+operations route was also read live using a short-lived, route-scoped WordPress
+capability signed in memory from protected configuration; no secret was printed or
+stored. It returned HTTP 200, zero actionable receipts, and an alive/idle worker with a
+fresh heartbeat. Pagination and the authenticated route are also covered by local
+tests with a synthetic owner token.
 
 This slice leaves the Sheets/Woo product policy and authority unchanged. It does not
 yet implement WordPress canonical workflow tables or the transactional WordPress
