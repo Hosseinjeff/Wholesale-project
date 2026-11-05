@@ -1,9 +1,9 @@
 # Railway to WordPress workload review
 
-**Date:** 2026-11-05 (Asia/Tehran)
-**Status:** First storage/integrity release prepared; owner decisions and the active
-Telegram retry queue remain on their current paths. No owner decisions are being
-migrated in this release.
+**Date:** 2026-11-06 (Asia/Tehran)
+**Status:** First WordPress-owned decision/outbox slice implemented for Sheet conflicts;
+production deployment and native-table verification are the release gate. The active
+Telegram retry queue remains on Railway.
 
 ## Finding
 
@@ -86,10 +86,11 @@ source posts when Sheets remains the archive.
 ## Efficient migration sequence
 
 1. **Make WordPress the decision authority first.** Add normalized WP tables for
-   current decisions and operational workflow state. Change each dashboard action
-   to commit an idempotent WP outbox event before returning success. Railway consumes
-   those events and sends a receipt back; it no longer owns a second copy of the
-   decision. Keep the existing review-event table as a compact audit trail. Preserve
+   current decisions and operational workflow state. Each dashboard action commits
+   an idempotent WP outbox event before sending it to Railway. The Railway worker
+   consumes undelivered commands and writes a verified receipt back; WP remains the
+   decision record and Railway performs the Sheet-side effect. Keep the existing
+   review-event table as an audit trail. Preserve
    the agreed Sheet rule during transition: Railway's computed value wins unless an
    explicit manual Sheet edit is detected, in which case that edit updates WooCommerce
    through the WP-owned state and sync path.
@@ -141,5 +142,29 @@ tests should the Telegram inbox and retry metadata move into WordPress as well.
 
 The storage change affects only duplicate raw text in successfully completed Railway
 batch receipts after the configured age. Source posts remain in Sheets, and active,
-failed, waiting, and review-needed work is retained. No owner decisions, product
-records, or business ledgers are moved by this release.
+failed, waiting, and review-needed work is retained. This slice does not move product
+records, source messages, the active Telegram queue, or the other Railway business
+ledgers.
+
+## First WordPress decision/outbox slice — 2026-11-06
+
+The first domain is Sheet conflict resolution. WordPress stores a normalized choice
+against the exact conflict/source revision and writes its Railway command in the same
+InnoDB transaction as the review event. The outbox command ID is deterministic for
+that conflict revision, and a competing choice for the same revision is refused.
+Railway checks `expected_revision` before applying a choice, so an old dashboard card
+cannot overwrite a newer Sheet or offer state.
+
+The existing Railway worker polls a scoped WordPress REST endpoint, claims due commands
+with a lease/backoff in the WordPress database, applies them through the existing
+conflict resolver, and posts a receipt. Transient failures stay queued with backoff;
+stale or rejected commands become failed and remain visible in the audit trail. The
+dashboard retains its immediate action and retry path, but recovery no longer depends
+on an owner reopening the dashboard. Railway remains the Sheet-effect worker; this
+does not move the Sheet, source messages, extraction queue, or other SQLite ledgers.
+
+Before retiring Railway's conflict ledger, compare live WordPress decision/outbox rows
+and Railway conflict state under normal actions, transient outages, duplicate delivery,
+worker restart, and changed-source races. Supplier-price, reference, publication,
+orders and inventory domains remain on their existing paths until their own shadow
+comparisons and reversible migration receipts pass.

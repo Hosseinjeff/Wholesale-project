@@ -1762,11 +1762,17 @@ def sheet_conflicts_route():
         result={'ok':True,'conflicts':conflicts}
     else:
         body=request.get_json(silent=True)
-        if not isinstance(body,dict) or set(body)!={'conflict_id','choice','note'}:
+        required_body={'conflict_id','choice','note'}
+        if (not isinstance(body,dict)
+                or set(body) not in (required_body, required_body|{'expected_revision'})):
             return jsonify({'ok':False,'error':'invalid_body'}),400
         conflict_id,choice,note=body.get('conflict_id'),body.get('choice'),body.get('note')
+        expected_revision=body.get('expected_revision')
         if (not isinstance(conflict_id,str) or not conflict_id.startswith('sheet:') or len(conflict_id)>80 or
                 choice not in ('server','sheet','preserve') or not isinstance(note,str) or len(note)>1000):
+            return jsonify({'ok':False,'error':'invalid_body'}),400
+        if expected_revision is not None and (not isinstance(expected_revision,str)
+                or not re.fullmatch(r'[A-Za-z0-9:_-]{1,191}',expected_revision)):
             return jsonify({'ok':False,'error':'invalid_body'}),400
         note=note.strip() or {
             'server':'Owner selected the current server-derived value under the server-first conflict policy.',
@@ -1783,6 +1789,9 @@ def sheet_conflicts_route():
             with queue.publication_lock():
                 conflict=queue.get_sheet_conflict(conflict_id)
                 if not conflict:return jsonify({'ok':False,'error':'conflict_changed'}),409
+                if (expected_revision is not None
+                        and expected_revision!=str(conflict.get('source_revision') or '')):
+                    return jsonify({'ok':False,'error':'conflict_changed'}),409
                 server_owned=conflict['field'] in SHEET_SERVER_OWNED_FIELDS
                 sheet_preserved=conflict['field'] in SHEET_PRESERVED_FIELDS
                 if server_owned and choice!='server':

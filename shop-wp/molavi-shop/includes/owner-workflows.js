@@ -284,6 +284,46 @@
         return {stored:records.length};
     }
 
+    async function drainSheetConflictOutbox() {
+        if (!config.reviewStoreUrl || !config.reviewStoreNonce) return {attempted:0,delivered:0};
+        const response = await fetch(config.reviewStoreUrl, {
+            method:'POST', mode:'same-origin', credentials:'same-origin', cache:'no-store',
+            headers:{'Content-Type':'application/x-www-form-urlencoded; charset=UTF-8'},
+            body:new URLSearchParams({action:'molavi_owner_review_outbox_pending', nonce:config.reviewStoreNonce,
+                limit:'10'}).toString()
+        });
+        const body = await response.json().catch(() => null);
+        if (!response.ok || !body || body.success !== true || !body.data
+            || !Array.isArray(body.data.commands)) throw new Error('review_store_failed');
+        const commands = body.data.commands;
+        let delivered = 0;
+        const apiKey = config.workflowApis && config.workflowApis.sheet_conflicts ? 'sheet_conflicts' : '';
+        for (const command of commands) {
+            if (!command || !command.payload || !command.context || !command.decision
+                || typeof command.event_id !== 'string' || typeof command.review_id !== 'string') continue;
+            try {
+                const receipt = await request('POST', command.payload, undefined, apiKey);
+                if (receipt.conflict_id !== command.payload.conflict_id
+                    || receipt.choice !== command.payload.choice
+                    || (receipt.server_owned !== true && receipt.sheet_preserved !== true && !receipt.publish_job)) {
+                    const error = new Error('invalid_receipt');
+                    error.remoteRejected = true;
+                    throw error;
+                }
+                await persistOwnerReviews([reviewRecord(command.event_id,'sheet_conflict',command.review_id,
+                    'accepted',command.context,command.decision,receipt)]);
+                delivered += 1;
+            } catch (error) {
+                try {
+                    await persistOwnerReviews([reviewRecord(command.event_id,'sheet_conflict',command.review_id,
+                        error.remoteRejected ? 'failed' : 'pending',command.context,command.decision,
+                        {error:String(error.message || 'request_failed')})]);
+                } catch (_ignored) {}
+            }
+        }
+        return {attempted:commands.length,delivered};
+    }
+
     function shell(title, description) {
         root.replaceChildren();
         const header = node('div', null, 'molavi-workflow-heading');
@@ -432,6 +472,18 @@
         const thisLoad = ++workbenchLoadId;
         workbenchRefresh.disabled = true;
         workbenchRefresh.textContent = 'در حال تازه‌سازی…';
+        try {
+            const outbox = await drainSheetConflictOutbox();
+            if (outbox.delivered) {
+                message = `${new Intl.NumberFormat('fa-IR').format(outbox.delivered)} تصمیم ذخیره‌شده در وردپرس به Railway تحویل شد.`;
+                messageKind = 'success';
+            }
+        } catch (_error) {
+            if (!message) {
+                message = 'صف تصمیم‌های ذخیره‌شده در وردپرس موقتاً خوانده نشد؛ موارد باز همچنان در انتظار می‌مانند.';
+                messageKind = 'warning';
+            }
+        }
         if (message) {
             workbenchLiveStatus.className = `notice notice-${messageKind} molavi-workbench-live-status`;
             workbenchLiveStatus.textContent = message;
@@ -848,19 +900,20 @@
                         : 'Owner confirmed this was a manual Sheet edit; publish it to WordPress.';
                     const decision = {choice,attempt_id:eventId,note};
                     try {
-                        await persistOwnerReviews([reviewRecord(eventId,'sheet_conflict',conflict.conflict_id,'pending',{},decision)]);
-                        const receipt = await request('POST',{conflict_id:conflict.conflict_id,choice,note},undefined,'sheet_conflicts');
+                        await persistOwnerReviews([reviewRecord(eventId,'sheet_conflict',conflict.conflict_id,'pending',conflict,decision)]);
+                        const receipt = await request('POST',{conflict_id:conflict.conflict_id,choice,note,
+                            expected_revision:conflict.source_revision},undefined,'sheet_conflicts');
                         if (receipt.conflict_id !== conflict.conflict_id || receipt.choice !== choice
                             || (serverOwned ? receipt.server_owned !== true : sheetPreserved ? receipt.sheet_preserved !== true : !receipt.publish_job)) throw new Error('invalid_receipt');
                         let warning = '';
-                        try { await persistOwnerReviews([reviewRecord(eventId,'sheet_conflict',conflict.conflict_id,'accepted',{},decision,receipt)]); }
+                        try { await persistOwnerReviews([reviewRecord(eventId,'sheet_conflict',conflict.conflict_id,'accepted',conflict,decision,receipt)]); }
                         catch (_error) { warning = ' تصمیم ثبت شد، اما رسید وردپرس هنوز همگام نشده است.'; }
                         const message = `${serverOwned ? 'مقدار سیستمی با سرور همگام شد.' : sheetPreserved ? 'مقدار اصلی شیت حفظ شد.' : 'اصلاح دستی به فروشگاه فرستاده شد.'}${warning}`;
                         updateActionStatus(progressStatus, message, warning ? 'warning' : 'success');
                         await dashboard(message, warning ? 'warning' : 'success',
                             ['sheet_conflicts','product_status','supplier_prices','operations']);
                     } catch (error) {
-                        try { await persistOwnerReviews([reviewRecord(eventId,'sheet_conflict',conflict.conflict_id,error.remoteRejected?'failed':'pending',{},decision,{error:String(error.message||'request_failed')})]); }
+                        try { await persistOwnerReviews([reviewRecord(eventId,'sheet_conflict',conflict.conflict_id,error.remoteRejected?'failed':'pending',conflict,decision,{error:String(error.message||'request_failed')})]); }
                         catch (_ignored) {}
                         if (error.message === 'source_changed' && error.responseBody
                             && error.responseBody.refreshed === true) {
@@ -3384,6 +3437,9 @@
         shell('تعارض‌های اطلاعات کالا', 'پیش‌فرض مقدار محاسبه‌شدهٔ Railway است. فقط اگر سلول شیت را دستی تغییر داده‌اید، همان اصلاح را به فروشگاه WordPress بفرستید؛ یادداشت و تأیید اضافه لازم نیست.');
         if (message) root.appendChild(notice(message, messageKind));
         try {
+            const outbox = await drainSheetConflictOutbox();
+            if (outbox.delivered) root.appendChild(notice(
+                `${new Intl.NumberFormat('fa-IR').format(outbox.delivered)} تصمیم ذخیره‌شده در وردپرس به Railway تحویل شد.`, 'success'));
             const data = await request();
             const conflicts = Array.isArray(data.conflicts) ? data.conflicts : [];
             let contextStored = true;
@@ -3433,8 +3489,9 @@
                             : 'Owner confirmed this was a manual Sheet edit; publish it to WordPress.'};
                     try {
                         await persistOwnerReviews([reviewRecord(eventId, 'sheet_conflict', conflict.conflict_id,
-                            'pending', {}, decision)]);
-                        const receipt = await request('POST', {conflict_id: conflict.conflict_id, choice, note:decision.note});
+                            'pending', conflict, decision)]);
+                        const receipt = await request('POST', {conflict_id: conflict.conflict_id, choice,
+                            note:decision.note, expected_revision:conflict.source_revision});
                         if (receipt.conflict_id !== conflict.conflict_id || receipt.choice !== choice
                             || (serverOwned ? receipt.server_owned !== true
                                 : sheetPreserved ? receipt.sheet_preserved !== true
@@ -3442,7 +3499,7 @@
                         let localWarning = '';
                         try {
                             await persistOwnerReviews([reviewRecord(eventId,
-                                'sheet_conflict', conflict.conflict_id, 'accepted', {}, decision, receipt)]);
+                                'sheet_conflict', conflict.conflict_id, 'accepted', conflict, decision, receipt)]);
                         } catch (_error) { localWarning = ' تصمیم در سرویس ثبت شد، اما وضعیت محلی وردپرس در انتظار همگام‌سازی است.'; }
                         const successMessage = serverOwned
                             ? 'مقدار سیستمی با مقدار Railway در شیت همگام شد.'
@@ -3453,7 +3510,8 @@
                     } catch (error) {
                         try {
                             await persistOwnerReviews([reviewRecord(eventId,
-                                'sheet_conflict', conflict.conflict_id, 'failed', {}, decision, {error:error.message})]);
+                                'sheet_conflict', conflict.conflict_id, error.remoteRejected ? 'failed' : 'pending',
+                                conflict, decision, {error:error.message})]);
                         } catch (_ignored) {}
                         if (error.message === 'source_changed' && error.responseBody
                             && error.responseBody.refreshed === true) {

@@ -16,6 +16,8 @@ from catalog.durable import compact_pipeline_payloads
 from app import (USE_SHEETS, _notice_chat_allowlists, _wake_reference_waiters_if_eligible,
                  build_store, handoff_queue, run_durable_handoff)
 from catalog.sheet_projection import observe_sheet_projection
+from catalog.wordpress_outbox import drain_sheet_conflict_outbox
+import requests
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser();parser.add_argument('--once',action='store_true')
@@ -84,10 +86,30 @@ if __name__=='__main__':
             _wake_reference_waiters_if_eligible(queue,reference_store)
         except Exception:
             print('Reference wait recovery failed; pending batches remain durable',file=sys.stderr)
+    site_url=(os.getenv('SHOP_SITE_URL') or '').strip().rstrip('/')
+    bridge_token=os.getenv('REFERENCE_BRIDGE_TOKEN') or ''
+    outbox_enabled=bool(site_url.startswith('https://') and len(bridge_token)>=32 and reference_owners)
+    if not outbox_enabled:
+        print('WordPress workflow outbox consumer disabled; required site URL, bridge token, or owner is missing',file=sys.stderr)
+    outbox_session=requests.Session()
+    try:local_api_port=int(os.getenv('PORT','8080'))
+    except ValueError:local_api_port=8080
+    local_sheet_conflicts_url=f'http://127.0.0.1:{local_api_port}/pipeline/sheet-conflicts'
+    def apply_wordpress_sheet_conflict(payload):
+        response=outbox_session.post(local_sheet_conflicts_url,json=payload,timeout=(3,20),headers={
+            'X-Molavi-Reference-Token':bridge_token,
+            'X-Molavi-Actor':reference_owners[0],
+        })
+        try:body=response.json()
+        except ValueError:body={}
+        return response.status_code,body if isinstance(body,dict) else {}
     try:poll_seconds=int(os.getenv('SHEET_SYNC_POLL_SECONDS','60'))
     except ValueError:poll_seconds=60
     poll_seconds=max(30,min(3600,poll_seconds))
-    last_poll=0.0;last_reference_check=0.0
+    try:outbox_poll_seconds=int(os.getenv('WP_WORKFLOW_OUTBOX_POLL_SECONDS','15'))
+    except ValueError:outbox_poll_seconds=15
+    outbox_poll_seconds=max(10,min(300,outbox_poll_seconds))
+    last_poll=0.0;last_reference_check=0.0;last_outbox_poll=0.0
     while True:
         if time.monotonic()-last_compaction>=24*60*60:
             compact_payloads()
@@ -110,6 +132,19 @@ if __name__=='__main__':
             except Exception:
                 print('Reference refresh scheduler failed; persistent incident check will retry',file=sys.stderr)
             last_reference_check=time.monotonic()
+        if outbox_enabled and (last_outbox_poll==0 or time.monotonic()-last_outbox_poll>=outbox_poll_seconds):
+            try:
+                outcome=drain_sheet_conflict_outbox(site_url,bridge_token,apply_wordpress_sheet_conflict,
+                    session=outbox_session,limit=5)
+                if outcome['delivered'] or outcome['retried'] or outcome['failed']:
+                    print('WordPress Sheet-conflict outbox: '
+                        f"claimed={outcome['claimed']} delivered={outcome['delivered']} "
+                        f"retried={outcome['retried']} failed={outcome['failed']}",file=sys.stderr)
+                elif outcome['error']:
+                    print('WordPress workflow outbox poll failed; will retry',file=sys.stderr)
+            except Exception:
+                print('WordPress workflow outbox poll failed; will retry',file=sys.stderr)
+            last_outbox_poll=time.monotonic()
         queue.set_worker_state(worker_id,'idle')
         worked=False
         if USE_SHEETS:

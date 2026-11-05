@@ -102,13 +102,20 @@ async function main() {
   };
   const calls = [];
   const storedReviewRows = [];
+  let pendingOutboxCommands = [];
+  let sheetConflictResponse = 'stale';
   const referenceAssignments = [];
   let mediaPreview = null;
   const fetch = async (url, options = {}) => {
     calls.push({url:String(url),options});
     if (String(url) === '/admin-ajax.php') {
-      const records = new URLSearchParams(options.body).get('records');
-      const parsed = JSON.parse(records);
+      const form = new URLSearchParams(options.body);
+      if (form.get('action') === 'molavi_owner_review_outbox_pending') {
+        const commands = pendingOutboxCommands;
+        pendingOutboxCommands = [];
+        return {ok:true,status:200,json:async()=>({success:true,data:{commands}})};
+      }
+      const parsed = JSON.parse(form.get('records'));
       storedReviewRows.push(...parsed);
       return {ok:true,status:200,json:async()=>({success:true,data:{stored:parsed.length}})};
     }
@@ -144,7 +151,12 @@ async function main() {
         next_cursor:null,has_more:false}})};
     }
     if (path.endsWith('/sheet-conflicts') && options.method === 'POST') {
+      const payload = JSON.parse(options.body);
       data['sheet-conflicts'].conflicts = [];
+      if (sheetConflictResponse === 'success') {
+        return {ok:true,status:200,json:async()=>({ok:true,conflict_id:payload.conflict_id,
+          choice:payload.choice,server_owned:false,sheet_preserved:false,publish_job:'publish:outbox-retry'})};
+      }
       return {ok:false,status:409,json:async()=>({ok:false,error:'source_changed',refreshed:true})};
     }
     if (path.endsWith('/supplier-price-evidence') && options.method === 'POST') {
@@ -292,6 +304,12 @@ async function main() {
   assert.equal(conflictAttemptRows[0].event_id,conflictAttemptRows[1].event_id,
     'the final conflict result updates the same WordPress event instead of stranding a pending record');
   assert.equal(conflictAttemptRows[1].state,'failed');
+  assert.equal(conflictAttemptRows[0].context.source_revision,'owner-confirm:owner-decision-1',
+    'the WordPress decision records the exact source revision before sending it to Railway');
+  const conflictSubmission = calls.find(item => item.options.method === 'POST'
+    && item.url === workflowApis.sheet_conflicts.url);
+  assert.equal(JSON.parse(conflictSubmission.options.body).expected_revision,'owner-confirm:owner-decision-1',
+    'the Sheet conflict command is bound to the revision shown in its card');
   for (const key of Object.keys(workflowApis)) {
     if (key === 'telegram_operators') continue; // write-only endpoint; pending rows arrive with operations state.
     const call = calls.find(item => item.url === workflowApis[key].url);
@@ -347,7 +365,23 @@ async function main() {
   data['ai-confirmations'].cases = [teaCase('a',680000,870000),teaCase('b',780000,1030000)];
   const refreshButton = walk(root).find(element => element.tagName === 'BUTTON'
     && element.textContent === 'به‌روزرسانی صف');
+  pendingOutboxCommands = [{event_id:'decision:sheet_conflict:sheet:retry:attempt',
+    review_type:'sheet_conflict',review_id:'sheet:retry',context:{source_revision:'revision-retry',
+      product_id:'product-1',field:'Consumer Price',base:50000,server:52000,sheet:53000},
+    decision:{choice:'sheet',note:'Owner confirmed manual Sheet edit.'},
+    payload:{conflict_id:'sheet:retry',choice:'sheet',note:'Owner confirmed manual Sheet edit.',
+      expected_revision:'revision-retry'},command_id:'b'.repeat(64)}];
+  sheetConflictResponse = 'success';
   await refreshButton.listeners.click();
+  const outboxRetry = calls.find(item => item.options.method === 'POST'
+    && item.url === workflowApis.sheet_conflicts.url
+    && JSON.parse(item.options.body).conflict_id === 'sheet:retry');
+  assert(outboxRetry,'a saved WordPress decision is retried through the Railway conflict endpoint on dashboard load');
+  assert.equal(JSON.parse(outboxRetry.options.body).expected_revision,'revision-retry',
+    'the retried outbox command keeps its expected conflict revision');
+  assert(storedReviewRows.some(item => item.event_id === 'decision:sheet_conflict:sheet:retry:attempt'
+    && item.state === 'accepted'),'the retry receipt updates the original WordPress decision event');
+  sheetConflictResponse = 'stale';
   const extractionQueue = walk(root).find(element => element.tagName === 'BUTTON'
     && element.textContent.startsWith('استخراج'));
   await extractionQueue.listeners.click();

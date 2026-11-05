@@ -117,6 +117,7 @@ class SheetSyncIntegrationTests(unittest.TestCase):
             self.assertEqual(published[0]['status'], 'hold')
             response = client.post('/pipeline/sheet-conflicts', headers=headers, json={
                 'conflict_id': conflict['conflict_id'], 'choice': 'server', 'note': 'supplier message verified',
+                'expected_revision': conflict['source_revision'],
             })
             self.assertEqual(len(client.get('/api/shop').get_json()['products']), 1)
 
@@ -137,6 +138,30 @@ class SheetSyncIntegrationTests(unittest.TestCase):
         self.assertNotEqual(open_conflicts[0]['conflict_id'], old_conflict['conflict_id'])
         self.assertEqual(self.queue.get_sheet_conflict(old_conflict['conflict_id'])['state'], 'superseded')
         self.assertEqual(cell(self.store, 'Consumer Price'), 69000)
+
+    def test_sheet_conflict_decision_rejects_an_old_expected_revision(self):
+        edit_cell(self.store, 'Consumer Price', 68000)
+        import_offer(self.store, 'batch-2', 'post-2', '۷۰,۰۰۰')
+        conflict = self.queue.sheet_sync_conflicts()[0]
+        import app
+        env = {'PIPELINE_DB_PATH': self.db_path, 'REFERENCE_OWNER_IDS': 'wp:7',
+               'REFERENCE_BRIDGE_TOKEN': TOKEN}
+        headers = {'X-Molavi-Reference-Token': TOKEN, 'X-Molavi-Actor': 'wp:7'}
+        with patch.dict(os.environ, env), patch.object(app, 'USE_SHEETS', True), \
+                patch.object(app, 'build_store', return_value=self.store):
+            client = app.app.test_client()
+            stale = client.post('/pipeline/sheet-conflicts', headers=headers, json={
+                'conflict_id': conflict['conflict_id'], 'choice': 'server', 'note': '',
+                'expected_revision': 'older-source-revision',
+            })
+            current = client.post('/pipeline/sheet-conflicts', headers=headers, json={
+                'conflict_id': conflict['conflict_id'], 'choice': 'server', 'note': '',
+                'expected_revision': conflict['source_revision'],
+            })
+        self.assertEqual(stale.status_code, 409)
+        self.assertEqual(stale.get_json()['error'], 'conflict_changed')
+        self.assertEqual(current.status_code, 200, current.get_json())
+        self.assertEqual(cell(self.store, 'Consumer Price'), 70000)
 
     def test_stale_conflict_resolution_refreshes_and_supersedes_obsolete_card(self):
         import app as server

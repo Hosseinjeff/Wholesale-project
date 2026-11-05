@@ -318,6 +318,51 @@ ref_assert($ai_review_row && $ai_review_row['state']==='accepted'
 ref_assert(json_decode($ai_review_row['context_json'],true)['decision_history'][0]['choice']==='not_product'
     && json_decode($ai_review_row['context_json'],true)['source_post_url']==='https://t.me/supplier/runtime',
     'WordPress retains source links and prior AI decision history');
+$sheet_decision_event=['event_id'=>'decision:sheet_conflict:runtime-attempt',
+    'review_type'=>'sheet_conflict','review_id'=>$sheet_conflict['conflict_id'],'state'=>'pending',
+    'context'=>$sheet_conflict,'decision'=>['choice'=>'server','note'=>'Keep current Railway value.']];
+ref_assert(molavi_owner_review_store_write($sheet_decision_event),
+    'Sheet conflict choice and outbox command are written into WordPress before remote delivery');
+$sheet_decision_id=hash('sha256',"sheet_conflict\0".$sheet_conflict['conflict_id']."\0".$sheet_conflict['source_revision']);
+$sheet_command_id=hash('sha256',"sheet_conflict\0".$sheet_decision_id);
+$sheet_decision_row=$wpdb->get_row($wpdb->prepare('SELECT * FROM '.molavi_workflow_decisions_table().' WHERE decision_id=%s',
+    $sheet_decision_id),ARRAY_A);
+$sheet_outbox_row=$wpdb->get_row($wpdb->prepare('SELECT * FROM '.molavi_workflow_outbox_table().' WHERE command_id=%s',
+    $sheet_command_id),ARRAY_A);
+ref_assert($sheet_decision_row && $sheet_decision_row['state']==='pending'
+    && $sheet_decision_row['expected_revision']==='offer-2'
+    && $sheet_outbox_row && $sheet_outbox_row['state']==='queued'
+    && json_decode($sheet_outbox_row['payload_json'],true)['expected_revision']==='offer-2',
+    'WordPress stores a normalized revision-bound decision and a durable queued command');
+$pending_sheet_commands=molavi_owner_review_store_pending_sheet_conflicts();
+ref_assert(is_array($pending_sheet_commands) && count($pending_sheet_commands)===1
+    && $pending_sheet_commands[0]['event_id']===$sheet_decision_event['event_id'],
+    'the owner workflow can recover an undelivered conflict command from WordPress');
+$worker_receipt=['ok'=>true,'conflict_id'=>$sheet_conflict['conflict_id'],'choice'=>'server','server_owned'=>true];
+ref_assert(molavi_owner_review_outbox_store_receipt(['command_id'=>$sheet_command_id,
+    'state'=>'delivered','receipt'=>$worker_receipt]),
+    'Railway can close the WordPress outbox with a verified, revision-bound receipt');
+$sheet_decision_row=$wpdb->get_row($wpdb->prepare('SELECT state FROM '.molavi_workflow_decisions_table().' WHERE decision_id=%s',
+    $sheet_decision_id),ARRAY_A);
+$sheet_outbox_row=$wpdb->get_row($wpdb->prepare('SELECT state FROM '.molavi_workflow_outbox_table().' WHERE command_id=%s',
+    $sheet_command_id),ARRAY_A);
+ref_assert($sheet_decision_row['state']==='accepted' && $sheet_outbox_row['state']==='delivered',
+    'Railway receipt atomically advances the normalized decision and outbox command');
+$sheet_decision_event['state']='accepted';
+$sheet_decision_event['receipt']=['conflict_id'=>$sheet_conflict['conflict_id'],'choice'=>'server'];
+ref_assert(molavi_owner_review_store_write($sheet_decision_event),
+    'a remote receipt advances the same WordPress decision and outbox command');
+$sheet_decision_row=$wpdb->get_row($wpdb->prepare('SELECT state FROM '.molavi_workflow_decisions_table().' WHERE decision_id=%s',
+    $sheet_decision_id),ARRAY_A);
+$sheet_outbox_row=$wpdb->get_row($wpdb->prepare('SELECT state FROM '.molavi_workflow_outbox_table().' WHERE command_id=%s',
+    $sheet_command_id),ARRAY_A);
+ref_assert($sheet_decision_row['state']==='accepted' && $sheet_outbox_row['state']==='delivered'
+    && molavi_owner_review_store_pending_sheet_conflicts()===[],
+    'accepted conflict receipts close the WordPress outbox and prevent duplicate replay');
+$changed_sheet_decision=$sheet_decision_event;
+$changed_sheet_decision['decision']=['choice'=>'sheet','note'=>'Changed after submission.'];
+ref_assert(!molavi_owner_review_store_write($changed_sheet_decision),
+    'the same conflict revision cannot be silently changed to a competing owner choice');
 $reference_item_event=['event_id'=>'context:reference_item:item:runtime-case',
     'review_type'=>'reference_item','review_id'=>'item:runtime-case','state'=>'observed',
     'context'=>['offer_id'=>'runtime-offer:1','snapshot_id'=>'runtime-snapshot',
