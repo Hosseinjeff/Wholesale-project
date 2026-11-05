@@ -610,6 +610,7 @@ def _finalize_batch(store: MemoryStore | GoogleSheetStore, payload: dict[str, An
                 "AI Review Case IDs": "",
                 "AI Processed At": "",
                 "Image File ID": message.get("image_file_id") or "",
+                "Image File Unique ID": message.get("image_file_unique_id") or "",
                 "Media Group ID": message.get("media_group_id") or "",
             })
             key = tuple(str(row[i] or "") for i in indices)
@@ -776,7 +777,9 @@ def refresh_ai_message_status(store, message):
     if case_ids:
         status='needs_confirmation'
     elif not current:
-        status='no_product_candidate'
+        has_media=bool(message.get('has_media') or message.get('image_file_id'))
+        has_text=bool(str(message.get('content') or '').strip())
+        status='needs_media_review' if has_media and not has_text else 'no_product_candidate'
     elif all(str(offer.get('Status') or '').strip().lower()=='not_product' for offer in current):
         if all(str(offer.get('Owner Decision ID') or '').strip() for offer in current):
             status='owner_rejected'
@@ -923,7 +926,8 @@ def import_product_data(
 
 def reextract_saved_message(store, payload: dict[str, Any], *, write_lock=None) -> dict[str, Any]:
     """Re-run extraction for one saved source and let quality checks decide review."""
-    from catalog.ai_confirmations import AIConfirmationLedger, reextraction_source_key, review_cases
+    from catalog.ai_confirmations import (AIConfirmationLedger, reextraction_message_key,
+        reextraction_source_key, review_cases)
     from catalog.launch_policies import BLOCKING_AGE
     from catalog.supplier_freshness import infer_legacy_source_timestamp_basis, source_datetime
     message_id=str(payload.get('message_id') or '')
@@ -1015,9 +1019,14 @@ def reextract_saved_message(store, payload: dict[str, Any], *, write_lock=None) 
             return {'ok':True,'message_id':message_id,'status':'source_changed',
                     'products_found':0,'offers_written':0,'open_cases_remaining':0}
         source=matches[0]
-        identity=json.dumps([message_id,batch_id,channel_username,expected_hash,timestamp],
-            ensure_ascii=False,separators=(',',':'))
-        if hashlib.sha256(identity.encode()).hexdigest()!=message_key:
+        media_identity=(str(source.get('Image File Unique ID') or '').strip()
+            or str(source.get('Image File ID') or '').strip())
+        saved_media_review=str(payload.get('reextraction_scope') or '')=='media_review'
+        identity=reextraction_message_key({'message_id':message_id,'batch_id':batch_id,
+            'channel_username':channel_username,'timestamp':timestamp,
+            'content':source.get('Content') or '',
+            'media_identity':media_identity if saved_media_review or not str(source.get('Content') or '').strip() else ''})
+        if identity!=message_key:
             raise ValueError('invalid_re-extraction_identity')
         source_key=reextraction_source_key(
             source_url=source.get('URL'),channel=channel_username,message_id=message_id,
@@ -1026,14 +1035,39 @@ def reextract_saved_message(store, payload: dict[str, Any], *, write_lock=None) 
     if not str(source.get('Source Timestamp Basis') or '').strip():
         source=dict(source)
         source['Source Timestamp Basis']=infer_legacy_source_timestamp_basis(source)
-    content=str(source.get('Content') or '')
-    if not content.strip():
-        return {'ok':True,'message_id':message_id,'status':'no_text','products_found':0,
-                'offers_written':0,'open_cases_remaining':0}
+    source_content=str(source.get('Content') or '')
+    content=source_content
+    media_ocr_text=''
+    media_ocr=str(payload.get('reextraction_scope') or '')=='media_review'
+    if media_ocr or not content.strip():
+        image_file_id=str(source.get('Image File ID') or '').strip()
+        if not image_file_id:
+            return {'ok':True,'message_id':message_id,'status':'no_text','products_found':0,
+                    'offers_written':0,'open_cases_remaining':0}
+        from catalog.media import fetch_telegram_image
+        from catalog.gemini import extract_text_from_image
+        try:
+            image_bytes,mime_type=fetch_telegram_image(image_file_id)
+        except ValueError as exc:
+            status='media_unsupported' if str(exc)=='telegram_media_unsupported' else 'media_unavailable'
+            return {'ok':True,'message_id':message_id,'status':status,'products_found':0,
+                    'offers_written':0,'open_cases_remaining':0}
+        media_ocr_text=extract_text_from_image(image_bytes,mime_type,caption=source_content)
+        if not media_ocr_text.strip() and not source_content.strip():
+            return {'ok':True,'message_id':message_id,'status':'ocr_empty','products_found':0,
+                    'offers_written':0,'open_cases_remaining':0}
+        content='\n'.join(part for part in (source_content,media_ocr_text) if part.strip())
+        media_ocr=True
     products=_extract_supplier_products(content,channel_username)
     if not products:
-        return {'ok':True,'message_id':message_id,'status':'no_products','products_found':0,
+        return {'ok':True,'message_id':message_id,'status':'ocr_no_products' if media_ocr else 'no_products','products_found':0,
                 'offers_written':0,'open_cases_remaining':int(payload.get('case_count') or 0)}
+    if media_ocr:
+        for product in products:
+            product['needs_review']=True
+            prior_reason=str(product.get('review_reason') or '').strip()
+            product['review_reason']='; '.join(part for part in
+                (prior_reason,'Image OCR requires owner verification') if part)
     stage_batch_id=f'reextract:{run_id}:{message_key}'
     source_stamp=source_datetime(source.get('Timestamp'))
     now=datetime.now(timezone.utc)
@@ -1046,7 +1080,8 @@ def reextract_saved_message(store, payload: dict[str, Any], *, write_lock=None) 
                 (prior_reason,'Historical price needs current supplier verification') if part)
     data={
         'id':message_id,'batch_id':stage_batch_id,'channel':source.get('Channel') or '',
-        'channel_username':channel_username,'content':content,'timestamp':source.get('Timestamp') or '',
+        'channel_username':channel_username,'content':source_content,'media_ocr_text':media_ocr_text,
+        'timestamp':source.get('Timestamp') or '',
         'source_timestamp_basis':source.get('Source Timestamp Basis') or '',
         'url':source.get('URL') or '',
         'forwarded_by':source.get('Forwarded By') or '',
@@ -1660,7 +1695,10 @@ def _replace_sheet_rows(store, name: str, headers: list[str], rows: list[list[An
 
 
 def _fill_message_from_sheet(store, data: dict[str, Any]) -> None:
-    if data.get("channel_username") and data.get("channel") and data.get("content"):
+    fields_from_sheet=("channel","channel_username","content","source_timestamp_basis",
+                       "url","timestamp","has_media","media_type","image_file_id",
+                       "image_file_unique_id","media_group_id")
+    if all(data.get(key) not in (None, "") for key in fields_from_sheet):
         return
     rows = store.read("MessageData")
     if len(rows) < 2:
@@ -1680,6 +1718,13 @@ def _fill_message_from_sheet(store, data: dict[str, Any]) -> None:
                 data["content"] = row[indexes["Content"]] or ""
             if not data.get("source_timestamp_basis") and "Source Timestamp Basis" in indexes and indexes["Source Timestamp Basis"] < len(row):
                 data["source_timestamp_basis"] = row[indexes["Source Timestamp Basis"]] or ""
+            for key, header in (("url","URL"),("timestamp","Timestamp"),
+                ("media_type","Media Type"),("image_file_id","Image File ID"),
+                ("image_file_unique_id","Image File Unique ID"),("media_group_id","Media Group ID")):
+                if not data.get(key) and header in indexes and indexes[header] < len(row):
+                    data[key]=row[indexes[header]] or ""
+            if not data.get("has_media") and "Has Media" in indexes and indexes["Has Media"] < len(row):
+                data["has_media"]=str(row[indexes["Has Media"]] or "").strip().lower() in {"true","1","yes"}
             return
 
 
@@ -2351,6 +2396,7 @@ def _offer_fields(product: dict[str, Any], message: dict[str, Any], offer_id: st
         "Owner Decision ID": "",
         "Owner Decision Actor": "",
         "Owner Decision At": "",
+        "Media OCR Text": message.get("media_ocr_text") or "",
         "Detected Price": product.get("detected_price") if product.get("detected_price") is not None else "",
         "Price Anchor Type": product.get("price_anchor_type") or "",
         "Price Anchor ID": product.get("price_anchor_id") or "",

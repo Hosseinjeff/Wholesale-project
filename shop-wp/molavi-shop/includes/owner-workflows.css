@@ -49,6 +49,12 @@
 #molavi-owner-workflow .molavi-reextract-panel { border-inline-start:4px solid #f97316; }
 #molavi-owner-workflow .molavi-reextract-current-check { display:flex; flex-direction:row; align-items:center; gap:.5rem; width:100%; min-width:0; }
 #molavi-owner-workflow .molavi-reextract-current-check input { min-width:0; }
+#molavi-owner-workflow .molavi-media-review { margin:1rem 0; padding:.75rem; border:1px solid #dba617; border-radius:8px; background:#fcf9e8; }
+#molavi-owner-workflow .molavi-media-review-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,18rem),1fr)); gap:.65rem; }
+#molavi-owner-workflow .molavi-media-review-card { display:grid; grid-template-columns:6rem minmax(0,1fr); gap:.65rem; align-items:start; padding:.6rem; border:1px solid #dcdcde; border-radius:6px; background:#fff; min-width:0; }
+#molavi-owner-workflow .molavi-media-review-card img { width:6rem; height:6rem; object-fit:cover; border-radius:4px; background:#f0f0f1; }
+#molavi-owner-workflow .molavi-media-review-details { display:flex; flex-direction:column; align-items:flex-start; gap:.35rem; min-width:0; overflow-wrap:anywhere; }
+#molavi-owner-workflow .molavi-media-review-details pre { max-width:100%; max-height:12rem; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; }
 #molavi-owner-workflow .molavi-ai-case-select { display:flex; flex-direction:row; align-items:center; gap:.5rem; min-width:0; margin-bottom:.5rem; }
 #molavi-owner-workflow .molavi-ai-case-select input,
 #molavi-owner-workflow .molavi-bulk-select-all input { min-width:0; width:auto; }
@@ -58,6 +64,7 @@
 #molavi-owner-workflow .molavi-ai-variant-list li { padding:.35rem .6rem; border-radius:1rem; background:#f0f6fc; }
 #molavi-owner-workflow .molavi-ai-product-attributes { display:flex; flex-wrap:wrap; gap:.4rem; margin:.5rem 0; }
 #molavi-owner-workflow .molavi-ai-product-attributes span { padding:.35rem .6rem; border-radius:1rem; background:#f6f7f7; }
+#molavi-owner-workflow .molavi-ai-source-image { display:block; width:min(100%,24rem); max-height:24rem; object-fit:contain; margin:.75rem 0; border:1px solid #dcdcde; border-radius:6px; background:#f6f7f7; }
 #molavi-owner-workflow .molavi-ai-reference-candidates { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,17rem),1fr)); gap:.5rem; margin:.5rem 0; line-height:1.6; }
 #molavi-owner-workflow .molavi-ai-reference-candidates > strong,
 #molavi-owner-workflow .molavi-ai-reference-candidates > p { grid-column:1/-1; margin:.15rem 0; }

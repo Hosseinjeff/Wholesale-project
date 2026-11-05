@@ -20,7 +20,33 @@ class Element {
       this.className = [...names].join(' ');
     }};
   }
-  appendChild(child) { this.childNodes.push(child); return child; }
+  appendChild(child) { this.childNodes.push(child); child.parentNode=this; return child; }
+  insertBefore(child, reference) {
+    const index=this.childNodes.indexOf(reference);
+    if (index<0) return this.appendChild(child);
+    this.childNodes.splice(index,0,child); child.parentNode=this; return child;
+  }
+  remove() {
+    if (this.parentNode) this.parentNode.childNodes=this.parentNode.childNodes.filter(child=>child!==this);
+  }
+  contains(candidate) { return this===candidate || this.childNodes.some(child=>child instanceof Element && child.contains(candidate)); }
+  querySelector(selector) {
+    const className=String(selector || '').startsWith('.') ? String(selector).slice(1) : '';
+    const visit=element=>{
+      if (className && element.className.split(/\s+/).includes(className)) return element;
+      for (const child of element.childNodes) {
+        if (child instanceof Element) { const match=visit(child); if (match) return match; }
+      }
+      return null;
+    };
+    return visit(this);
+  }
+  replaceWith(replacement) {
+    if (!this.parentNode) return;
+    const siblings=this.parentNode.childNodes;
+    const index=siblings.indexOf(this);
+    if (index>=0) { siblings.splice(index,1,replacement); replacement.parentNode=this.parentNode; }
+  }
   append(...children) { children.forEach(child => this.appendChild(child)); }
   prepend(child) { this.childNodes.unshift(child); }
   replaceChildren(...children) { this.childNodes = [...children]; }
@@ -77,6 +103,7 @@ async function main() {
   const calls = [];
   const storedReviewRows = [];
   const referenceAssignments = [];
+  let mediaPreview = null;
   const fetch = async (url, options = {}) => {
     calls.push({url:String(url),options});
     if (String(url) === '/admin-ajax.php') {
@@ -86,6 +113,28 @@ async function main() {
       return {ok:true,status:200,json:async()=>({success:true,data:{stored:parsed.length}})};
     }
     const path = new URL(String(url),base).pathname;
+    if (path.endsWith('/ai-confirmations') && new URL(String(url),base).searchParams.get('reextract') === 'preview') {
+      return {ok:true,status:200,json:async()=>({ok:true,...mediaPreview})};
+    }
+    if (path.endsWith('/ai-confirmations') && new URL(String(url),base).searchParams.get('reextract') === 'run') {
+      const runId=new URL(String(url),base).searchParams.get('run_id');
+      return {ok:true,status:200,json:async()=>({ok:true,run_id:runId,state:'complete',
+        total:1,completed:1,counts:{done:1},scope:'media_review',case_count:0,digest:'',
+        outcomes:{reprocessed:1},products_found:1,offers_written:1,open_cases_remaining:1,
+        catalog_publication:{state:'done',result:{ok:true,pushed:true}}})};
+    }
+    if (path.endsWith('/ai-confirmations') && options.method === 'POST'
+        && JSON.parse(options.body).action === 'start_media_reextraction') {
+      const payload=JSON.parse(options.body);
+      return {ok:true,status:202,json:async()=>({ok:true,run_id:payload.run_id,queued:1,
+        message_key:payload.message_key,scope:'media_review'})};
+    }
+    if (path.endsWith('/ai-confirmations') && options.method === 'POST'
+        && JSON.parse(options.body).action === 'dismiss_media_message') {
+      const payload=JSON.parse(options.body);
+      return {ok:true,status:200,json:async()=>({ok:true,decision_id:payload.message_key,
+        choice:'not_product',message_id:'photo-message'})};
+    }
     if (path.endsWith('/operations-dashboard') && new URL(String(url),base).searchParams.get('cursor') === 'cursor-next') {
       return {ok:true,status:200,json:async()=>({ok:true,operations:{...data.operations.operations,
         items:[{id:'publish:queue-2',kind:'publish',state:'failed',attempts:8,error:'catalog_write_failed',
@@ -709,6 +758,68 @@ async function main() {
     && row.context && row.context.target_job_id === 'batch:failed-1');
   assert(singleBatchEvents.some(row => row.state === 'pending') && singleBatchEvents.some(row => row.state === 'accepted'),
     'the per-batch action and its verification receipt are durably audited in WordPress');
+
+  const mediaMessageKey='a'.repeat(64);
+  mediaPreview={counts:{media_review:1,pending:0,all_available:0,without_text:1,
+      no_product_candidates:0,owner_decisions_preserved:0,dismissed_by_owner:0,already_staged:0},
+    ai_configured:true,pending_digest:'b'.repeat(64),media_review_digest:'c'.repeat(64),
+    media_review_total:1,media_review_after:'',media_review_next_after:null,
+    media_review_messages:[{message_id:'photo-message',batch_id:'photo-batch',
+      channel_username:'@supplier',channel:'telegram',timestamp:'2026-11-05T10:00:00Z',
+      source_post_url:'https://t.me/supplier/21',media_type:'photo',
+      image_file_id:'AgACAgQAAxkBAAIB',image_file_unique_id:'photo-unique',message_key:mediaMessageKey}],
+    open_cases:{case_count:0,message_count:0,unmatched_case_count:0,digest:'d'.repeat(64)},active_run:null};
+  data['ai-confirmations']={cases:[],recent_decisions:[]};
+  const mediaRoot=new Element('div');
+  const mediaDocument={...document,getElementById:id=>id==='molavi-owner-workflow'?mediaRoot:null};
+  const mediaWindow={...window,molaviOwnerWorkflow:{...window.molaviOwnerWorkflow,
+      page:'molavi-ai-confirmations',apiUrl:base+'/pipeline/ai-confirmations',
+      token:'scoped-ai-confirmations'}};
+  mediaWindow.parent=mediaWindow;
+  vm.runInNewContext(fs.readFileSync(workflowScriptPath,'utf8'),
+    {window:mediaWindow,document:mediaDocument,fetch,URL,Intl,Map,Set,Promise,TextEncoder,Date,Math,
+      Number,String,Boolean,Array,Object,Error,Uint8Array,URLSearchParams,console,setTimeout:()=>0,clearTimeout:()=>{}});
+  for (let attempt=0; attempt<20; attempt++) {
+    if (mediaRoot.text.includes('رسانه‌های بدون متن')) break;
+    await new Promise(resolve=>setTimeout(resolve,0));
+  }
+  assert.match(mediaRoot.text,/رسانه‌های بدون متن \(1\)/,
+    'photo-only messages are visible as a distinct source-review queue');
+  const mediaImage=walk(mediaRoot).find(element=>element.tagName==='IMG');
+  assert(mediaImage && mediaImage.src.includes('/media/file/AgACAgQAAxkBAAIB'),
+    'the owner can preview the saved Telegram image without typing an identifier');
+  const runMediaOcr=walk(mediaRoot).find(element=>element.tagName==='BUTTON'
+    && element.textContent==='بازخوانی OCR و استخراج');
+  assert(runMediaOcr && !runMediaOcr.disabled,
+    'the image card exposes one-click OCR only when server extraction is configured');
+  await runMediaOcr.listeners.click();
+  for (let attempt=0; attempt<20; attempt++) {
+    if (mediaRoot.text.includes('پیشنهادها در بررسی کالا نمایش داده می‌شوند')) break;
+    await new Promise(resolve=>setTimeout(resolve,0));
+  }
+  const ocrRequest=calls.find(item=>new URL(item.url,base).pathname.endsWith('/ai-confirmations')
+    && item.options.method==='POST'
+    && JSON.parse(item.options.body).action==='start_media_reextraction');
+  assert(ocrRequest,'the OCR action queues image processing through the authenticated server route');
+  assert.equal(JSON.parse(ocrRequest.options.body).message_key,mediaMessageKey,
+    'the OCR action is bound to the exact image review identity');
+  assert.match(mediaRoot.text,/پیشنهادها در بررسی کالا نمایش داده می‌شوند/,
+    'the completed OCR card clearly directs offers to manual extraction review');
+  assert.match(mediaRoot.text,/هیچ قیمت یا کالایی با OCR تأیید نهایی نمی‌شود/,
+    'the owner sees that OCR cannot approve price or publication');
+  const ocrEvents=storedReviewRows.filter(row=>row.review_type==='ai_media_review'
+    && row.review_id===mediaMessageKey && row.event_id.startsWith('media-ocr:'));
+  assert(ocrEvents.some(row=>row.state==='pending') && ocrEvents.some(row=>row.state==='accepted'),
+    'the OCR request and terminal processing receipt are saved in the WordPress review database');
+  const rejectMedia=walk(mediaRoot).find(element=>element.tagName==='BUTTON'
+    && element.textContent==='این پیام کالا نیست');
+  assert(rejectMedia,'the photo-only card offers an explicit owner decision');
+  await rejectMedia.listeners.click();
+  assert.match(mediaRoot.text,/تصمیم ثبت شد؛ سابقه آن در وردپرس ذخیره شد/);
+  const mediaEvents=storedReviewRows.filter(row=>row.review_type==='ai_media_review'
+    && row.review_id===mediaMessageKey);
+  assert(mediaEvents.some(row=>row.state==='pending') && mediaEvents.some(row=>row.state==='accepted'),
+    'the photo decision and server receipt are saved in the WordPress review database');
 }
 
 main().catch(error => { console.error(error); process.exitCode = 1; });

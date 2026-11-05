@@ -23,6 +23,22 @@ messages received before identity capture was deployed were already acknowledged
 the old webhook and did not preserve the sender ID; one new message from the second
 account is needed to create its approval card.
 
+## Failed-batch recovery — 2026-11-05
+
+Railway commit `c0f474efdb4f0dbbb1081bd7ebca21635dca6782` is live in deployment
+`abc6c35f-1f1c-4eb0-ae8c-e543a9fd0b7e` (`SUCCESS`); `/health` returned HTTP 200 and
+the worker and web processes entered `RUNNING`. WordPress commit
+`899e1662eeb9d72a5c11f6c99c2aeb8c59b6f343` deployed and read back the updated owner
+workbench JavaScript through cPanel.
+
+Failed batches of every error class now appear in owner recovery. The owner can reconcile
+all visible failures in one guarded catalog sync or select one receipt from its queue row.
+The server closes only selected batches whose complete set of source messages is saved
+with a terminal AI status and whose current catalog sync is fully verified. Incomplete
+sources remain failed with their error receipt. Validation passed 73 focused Python tests
+and the owner workbench Node interaction and syntax checks. No live catalog sync or data
+mutation was performed.
+
 ## Historical price registration after reference assignment — 2026-11-04
 
 The open `آبمیوه تکه میوه سانی نس،۲۴ عددی` case is a historical re-extraction. Its

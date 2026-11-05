@@ -174,6 +174,37 @@ class GuardRecoveryTests(unittest.TestCase):
    self.assertEqual(response.get_json()['error'],'batch_not_reconciled')
    self.assertEqual(queue.publication_holds()[0]['hold_id'],hold_id)
 
+ def test_no_replay_reconciliation_accepts_captured_media_pending_its_own_review(self):
+  import os,app
+  from unittest.mock import patch
+  with tempfile.TemporaryDirectory() as directory:
+   path=str(Path(directory)/'queue.sqlite');queue=Handoffs(path)
+   hold_id='photo-review-hold';message_id='photo-source-1'
+   queue.put('batch',hold_id,{'batch_id':hold_id,'expected_count':1,'messages':[
+       {'id':message_id,'channel_username':'@supplier','content':'','has_media':True,
+        'image_file_id':'AgACAgQAAxkBAAIB'}]})
+   with queue.connect() as db:
+    db.execute("UPDATE jobs SET state='failed',error='JobConflict',result=NULL WHERE id=?",('batch:'+hold_id,))
+   queue.hold_publication(hold_id,'batch_in_progress')
+   store=MemoryStore();store.ensure('MessageData',MESSAGE_HEADERS);store.ensure('Offers',OFFER_HEADERS)
+   store.append('MessageData',[_row_from_map(MESSAGE_HEADERS,{
+       'ID':message_id,'Channel Username':'@supplier','Content':'','Batch ID':hold_id,
+       'Has Media':True,'Media Type':'photo','Image File ID':'AgACAgQAAxkBAAIB',
+       'AI Status':'needs_media_review','AI Processed At':'2026-11-05T10:00:00Z'})])
+   secret='synthetic-reference-token-1234567890'
+   headers={'X-Molavi-Reference-Token':secret,'X-Molavi-Actor':'wp:7'}
+   body={'hold_id':hold_id,'expected_reason':'batch_in_progress',
+       'note':'The photo source is saved in its separate owner review queue.',
+       'resume_batch':False,'expected_batch_state':'failed','expected_batch_error':'JobConflict'}
+   with patch.dict(os.environ,{'PIPELINE_DB_PATH':path,'REFERENCE_OWNER_IDS':'wp:7','REFERENCE_BRIDGE_TOKEN':secret}), \
+       patch.object(app,'USE_SHEETS',True),patch.object(app,'handoff_queue',return_value=queue), \
+       patch.object(app,'build_store',return_value=store):
+    response=app.app.test_client().post('/pipeline/publication-holds',headers=headers,json=body)
+   self.assertEqual(response.status_code,200,response.get_json())
+   self.assertTrue(response.get_json()['reconciled'])
+   self.assertFalse(response.get_json()['batch_resumed'])
+   self.assertEqual(queue.publication_holds(),[])
+
  def test_no_replay_reconciliation_accepts_legacy_ai_review_offers_without_message_row(self):
   import os,app
   from unittest.mock import patch

@@ -32,6 +32,7 @@ MESSAGE_HEADERS = [
     "Status",
     "Batch ID",
     "Image File ID",
+    "Image File Unique ID",
     "Media Group ID",
     "AI Status",
     "AI Review Case IDs",
@@ -152,6 +153,7 @@ OFFER_HEADERS = [
     "Price Scale Reason",
     "Historical Median Unit Price",
     "Category Reference Count",
+    "Media OCR Text",
 ]
 
 ITEM_HEADERS = [

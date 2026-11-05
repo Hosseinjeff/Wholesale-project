@@ -80,6 +80,100 @@ class OwnerWorkflowBrowserAPITests(unittest.TestCase):
             self.assertEqual(decisions.status_code, 200, decisions.get_json())
             self.assertEqual(decisions.get_json()['events'], [])
 
+    def test_photo_only_source_is_visible_and_can_be_explicitly_dismissed(self):
+        import app as server
+        from catalog.extract import OFFER_HEADERS, PRODUCT_HEADERS, MESSAGE_HEADERS
+        from catalog.sync import MemoryStore, _row_from_map, _records
+        queue=Handoffs(self.db_path)
+        store=MemoryStore()
+        store.ensure('Offers',OFFER_HEADERS)
+        store.ensure('Products',PRODUCT_HEADERS)
+        store.ensure('MessageData',MESSAGE_HEADERS)
+        media_rows=[_row_from_map(MESSAGE_HEADERS,{
+            'ID':f'photo-msg-{index}','Channel':'telegram','Channel Username':'@supplier','Content':'',
+            'Timestamp':'2026-11-05T10:00:00Z','Status':'product','Batch ID':f'photo-batch-{index}',
+            'Has Media':True,'Media Type':'photo','Image File ID':f'AgACAgQAAxkBAAIB{index}',
+            'Image File Unique ID':f'photo-unique-{index}','AI Status':'needs_media_review'})
+            for index in range(13)]
+        store.append('MessageData',media_rows)
+        env={'PIPELINE_DB_PATH':self.db_path,'REFERENCE_OWNER_IDS':'wp:7',
+            'REFERENCE_BRIDGE_TOKEN':self.secret}
+        auth={'Authorization':'Bearer '+owner_token(self.secret,scope='owner:/pipeline/ai-confirmations')}
+        with patch.dict(os.environ,env),patch.object(server,'USE_SHEETS',True), \
+                patch.object(server,'handoff_queue',return_value=queue), \
+                patch.object(server,'build_store',return_value=store):
+            client=server.app.test_client()
+            preview=client.get('/pipeline/ai-confirmations?reextract=preview',headers=auth)
+            self.assertEqual(preview.status_code,200,preview.get_json())
+            media=preview.get_json()['media_review_messages']
+            self.assertEqual(len(media),12)
+            self.assertEqual(preview.get_json()['media_review_total'],13)
+            cursor=preview.get_json()['media_review_next_after']
+            self.assertIsInstance(cursor,str)
+            next_page=client.get('/pipeline/ai-confirmations?reextract=preview&media_after='+cursor,
+                headers=auth)
+            self.assertEqual(next_page.status_code,200,next_page.get_json())
+            final_media=next_page.get_json()['media_review_messages']
+            self.assertEqual(len(final_media),1)
+            self.assertFalse({item['message_key'] for item in media}
+                & {item['message_key'] for item in final_media})
+            selected=media[0]
+            decision=client.post('/pipeline/ai-confirmations',headers=auth,json={
+                'action':'dismiss_media_message','message_key':selected['message_key']})
+            self.assertEqual(decision.status_code,200,decision.get_json())
+            self.assertEqual(decision.get_json()['choice'],'not_product')
+            _,messages=_records(store.read('MessageData'))
+            self.assertEqual(next(row for row in messages if row['ID']==selected['message_id'])['AI Status'],'owner_rejected')
+            repeat=client.post('/pipeline/ai-confirmations',headers=auth,json={
+                'action':'dismiss_media_message','message_key':selected['message_key']})
+            self.assertEqual(repeat.status_code,200,repeat.get_json())
+            self.assertTrue(repeat.get_json()['already_decided'])
+
+    def test_photo_ocr_action_queues_the_exact_reviewed_caption_source(self):
+        import app as server
+        from catalog.extract import OFFER_HEADERS, PRODUCT_HEADERS, MESSAGE_HEADERS
+        from catalog.sync import MemoryStore, _row_from_map
+        queue=Handoffs(self.db_path)
+        store=MemoryStore()
+        store.ensure('Offers',OFFER_HEADERS)
+        store.ensure('Products',PRODUCT_HEADERS)
+        store.ensure('MessageData',MESSAGE_HEADERS)
+        store.append('MessageData',[_row_from_map(MESSAGE_HEADERS,{
+            'ID':'photo-message-ocr','Channel':'telegram','Channel Username':'@supplier',
+            'Content':'لطفاً متن روی عکس را بررسی کنید','Timestamp':'2026-11-05T10:00:00Z','Status':'product',
+            'Batch ID':'photo-batch-ocr','Has Media':True,'Media Type':'photo',
+            'Image File ID':'AgACAgQAAxkBAAIB','Image File Unique ID':'photo-unique-ocr',
+            'AI Status':'no_product_candidate'})])
+        env={'PIPELINE_DB_PATH':self.db_path,'REFERENCE_OWNER_IDS':'wp:7',
+            'REFERENCE_BRIDGE_TOKEN':self.secret,'GOOGLE_API_KEY':'synthetic-gemini-key'}
+        auth={'Authorization':'Bearer '+owner_token(self.secret,scope='owner:/pipeline/ai-confirmations')}
+        with patch.dict(os.environ,env),patch.object(server,'USE_SHEETS',True), \
+                patch.object(server,'handoff_queue',return_value=queue), \
+                patch.object(server,'build_store',return_value=store), \
+                patch.object(server.threading,'Thread') as worker:
+            client=server.app.test_client()
+            preview=client.get('/pipeline/ai-confirmations?reextract=preview',headers=auth)
+            self.assertEqual(preview.status_code,200,preview.get_json())
+            item=preview.get_json()['media_review_messages'][0]
+            run_id='e'*32
+            queued=client.post('/pipeline/ai-confirmations',headers=auth,json={
+                'action':'start_media_reextraction','message_key':item['message_key'],
+                'run_id':run_id})
+
+        self.assertEqual(queued.status_code,202,queued.get_json())
+        self.assertEqual(queued.get_json()['queued'],1)
+        self.assertEqual(queued.get_json()['scope'],'media_review')
+        worker.assert_called_once()
+        worker.return_value.start.assert_called_once()
+        job=queue.get('reextract:'+run_id+':'+item['message_key'])
+        self.assertEqual(job['state'],'queued')
+        payload=json.loads(job['payload'])
+        self.assertEqual(payload['image_file_unique_id'],'photo-unique-ocr')
+        self.assertEqual(payload['reextraction_scope'],'media_review')
+        self.assertEqual(payload['content'],'لطفاً متن روی عکس را بررسی کنید')
+        self.assertEqual(payload['content_sha256'],hashlib.sha256(
+            payload['content'].encode()).hexdigest())
+
     def test_open_ai_case_can_be_linked_to_reference_before_price_confirmation(self):
         import app as server
         from catalog.ai_confirmations import AIConfirmationLedger, review_cases

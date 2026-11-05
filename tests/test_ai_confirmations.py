@@ -321,6 +321,151 @@ class AIConfirmationTests(unittest.TestCase):
         self.assertEqual(inventory['counts']['no_product_candidates'],1)
         self.assertEqual(inventory['pending_messages'][0]['ai_status'],'no_product_candidate')
 
+    def test_photo_only_message_remains_in_media_review_until_owner_decision(self):
+        store=MemoryStore()
+        store.ensure('Offers',OFFER_HEADERS)
+        store.ensure('MessageData',MESSAGE_HEADERS)
+        store.append('MessageData',[_row_from_map(MESSAGE_HEADERS,{
+            'ID':'msg-photo','Channel':'telegram','Channel Username':'@supplier','Content':'',
+            'Timestamp':'2026-11-05T10:00:00Z','Status':'product','Batch ID':'batch-photo',
+            'Has Media':True,'Media Type':'photo','Image File ID':'AgACAgQAAxkBAAIB',
+            'Image File Unique ID':'photo-unique-1','AI Status':'pending_ai'})])
+
+        self.assertTrue(refresh_ai_message_status(store,{'id':'msg-photo','batch_id':'batch-photo',
+            'channel':'telegram','has_media':True}))
+        _,messages=_records(store.read('MessageData'))
+        self.assertEqual(messages[0]['AI Status'],'needs_media_review')
+        inventory=reextraction_inventory(store,self.ledger)
+        self.assertEqual(inventory['counts']['media_review'],1)
+        item=inventory['media_review_messages'][0]
+        self.assertEqual(item['image_file_unique_id'],'photo-unique-1')
+        self.assertEqual(inventory['counts']['pending'],0)
+
+        decision=self.ledger.dismiss_message(item,actor_id='wp:7')
+        self.assertEqual(decision['message_key'],item['message_key'])
+        self.assertEqual(reextraction_inventory(store,self.ledger)['counts']['media_review'],0)
+
+    def test_photo_only_dismissal_identity_uses_saved_media_id(self):
+        from catalog.ai_confirmations import reextraction_message_key
+        first={'message_id':'photo-msg','batch_id':'photo-batch','channel_username':'@supplier',
+            'timestamp':'2026-11-05T10:00:00Z','content':'','image_file_unique_id':'photo-1'}
+        second={**first,'image_file_unique_id':'photo-2'}
+        self.assertNotEqual(reextraction_message_key(first),reextraction_message_key(second))
+
+        saved=self.ledger.dismiss_message(first,actor_id='wp:7')
+        repeated=self.ledger.dismiss_message(first,actor_id='wp:7')
+        self.assertEqual(saved['message_key'],repeated['message_key'])
+
+    def test_photo_with_failed_caption_extraction_uses_only_the_media_review_queue(self):
+        from catalog.ai_confirmations import reextraction_message_key
+        caption='لطفاً متن روی عکس را بررسی کنید'
+        store=MemoryStore()
+        store.ensure('Offers',OFFER_HEADERS)
+        store.ensure('MessageData',MESSAGE_HEADERS)
+        store.append('MessageData',[_row_from_map(MESSAGE_HEADERS,{
+            'ID':'photo-caption','Channel':'telegram','Channel Username':'@supplier',
+            'Content':caption,'Timestamp':'2026-11-05T10:00:00Z','Status':'product',
+            'Batch ID':'photo-caption-batch','Has Media':True,'Media Type':'photo',
+            'Image File ID':'AgACAgQAAxkBAAIB','Image File Unique ID':'photo-caption-unique',
+            'AI Status':'no_product_candidate'})])
+
+        inventory=reextraction_inventory(store,self.ledger)
+
+        self.assertEqual(inventory['counts']['media_review'],1)
+        self.assertEqual(inventory['counts']['no_product_candidates'],1)
+        self.assertEqual(inventory['pending_messages'],[],
+            'a caption that already produced no candidate must not also appear as a text-only retry')
+        item=inventory['media_review_messages'][0]
+        self.assertEqual(item['content'],caption)
+        self.assertEqual(item['image_file_unique_id'],'photo-caption-unique')
+        self.assertEqual(item['message_key'],reextraction_message_key({
+            **item,'media_identity':item['media_identity']}))
+
+    def test_photo_ocr_reextraction_attaches_transcript_and_keeps_offer_in_review(self):
+        from catalog.ai_confirmations import reextraction_message_key
+        from catalog.sync import reextract_saved_message
+        content='آبمیوه تتراپک سون، ۲۲۰ میلی لیتر\nقیمت فروش ما: ۱۸/۵۰۰ تومان'
+        timestamp=datetime.now(timezone.utc).isoformat()
+        store=MemoryStore()
+        store.ensure('Offers',OFFER_HEADERS)
+        store.ensure('Products',PRODUCT_HEADERS)
+        store.ensure('MessageData',MESSAGE_HEADERS)
+        store.append('MessageData',[_row_from_map(MESSAGE_HEADERS,{
+            'ID':'photo-ocr-1','Channel':'telegram','Channel Username':'@supplier',
+            'Content':'','Timestamp':timestamp,'Source Timestamp Basis':'supplier_post',
+            'Status':'product','Batch ID':'photo-batch-1','AI Status':'needs_media_review',
+            'Has Media':True,'Media Type':'photo','Image File ID':'AgACAgQAAxkBAAIB',
+            'Image File Unique ID':'photo-ocr-unique','URL':'https://t.me/supplier/21'})])
+        item=reextraction_inventory(store,self.ledger)['media_review_messages'][0]
+        payload={**item,'content_sha256':hashlib.sha256(b'').hexdigest(),
+            'run_id':'d'*32,'actor_id':'wp:7'}
+        payload['message_key']=reextraction_message_key(payload)
+        transcript='آبمیوه تتراپک سون، ۲۲۰ میلی لیتر\nقیمت فروش ما: ۱۸/۵۰۰ تومان'
+        product={'name':'آبمیوه تتراپک سون، ۲۲۰ میلی لیتر','sale_price':18500,
+            'price':18500,'actual_price':50000,'consumer_price':50000,
+            'price_type':'unit','currency':'IRT','confidence':0.99,
+            'extraction_confidence':0.99,'stock_status':'Unknown'}
+        with patch.dict(os.environ,{'PIPELINE_DB_PATH':self.path},clear=True), \
+                patch('catalog.media.fetch_telegram_image',return_value=(b'image','image/jpeg')) as fetch, \
+                patch('catalog.gemini.extract_text_from_image',return_value=transcript) as ocr, \
+                patch('catalog.sync._extract_supplier_products',return_value=[product]) as extract:
+            result=reextract_saved_message(store,payload)
+
+        self.assertEqual(result['status'],'reprocessed')
+        fetch.assert_called_once_with('AgACAgQAAxkBAAIB')
+        ocr.assert_called_once_with(b'image','image/jpeg',caption='')
+        extract.assert_called_once_with(transcript,'@supplier')
+        _,offers=_records(store.read('Offers'))
+        self.assertEqual(len(offers),1)
+        self.assertEqual(offers[0]['Original Message'],'')
+        self.assertEqual(offers[0]['Media OCR Text'],transcript)
+        self.assertEqual(offers[0]['Image File Unique ID'],'photo-ocr-unique')
+        self.assertEqual(offers[0]['Status'],'needs_review')
+        self.assertIn('Image OCR requires owner verification',offers[0]['Review Reason'])
+        cases=review_cases(store,AIConfirmationLedger(self.path))
+        self.assertEqual(len(cases),1)
+        self.assertEqual(cases[0]['media_ocr_text'],transcript)
+        self.assertEqual(cases[0]['original_message'],'')
+        _,messages=_records(store.read('MessageData'))
+        self.assertEqual(messages[0]['AI Status'],'needs_confirmation')
+
+    def test_media_ocr_reextraction_combines_caption_with_image_text(self):
+        from catalog.ai_confirmations import reextraction_message_key
+        from catalog.sync import reextract_saved_message
+        caption='لطفاً قیمت و نام کالا را از عکس بخوانید'
+        transcript='آبمیوه تتراپک سون، ۲۲۰ میلی لیتر\nقیمت فروش ما: ۱۸/۵۰۰ تومان'
+        timestamp=datetime.now(timezone.utc).isoformat()
+        store=MemoryStore()
+        store.ensure('Offers',OFFER_HEADERS)
+        store.ensure('Products',PRODUCT_HEADERS)
+        store.ensure('MessageData',MESSAGE_HEADERS)
+        store.append('MessageData',[_row_from_map(MESSAGE_HEADERS,{
+            'ID':'photo-caption-ocr','Channel':'telegram','Channel Username':'@supplier',
+            'Content':caption,'Timestamp':timestamp,'Source Timestamp Basis':'supplier_post',
+            'Status':'product','Batch ID':'photo-caption-ocr-batch',
+            'Has Media':True,'Media Type':'photo','Image File ID':'AgACAgQAAxkBAAIB',
+            'Image File Unique ID':'photo-caption-ocr-unique','AI Status':'no_product_candidate'})])
+        item=reextraction_inventory(store,self.ledger)['media_review_messages'][0]
+        payload={**item,'content_sha256':hashlib.sha256(caption.encode()).hexdigest(),
+            'reextraction_scope':'media_review','run_id':'f'*32,'actor_id':'wp:7'}
+        payload['message_key']=reextraction_message_key(payload)
+        product={'name':'آبمیوه تتراپک سون، ۲۲۰ میلی لیتر','sale_price':18500,
+            'price':18500,'actual_price':50000,'consumer_price':50000,
+            'price_type':'unit','currency':'IRT','confidence':0.99,
+            'extraction_confidence':0.99,'stock_status':'Unknown'}
+        with patch.dict(os.environ,{'PIPELINE_DB_PATH':self.path},clear=True), \
+                patch('catalog.media.fetch_telegram_image',return_value=(b'image','image/jpeg')), \
+                patch('catalog.gemini.extract_text_from_image',return_value=transcript), \
+                patch('catalog.sync._extract_supplier_products',return_value=[product]) as extract:
+            result=reextract_saved_message(store,payload)
+
+        self.assertEqual(result['status'],'reprocessed')
+        extract.assert_called_once_with(caption+'\n'+transcript,'@supplier')
+        _,offers=_records(store.read('Offers'))
+        self.assertEqual(offers[0]['Original Message'],caption)
+        self.assertEqual(offers[0]['Media OCR Text'],transcript)
+        self.assertEqual(offers[0]['Status'],'needs_review')
+
     def test_model_not_product_output_is_not_treated_as_owner_rejection(self):
         store=MemoryStore()
         store.ensure('Offers',OFFER_HEADERS)

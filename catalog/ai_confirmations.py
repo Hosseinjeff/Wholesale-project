@@ -33,8 +33,12 @@ class AIConfirmationLedger:
             db.execute('''CREATE TABLE IF NOT EXISTS ai_message_dismissals (
                 message_key TEXT PRIMARY KEY, message_id TEXT NOT NULL, batch_id TEXT NOT NULL,
                 channel_username TEXT NOT NULL, source_timestamp TEXT NOT NULL,
-                content_sha256 TEXT NOT NULL, actor_id TEXT NOT NULL, note TEXT NOT NULL,
+                content_sha256 TEXT NOT NULL, media_unique_id TEXT NOT NULL DEFAULT '',
+                actor_id TEXT NOT NULL, note TEXT NOT NULL,
                 created_at REAL NOT NULL)''')
+            columns={str(row['name']) for row in db.execute('PRAGMA table_info(ai_message_dismissals)')}
+            if 'media_unique_id' not in columns:
+                db.execute("ALTER TABLE ai_message_dismissals ADD COLUMN media_unique_id TEXT NOT NULL DEFAULT ''")
             db.execute('''CREATE TABLE IF NOT EXISTS ai_source_reextractions (
                 source_key TEXT PRIMARY KEY, batch_id TEXT NOT NULL, outcome TEXT NOT NULL,
                 run_id TEXT NOT NULL, actor_id TEXT NOT NULL, completed_at REAL NOT NULL)''')
@@ -88,6 +92,12 @@ class AIConfirmationLedger:
             rows = db.execute('SELECT message_key FROM ai_message_dismissals').fetchall()
         return {str(row['message_key']) for row in rows}
 
+    def message_dismissal(self, message_key):
+        with self.connect() as db:
+            row=db.execute('SELECT * FROM ai_message_dismissals WHERE message_key=?',
+                           (str(message_key or ''),)).fetchone()
+        return dict(row) if row else None
+
     def record_source_reextraction(self, *, source_key, batch_id, outcome, run_id, actor_id):
         if (not isinstance(source_key, str) or not re.fullmatch(r'[a-f0-9]{64}', source_key)
                 or not isinstance(batch_id, str) or not batch_id.startswith('reextract:')
@@ -123,28 +133,31 @@ class AIConfirmationLedger:
             channel = str(message.get('channel_username') or '')
             timestamp = str(message.get('timestamp') or '')
             content = str(message.get('content') or '')
-            if not message_id or not content.strip():
+            media_identity=str(message.get('media_identity') or message.get('image_file_unique_id')
+                or message.get('image_file_id') or '')
+            if not message_id or (not content.strip() and not media_identity):
                 raise ValueError('invalid_dismissal_identity')
             content_sha256 = hashlib.sha256(content.encode()).hexdigest()
             message_key = reextraction_message_key({
                 'message_id': message_id, 'batch_id': batch_id,
                 'channel_username': channel, 'timestamp': timestamp, 'content': content,
+                'media_identity':media_identity,
             })
-            prepared.append((message_key,message_id,batch_id,channel,timestamp,content_sha256))
+            prepared.append((message_key,message_id,batch_id,channel,timestamp,content_sha256,media_identity))
         rows=[]
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
-            for message_key,message_id,batch_id,channel,timestamp,content_sha256 in prepared:
+            for message_key,message_id,batch_id,channel,timestamp,content_sha256,media_identity in prepared:
                 db.execute('''INSERT OR IGNORE INTO ai_message_dismissals
                     (message_key,message_id,batch_id,channel_username,source_timestamp,
-                     content_sha256,actor_id,note,created_at) VALUES (?,?,?,?,?,?,?,?,?)''',
-                    (message_key,message_id,batch_id,channel,timestamp,content_sha256,
+                     content_sha256,media_unique_id,actor_id,note,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)''',
+                    (message_key,message_id,batch_id,channel,timestamp,content_sha256,media_identity,
                      actor_id,note.strip(),time.time()))
                 row=db.execute('SELECT * FROM ai_message_dismissals WHERE message_key=?',
                                (message_key,)).fetchone()
                 if not row or (row['message_id'],row['batch_id'],row['channel_username'],
                                row['source_timestamp'],row['content_sha256']) != (
-                        message_id,batch_id,channel,timestamp,content_sha256):
+                        message_id,batch_id,channel,timestamp,content_sha256) or str(row['media_unique_id'] or '')!=media_identity:
                     raise ConfirmationConflict('message dismissal identity changed')
                 rows.append(dict(row))
         return rows
@@ -239,6 +252,9 @@ def _as_case(offer, ledger, *, include_decided=False):
         'message_timestamp': str(offer.get('Message Timestamp') or ''),
         'source_post_url': str(offer.get('Source Post URL') or ''),
         'original_message': str(offer.get('Original Message') or ''),
+        'media_ocr_text': str(offer.get('Media OCR Text') or ''),
+        'image_file_id': str(offer.get('Image File ID') or ''),
+        'image_file_unique_id': str(offer.get('Image File Unique ID') or ''),
         'brand': str(offer.get('Brand') or ''),
         'category': str(offer.get('Category') or ''),
         'variation_type': str(offer.get('Variation Type') or ''),
@@ -496,11 +512,15 @@ def review_cases(store, ledger, *, include_history=False, limit=200, reference_s
 
 def reextraction_message_key(message):
     content_sha256 = hashlib.sha256(str(message.get('content') or '').encode()).hexdigest()
-    identity = json.dumps([
+    identity = [
         str(message.get('message_id') or ''), str(message.get('batch_id') or ''),
         str(message.get('channel_username') or ''), content_sha256,
         str(message.get('timestamp') or ''),
-    ], ensure_ascii=False, separators=(',', ':'))
+    ]
+    media_unique_id=str(message.get('media_identity') or message.get('image_file_unique_id') or '')
+    if media_unique_id:
+        identity.append(media_unique_id)
+    identity = json.dumps(identity, ensure_ascii=False, separators=(',', ':'))
     return hashlib.sha256(identity.encode()).hexdigest()
 
 
@@ -614,6 +634,7 @@ def reextraction_inventory(store, ledger=None):
     seen=set()
     candidates=[]
     pending=[]
+    media_review=[]
     no_content=0
     excluded_owner=0
     explicitly_rejected=0
@@ -630,12 +651,22 @@ def reextraction_inventory(store, ledger=None):
         content=str(message.get('Content') or '')
         if not message_id:
             continue
-        identity=(message_id,batch_id,channel,content)
+        image_file_id=str(message.get('Image File ID') or '').strip()
+        image_unique_id=str(message.get('Image File Unique ID') or '').strip() or image_file_id
+        media_type=str(message.get('Media Type') or 'image').strip()
+        media_group_id=str(message.get('Media Group ID') or '').strip()
+        has_media=(str(message.get('Has Media') or '').strip().lower() in {'true','1','yes'}
+                   or bool(image_file_id))
+        media_identity=image_unique_id or (f'group:{media_group_id}' if media_group_id
+            else f'type:{media_type}' if has_media else '')
+        identity=(message_id,batch_id,channel,content,image_unique_id)
         if identity in seen:
             continue
         seen.add(identity)
         marker=(message_id,channel)
         ai_status=str(message.get('AI Status') or '').strip().lower()
+        media_no_product=ai_status in {'no_product_candidate','not_product'}
+        media_review_needed=(has_media and (not content.strip() or media_no_product))
         source_key=reextraction_source_key(
             source_url=message.get('URL'),channel=channel,message_id=message_id,
             timestamp=str(message.get('Timestamp') or ''),content=content)
@@ -645,6 +676,7 @@ def reextraction_inventory(store, ledger=None):
         message_key=reextraction_message_key({
             'message_id':message_id,'batch_id':batch_id,'channel_username':channel,
             'timestamp':str(message.get('Timestamp') or ''),'content':content,
+            'media_identity':media_identity if media_review_needed else '',
         })
         if message_key in dismissed_keys:
             dismissed_by_owner+=1
@@ -659,8 +691,23 @@ def reextraction_inventory(store, ledger=None):
         if marker in staged:
             already_staged+=1
             continue
-        if not content.strip():
-            no_content+=1
+        if media_review_needed:
+            if not content.strip():
+                no_content+=1
+            media_review.append({
+                'message_id':message_id,'batch_id':batch_id,'channel_username':channel,
+                'channel':str(message.get('Channel') or ''),
+                'timestamp':str(message.get('Timestamp') or ''),
+                'source_post_url':str(message.get('URL') or ''),
+                'content':content,
+                'media_type':media_type,
+                'media_group_id':media_group_id,
+                'image_file_id':image_file_id,'image_file_unique_id':image_unique_id,
+                'media_identity':media_identity,
+                'message_key':message_key,
+            })
+            if media_no_product:
+                no_product_candidates+=1
             continue
         item={
             'message_id':message_id,'batch_id':batch_id,'channel_username':channel,
@@ -678,8 +725,10 @@ def reextraction_inventory(store, ledger=None):
     return {
         'all_messages':candidates,
         'pending_messages':pending,
+        'media_review_messages':media_review,
         'counts':{
             'all_available':len(candidates),'pending':len(pending),'without_text':no_content,
+            'media_review':len(media_review),
             'owner_decisions_preserved':excluded_owner,'not_product_preserved':explicitly_rejected,
             'no_product_candidates':no_product_candidates,
             'already_staged':already_staged,'already_reprocessed':already_reprocessed,

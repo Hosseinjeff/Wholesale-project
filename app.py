@@ -418,6 +418,13 @@ def _drain_reextraction_run(queue, run_id):
 
 batch_manager = None
 
+# This is source-ingestion completion, not product approval or publication. A
+# photo-only source is safely staged when it enters its separate owner-review queue.
+_SOURCE_TERMINAL_AI_STATUSES = frozenset({
+    'needs_confirmation', 'needs_media_review', 'ai_processed',
+    'no_product_candidate', 'owner_rejected', 'not_product',
+})
+
 def extract_forward_data(message):
     """Extract data from forwarded Telegram message."""
     forward_origin = message.get('forward_origin', {})
@@ -986,8 +993,7 @@ def publication_holds_route():
                             continue
                         row=matches[0]
                         ai_state=str(row.get('AI Status') or '').strip().lower()
-                        if (ai_state not in {'needs_confirmation','ai_processed','no_product_candidate',
-                                             'owner_rejected','not_product'}
+                        if (ai_state not in _SOURCE_TERMINAL_AI_STATUSES
                                 or not str(row.get('AI Processed At') or '').strip()):
                             return jsonify({"ok":False,"error":"batch_not_reconciled"}),409
                         if ai_state=='needs_confirmation':
@@ -1138,8 +1144,7 @@ def _batch_sources_reconciled(store, queue, job_id):
             continue
         row=matches[0]
         ai_state=str(row.get('AI Status') or '').strip().lower()
-        if (ai_state not in {'needs_confirmation','ai_processed','no_product_candidate',
-                             'owner_rejected','not_product'}
+        if (ai_state not in _SOURCE_TERMINAL_AI_STATUSES
                 or not str(row.get('AI Processed At') or '').strip()):
             return False
         if ai_state=='needs_confirmation':
@@ -2206,9 +2211,32 @@ def ai_confirmations_route():
                 pending_digest=hashlib.sha256(json.dumps(
                     sorted(item['message_key'] for item in inventory['pending_messages']),
                     separators=(',',':')).encode()).hexdigest()
+                media_items=inventory.get('media_review_messages') or []
+                media_digest=hashlib.sha256(json.dumps(
+                    sorted(item['message_key'] for item in media_items),
+                    separators=(',',':')).encode()).hexdigest()
+                media_items.sort(key=lambda item:str(item.get('message_key') or ''))
+                media_after=str(request.args.get('media_after') or '')
+                if media_after and not re.fullmatch(r'[a-f0-9]{64}',media_after):
+                    return jsonify({'ok':False,'error':'invalid_media_page'}),400
+                media_limit=12
+                eligible=(item for item in media_items if str(item.get('message_key') or '')>media_after)
+                media_page=[]
+                for item in eligible:
+                    media_page.append(item)
+                    if len(media_page)>=media_limit:
+                        break
+                media_next=(str(media_page[-1]['message_key']) if media_page
+                    and any(str(item.get('message_key') or '')>str(media_page[-1]['message_key'])
+                            for item in media_items) else None)
                 response=jsonify({'ok':True,'counts':inventory['counts'],
                     'ai_configured':ai_extraction_configured(),
                     'pending_digest':pending_digest,
+                    'media_review_digest':media_digest,
+                    'media_review_messages':media_page,
+                    'media_review_total':len(media_items),
+                    'media_review_after':media_after,
+                    'media_review_next_after':media_next,
                     'open_cases':{
                         'case_count':open_case_inventory['case_count'],
                         'message_count':open_case_inventory['message_count'],
@@ -2323,6 +2351,67 @@ def ai_confirmations_route():
                 'case_count':expected_cases,'message_count':expected_messages,'scope':'open_cases'})
             response.headers['Cache-Control']='no-store'
             return response,202
+        if isinstance(body,dict) and body.get('action')=='start_media_reextraction':
+            if set(body)!={'action','message_key','run_id'}:
+                return jsonify({'ok':False,'error':'invalid_media_reextraction'}),400
+            message_key=body.get('message_key')
+            run_id=body.get('run_id')
+            if (not isinstance(message_key,str) or not re.fullmatch(r'[a-f0-9]{64}',message_key)
+                    or not isinstance(run_id,str) or not re.fullmatch(r'[a-f0-9]{32}',run_id)):
+                return jsonify({'ok':False,'error':'invalid_media_reextraction'}),400
+            if not ai_extraction_configured():
+                return jsonify({'ok':False,'error':'ai_extraction_unconfigured'}),409
+            try:
+                with queue.publication_lock():
+                    if queue.active_reextraction_run():
+                        return jsonify({'ok':False,'error':'reextraction_active'}),409
+                    inventory=reextraction_inventory(store,ledger)
+                    item=next((candidate for candidate in inventory.get('media_review_messages',[])
+                        if candidate.get('message_key')==message_key),None)
+                    if not item:
+                        return jsonify({'ok':False,'error':'stale_media_review'}),409
+                    payload={**item,'content_sha256':hashlib.sha256(
+                        str(item.get('content') or '').encode()).hexdigest(),
+                        'reextraction_scope':'media_review'}
+                    queued=queue.enqueue_reextraction(run_id,actor,[payload])
+            except JobConflict as exc:
+                if str(exc).startswith('re-extraction run already active:'):
+                    return jsonify({'ok':False,'error':'reextraction_active'}),409
+                return jsonify({'ok':False,'error':'reextraction_conflict'}),409
+            threading.Thread(target=_drain_reextraction_run,args=(queue,run_id),
+                name='owner-media-reextract',daemon=True).start()
+            response=jsonify({'ok':True,'run_id':run_id,'queued':queued,
+                'message_key':message_key,'scope':'media_review'})
+            response.headers['Cache-Control']='no-store'
+            return response,202
+        if isinstance(body,dict) and body.get('action')=='dismiss_media_message':
+            if set(body)!={'action','message_key'}:
+                return jsonify({'ok':False,'error':'invalid_media_decision'}),400
+            message_key=body.get('message_key')
+            if not isinstance(message_key,str) or not re.fullmatch(r'[a-f0-9]{64}',message_key):
+                return jsonify({'ok':False,'error':'invalid_media_decision'}),400
+            with queue.publication_lock():
+                if queue.active_reextraction_run():
+                    return jsonify({'ok':False,'error':'reextraction_active'}),409
+                existing=ledger.message_dismissal(message_key)
+                if existing:
+                    response=jsonify({'ok':True,'decision_id':message_key,'already_decided':True,
+                        'choice':'not_product','message_id':existing.get('message_id')})
+                    response.headers['Cache-Control']='no-store'
+                    return response
+                inventory=reextraction_inventory(store,ledger)
+                item=next((candidate for candidate in inventory.get('media_review_messages',[])
+                           if candidate.get('message_key')==message_key),None)
+                if not item:
+                    return jsonify({'ok':False,'error':'stale_media_review'}),409
+                decision=ledger.dismiss_message(item,actor_id=actor)
+                from catalog.sync import _write_ai_message_status
+                _write_ai_message_status(store,{'id':item['message_id'],'batch_id':item['batch_id'],
+                    'channel':item['channel']},'owner_rejected',[])
+            response=jsonify({'ok':True,'decision_id':decision['message_key'],
+                'choice':'not_product','message_id':item['message_id']})
+            response.headers['Cache-Control']='no-store'
+            return response
         if isinstance(body,dict) and body.get('action')=='dismiss_pending_messages':
             if set(body)!={'action','expected_count','expected_digest','note'}:
                 return jsonify({'ok':False,'error':'invalid_dismissal_request'}),400

@@ -81,6 +81,26 @@ product rows, or Sheet values were changed. The latest live account-enrollment r
 been acknowledged by the previous webhook and cannot supply the sender ID. A new message
 after enrollment capture is live is still needed to create the dashboard approval card.
 
+## 2026-11-05 Failed-batch recovery
+
+Railway commit `c0f474efdb4f0dbbb1081bd7ebca21635dca6782` is live in deployment
+`abc6c35f-1f1c-4eb0-ae8c-e543a9fd0b7e` (`SUCCESS`). `/health` returned HTTP 200, and
+both `pipeline-worker` and `web` entered `RUNNING`. WordPress commit
+`899e1662eeb9d72a5c11f6c99c2aeb8c59b6f343` deployed and read back
+`includes/owner-workflows.js` byte-for-byte through cPanel.
+
+The operations endpoint now includes failed batches regardless of the error class.
+The owner workbench offers one bulk reconciliation control and a separate action on
+each failed batch receipt. Each action first records a pending WordPress audit event,
+then syncs the current Sheet catalog through the guarded WooCommerce path. A selected
+batch closes only if every expected source row is present and its AI status is terminal;
+otherwise its failure stays visible. The final receipt retains the original failure code.
+
+Validation passed: 73 focused Python tests and the owner workbench Node interaction and
+syntax checks. The tests cover generic complete failures, incomplete sources that remain
+open, selecting one receipt from a larger backlog, and WordPress audit receipts. No live
+catalog sync, product decision, Sheet update, or WooCommerce change was performed.
+
 ## Live baseline before the product-streamline integrity release — 2026-11-04
 
 Railway deployment `ae46c5fd-4f9f-45b7-bdfe-088fb25fe662` runs backend commit `566bfb8` and is

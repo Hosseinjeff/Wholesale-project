@@ -114,6 +114,9 @@
             unknown_reextraction_run: 'اجرای بازاستخراج پیدا نشد؛ فهرست را تازه کنید.',
             reextraction_sources_unavailable: 'بعضی کارت‌ها به پیام اصلی متصل نیستند؛ چیزی اجرا نشد تا منبع همه موارد مشخص شود.',
             reextraction_conflict: 'صف بازاستخراج تغییر کرده است؛ صفحه را تازه کنید و دوباره تلاش کنید.',
+            stale_media_review: 'این رسانه تغییر کرده یا قبلاً تعیین تکلیف شده است؛ فهرست را تازه کنید.',
+            invalid_media_decision: 'درخواست تصمیم رسانه معتبر نیست؛ فهرست را تازه کنید.',
+            invalid_media_page: 'صفحه رسانه‌ها معتبر نیست؛ فهرست را تازه کنید.',
             reextraction_price_not_verified: 'برای ثبت نهایی، قیمت را در منبع فعلی بررسی و گزینهٔ بررسی قیمت را علامت بزنید.',
             package_count_required: 'برای انتخاب قیمت بسته، تعداد در بسته یا کارتن باید مشخص باشد.',
             unknown_reference: 'این مرجع در نسخه فعال فهرست نیست؛ فهرست را تازه کنید.'
@@ -158,6 +161,17 @@
     }
 
     function storedReviewContext(type, context) {
+        if (type === 'ai_media_review' && context && typeof context === 'object') {
+            return {
+                message_id:String(context.message_id || '').slice(0, 100),
+                batch_id:String(context.batch_id || '').slice(0, 300),
+                channel:String(context.channel || '').slice(0, 100),
+                timestamp:String(context.timestamp || '').slice(0, 60),
+                source_post_url:String(context.source_post_url || '').slice(0, 500),
+                media_type:String(context.media_type || '').slice(0, 40),
+                image_file_unique_id:String(context.image_file_unique_id || '').slice(0, 300)
+            };
+        }
         if (type === 'ai_reextraction' && context && typeof context === 'object') {
             return {
                 run_id:String(context.run_id || '').slice(0, 64),
@@ -197,6 +211,8 @@
                 batch_id:String(context.batch_id || '').slice(0, 300),
                 message_timestamp:String(context.message_timestamp || '').slice(0, 60),
                 source_post_url:String(context.source_post_url || '').slice(0, 500),
+                media_ocr_text:String(context.media_ocr_text || '').slice(0, 3000),
+                image_file_unique_id:String(context.image_file_unique_id || '').slice(0, 300),
                 product_name:String(context.product_name || '').slice(0, 1000),
                 reason:String(context.reason || '').slice(0, 2000),
                 sale_price:context.sale_price || '', detected_price:context.detected_price || '',
@@ -2018,6 +2034,21 @@
             item.historical_reextract ? 'باز کردن پیام مبدأ (تاریخی)'
                 : sourcePostUrl && sourcePostUrl !== item.source_post_url ? 'باز کردن پست تلگرام' : 'باز کردن پیام اصلی');
         if (originalPost) card.appendChild(originalPost);
+        if (item.image_file_id) {
+            const sourceImage=node('img',null,'molavi-ai-source-image');
+            sourceImage.src=new URL('/media/file/'+encodeURIComponent(String(item.image_file_id)),config.apiUrl).toString();
+            sourceImage.alt='תמונת منبع پیشنهاد'; sourceImage.loading='lazy'; sourceImage.decoding='async';
+            sourceImage.referrerPolicy='no-referrer';
+            sourceImage.onerror=()=>sourceImage.remove();
+            card.appendChild(sourceImage);
+        }
+        if (item.media_ocr_text) {
+            card.appendChild(notice('این متن از روی تصویر خوانده شده و هنوز تصمیم نهایی نیست؛ نام و همه مبلغ‌ها را با عکس مقایسه کنید.','warning'));
+            const ocrDetails=document.createElement('details');
+            ocrDetails.appendChild(node('summary','متن خوانده‌شده از تصویر (OCR)'));
+            ocrDetails.appendChild(node('pre',item.media_ocr_text));
+            card.appendChild(ocrDetails);
+        }
         if (item.historical_reextract) {
             const recentSupplierPosts = safeSourceLink(aiSourceChannelUrl(item), 'دیدن پست‌های جدیدتر تأمین‌کننده');
             if (recentSupplierPosts) card.appendChild(recentSupplierPosts);
@@ -2253,6 +2284,19 @@
             if (status.state === 'complete') {
                 const outcomes = status.outcomes || {};
                 box.appendChild(node('p', `کالاهای استخراج‌شده: ${status.products_found || 0} · ردیف‌های ثبت‌شده: ${status.offers_written || 0} · موارد باقی‌مانده برای بررسی: ${status.open_cases_remaining || 0} · پیام بدون نتیجه: ${outcomes.no_products || 0}`));
+                const mediaOcrRun=Boolean(auditContext && auditContext.media_review_key);
+                if (mediaOcrRun) {
+                    const labels={reprocessed:'متن تصویر استخراج شد؛ پیشنهادها در بررسی کالا نمایش داده می‌شوند.',
+                        ocr_empty:'متن خوانایی از تصویر پیدا نشد؛ پیام برای بررسی دستی باز می‌ماند.',
+                        ocr_no_products:'متن خوانده شد اما پیشنهاد کالایی پیدا نشد؛ پیام برای بررسی دستی باز می‌ماند.',
+                        media_unavailable:'تصویر از تلگرام در دسترس نیست؛ پیام برای بررسی دستی باز می‌ماند.',
+                        media_unsupported:'نوع این رسانه برای OCR پشتیبانی نمی‌شود؛ پیام برای بررسی باز می‌ماند.',
+                        no_text:'متن و تصویر قابل بازخوانی در پیام نیست؛ پیام برای بررسی باز می‌ماند.'};
+                    Object.entries(outcomes).forEach(([outcome,count])=>{
+                        if (labels[outcome] && count) box.appendChild(notice(labels[outcome],'warning'));
+                    });
+                    if (status.offers_written) box.appendChild(notice('هیچ قیمت یا کالایی با OCR تأیید نهایی نمی‌شود؛ عکس، متن خوانده‌شده و همه قیمت‌ها را در کارت استخراج با هم بررسی کنید.','warning'));
+                }
                 const publicationState = String((status.catalog_publication || {}).state || '');
                 if (status.offers_written > 0) {
                     const publicationLabel = publicationState === 'done' ? 'همگام‌سازی با وردپرس کامل شد.'
@@ -2266,13 +2310,19 @@
                 if (counts.cancelled) box.appendChild(node('p', 'کارهای در صف لغو شدند؛ پیامِ در حال اجرا ممکن است کامل شده باشد.'));
                 box.appendChild(node('p', 'نتیجه‌های روشن و تازه با کنترل کیفیت ثبت شدند؛ موردهای نامطمئن و قیمت‌های قدیمی در همین فهرست برای بررسی می‌مانند.'));
                 if (counts.failed) box.appendChild(node('p', 'پیام‌های ناموفق را پس از بررسی صف می‌توانید با اجرای دوباره گروه مربوط پردازش کنید.'));
-                if (auditContext && auditContext.run_id && !panel.dataset.reextractAuditSaved) {
+                if (auditContext && (auditContext.run_id || auditContext.media_review_key)
+                        && !panel.dataset.reextractAuditSaved) {
                     panel.dataset.reextractAuditSaved = '1';
                     try {
-                        const eventId = 'reextraction-run:' + runId;
-                        await persistOwnerReviews([reviewRecord(eventId, 'ai_reextraction', runId,
-                            counts.failed ? 'failed' : 'accepted', auditContext,
-                            {action:'reprocess_open_extraction_cases'}, {
+                        const mediaRun=Boolean(auditContext.media_review_key);
+                        const reviewType=mediaRun?'ai_media_review':'ai_reextraction';
+                        const reviewId=mediaRun?auditContext.media_review_key:runId;
+                        const eventId=mediaRun?'media-ocr:'+runId:'reextraction-run:'+runId;
+                        const decision=mediaRun?{action:'retry_media_ocr',run_id:runId}
+                            :{action:'reprocess_open_extraction_cases'};
+                        await persistOwnerReviews([reviewRecord(eventId, reviewType, reviewId,
+                            counts.failed ? 'failed' : 'accepted',
+                            storedReviewContext(reviewType,auditContext),decision, {
                                 state:status.state, total, completed:finished, outcomes,
                                 products_found:Number(status.products_found || 0),
                                 offers_written:Number(status.offers_written || 0),
@@ -2317,7 +2367,145 @@
             const aiConfigured = supportsAiOnly && preview.ai_configured;
             panel.appendChild(node('p', `در صف بررسی: ${counts.pending || 0} پیام · همه پیام‌های متنی آماده: ${counts.all_available || 0}`));
             panel.appendChild(node('p', `کارت‌های باز استخراج: ${openCases.case_count || 0} · پیام‌های اصلی یکتا: ${openCases.message_count || 0} · قبلاً بازاستخراج‌شده: ${counts.already_reprocessed || 0}`));
-            panel.appendChild(node('p', `پیام‌های بدون متن: ${counts.without_text || 0} · خروجی بدون نامزد محصول و آماده بازبینی: ${counts.no_product_candidates || 0} · تصمیم‌های مالک حفظ‌شده: ${counts.owner_decisions_preserved || 0} · ردشده توسط مالک: ${counts.dismissed_by_owner || 0} · قبلاً در صف بررسی بازاستخراج‌شده: ${counts.already_staged || 0}`));
+            panel.appendChild(node('p', `پیام‌های فقط‌رسانه‌ای برای بررسی: ${counts.media_review || 0} · خروجی بدون نامزد محصول: ${counts.no_product_candidates || 0} · تصمیم‌های مالک حفظ‌شده: ${counts.owner_decisions_preserved || 0} · ردشده توسط مالک: ${counts.dismissed_by_owner || 0} · قبلاً در صف بررسی بازاستخراج‌شده: ${counts.already_staged || 0}`));
+            const mediaItems = Array.isArray(preview.media_review_messages) ? preview.media_review_messages : [];
+            if (mediaItems.length) {
+                const mediaSection = node('section', null, 'molavi-media-review');
+                let mediaTotal = Number(preview.media_review_total || counts.media_review || mediaItems.length);
+                const mediaHeading = node('h3', `رسانه‌های بدون متن (${mediaTotal})`);
+                mediaSection.appendChild(mediaHeading);
+                mediaSection.appendChild(node('p', 'این پیام متن محصول نداشته یا استخراج متن آن نامزد کالا پیدا نکرده است. عکس و متن همراه پیام را ببینید؛ تصمیم «کالا نیست» فقط همین پیام را می‌بندد.'));
+                const mediaGrid = node('div', null, 'molavi-media-review-grid');
+                function renderMedia(items) {
+                    for (const item of items) {
+                        const card = node('article', null, 'molavi-media-review-card');
+                        const details = node('div', null, 'molavi-media-review-details');
+                        details.appendChild(node('strong', `${item.channel || item.channel_username || 'منبع نامشخص'} · پیام ${item.message_id || '—'}`));
+                        details.appendChild(node('span', `${item.timestamp || 'زمان ثبت نشده'} · ${item.media_type || 'رسانه'}`));
+                        const sourceLink = safeSourceLink(item.source_post_url);
+                        if (sourceLink) details.appendChild(sourceLink);
+                        if (item.content) {
+                            const caption = document.createElement('details');
+                            caption.appendChild(node('summary','متن همراه پیام'));
+                            caption.appendChild(node('pre',String(item.content).slice(0,3000)));
+                            details.appendChild(caption);
+                        }
+                        if (item.image_file_id) {
+                            const image = node('img');
+                            image.src = new URL('/media/file/' + encodeURIComponent(String(item.image_file_id)), config.apiUrl).toString();
+                            image.alt = 'تصویر پیام تأمین‌کننده'; image.loading = 'lazy'; image.decoding = 'async';
+                            image.referrerPolicy = 'no-referrer';
+                            image.onerror = () => {
+                                image.remove();
+                                details.insertBefore(notice('فایل تصویر از تلگرام در دسترس نیست؛ اگر پست باز می‌شود، آن را از همان منبع بررسی کنید.','warning'),details.firstChild);
+                            };
+                            card.appendChild(image);
+                        } else {
+                            card.appendChild(notice('برای این پیام فایل پیش‌نمایش ذخیره نشده است.','warning'));
+                        }
+                        if (item.image_file_id) {
+                            const ocr = node('button','بازخوانی OCR و استخراج','button button-primary');
+                            ocr.type='button'; ocr.disabled=!aiConfigured;
+                            ocr.addEventListener('click',async()=>{
+                                if (!window.confirm('متن قابل‌مشاهده تصویر با هوش مصنوعی خوانده می‌شود و هر پیشنهاد استخراج‌شده فقط برای بررسی نمایش داده می‌شود؛ هیچ کالا یا قیمتی خودکار تأیید نمی‌شود. ادامه می‌دهید؟')) return;
+                                const bytes=new Uint8Array(16);
+                                if (window.crypto && window.crypto.getRandomValues) window.crypto.getRandomValues(bytes);
+                                else for (let index=0;index<bytes.length;index++) bytes[index]=Math.floor(Math.random()*256);
+                                const runId=Array.from(bytes,value=>value.toString(16).padStart(2,'0')).join('');
+                                const auditContext={media_review_key:item.message_key,run_id:runId,
+                                    message_id:item.message_id,batch_id:item.batch_id,
+                                    channel:item.channel || item.channel_username,timestamp:item.timestamp,
+                                    source_post_url:item.source_post_url,media_type:item.media_type,
+                                    image_file_unique_id:item.image_file_unique_id};
+                                const eventId='media-ocr:'+runId;
+                                const decision={action:'retry_media_ocr',run_id:runId};
+                                ocr.disabled=true;
+                                try {
+                                    await persistOwnerReviews([reviewRecord(eventId,'ai_media_review',
+                                        item.message_key,'pending',storedReviewContext('ai_media_review',auditContext),decision,{})]);
+                                    const receipt=await request('POST',{action:'start_media_reextraction',
+                                        message_key:item.message_key,run_id:runId});
+                                    if (receipt.run_id!==runId || receipt.queued!==1
+                                        || receipt.message_key!==item.message_key) throw new Error('invalid_receipt');
+                                    await persistOwnerReviews([reviewRecord(eventId,'ai_media_review',
+                                        item.message_key,'accepted',storedReviewContext('ai_media_review',auditContext),decision,receipt)]);
+                                    const progress=notice('OCR تصویر در صف پردازش قرار گرفت…','info');
+                                    progress.classList.add('molavi-reextract-progress');
+                                    mediaSection.appendChild(progress);
+                                    showReextractionProgress(panel,runId,auditContext);
+                                } catch (error) {
+                                    try { await persistOwnerReviews([reviewRecord(eventId,'ai_media_review',
+                                        item.message_key,error.remoteRejected?'failed':'pending',
+                                        storedReviewContext('ai_media_review',auditContext),decision,
+                                        {error:String(error.message || 'request_failed')})]); } catch (_auditError) { }
+                                    ocr.disabled=false;
+                                    card.appendChild(notice(errorText(error.message),'error'));
+                                }
+                            });
+                            details.appendChild(ocr);
+                        }
+                        const dismiss = node('button', 'این پیام کالا نیست', 'button button-secondary');
+                        dismiss.type = 'button';
+                        dismiss.addEventListener('click', async () => {
+                            if (!window.confirm('این تصمیم فقط همین پیام و تصویر را از صف بررسی کنار می‌گذارد. ادامه می‌دهید؟')) return;
+                            dismiss.disabled = true;
+                            const eventId = `media-review:${item.message_key}`;
+                            const context = {message_id:item.message_id,batch_id:item.batch_id,
+                                channel:item.channel || item.channel_username,timestamp:item.timestamp,
+                                source_post_url:item.source_post_url,media_type:item.media_type,
+                                image_file_unique_id:item.image_file_unique_id};
+                            const decision = {choice:'not_product'};
+                            try {
+                                await persistOwnerReviews([reviewRecord(eventId,'ai_media_review',item.message_key,
+                                    'pending',context,decision,{})]);
+                                const receipt = await request('POST',{action:'dismiss_media_message',message_key:item.message_key});
+                                if (receipt.decision_id !== item.message_key || receipt.choice !== 'not_product') throw new Error('invalid_receipt');
+                                await persistOwnerReviews([reviewRecord(eventId,'ai_media_review',item.message_key,
+                                    'accepted',context,decision,receipt)]);
+                                card.remove();
+                                mediaTotal=Math.max(0,mediaTotal-1);
+                                mediaHeading.textContent=`رسانه‌های بدون متن (${mediaTotal})`;
+                                mediaSection.insertBefore(notice('تصمیم ثبت شد؛ سابقه آن در وردپرس ذخیره شد.','success'),mediaGrid);
+                            } catch (error) {
+                                try { await persistOwnerReviews([reviewRecord(eventId,'ai_media_review',item.message_key,
+                                    error.remoteRejected ? 'failed' : 'pending',context,decision,
+                                    {error:String(error.message || 'request_failed')})]); } catch (_auditError) { }
+                                dismiss.disabled = false;
+                                card.appendChild(notice(errorText(error.message),'error'));
+                            }
+                        });
+                        details.appendChild(dismiss);
+                        card.appendChild(details);
+                        mediaGrid.appendChild(card);
+                    }
+                }
+                renderMedia(mediaItems);
+                mediaSection.appendChild(mediaGrid);
+                if (preview.media_review_next_after !== null && preview.media_review_next_after !== undefined) {
+                    const more = node('button', 'نمایش ۱۲ رسانه دیگر', 'button');
+                    more.type='button';
+                    more.addEventListener('click', async () => {
+                        more.disabled=true;
+                        try {
+                            const nextUrl = reextractionUrl('preview') + '&media_after='
+                                + encodeURIComponent(String(preview.media_review_next_after));
+                            const nextPage = await request('GET',undefined,nextUrl);
+                            renderMedia(Array.isArray(nextPage.media_review_messages)
+                                ? nextPage.media_review_messages : []);
+                            preview.media_review_next_after = nextPage.media_review_next_after;
+                            preview.media_review_after = nextPage.media_review_after;
+                            if (nextPage.media_review_next_after === null
+                                || nextPage.media_review_next_after === undefined) more.remove();
+                            else more.disabled=false;
+                        } catch (error) {
+                            more.disabled=false;
+                            mediaSection.appendChild(notice(errorText(error.message),'error'));
+                        }
+                    });
+                    mediaSection.appendChild(more);
+                }
+                panel.appendChild(mediaSection);
+            }
             if (openCases.unmatched_case_count > 0) {
                 panel.appendChild(notice(`${openCases.unmatched_case_count} کارت به متن پیام اصلی وصل نیست و در بازاستخراج گروهی وارد نمی‌شود.`, 'warning'));
             }

@@ -51,10 +51,22 @@ and complete-catalog reconciliation before declaring a publication successful.
    from the targeted backlog reconciliation: that action lists failed batches only
    when their error is exactly `JobConflict`. The operations list can show the generic
    failed row, but has no per-job retry/reconcile control.
-3. **Textless media is treated as a completed non-product.** Extraction receives the
-   message text, not image bytes. When there are no offers, the message-status updater
-   sets `not_product`. A photo-only product post can disappear from the review queue
-   without OCR or an owner decision.
+   Implemented in Railway commit `c0f474e` and WordPress commit `899e166`: all failed
+   batch receipts are listed; the owner can reconcile the bulk set or one exact receipt
+   from its queue row. A receipt closes only after every expected source row has a
+   reconciled terminal AI state and the full current Sheet-to-Woo sync succeeds.
+   Incomplete sources stay failed and visible, and the original error is retained in
+   the reconciliation receipt.
+3. **Image-backed sources need a recovery decision even when text extraction finds no
+   product.** A photo-only source now receives `needs_media_review`; an image post whose
+   caption extraction returns no candidates joins the same media queue rather than
+   appearing twice. Its owner card shows the photo, source link, and caption, with an
+   explicit not-a-product decision or a bounded OCR retry. OCR transcribes visible text
+   only, combines it with the saved caption, stores the transcript separately from the
+   original source, and forces every extracted offer into owner review. Unavailable,
+   unreadable, unsupported, and no-product outcomes remain visible for manual review.
+   `needs_media_review` counts as source capture completion for batch reconciliation;
+   it does not approve a product or authorize publication.
 4. **A successful “no products” result is indistinguishable from an owner rejection.**
    `not_product` is used both when extraction produced no offer and when every offer
    was explicitly rejected. These outcomes need distinct states and different replay

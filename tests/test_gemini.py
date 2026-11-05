@@ -6,6 +6,7 @@ from unittest.mock import patch
 from catalog.gemini import (
     GeminiError,
     ai_extraction_configured,
+    extract_text_from_image,
     extract_message_products,
     parse_message_products,
 )
@@ -113,6 +114,27 @@ class GeminiExtractionTests(unittest.TestCase):
             'EXTRACTION_MODE': 'regex', 'GOOGLE_API_KEY': 'test-key',
         }, clear=True):
             self.assertTrue(ai_extraction_configured())
+
+    def test_image_ocr_sends_bounded_image_and_requests_literal_transcription(self):
+        import base64
+        image=b'fake-png-image'
+        session=FakeSession('آبمیوه ۲۲۰ میلی لیتر\nقیمت فروش ما: ۱۸/۵۰۰ تومان')
+        with patch.dict(os.environ,{'GOOGLE_API_KEY':'test-key'},clear=True):
+            text=extract_text_from_image(image,'image/png',caption='آبمیوه',session=session)
+        self.assertIn('قیمت فروش ما: ۱۸/۵۰۰ تومان',text)
+        _url,kwargs=session.call
+        parts=kwargs['json']['contents'][0]['parts']
+        self.assertEqual(parts[1]['inlineData']['mimeType'],'image/png')
+        self.assertEqual(base64.b64decode(parts[1]['inlineData']['data']),image)
+        self.assertIn('Do not translate, normalize, infer',parts[0]['text'])
+        self.assertEqual(kwargs['json']['generationConfig']['temperature'],0)
+
+    def test_image_ocr_rejects_unsupported_or_unbounded_inputs(self):
+        with patch.dict(os.environ,{'GOOGLE_API_KEY':'test-key'},clear=True):
+            with self.assertRaisesRegex(GeminiError,'format is unsupported'):
+                extract_text_from_image(b'img','image/gif',session=FakeSession(''))
+            with self.assertRaisesRegex(GeminiError,'size limit'):
+                extract_text_from_image(b'x'*(8_000_001),'image/jpeg',session=FakeSession(''))
 
     def test_environment_key_and_conservative_price_roles(self):
         title = 'تن ماهی 24 عددی'

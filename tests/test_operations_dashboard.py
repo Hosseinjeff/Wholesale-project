@@ -336,7 +336,7 @@ class OperationsSnapshotTests(unittest.TestCase):
 
     def test_empty_extraction_and_owner_rejection_are_terminal_batch_states(self):
         import app
-        states=('no_product_candidate','owner_rejected','not_product')
+        states=('no_product_candidate','owner_rejected','not_product','needs_media_review')
         sources=[{'id':f'source-{index}','channel_username':'@supplier','content':'private source'}
                  for index,_ in enumerate(states)]
         job=self.queue.put('batch','empty-result-batch',{
