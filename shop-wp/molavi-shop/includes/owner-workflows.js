@@ -1238,6 +1238,58 @@
                     const ageLabel=Number.isFinite(age)?` · ${age<3600?`${Math.floor(age/60)} دقیقه`:`${Math.floor(age/3600)} ساعت`} در صف`:'';
                     const next=nextSteps[item.next_action]||'رسید را بررسی کنید';
                     rows.appendChild(node('p',`${item.id || 'رسید بدون شناسه'} · ${item.kind || 'کار'} · ${item.state || 'نامشخص'} · تلاش ${item.attempts || 0}${ageLabel}${item.error?` · کد ${item.error}`:''} · گام بعدی: ${next}`));
+                    const itemId=String(item.id || '');
+                    if (item.kind==='batch' && item.state==='failed' && failedBatchIds.includes(itemId)) {
+                        const reconcileOne=node('button','همگام‌سازی و تطبیق همین دسته','button button-secondary');
+                        reconcileOne.type='button';
+                        reconcileOne.disabled=!config.reviewStoreUrl||!config.reviewStoreNonce;
+                        reconcileOne.addEventListener('click',async()=>{
+                            if (!window.confirm('کاتالوگ فعلی یک‌بار با ووکامرس همگام شود؟ این دسته فقط اگر همهٔ پیام‌های منبع ثبت شده باشند بسته می‌شود.')) return;
+                            reconcileOne.disabled=true;
+                            const auditId=('failed-batch:'+itemId).slice(0,180);
+                            const eventId=reviewEventId('publication_backlog',auditId);
+                            const context={failed_publication_ids:[],failed_batch_ids:[itemId],target_job_id:itemId,
+                                previous_error:String(item.error || ''),queue_counts:counts,observed_at:new Date().toISOString()};
+                            const decision={action:'reconcile_one_failed_batch_after_source_verification',
+                                note:'Owner authorized a current catalog sync; close this batch only after source verification.'};
+                            const endpoint=new URL('/pipeline/reconcile-publication-backlog',config.apiUrl).toString();
+                            try {
+                                await persistOwnerReviews([reviewRecord(eventId,'publication_backlog',auditId,'pending',context,decision)]);
+                                const receipt=await request('POST',{expected_publish_ids:[],expected_batch_ids:[itemId]},endpoint);
+                                const catalog=receipt.catalog_sync||{};
+                                const reconciled=receipt.batch_job_ids_reconciled||[];
+                                const open=receipt.batch_job_ids_left_open||[];
+                                if (!/^[a-f0-9]{64}$/.test(receipt.sheet_digest||'')
+                                    ||receipt.failed_publications_reconciled!==0
+                                    ||!Array.isArray(receipt.failed_publication_ids)||receipt.failed_publication_ids.length
+                                    ||!Array.isArray(reconciled)||!Array.isArray(open)
+                                    ||receipt.batch_jobs_reconciled!==reconciled.length
+                                    ||reconciled.length+open.length!==1
+                                    ||[...reconciled,...open].some(id=>id!==itemId)
+                                    ||Number(catalog.images_left||0)!==0) throw new Error('invalid_receipt');
+                                let auditWarning='';
+                                try {
+                                    await persistOwnerReviews([reviewRecord(eventId,'publication_backlog',auditId,'accepted',context,decision,receipt)]);
+                                } catch (_error) {
+                                    auditWarning=' رسید عملیات در پایگاه دادهٔ وردپرس نهایی نشد.';
+                                }
+                                await dashboard(reconciled.includes(itemId)
+                                    ? 'کاتالوگ همگام شد و رسید این دسته کامل بود؛ تطبیق ثبت شد.'+auditWarning
+                                    : 'کاتالوگ همگام شد، اما اطلاعات منبع این دسته کامل نیست؛ رسید باز ماند.'+auditWarning,
+                                    open.length||auditWarning?'warning':'success',
+                                    ['operations','product_status','supplier_prices','publication_holds','sheet_conflicts','ai_confirmations']);
+                            } catch(error) {
+                                try {
+                                    await persistOwnerReviews([reviewRecord(eventId,'publication_backlog',auditId,
+                                        error.remoteRejected?'failed':'pending',context,decision,
+                                        {error:String(error.message||'request_failed')})]);
+                                } catch(_ignored) {}
+                                errorBox(errorText(error.message),rows);
+                                reconcileOne.disabled=false;
+                            }
+                        });
+                        rows.appendChild(reconcileOne);
+                    }
                 };
                 updateSummary();
                 pageState.items.forEach(appendItem);

@@ -89,7 +89,9 @@ async function main() {
     if (path.endsWith('/operations-dashboard') && new URL(String(url),base).searchParams.get('cursor') === 'cursor-next') {
       return {ok:true,status:200,json:async()=>({ok:true,operations:{...data.operations.operations,
         items:[{id:'publish:queue-2',kind:'publish',state:'failed',attempts:8,error:'catalog_write_failed',
-          next_action:'inspect_failure_and_reconcile',age_seconds:7200}],
+          next_action:'inspect_failure_and_reconcile',age_seconds:7200},
+          {id:'batch:failed-1',kind:'batch',state:'failed',attempts:8,error:'RuntimeError',
+            next_action:'inspect_failure_and_reconcile',age_seconds:9000}],
         next_cursor:null,has_more:false}})};
     }
     if (path.endsWith('/sheet-conflicts') && options.method === 'POST') {
@@ -178,6 +180,9 @@ async function main() {
   assert(loadQueuePageButton,'the queue offers an in-place continuation when another page exists');
   await loadQueuePageButton.listeners.click();
   assert.match(root.text,/publish:queue-2/,'the next queue page is appended without rebuilding the dashboard');
+  assert(walk(root).some(element=>element.tagName==='BUTTON'
+    && element.textContent==='همگام‌سازی و تطبیق همین دسته'),
+    'a failed batch receipt has its own one-click source-verification action');
   assert(calls.some(item=>new URL(item.url,base).searchParams.get('cursor')==='cursor-next'),
     'the continuation request sends the opaque server cursor');
   assert.match(cards[0].text,/تازگی قیمت تأمین‌کننده/);
@@ -672,20 +677,38 @@ async function main() {
   const accessEvents = storedReviewRows.filter(row => row.review_type === 'telegram_operator');
   assert(accessEvents.some(row => row.state === 'pending') && accessEvents.some(row => row.state === 'accepted'),
     'the approval and its receipt are durably recorded in the WordPress review database');
-  const reconcileButton = walk(root).find(element => element.tagName === 'BUTTON'
-    && element.textContent === 'همگام‌سازی کاتالوگ و بستن خطاهای قابل اثبات');
-  assert(reconcileButton,'failed publication and batch receipts have one owner reconciliation action');
-  await reconcileButton.listeners.click();
-  const reconcileRequest = calls.find(item => new URL(item.url,base).pathname.endsWith('/reconcile-publication-backlog')
-    && item.options.method === 'POST');
-  assert(reconcileRequest,'the failed backlog action uses the asynchronous reconciliation endpoint');
-  assert.deepEqual(JSON.parse(reconcileRequest.options.body),{
-    expected_publish_ids:['publish:failed-1'],expected_batch_ids:['batch:failed-1']
-  },'the owner action reconciles the exact failed receipt set shown in the dashboard');
-  const backlogEvents = storedReviewRows.filter(row => row.review_type === 'publication_backlog'
-    && row.review_id === 'failed-publication-backlog');
-  assert(backlogEvents.some(row => row.state === 'pending') && backlogEvents.some(row => row.state === 'accepted'),
-    'the complete catalog sync and reconciliation receipt are recorded in WordPress');
+  data.operations.operations.failed_publication_ids = [];
+  data.operations.operations.failed_batch_ids = ['batch:failed-1'];
+  data.operations.operations.items = [{id:'batch:failed-1',kind:'batch',state:'failed',attempts:8,
+    error:'RuntimeError',next_action:'inspect_failure_and_reconcile',age_seconds:9000}];
+  data.operations.operations.next_cursor = null;
+  data.operations.operations.has_more = false;
+  const batchRoot = new Element('div');
+  const batchDocument = {...document,getElementById:id=>id === 'molavi-owner-workflow' ? batchRoot : null};
+  const batchWindow = {...window,molaviOwnerWorkflow:{...window.molaviOwnerWorkflow,page:'molavi-operations'}};
+  batchWindow.parent = batchWindow;
+  vm.runInNewContext(fs.readFileSync(workflowScriptPath,'utf8'),
+    {window:batchWindow,document:batchDocument,fetch,URL,Intl,Map,Set,Promise,TextEncoder,Date,Math,
+      Number,String,Boolean,Array,Object,Error,URLSearchParams,console,setTimeout,clearTimeout});
+  for (let attempt=0; attempt<20; attempt++) {
+    if (batchRoot.text.includes('همگام‌سازی و تطبیق همین دسته')) break;
+    await new Promise(resolve => setTimeout(resolve,0));
+  }
+  const singleBatchButton = walk(batchRoot).find(element => element.tagName === 'BUTTON'
+    && element.textContent === 'همگام‌سازی و تطبیق همین دسته');
+  assert(singleBatchButton,'the failed batch action is visible on its receipt card');
+  await singleBatchButton.listeners.click();
+  const singleBatchRequest = calls.find(item => new URL(item.url,base).pathname.endsWith('/reconcile-publication-backlog')
+    && item.options.method === 'POST'
+    && JSON.parse(item.options.body).expected_batch_ids[0] === 'batch:failed-1');
+  assert(singleBatchRequest,'the card action sends only its selected batch receipt');
+  assert.deepEqual(JSON.parse(singleBatchRequest.options.body),{
+    expected_publish_ids:[],expected_batch_ids:['batch:failed-1']
+  });
+  const singleBatchEvents = storedReviewRows.filter(row => row.review_type === 'publication_backlog'
+    && row.context && row.context.target_job_id === 'batch:failed-1');
+  assert(singleBatchEvents.some(row => row.state === 'pending') && singleBatchEvents.some(row => row.state === 'accepted'),
+    'the per-batch action and its verification receipt are durably audited in WordPress');
 }
 
 main().catch(error => { console.error(error); process.exitCode = 1; });
