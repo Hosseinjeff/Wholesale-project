@@ -1,5 +1,6 @@
 import os
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -27,9 +28,56 @@ class OperationsSnapshotTests(unittest.TestCase):
         self.assertEqual(snapshot['actionable_count'],2)
         self.assertEqual(snapshot['attention_count'],2)
         self.assertEqual({item['id'] for item in snapshot['items']},{'batch:review-1','publish:pending-1'})
+        actions={item['id']:item['next_action'] for item in snapshot['items']}
+        self.assertEqual(actions['batch:review-1'],'inspect_result_and_decide')
+        self.assertEqual(actions['publish:pending-1'],'inspect_failure_and_reconcile')
         self.assertNotIn('payload',snapshot['items'][0])
         self.assertNotIn('PRIVATE SOURCE BODY',repr(snapshot))
         self.assertNotIn('PRIVATE CUSTOMER',repr(snapshot))
+
+    def test_cursor_pages_keep_a_fixed_creation_cutoff_and_reject_bad_tokens(self):
+        for index in range(4):
+            self.queue.put('publish',f'page-{index}',{'private':'payload'})
+        with self.queue.connect() as db:
+            for index in range(4):
+                db.execute('UPDATE jobs SET created_at=? WHERE id=?',(100+index//2,f'publish:page-{index}'))
+        first=self.queue.operations_snapshot(limit=2,now=1000)
+        self.assertEqual([item['id'] for item in first['items']],['publish:page-0','publish:page-1'])
+        self.assertTrue(first['has_more'])
+        later=self.queue.put('publish','later',{'private':'payload'})
+        with self.queue.connect() as db:
+            db.execute('UPDATE jobs SET created_at=1001 WHERE id=?',(later,))
+        second=self.queue.operations_snapshot(limit=2,cursor=first['next_cursor'],now=2000)
+        self.assertEqual([item['id'] for item in second['items']],['publish:page-2','publish:page-3'])
+        self.assertFalse(second['has_more'])
+        self.assertNotIn(later,{item['id'] for item in second['items']})
+        with self.assertRaises(ValueError):
+            self.queue.operations_snapshot(cursor='not-a-cursor')
+
+    def test_worker_heartbeat_and_job_progress_are_truthful(self):
+        worker_id='pipeline-worker:test'
+        started=time.time()
+        self.queue.start_worker(worker_id,now=started)
+        job_id=self.queue.put('order','heartbeat-test',{'order':{'id':'heartbeat-test'}})
+        with self.queue.connect() as db:
+            db.execute('UPDATE jobs SET available=0 WHERE id=?',(job_id,))
+        worked=self.queue.run_one(finalize=lambda _: {},publish=lambda: {},
+            order_write=lambda _: {'written':True},worker_id=worker_id)
+        self.assertTrue(worked)
+        status=self.queue.worker_status(now=started+2)
+        self.assertEqual(status['status'],'alive')
+        self.assertEqual(status['state'],'idle')
+        self.assertIsNone(status['current_job_id'])
+        self.assertEqual(status['last_claimed_job_id'],job_id)
+        self.assertEqual(status['last_completed_job_id'],job_id)
+        self.assertEqual(status['last_error_code'],'')
+        self.assertEqual(self.queue.worker_status(now=started+60)['status'],'stale')
+        self.queue.heartbeat_worker(worker_id,now=started+301)
+        stalled=self.queue.worker_status(now=started+302)
+        self.assertEqual(stalled['status'],'alive')
+        self.assertEqual(stalled['progress_status'],'stalled')
+        self.queue.set_worker_state(worker_id,'stopped')
+        self.assertEqual(self.queue.worker_status()['status'],'stopped')
 
     def test_owner_route_is_private_no_store_and_payload_free(self):
         import app
@@ -52,6 +100,7 @@ class OperationsSnapshotTests(unittest.TestCase):
         self.assertEqual(data['publication_holds'],1)
         self.assertEqual(data['sheet_conflicts'],1)
         self.assertFalse(data['items_truncated'])
+        self.assertEqual(data['worker']['status'],'unknown')
         self.assertEqual(data['failed_publication_ids'],[])
         self.assertEqual(data['failed_batch_ids'],[])
         self.assertNotIn('PRIVATE SOURCE BODY',response.get_data(as_text=True))
@@ -64,9 +113,20 @@ class OperationsSnapshotTests(unittest.TestCase):
              'REFERENCE_BRIDGE_TOKEN':'synthetic-bridge-token-0123456789'}
         headers={'X-Molavi-Reference-Token':env['REFERENCE_BRIDGE_TOKEN'],'X-Molavi-Actor':'wp:7'}
         with patch.dict(os.environ,env):
-            response=app.app.test_client().get('/pipeline/operations-dashboard',headers=headers)
-        self.assertEqual(response.status_code,200)
-        self.assertEqual(len(response.get_json()['operations']['items']),125)
+            client=app.app.test_client()
+            response=client.get('/pipeline/operations-dashboard',headers=headers)
+            self.assertEqual(response.status_code,200)
+            first=response.get_json()['operations']
+            self.assertEqual(len(first['items']),100)
+            self.assertTrue(first['items_truncated'])
+            second_response=client.get('/pipeline/operations-dashboard',headers=headers,
+                query_string={'limit':'100','cursor':first['next_cursor']})
+            second=second_response.get_json()['operations']
+            self.assertEqual(len(second['items']),25)
+            self.assertFalse(second['items_truncated'])
+            self.assertEqual(len({item['id'] for item in first['items']+second['items']}),125)
+            invalid=client.get('/pipeline/operations-dashboard',headers=headers,query_string={'cursor':'broken'})
+            self.assertEqual(invalid.status_code,400)
 
     def test_waiting_publication_jobs_are_actionable_owner_work(self):
         job_id=self.queue.put('publish','blocked',{'sheet_digest':'digest'})
@@ -77,6 +137,7 @@ class OperationsSnapshotTests(unittest.TestCase):
         self.assertEqual(snapshot['by_state']['waiting_publication'],1)
         self.assertEqual(snapshot['attention_count'],1)
         self.assertEqual(snapshot['items'][0]['error'],'publication_held_for_review')
+        self.assertEqual(snapshot['items'][0]['next_action'],'resolve_publication_hold')
 
     def test_owner_can_reconcile_failed_jobs_only_after_complete_current_sync(self):
         import app

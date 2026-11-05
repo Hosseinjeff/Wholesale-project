@@ -64,7 +64,12 @@ async function main() {
       source_revision:'owner-confirm:owner-decision-1',server_owned:false,sheet_preserved:false}]},
     'publication-holds': {holds:[]},
     'decisions': {events:[]},
-    operations: {operations:{by_state:{},items:[],failed_publication_ids:[],failed_batch_ids:[],publication_holds:0,sheet_conflicts:1}},
+    operations: {operations:{by_state:{queued:0,running:0},items:[{id:'batch:queue-1',kind:'batch',
+      state:'waiting_reference',attempts:2,error:'reference_decision_required',
+      next_action:'resolve_reference_decision',age_seconds:3600}],actionable_count:2,
+      next_cursor:'cursor-next',has_more:true,failed_publication_ids:[],failed_batch_ids:[],
+      publication_holds:0,sheet_conflicts:1,worker:{status:'alive',heartbeat_age_seconds:4,
+        state:'idle',progress_status:'active',progress_age_seconds:4,current_job_id:null,last_error_code:''}}},
   };
   const calls = [];
   const storedReviewRows = [];
@@ -78,6 +83,12 @@ async function main() {
       return {ok:true,status:200,json:async()=>({success:true,data:{stored:parsed.length}})};
     }
     const path = new URL(String(url),base).pathname;
+    if (path.endsWith('/operations-dashboard') && new URL(String(url),base).searchParams.get('cursor') === 'cursor-next') {
+      return {ok:true,status:200,json:async()=>({ok:true,operations:{...data.operations.operations,
+        items:[{id:'publish:queue-2',kind:'publish',state:'failed',attempts:8,error:'catalog_write_failed',
+          next_action:'inspect_failure_and_reconcile',age_seconds:7200}],
+        next_cursor:null,has_more:false}})};
+    }
     if (path.endsWith('/sheet-conflicts') && options.method === 'POST') {
       data['sheet-conflicts'].conflicts = [];
       return {ok:false,status:409,json:async()=>({ok:false,error:'source_changed',refreshed:true})};
@@ -137,6 +148,18 @@ async function main() {
   const cards = walk(root).filter(element => element.className.split(/\s+/).includes('molavi-product-card'));
   assert.equal(cards.length,1,'the review queue renders one product card at a time');
   assert.match(root.text,/تعارض شیت · کالای ۱ از ۱/,'the first screen opens directly on the highest-priority non-empty queue');
+  assert.match(root.text,/کارگر صف: فعال · پیشرفت: فعال، 4 ثانیه از آخرین پیشرفت · آخرین علامت 4 ثانیه پیش/,
+    'the operations panel distinguishes a live worker from a queue that stopped progressing');
+  assert.match(root.text,/batch:queue-1/,'queue rows expose a receipt ID that can be used to locate the blocked work');
+  assert.match(root.text,/برای ادامه، تصمیم مرجع را در کارت تطبیق ثبت کنید/,
+    'the blocked state tells the owner which decision moves the receipt forward');
+  const loadQueuePageButton=walk(root).find(element=>element.tagName==='BUTTON'
+    && element.textContent==='دریافت موارد بعدی');
+  assert(loadQueuePageButton,'the queue offers an in-place continuation when another page exists');
+  await loadQueuePageButton.listeners.click();
+  assert.match(root.text,/publish:queue-2/,'the next queue page is appended without rebuilding the dashboard');
+  assert(calls.some(item=>new URL(item.url,base).searchParams.get('cursor')==='cursor-next'),
+    'the continuation request sends the opaque server cursor');
   assert.match(cards[0].text,/تازگی قیمت تأمین‌کننده/);
   assert.match(cards[0].text,/تعارض داده/);
   assert.match(cards[0].text,/آخرین مقدار هماهنگ‌شده: needs_review/,

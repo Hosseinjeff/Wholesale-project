@@ -222,7 +222,7 @@ def _notice_chat_allowlists():
     }
 
 
-def run_durable_handoff(queue, job_id=None):
+def run_durable_handoff(queue, job_id=None, worker_id=None):
     if not USE_SHEETS:
         raise RuntimeError("Durable pipeline requires the server Sheets writer")
 
@@ -360,7 +360,7 @@ def run_durable_handoff(queue, job_id=None):
     return queue.run_one(finalize=finalize, publish=publish_projection,
                          publish_with_payload=publish_projection,
                          order_write=order_write, notify=notify, job_id=job_id,
-                         reextract=reextract)
+                         reextract=reextract, worker_id=worker_id)
 
 
 def _wake_reference_waiters_if_eligible(queue, reference_store):
@@ -1015,10 +1015,20 @@ def operations_dashboard_route():
     actor,auth_error=_owner_api_actor('owner:/pipeline/operations-dashboard',token,owners)
     if auth_error:
         return jsonify({'ok':False,'error':'unauthorized' if auth_error==401 else 'owner_required'}),auth_error
-    summary=queue.operations_snapshot(limit=200)
-    summary['items_truncated']=len(summary['items'])<summary['actionable_count']
+    try:
+        limit=request.args.get('limit','100')
+        if not limit.isdecimal():
+            raise ValueError('invalid queue limit')
+        summary=queue.operations_snapshot(limit=int(limit),cursor=request.args.get('cursor'))
+    except ValueError:
+        response=jsonify({'ok':False,'error':'invalid_queue_page'})
+        response.status_code=400
+        response.headers['Cache-Control']='no-store'
+        return response
+    summary['items_truncated']=summary['has_more']
     summary['publication_holds']=len(queue.publication_holds())
     summary['sheet_conflicts']=len(queue.sheet_sync_conflicts(state='open'))
+    summary['worker']=queue.worker_status()
     backlog=queue.failed_backlog_snapshot()
     summary['failed_publication_ids']=backlog['publication_ids']
     summary['failed_batch_ids']=backlog['batch_ids']

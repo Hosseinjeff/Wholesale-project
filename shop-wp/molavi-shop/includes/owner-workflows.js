@@ -1117,6 +1117,20 @@
             const ops = operations.operations;
             const counts = ops.by_state || {};
             technical.appendChild(node('p',`در انتظار: ${ops.queued || counts.queued || 0} · در حال اجرا: ${counts.running || 0} · خطا: ${counts.failed || 0} · نیازمند بررسی: ${counts.needs_review || 0} · توقف انتشار: ${ops.publication_holds || 0}`));
+            const worker = ops.worker || {};
+            const workerLabels = {alive:'فعال',stale:'بی‌پاسخ',stopped:'متوقف',unknown:'وضعیت نامشخص'};
+            const workerProgressLabels = {active:'فعال',idle:'صف بدون کار باز است',stalled:'بیش از ۵ دقیقه بدون پیشرفت',
+                stopped:'متوقف',unknown:'نامشخص'};
+            const workerAge = worker.heartbeat_age_seconds !== null && worker.heartbeat_age_seconds !== undefined
+                && Number.isFinite(Number(worker.heartbeat_age_seconds))
+                ? ` · آخرین علامت ${Math.round(Number(worker.heartbeat_age_seconds))} ثانیه پیش` : '';
+            const progressAge = worker.progress_age_seconds !== null && worker.progress_age_seconds !== undefined
+                && Number.isFinite(Number(worker.progress_age_seconds))
+                ? `، ${Math.round(Number(worker.progress_age_seconds))} ثانیه از آخرین پیشرفت` : '';
+            const workerJob = worker.current_job_id ? ` · رسید ${worker.current_job_id}` : '';
+            const workerError = worker.last_error_code ? ` · آخرین کد خطا ${worker.last_error_code}` : '';
+            const workerProgress=workerProgressLabels[worker.progress_status]||'پیشرفت نامشخص';
+            technical.appendChild(node('p',`کارگر صف: ${workerLabels[worker.status] || worker.status || 'وضعیت نامشخص'} · پیشرفت: ${workerProgress}${progressAge}${workerAge}${workerJob}${workerError}`));
             const failedPublicationIds = Array.isArray(ops.failed_publication_ids) ? ops.failed_publication_ids : [];
             const failedBatchIds = Array.isArray(ops.failed_batch_ids) ? ops.failed_batch_ids : [];
             if (failedPublicationIds.length || failedBatchIds.length) {
@@ -1153,10 +1167,54 @@
                 technical.appendChild(reconcileButton);
             }
             const queueItems = Array.isArray(ops.items) ? ops.items : [];
-            if (queueItems.length) {
+            if (queueItems.length || ops.next_cursor) {
                 const details = document.createElement('details');
-                details.appendChild(node('summary',`جزئیات صف (${queueItems.length})`));
-                queueItems.forEach(item => details.appendChild(node('p',`${item.kind || 'کار'} · ${item.state || 'نامشخص'} · تلاش ${item.attempts || 0}${item.error?` · ${item.error}`:''}`)));
+                const summary=node('summary','');
+                const rows=document.createElement('div');
+                const pageState={items:[...queueItems],cursor:ops.next_cursor||null,loading:false};
+                const updateSummary=()=>{summary.textContent=`موارد صف (${ops.actionable_count || queueItems.length}) · نمایش ${pageState.items.length}`;};
+                const nextSteps={automatic_retry:'در نوبت پردازش خودکار',wait_for_processing:'در حال پردازش؛ نتیجهٔ worker را دنبال می‌کنیم',
+                    recover_expired_lease:'مهلت worker تمام شده؛ رسید برای بازیابی خودکار آماده است',
+                    resolve_reference_decision:'برای ادامه، تصمیم مرجع را در کارت تطبیق ثبت کنید',
+                    resolve_publication_hold:'توقف انتشار را رفع کنید؛ صف پس از آن ادامه می‌دهد',
+                    inspect_failure_and_reconcile:'علت شکست و رسید را تطبیق دهید؛ این مورد خودکار بسته نمی‌شود',
+                    inspect_result_and_decide:'نتیجهٔ ناقص را در کارت استخراج بررسی کنید'};
+                const appendItem=item=>{
+                    const age=Number(item.age_seconds);
+                    const ageLabel=Number.isFinite(age)?` · ${age<3600?`${Math.floor(age/60)} دقیقه`:`${Math.floor(age/3600)} ساعت`} در صف`:'';
+                    const next=nextSteps[item.next_action]||'رسید را بررسی کنید';
+                    rows.appendChild(node('p',`${item.id || 'رسید بدون شناسه'} · ${item.kind || 'کار'} · ${item.state || 'نامشخص'} · تلاش ${item.attempts || 0}${ageLabel}${item.error?` · کد ${item.error}`:''} · گام بعدی: ${next}`));
+                };
+                updateSummary();
+                pageState.items.forEach(appendItem);
+                details.appendChild(summary);
+                details.appendChild(rows);
+                const pageStatus=node('p','');
+                const loadMore=node('button','دریافت موارد بعدی','button button-secondary');
+                loadMore.type='button';
+                loadMore.hidden=!pageState.cursor;
+                loadMore.addEventListener('click',async()=>{
+                    if(!pageState.cursor||pageState.loading)return;
+                    pageState.loading=true;loadMore.disabled=true;loadMore.textContent='در حال دریافت…';pageStatus.textContent='';
+                    try {
+                        const url=new URL(config.apiUrl);url.searchParams.set('limit','100');url.searchParams.set('cursor',pageState.cursor);
+                        const result=await request('GET',undefined,url.toString());
+                        const next=result.operations||{};
+                        const seen=new Set(pageState.items.map(item=>String(item.id||'')));
+                        (Array.isArray(next.items)?next.items:[]).forEach(item=>{
+                            const id=String(item.id||'');if(!id||seen.has(id))return;
+                            seen.add(id);pageState.items.push(item);appendItem(item);
+                        });
+                        pageState.cursor=next.next_cursor||null;loadMore.hidden=!pageState.cursor;updateSummary();
+                    } catch(error) {
+                        pageStatus.className='notice notice-warning';
+                        pageStatus.textContent=`دریافت صفحه بعدی ناموفق بود: ${errorText(error.message)}`;
+                    } finally {
+                        pageState.loading=false;loadMore.disabled=false;loadMore.textContent=pageState.cursor?'دریافت موارد بعدی':'همه موارد بارگذاری شد';
+                    }
+                });
+                details.appendChild(loadMore);
+                details.appendChild(pageStatus);
                 technical.appendChild(details);
             }
             const reportButton=node('button','بررسی اتصال کاتالوگ به فروشگاه','button button-secondary');

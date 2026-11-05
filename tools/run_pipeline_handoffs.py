@@ -4,9 +4,12 @@ No credentials are created here. Uses normal configured server adapters. For tes
 use the synthetic replay suite, which mocks every external write instead.
 """
 import argparse
+import atexit
 import os
 import sys
+import threading
 import time
+import uuid
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parent.parent))
 from catalog.durable import compact_pipeline_payloads
@@ -18,6 +21,28 @@ if __name__=='__main__':
     parser=argparse.ArgumentParser();parser.add_argument('--once',action='store_true')
     args=parser.parse_args();queue=handoff_queue()
     if queue is None:parser.error('PIPELINE_DB_PATH must name persistent private storage')
+    worker_id='pipeline-worker:'+uuid.uuid4().hex
+    queue.start_worker(worker_id)
+    heartbeat_stop=threading.Event()
+
+    def heartbeat():
+        while not heartbeat_stop.wait(10):
+            try:
+                queue.heartbeat_worker(worker_id)
+            except Exception:
+                print('Pipeline worker heartbeat update failed',file=sys.stderr)
+
+    heartbeat_thread=threading.Thread(target=heartbeat,name='pipeline-worker-heartbeat',daemon=True)
+    heartbeat_thread.start()
+
+    def stop_worker():
+        heartbeat_stop.set()
+        try:
+            queue.set_worker_state(worker_id,'stopped')
+        except Exception:
+            pass
+
+    atexit.register(stop_worker)
 
     def compact_payloads():
         try:
@@ -68,12 +93,14 @@ if __name__=='__main__':
             compact_payloads()
             last_compaction=time.monotonic()
         if USE_SHEETS and (last_poll==0 or time.monotonic()-last_poll>=poll_seconds):
+            queue.set_worker_state(worker_id,'polling_sheet')
             try:
                 observe_sheet_projection(queue,build_store())
             except Exception:
                 print('Sheet projection poll failed; will retry on next interval',file=sys.stderr)
             last_poll=time.monotonic()
         if reference_scheduler and (last_reference_check==0 or time.monotonic()-last_reference_check>=60):
+            queue.set_worker_state(worker_id,'refreshing_reference')
             try:
                 outcome=reference_scheduler.run_if_due()
                 if outcome.get('state')=='failed':
@@ -83,9 +110,12 @@ if __name__=='__main__':
             except Exception:
                 print('Reference refresh scheduler failed; persistent incident check will retry',file=sys.stderr)
             last_reference_check=time.monotonic()
+        queue.set_worker_state(worker_id,'idle')
         worked=False
         if USE_SHEETS:
             queue.batch()
-            worked=run_durable_handoff(queue)
-        if args.once:break
+            worked=run_durable_handoff(queue,worker_id=worker_id)
+        if args.once:
+            queue.set_worker_state(worker_id,'stopped')
+            break
         if not worked:time.sleep(min(5,poll_seconds))

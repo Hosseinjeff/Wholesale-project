@@ -1,7 +1,9 @@
 """Persistent transport receipts/jobs. Payloads may contain private data: keep DB private."""
+import base64
 import fcntl
 import hashlib
 import json
+import math
 import os
 import re
 import sqlite3
@@ -67,10 +69,17 @@ class Handoffs:
                 resolved_at REAL, choice TEXT, actor_id TEXT, note TEXT);
                 CREATE TABLE IF NOT EXISTS sheet_projection_state (
                 singleton INTEGER PRIMARY KEY CHECK(singleton=1), observed_digest TEXT NOT NULL DEFAULT '',
-                published_digest TEXT NOT NULL DEFAULT '', job_id TEXT);''')
+                published_digest TEXT NOT NULL DEFAULT '', job_id TEXT);
+                CREATE TABLE IF NOT EXISTS pipeline_workers (
+                worker_id TEXT PRIMARY KEY, started_at REAL NOT NULL, heartbeat_at REAL NOT NULL,
+                progress_at REAL NOT NULL,
+                state TEXT NOT NULL, current_job_id TEXT, last_claimed_job_id TEXT,
+                last_claimed_at REAL, last_completed_job_id TEXT, last_completed_at REAL,
+                last_error_code TEXT);''')
             self._ensure_column(db, 'jobs', 'created_at', 'REAL')
             self._ensure_column(db, 'jobs', 'updated_at', 'REAL')
             self._ensure_column(db, 'inbox', 'received_at', 'REAL')
+            self._ensure_column(db, 'pipeline_workers', 'progress_at', 'REAL')
             db.executescript('''
                 CREATE TRIGGER IF NOT EXISTS jobs_set_timestamps_after_insert
                 AFTER INSERT ON jobs
@@ -176,29 +185,150 @@ class Handoffs:
             'messages': messages,
         }
 
-    def operations_snapshot(self, *, limit=100, now=None):
-        """Return owner-safe queue metadata without exposing payloads or results."""
+    @staticmethod
+    def _decode_operations_cursor(cursor):
+        if cursor is None or cursor == '':
+            return None
+        if not isinstance(cursor, str) or len(cursor) > 2048:
+            raise ValueError('invalid queue cursor')
+        try:
+            raw=base64.urlsafe_b64decode(cursor + '=' * (-len(cursor) % 4))
+            value=json.loads(raw.decode('utf-8'))
+            snapshot=float(value['snapshot_time'])
+            created=float(value['last_created_at'])
+            job_id=value['last_id']
+        except (ValueError, TypeError, KeyError, UnicodeDecodeError, OverflowError, RecursionError):
+            raise ValueError('invalid queue cursor') from None
+        if (not isinstance(value,dict) or value.get('v') != 1 or not math.isfinite(snapshot)
+                or not math.isfinite(created) or not isinstance(job_id,str) or not job_id
+                or len(job_id)>300):
+            raise ValueError('invalid queue cursor')
+        return snapshot,created,job_id
+
+    @staticmethod
+    def _encode_operations_cursor(snapshot_time, created_at, job_id):
+        value={'v':1,'snapshot_time':snapshot_time,'last_created_at':created_at,'last_id':job_id}
+        return base64.urlsafe_b64encode(json.dumps(value,separators=(',',':')).encode()).decode().rstrip('=')
+
+    def operations_snapshot(self, *, limit=100, cursor=None, now=None):
+        """Return one stable, owner-safe queue page without exposing payloads or results."""
         limit=max(1,min(int(limit),200))
         now=time.time() if now is None else float(now)
+        decoded=self._decode_operations_cursor(cursor)
+        snapshot_time,after_created,after_id=(decoded if decoded else (now,None,None))
         actionable=('queued','running','waiting_reference','waiting_publication','failed','needs_review')
         placeholders=','.join('?' for _ in actionable)
+        created_expr='COALESCE(created_at,updated_at,available,0)'
+        where=f"state IN ({placeholders}) AND {created_expr}<=?"
+        params=[*actionable,snapshot_time]
+        if decoded:
+            where += f" AND ({created_expr}>? OR ({created_expr}=? AND id>?))"
+            params.extend((after_created,after_created,after_id))
         with self.connect() as db:
+            db.execute('BEGIN')
             grouped=db.execute('SELECT state,COUNT(*) AS count FROM jobs GROUP BY state').fetchall()
-            rows=db.execute(f'''SELECT id,kind,state,attempts,available,expires,error FROM jobs
-                WHERE state IN ({placeholders}) ORDER BY available,id LIMIT ?''',(*actionable,limit)).fetchall()
+            rows=db.execute(f'''SELECT id,kind,state,attempts,available,expires,error,created_at,
+                    {created_expr} AS cursor_created_at FROM jobs
+                WHERE {where} ORDER BY cursor_created_at,id LIMIT ?''',(*params,limit+1)).fetchall()
         by_state={str(row['state']):int(row['count']) for row in grouped}
+        has_more=len(rows)>limit
+        rows=rows[:limit]
         items=[]
         for row in rows:
-            item={key:row[key] for key in ('id','kind','state','attempts','available','error')}
+            item={key:row[key] for key in ('id','kind','state','attempts','available','error','created_at')}
             item['lease_expired']=bool(row['state']=='running' and row['expires'] is not None and row['expires']<=now)
+            item['age_seconds']=max(0,int(now-float(row['cursor_created_at'] or 0)))
+            item['next_action']={
+                'queued':'automatic_retry',
+                'running':'recover_expired_lease' if item['lease_expired'] else 'wait_for_processing',
+                'waiting_reference':'resolve_reference_decision',
+                'waiting_publication':'resolve_publication_hold',
+                'failed':'inspect_failure_and_reconcile',
+                'needs_review':'inspect_result_and_decide',
+            }.get(str(row['state']),'inspect_receipt')
             items.append(item)
+        next_cursor=(self._encode_operations_cursor(snapshot_time,rows[-1]['cursor_created_at'],rows[-1]['id'])
+                     if has_more and rows else None)
         return {
+            'snapshot_time':snapshot_time,
             'by_state':by_state,
             'actionable_count':sum(by_state.get(state,0) for state in actionable),
             'attention_count':sum(by_state.get(state,0) for state in
                                   ('waiting_reference','waiting_publication','failed','needs_review')),
             'items':items,
+            'page_count':len(items),
+            'has_more':bool(next_cursor),
+            'next_cursor':next_cursor,
         }
+
+    def start_worker(self, worker_id, *, now=None):
+        """Register a worker process; heartbeat updates never contain job payloads."""
+        if not isinstance(worker_id,str) or not worker_id or len(worker_id)>120:
+            raise ValueError('invalid worker id')
+        now=time.time() if now is None else float(now)
+        with self.connect() as db:
+            db.execute('DELETE FROM pipeline_workers WHERE started_at<? AND worker_id!=?',
+                       (now-30*86400,worker_id))
+            db.execute('''INSERT INTO pipeline_workers
+                (worker_id,started_at,heartbeat_at,progress_at,state) VALUES (?,?,?,?,'starting')
+                ON CONFLICT(worker_id) DO UPDATE SET started_at=excluded.started_at,
+                heartbeat_at=excluded.heartbeat_at,progress_at=excluded.progress_at,
+                state='starting',current_job_id=NULL,
+                last_claimed_job_id=NULL,last_claimed_at=NULL,last_completed_job_id=NULL,
+                last_completed_at=NULL,last_error_code=NULL''',(worker_id,now,now,now))
+
+    def heartbeat_worker(self, worker_id, *, now=None):
+        now=time.time() if now is None else float(now)
+        with self.connect() as db:
+            db.execute("UPDATE pipeline_workers SET heartbeat_at=? WHERE worker_id=? AND state!='stopped'",
+                       (now,worker_id))
+
+    def set_worker_state(self, worker_id, state):
+        allowed={'starting','idle','polling_sheet','refreshing_reference','stopped'}
+        if state not in allowed:
+            raise ValueError('invalid worker state')
+        now=time.time()
+        with self.connect() as db:
+            db.execute('''UPDATE pipeline_workers SET state=?,heartbeat_at=?,progress_at=?,
+                current_job_id=NULL WHERE worker_id=?''',(state,now,now,worker_id))
+
+    def worker_status(self, *, stale_after_seconds=45, now=None):
+        now=time.time() if now is None else float(now)
+        with self.connect() as db:
+            row=db.execute('''SELECT worker_id,started_at,heartbeat_at,state,current_job_id,
+                progress_at,last_claimed_job_id,last_claimed_at,last_completed_job_id,last_completed_at,last_error_code
+                FROM pipeline_workers ORDER BY heartbeat_at DESC,started_at DESC LIMIT 1''').fetchone()
+        if row is None:
+            return {'status':'unknown','heartbeat_age_seconds':None,'progress_status':'unknown',
+                    'progress_age_seconds':None}
+        age=max(0.0,now-float(row['heartbeat_at']))
+        progress_age=max(0.0,now-float(row['progress_at'] or row['started_at']))
+        state=str(row['state'])
+        status='stopped' if state=='stopped' else ('stale' if age>stale_after_seconds else 'alive')
+        progress_status=('stopped' if state=='stopped' else 'stalled' if progress_age>300
+                         else 'idle' if state=='idle' else 'active')
+        return {**dict(row),'status':status,'heartbeat_age_seconds':round(age,1),
+                'progress_status':progress_status,'progress_age_seconds':round(progress_age,1)}
+
+    def _worker_job_started(self, worker_id, job_id):
+        if not worker_id:
+            return
+        now=time.time()
+        with self.connect() as db:
+            db.execute('''UPDATE pipeline_workers SET state='processing',current_job_id=?,
+                last_claimed_job_id=?,last_claimed_at=?,heartbeat_at=?,progress_at=? WHERE worker_id=?''',
+                (job_id,job_id,now,now,now,worker_id))
+
+    def _worker_job_finished(self, worker_id, job_id):
+        if not worker_id:
+            return
+        now=time.time()
+        with self.connect() as db:
+            job=db.execute('SELECT error FROM jobs WHERE id=?',(job_id,)).fetchone()
+            error_code=str(job['error'] or '')[:100] if job else ''
+            db.execute('''UPDATE pipeline_workers SET state='idle',current_job_id=NULL,
+                last_completed_job_id=?,last_completed_at=?,last_error_code=?,heartbeat_at=?,progress_at=?
+                WHERE worker_id=?''',(job_id,now,error_code,now,now,worker_id))
 
     def cancel_unroutable_notice_jobs(self, allowed_chat_ids):
         """Cancel pending private notices whose destination is outside the channel allowlist."""
@@ -801,9 +931,10 @@ class Handoffs:
         return {**dict(row),'result':json.loads(row['result']) if row['result'] else None} if row else None
 
     def run_one(self, *, finalize, publish, order_write, notify=None, job_id=None,
-                publish_with_payload=None, reextract=None):
+                publish_with_payload=None, reextract=None, worker_id=None):
         job=self.claim(job_id)
         if not job:return False
+        self._worker_job_started(worker_id,job['id'])
         try:
             if job['kind']=='batch':
                 if any(hold['hold_id']==job['payload'].get('batch_id')
@@ -854,4 +985,6 @@ class Handoffs:
             self.finish(job,{},state='needs_review',error='batch_recovery_requires_owner_review')
         except Exception as error:
             self.finish(job,{},state='failed' if job['attempts']>=8 else 'queued',error=type(error).__name__)
+        finally:
+            self._worker_job_finished(worker_id,job['id'])
         return True
