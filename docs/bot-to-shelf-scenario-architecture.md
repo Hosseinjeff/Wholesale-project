@@ -1,8 +1,8 @@
 # Bot-to-shelf scenario and recovery architecture
 
-**Status:** scenario architecture with the first recovery slice implemented in the
-working tree, not yet released. The baseline review changed no production data or
-configuration. **Updated:** 2026-11-05 (Asia/Tehran).
+**Status:** scenario architecture with the first recovery slice live at commit
+`e31a2a596ddb83520f55d64669400f04fc0c8ef9`. The baseline review changed no production
+data or configuration. **Updated:** 2026-11-05 (Asia/Tehran).
 
 ## What runs today
 
@@ -851,7 +851,8 @@ ingress, projection drift, and unverified shelf items.
 
 ## Implementation progress — 2026-11-05
 
-The first recovery-observability slice is implemented in the working tree:
+The first recovery-observability slice is live in Railway and WordPress at commit
+`e31a2a596ddb83520f55d64669400f04fc0c8ef9`:
 
 - The Railway worker registers a process heartbeat every ten seconds. The owner-only
   operations endpoint reports its state, last heartbeat age, current receipt, last
@@ -868,6 +869,13 @@ The first recovery-observability slice is implemented in the working tree:
   into the next decision or recovery step, including parked reference/publication
   waits, expired worker leases, terminal failures, and extraction results that need
   review.
+
+Railway deployment `1a95390a-1865-4fa9-8c0f-985b95a598cf` reached `SUCCESS`; its deploy
+logs show the worker and web processes running, and `/health` returned HTTP 200. cPanel
+read-back verified the changed WordPress asset against the commit. The live owner queue
+payload was not read directly from this runner because the production bridge token was
+not available in its local process; the authenticated route and pagination are covered
+by local tests with a synthetic owner token.
 
 This slice leaves the Sheets/Woo product policy and authority unchanged. It does not
 yet implement WordPress canonical workflow tables or the transactional WordPress

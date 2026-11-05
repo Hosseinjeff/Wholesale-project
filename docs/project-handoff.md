@@ -1,9 +1,33 @@
 # MolaviSale — whole-workflow handoff
 
-Snapshot 4.72. Updated 2026-11-04, Asia/Tehran. The canonical roleplay decisions are in
+Snapshot 4.73. Updated 2026-11-05, Asia/Tehran. The canonical roleplay decisions are in
 `roleplay-state.json`; current live evidence and release gates are in
 `pipeline-readiness.md` and `pipeline-readiness-evidence.json`.
 The product intake and shelf policy is documented in `products-streamline-integrity.md`.
+
+## 2026-11-05 first recovery-architecture release
+
+Railway production is live on main commit `e31a2a596ddb83520f55d64669400f04fc0c8ef9`
+(deployment `1a95390a-1865-4fa9-8c0f-985b95a598cf`, `SUCCESS`). Its deploy logs confirm
+both `pipeline-worker` and `web` entered `RUNNING`, and the live `/health` endpoint
+returned HTTP 200. The WordPress `includes/owner-workflows.js` asset from the same
+commit was uploaded through cPanel and read back byte-for-byte with no host
+normalization.
+
+The first recovery slice adds durable worker heartbeat/progress metadata, reports stale
+or stalled worker state, exposes keyset-paginated queue pages, and shows each receipt's
+age, stable ID, and next recovery decision in the owner workbench. The worker table is
+additive; no product, Sheet, order, or WooCommerce rows were changed. The local owner
+API route was covered by its authenticated test client (synthetic owner token); this
+runner did not have the production bridge token for a direct authenticated payload
+read. Validation passed: 33 focused Python tests, the owner workbench Node test,
+JavaScript syntax, Python compilation, and `git diff --check`.
+
+This release improves recovery visibility and prevents the queue view from ending at
+its first hundred rows. It does not yet narrow publication holds or move canonical
+workflow state from Railway/Sheets into WordPress. The staged next phase remains the
+WordPress decision ledger and transactional outbox, preceded by shadow comparison and
+bounded migration receipts in `bot-to-shelf-scenario-architecture.md`.
 
 ## Live baseline before the product-streamline integrity release — 2026-11-04
 
