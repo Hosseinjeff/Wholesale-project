@@ -149,6 +149,19 @@
         return body;
     }
 
+    async function requestSheetConflict(payload, apiKey = '') {
+        try { return await request('POST', payload, undefined, apiKey); }
+        catch (error) {
+            // Keep the dashboard usable during the staggered release. The expected
+            // revision remains in WordPress; newer Railway builds enforce it before acting.
+            if (!payload || !Object.prototype.hasOwnProperty.call(payload, 'expected_revision')
+                || !error.responseBody || error.responseBody.error !== 'invalid_body') throw error;
+            const compatiblePayload = {...payload};
+            delete compatiblePayload.expected_revision;
+            return request('POST', compatiblePayload, undefined, apiKey);
+        }
+    }
+
     function reviewEventId(type, id) {
         const suffix = window.crypto && typeof window.crypto.randomUUID === 'function'
             ? window.crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2);
@@ -302,7 +315,7 @@
             if (!command || !command.payload || !command.context || !command.decision
                 || typeof command.event_id !== 'string' || typeof command.review_id !== 'string') continue;
             try {
-                const receipt = await request('POST', command.payload, undefined, apiKey);
+                const receipt = await requestSheetConflict(command.payload, apiKey);
                 if (receipt.conflict_id !== command.payload.conflict_id
                     || receipt.choice !== command.payload.choice
                     || (receipt.server_owned !== true && receipt.sheet_preserved !== true && !receipt.publish_job)) {
@@ -901,8 +914,8 @@
                     const decision = {choice,attempt_id:eventId,note};
                     try {
                         await persistOwnerReviews([reviewRecord(eventId,'sheet_conflict',conflict.conflict_id,'pending',conflict,decision)]);
-                        const receipt = await request('POST',{conflict_id:conflict.conflict_id,choice,note,
-                            expected_revision:conflict.source_revision},undefined,'sheet_conflicts');
+                        const receipt = await requestSheetConflict({conflict_id:conflict.conflict_id,choice,note,
+                            expected_revision:conflict.source_revision},'sheet_conflicts');
                         if (receipt.conflict_id !== conflict.conflict_id || receipt.choice !== choice
                             || (serverOwned ? receipt.server_owned !== true : sheetPreserved ? receipt.sheet_preserved !== true : !receipt.publish_job)) throw new Error('invalid_receipt');
                         let warning = '';
@@ -3490,7 +3503,7 @@
                     try {
                         await persistOwnerReviews([reviewRecord(eventId, 'sheet_conflict', conflict.conflict_id,
                             'pending', conflict, decision)]);
-                        const receipt = await request('POST', {conflict_id: conflict.conflict_id, choice,
+                        const receipt = await requestSheetConflict({conflict_id: conflict.conflict_id, choice,
                             note:decision.note, expected_revision:conflict.source_revision});
                         if (receipt.conflict_id !== conflict.conflict_id || receipt.choice !== choice
                             || (serverOwned ? receipt.server_owned !== true

@@ -91,6 +91,8 @@ if __name__=='__main__':
     outbox_enabled=bool(site_url.startswith('https://') and len(bridge_token)>=32 and reference_owners)
     if not outbox_enabled:
         print('WordPress workflow outbox consumer disabled; required site URL, bridge token, or owner is missing',file=sys.stderr)
+    else:
+        print('WordPress workflow outbox consumer enabled',file=sys.stderr)
     outbox_session=requests.Session()
     try:local_api_port=int(os.getenv('PORT','8080'))
     except ValueError:local_api_port=8080
@@ -109,7 +111,7 @@ if __name__=='__main__':
     try:outbox_poll_seconds=int(os.getenv('WP_WORKFLOW_OUTBOX_POLL_SECONDS','15'))
     except ValueError:outbox_poll_seconds=15
     outbox_poll_seconds=max(10,min(300,outbox_poll_seconds))
-    last_poll=0.0;last_reference_check=0.0;last_outbox_poll=0.0
+    last_poll=0.0;last_reference_check=0.0;last_outbox_poll=0.0;outbox_ready_reported=False
     while True:
         if time.monotonic()-last_compaction>=24*60*60:
             compact_payloads()
@@ -136,6 +138,10 @@ if __name__=='__main__':
             try:
                 outcome=drain_sheet_conflict_outbox(site_url,bridge_token,apply_wordpress_sheet_conflict,
                     session=outbox_session,limit=5)
+                if not outcome['error'] and not outbox_ready_reported:
+                    print('WordPress workflow outbox connected; '
+                        f"initial_due_commands={outcome['claimed']}",file=sys.stderr)
+                    outbox_ready_reported=True
                 if outcome['delivered'] or outcome['retried'] or outcome['failed']:
                     print('WordPress Sheet-conflict outbox: '
                         f"claimed={outcome['claimed']} delivered={outcome['delivered']} "

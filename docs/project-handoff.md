@@ -1,9 +1,23 @@
 # MolaviSale — whole-workflow handoff
 
-Snapshot 4.74. Updated 2026-11-05, Asia/Tehran. The canonical roleplay decisions are in
+Snapshot 4.74. Updated 2026-11-06, Asia/Tehran. The canonical roleplay decisions are in
 `roleplay-state.json`; current live evidence and release gates are in
 `pipeline-readiness.md` and `pipeline-readiness-evidence.json`.
 The product intake and shelf policy is documented in `products-streamline-integrity.md`.
+
+## 2026-11-06 WordPress Sheet-conflict decision ledger
+
+Commit `1cc498cd58a59e43e42b37c3740d7205306843f1` is live in WordPress. Its normalized
+decision and outbox tables were initialized by the authenticated, scoped REST route;
+the route returned HTTP 200 with zero due commands. The plugin files read back from
+cPanel byte-for-byte. No Sheet or catalog record changed.
+
+The same commit is pushed to GitHub `main`, but Railway still runs commit
+`c2b44480afb422176d4ebcc7eaf8e3b181fd51dc`. The Railway worker poller, route-side
+expected-revision check, and receipt writer are not live yet. Automatic review rejected
+the attempted production-wide source reconnect/immediate deployment. Do not treat the
+WP outbox as automatically consumed until a Railway deployment of this commit succeeds
+and logs `WordPress workflow outbox connected`.
 
 ## 2026-11-05 first recovery-architecture release
 

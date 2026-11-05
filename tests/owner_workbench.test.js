@@ -153,6 +153,13 @@ async function main() {
     if (path.endsWith('/sheet-conflicts') && options.method === 'POST') {
       const payload = JSON.parse(options.body);
       data['sheet-conflicts'].conflicts = [];
+      if (sheetConflictResponse === 'legacy-schema' && Object.hasOwn(payload,'expected_revision')) {
+        return {ok:false,status:400,json:async()=>({ok:false,error:'invalid_body'})};
+      }
+      if (sheetConflictResponse === 'legacy-schema') {
+        return {ok:true,status:200,json:async()=>({ok:true,conflict_id:payload.conflict_id,
+          choice:payload.choice,server_owned:false,sheet_preserved:false,publish_job:'publish:legacy-retry'})};
+      }
       if (sheetConflictResponse === 'success') {
         return {ok:true,status:200,json:async()=>({ok:true,conflict_id:payload.conflict_id,
           choice:payload.choice,server_owned:false,sheet_preserved:false,publish_job:'publish:outbox-retry'})};
@@ -371,14 +378,20 @@ async function main() {
     decision:{choice:'sheet',note:'Owner confirmed manual Sheet edit.'},
     payload:{conflict_id:'sheet:retry',choice:'sheet',note:'Owner confirmed manual Sheet edit.',
       expected_revision:'revision-retry'},command_id:'b'.repeat(64)}];
-  sheetConflictResponse = 'success';
+  sheetConflictResponse = 'legacy-schema';
   await refreshButton.listeners.click();
   const outboxRetry = calls.find(item => item.options.method === 'POST'
     && item.url === workflowApis.sheet_conflicts.url
     && JSON.parse(item.options.body).conflict_id === 'sheet:retry');
   assert(outboxRetry,'a saved WordPress decision is retried through the Railway conflict endpoint on dashboard load');
   assert.equal(JSON.parse(outboxRetry.options.body).expected_revision,'revision-retry',
-    'the retried outbox command keeps its expected conflict revision');
+    'the dashboard first submits the revision-bound command');
+  const legacyRetry = calls.find(item => item !== outboxRetry && item.options.method === 'POST'
+    && item.url === workflowApis.sheet_conflicts.url
+    && JSON.parse(item.options.body).conflict_id === 'sheet:retry');
+  assert(legacyRetry,'the staggered release retries only the old API schema rejection');
+  assert.equal(Object.hasOwn(JSON.parse(legacyRetry.options.body),'expected_revision'),false,
+    'the temporary compatibility retry omits the revision only after the old backend rejects the request schema');
   assert(storedReviewRows.some(item => item.event_id === 'decision:sheet_conflict:sheet:retry:attempt'
     && item.state === 'accepted'),'the retry receipt updates the original WordPress decision event');
   sheetConflictResponse = 'stale';

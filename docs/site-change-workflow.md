@@ -1,6 +1,30 @@
 # Site changes and preservation workflow
 
-Updated: 2026-11-04, Asia/Tehran
+Updated: 2026-11-06, Asia/Tehran
+
+## 2026-11-06 WordPress conflict decision ledger deployed; Railway worker pending
+
+Commit `1cc498cd58a59e43e42b37c3740d7205306843f1` is pushed to `main`. The cPanel
+deployer uploaded and read back `includes/owner-review-store.php` and
+`includes/owner-workflows.js` byte-for-byte. The scoped WordPress outbox REST route
+returned HTTP 200 after service authentication and initialized the three workflow
+tables in the native WordPress database; it reported zero due commands. An
+unauthenticated route probe returned 403. No product, Sheet, order, or WooCommerce
+record was changed.
+
+The Railway worker poller and revision-bound conflict receipt code are in the pushed
+commit, but Railway still runs commit `c2b44480afb422176d4ebcc7eaf8e3b181fd51dc`
+(deployment `4d0013b3-6c8b-4067-b9d8-8b46277da886`, `SUCCESS`). The Git push did not
+start a new Railway deployment. A production-wide Railway source reconnect was
+rejected by automatic review because it would reconfigure the service across all
+environments and immediately build it. The worker poller must not be described as live
+until Railway deploys the new commit and its startup log confirms the WordPress outbox
+connection.
+
+Validation passed: 40 focused Python tests, the dashboard interaction test, Python
+and JavaScript syntax checks, PHP syntax parsing, and `git diff --check`. The native
+WordPress REST probe also verified schema readiness. The disposable WordPress/WooCommerce
+PHP runtime test was not available in this workspace.
 
 ## Latest live deployment — 2026-11-04, supplier acknowledgement does not rebuild the dashboard
 

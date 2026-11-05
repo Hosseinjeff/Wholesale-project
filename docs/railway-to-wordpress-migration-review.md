@@ -1,9 +1,10 @@
 # Railway to WordPress workload review
 
 **Date:** 2026-11-06 (Asia/Tehran)
-**Status:** First WordPress-owned decision/outbox slice implemented for Sheet conflicts;
-production deployment and native-table verification are the release gate. The active
-Telegram retry queue remains on Railway.
+**Status:** The first WordPress-owned Sheet-conflict ledger is deployed and its native
+tables are verified. The Railway consumer is pushed but not live because its source
+reconnect/deploy was rejected by automatic review. The active Telegram retry queue
+remains on Railway.
 
 ## Finding
 
