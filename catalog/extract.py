@@ -94,6 +94,7 @@ PRODUCT_HEADERS = [
 
 OFFER_HEADERS = [
     "Offer ID",
+    "Product ID",
     "Product Name",
     "Channel Username",
     "Channel",

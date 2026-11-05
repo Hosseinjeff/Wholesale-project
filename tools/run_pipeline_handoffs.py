@@ -9,6 +9,7 @@ import sys
 import time
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parent.parent))
+from catalog.durable import compact_pipeline_payloads
 from app import (USE_SHEETS, _notice_chat_allowlists, _wake_reference_waiters_if_eligible,
                  build_store, handoff_queue, run_durable_handoff)
 from catalog.sheet_projection import observe_sheet_projection
@@ -17,6 +18,18 @@ if __name__=='__main__':
     parser=argparse.ArgumentParser();parser.add_argument('--once',action='store_true')
     args=parser.parse_args();queue=handoff_queue()
     if queue is None:parser.error('PIPELINE_DB_PATH must name persistent private storage')
+
+    def compact_payloads():
+        try:
+            days, compacted = compact_pipeline_payloads(queue)
+            if compacted['jobs_compacted'] or compacted['inbox_compacted']:
+                print(f"Compacted completed pipeline payloads jobs={compacted['jobs_compacted']} "
+                      f"inbox={compacted['inbox_compacted']} retention_days={days}",file=sys.stderr)
+        except Exception:
+            print('Completed payload compaction failed; source processing remains available',file=sys.stderr)
+
+    compact_payloads()
+    last_compaction=time.monotonic()
     try:
         cancelled_notices=queue.cancel_unroutable_notice_jobs(_notice_chat_allowlists())
         if cancelled_notices:
@@ -51,6 +64,9 @@ if __name__=='__main__':
     poll_seconds=max(30,min(3600,poll_seconds))
     last_poll=0.0;last_reference_check=0.0
     while True:
+        if time.monotonic()-last_compaction>=24*60*60:
+            compact_payloads()
+            last_compaction=time.monotonic()
         if USE_SHEETS and (last_poll==0 or time.monotonic()-last_poll>=poll_seconds):
             try:
                 observe_sheet_projection(queue,build_store())

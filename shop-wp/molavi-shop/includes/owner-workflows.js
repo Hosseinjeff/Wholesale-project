@@ -877,7 +877,8 @@
                 section.appendChild(node('h3', 'پیوند پیشنهاد منبع شکسته است'));
                 const labels={missing_product_id:'شناسه کالا ثبت نشده',duplicate_product_id:'شناسه کالا تکراری است',
                     missing_latest_offer:'شناسه پیشنهاد منبع ثبت نشده',offer_not_found:'پیشنهاد منبع در Offers پیدا نشد',
-                    duplicate_offer_id:'شناسه پیشنهاد تکراری است',source_provenance_mismatch:'اطلاعات مبدأ با پیشنهاد ثبت‌شده نمی‌خواند'};
+                    duplicate_offer_id:'شناسه پیشنهاد تکراری است',product_id_mismatch:'پیشنهاد به شناسه کالای دیگری وصل شده است',
+                    source_provenance_mismatch:'اطلاعات مبدأ با پیشنهاد ثبت‌شده نمی‌خواند'};
                 section.appendChild(node('p',status.source_integrity_issues.map(code=>labels[code]||code).join(' · ')));
                 const source = safeSourceLink(status.source_post_url);
                 if (source) section.appendChild(source);
@@ -1193,7 +1194,7 @@
                     if(linkIssues.length){
                         const details=document.createElement('details');
                         details.appendChild(node('summary',`محصولات نیازمند بازیابی پیشنهاد منبع (${sourceIntegrity.products_with_issues||linkIssues.length})`));
-                        const labels={missing_product_id:'شناسه کالا ثبت نشده',duplicate_product_id:'شناسه کالا تکراری است',duplicate_product_identity:'کالا با مشخصات یکسان دوباره ثبت شده',missing_latest_offer:'شناسه پیشنهاد منبع ثبت نشده',offer_not_found:'پیشنهاد منبع در فهرست Offers پیدا نشد',duplicate_offer_id:'شناسه پیشنهاد تکراری است',source_provenance_mismatch:'اطلاعات مبدأ با پیشنهاد ثبت‌شده نمی‌خواند'};
+                        const labels={missing_product_id:'شناسه کالا ثبت نشده',duplicate_product_id:'شناسه کالا تکراری است',duplicate_product_identity:'کالا با مشخصات یکسان دوباره ثبت شده',missing_latest_offer:'شناسه پیشنهاد منبع ثبت نشده',offer_not_found:'پیشنهاد منبع در فهرست Offers پیدا نشد',duplicate_offer_id:'شناسه پیشنهاد تکراری است',product_id_mismatch:'پیشنهاد به شناسه کالای دیگری وصل شده است',source_provenance_mismatch:'اطلاعات مبدأ با پیشنهاد ثبت‌شده نمی‌خواند'};
                         linkIssues.forEach(item=>{
                             const line=document.createElement('li');
                             const codes=(item.codes||[]).map(code=>labels[code]||code).join('، ');

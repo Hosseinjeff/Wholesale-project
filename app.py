@@ -18,7 +18,10 @@ import uuid
 from urllib.parse import urlparse
 from utils.logger import setup_logger
 
-from catalog.durable import Handoffs, ReferencePending, ReferenceChanged, JobConflict
+from catalog.durable import (
+    Handoffs, ReferencePending, ReferenceChanged, JobConflict,
+    compact_pipeline_payloads,
+)
 from catalog.media import safe_file_id, stamp_inbound
 from catalog.orders import format_order_notice, operator_chat_ids, remember_operator, upsert_shop_order
 from catalog.pricing import catalog_from_records, default_settings, preview_records, resolve_quote
@@ -44,7 +47,7 @@ app = Flask(__name__)
 WEB_APP_URL = os.getenv('GOOGLE_WEB_APP_URL')
 BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 BALE_BOT_TOKEN = os.getenv('BALE_BOT_TOKEN')
-APP_VERSION = "2026-11-04-products-streamline-integrity"
+APP_VERSION = "2026-11-05-source-integrity-storage-trim"
 setup_logger(logging.INFO, log_file=None)
 logger = logging.getLogger(__name__)
 
@@ -195,13 +198,7 @@ class DurableBatchManager:
             logger.exception("Durable handoff remains pending for worker recovery")
             return
         try:
-            try:
-                retention_days = int(os.getenv('PIPELINE_PAYLOAD_RETENTION_DAYS') or '90')
-            except (TypeError, ValueError):
-                retention_days = 90
-            retention_days = max(30, min(365, retention_days))
-            compacted = self.queue.compact_completed_payloads(
-                older_than_seconds=retention_days * 86400)
+            retention_days, compacted = compact_pipeline_payloads(self.queue)
             if compacted['jobs_compacted'] or compacted['inbox_compacted']:
                 logger.info("Compacted completed pipeline payloads jobs=%s inbox=%s retention_days=%s",
                             compacted['jobs_compacted'], compacted['inbox_compacted'], retention_days)

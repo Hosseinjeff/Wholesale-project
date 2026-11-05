@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-from catalog.durable import Handoffs, JobConflict
+from catalog.durable import Handoffs, JobConflict, compact_pipeline_payloads, pipeline_payload_retention_days
 from catalog.sync import MemoryStore, finalize_batch, shop_catalog
 from catalog.pricing import resolve_quote
 from catalog.orders import upsert_shop_order
@@ -130,6 +130,24 @@ class HandoffTests(unittest.TestCase):
         self.assertNotIn('content',job['messages'][0])
         self.assertEqual(inbox['content_sha256'],__import__('hashlib').sha256(TEXT.encode()).hexdigest())
         self.assertEqual(inbox['timestamp'],'2026-10-01T00:00:00Z')
+
+    def test_payload_retention_defaults_to_thirty_days_and_is_bounded(self):
+        with patch.dict(os.environ, {'PIPELINE_PAYLOAD_RETENTION_DAYS':''}):
+            self.assertEqual(pipeline_payload_retention_days(), 30)
+        self.assertEqual(pipeline_payload_retention_days('7'), 30)
+        self.assertEqual(pipeline_payload_retention_days('45'), 45)
+        self.assertEqual(pipeline_payload_retention_days('500'), 365)
+        self.assertEqual(pipeline_payload_retention_days('invalid'), 30)
+
+    def test_worker_compaction_uses_configured_retention_for_done_batches(self):
+        self.queue.receive(self.message)
+        batch=self.queue.batch()
+        with self.queue.connect() as db:
+            db.execute("UPDATE jobs SET state='done',updated_at=1000 WHERE id=?",(batch,))
+        with patch.dict(os.environ, {'PIPELINE_PAYLOAD_RETENTION_DAYS':'30'}):
+            days,result=compact_pipeline_payloads(self.queue,now=1000+30*86400+1)
+        self.assertEqual(days,30)
+        self.assertEqual(result,{'jobs_compacted':1,'inbox_compacted':1})
 
     def test_unallowlisted_notice_jobs_are_cancelled_without_touching_valid_recipients(self):
         trusted=self.queue.put('notice','trusted:telegram',

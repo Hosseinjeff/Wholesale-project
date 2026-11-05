@@ -818,10 +818,12 @@ def import_product_data(
         offer_headers = _headers(store, "Offers", OFFER_HEADERS + reference_headers)
         existing_offers = _read_sheet_if_present(store, "Offers")
         _, existing_offer_records = _records(existing_offers)
+        existing_products = _read_sheet_if_present(store, "Products")
         imported_at = _now()
         offer_rows = []
         keys: list[tuple[Any, ...]] = []
         staged_offer_ids=[]
+        staged_product_ids={}
         for index, product in enumerate(products):
             if stage_for_review:
                 product['needs_review']=True
@@ -854,7 +856,11 @@ def import_product_data(
                 _log_issue(store, "WARN", data.get("id"), review_reason)
             offer_id = f"{data.get('batch_id') or 'offer'}:{data.get('id') or index}:{index}"
             staged_offer_ids.append(offer_id)
-            fields = _offer_fields(product, data, offer_id, imported_at, review_reason)
+            fields = _offer_fields(
+                product, data, offer_id, imported_at, review_reason,
+                product_id=_product_id_for_offer(product, channel, existing_products),
+            )
+            staged_product_ids[offer_id] = str(fields.get("Product ID") or "")
             if reference_snapshot is not None:
                 from reference_import.matching import candidate_match, price_role_hint
                 match = candidate_match(product, reference_snapshot["rows"],
@@ -895,7 +901,7 @@ def import_product_data(
         fresh_rows = _unseen_offer_rows(existing_offers, offer_headers, opening_rows + offer_rows)
         if fresh_rows:
             _append_at_next_row(store, "Offers", offer_headers, fresh_rows)
-        _verify_offer_ids_written(store, staged_offer_ids)
+        _verify_offer_ids_written(store, staged_offer_ids, staged_product_ids)
         if stage_for_review:
             return {"success": True, "products_found": len(products), "row": None,
                     "staged_for_review": True, "staged_offer_ids": staged_offer_ids}
@@ -1513,7 +1519,11 @@ def _apply_operator_price(store, prompt: dict[str, Any], sale_price: int) -> Non
     }
     store.ensure("Offers", OFFER_HEADERS)
     headers = _headers(store, "Offers", OFFER_HEADERS)
-    _append_at_next_row(store, "Offers", headers, [_row_from_map(headers, _offer_fields(product, message, offer_id, imported_at, ""))])
+    product_rows = _read_sheet_if_present(store, "Products")
+    _append_at_next_row(store, "Offers", headers, [_row_from_map(headers, _offer_fields(
+        product, message, offer_id, imported_at, "",
+        product_id=_product_id_for_offer(product, message["channel_username"], product_rows),
+    ))])
     _restore_current_book(store, [_product_restore_key(product, message["channel_username"])])
 
 
@@ -2255,11 +2265,47 @@ def _reconcile_current_row(store,queue,row_number,existing,headers,base_row,serv
     return merged,live_row_number
 
 
-def _offer_fields(product: dict[str, Any], message: dict[str, Any], offer_id: str, imported_at: str, review_reason: str) -> dict[str, Any]:
+def _product_id_for_offer(product: dict[str, Any], channel: str,
+                          product_rows: list[list[Any]] | None = None) -> str:
+    """Bind an append-only source offer to the stable current product row ID."""
+    name = str(product.get("Product Name") or product.get("name") or "").strip()
+    identity = {
+        **product,
+        "Product Name": name,
+        "Channel Username": channel or product.get("Channel Username") or product.get("channel_username") or "",
+    }
+    if product_rows:
+        headers = [str(value or "") for value in product_rows[0]]
+        if "Product Name" in headers and "Channel Username" in headers:
+            row_number = _find_product_row(
+                product_rows, headers, name, str(identity["Channel Username"] or ""),
+                identity=_identity_fields(identity),
+            )
+            if not row_number:
+                # Owner-confirmed edits can correct a product dimension while
+                # retaining its stable Product ID. Fall back only when an exact
+                # supplier/title match is unique; never guess across siblings.
+                exact_matches = [index + 2 for index, row in enumerate(product_rows[1:])
+                    if str(_cell(row, headers, "Product Name") or "").strip() == name
+                    and str(_cell(row, headers, "Channel Username") or "").strip()
+                        == str(identity["Channel Username"] or "").strip()]
+                if len(exact_matches) == 1:
+                    row_number = exact_matches[0]
+            if row_number and row_number <= len(product_rows):
+                existing_id = str(_cell(product_rows[row_number - 1], headers, "Product ID") or "").strip()
+                if existing_id:
+                    return existing_id
+    return _product_row_id(identity)
+
+
+def _offer_fields(product: dict[str, Any], message: dict[str, Any], offer_id: str,
+                  imported_at: str, review_reason: str, *, product_id: str = "") -> dict[str, Any]:
+    channel = message.get("channel_username") or message.get("channel") or ""
     return {
         "Offer ID": offer_id,
+        "Product ID": product_id or _product_id_for_offer(product, str(channel)),
         "Product Name": product.get("name") or "",
-        "Channel Username": message.get("channel_username") or "",
+        "Channel Username": channel if message.get("channel_username") else "",
         "Channel": message.get("channel") or "",
         "Sale Price": product.get("sale_price") if product.get("sale_price") is not None else "",
         "Consumer Price": product.get("consumer_price") if product.get("consumer_price") is not None else "",
@@ -2495,6 +2541,7 @@ def _opening_offer_rows(store, keys: list[tuple[Any, ...]], offer_headers: list[
         imported_at = str(_cell(existing, headers, "Last Updated") or _cell(existing, headers, "Import Timestamp") or "")
         rows.append(_row_from_map(offer_headers, {
             "Offer ID": f"sheet:{channel}:{marker[0]}",
+            "Product ID": _cell(existing, headers, "Product ID"),
             "Product Name": name,
             "Channel Username": channel,
             "Variation Type": identity.get("Variation Type") or _cell(existing, headers, "Variation Type"),
@@ -2724,11 +2771,13 @@ def _append_at_next_row(store, name: str, _headers: list[str], rows: list[list[A
     store.append(name, rows)
 
 
-def _verify_offer_ids_written(store, offer_ids: list[str]) -> None:
-    """Do not point the editable product book at evidence that Sheets did not retain."""
+def _verify_offer_ids_written(store, offer_ids: list[str], expected_product_ids=None) -> None:
+    """Verify each appended Offer ID and its stable product foreign key."""
     expected={str(value) for value in offer_ids if str(value)}
     if not expected:
         return
+    expected_product_ids={str(key):str(value or '') for key,value in (expected_product_ids or {}).items()
+                          if str(key) in expected}
     reader=getattr(store,'read_fresh',None)
     rows=reader('Offers') if callable(reader) else store.read('Offers')
     if not rows:
@@ -2737,12 +2786,19 @@ def _verify_offer_ids_written(store, offer_ids: list[str]) -> None:
     if 'Offer ID' not in headers:
         raise RuntimeError('offer_write_unverified')
     counts={offer_id:0 for offer_id in expected}
+    linked_product_ids={offer_id:[] for offer_id in expected}
     for row in records:
         offer_id=str(row.get('Offer ID') or '')
         if offer_id in counts:
             counts[offer_id]+=1
+            linked_product_ids[offer_id].append(str(row.get('Product ID') or '').strip())
     if any(count != 1 for count in counts.values()):
         raise RuntimeError('offer_write_unverified')
+    if expected_product_ids and (
+            'Product ID' not in headers
+            or any(linked_product_ids.get(offer_id) != [product_id]
+                   for offer_id,product_id in expected_product_ids.items())):
+        raise RuntimeError('offer_product_link_unverified')
 
 
 def _headers(store, name: str, fallback: list[str]) -> list[str]:

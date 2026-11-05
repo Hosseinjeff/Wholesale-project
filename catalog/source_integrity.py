@@ -47,6 +47,9 @@ def product_offer_link_issues(products: list[dict[str, Any]],
                 codes.append('duplicate_offer_id')
             else:
                 offer = linked[0]
+                offer_product_id = str(offer.get('Product ID') or '').strip()
+                if product_id and offer_product_id and product_id != offer_product_id:
+                    codes.append('product_id_mismatch')
                 mismatched_fields = [field for field in _SOURCE_FIELDS
                                      if str(product.get(field) or '') != str(offer.get(field) or '')]
                 if mismatched_fields:

@@ -10,6 +10,23 @@ import uuid
 from contextlib import contextmanager
 
 
+def pipeline_payload_retention_days(value=None):
+    """Return the bounded age for compacting successfully persisted source payloads."""
+    if value is None:
+        value = os.getenv('PIPELINE_PAYLOAD_RETENTION_DAYS')
+    try:
+        days = int(value or '30')
+    except (TypeError, ValueError):
+        days = 30
+    return max(30, min(365, days))
+
+
+def compact_pipeline_payloads(queue, *, now=None):
+    days = pipeline_payload_retention_days()
+    result = queue.compact_completed_payloads(older_than_seconds=days * 86400, now=now)
+    return days, result
+
+
 class JobConflict(ValueError):
     pass
 

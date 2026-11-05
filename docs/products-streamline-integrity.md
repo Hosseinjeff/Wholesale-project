@@ -33,10 +33,12 @@ wrong product. Successful complete snapshots hide plugin-managed products remove
 from the Products sheet. Held rows and products absent from a complete snapshot are
 hidden and cannot be checked out from an older cart.
 
-Completed batch payload text is compacted after ninety days, preserving message IDs,
-source timestamps, URLs, lengths, and content hashes. The corresponding original
-source remains in Sheets. Failed and review-needed jobs are retained intact. This
-keeps Railway processing data bounded without deleting unresolved work.
+Completed batch payload text is compacted after thirty days by default (configurable
+from 30 to 365), preserving message IDs, source timestamps, URLs, lengths, and
+content hashes. Compaction runs on worker startup, daily, and after successful batch
+handoff. The corresponding original source remains in Sheets; failed and
+review-needed jobs are retained intact. This keeps duplicate Telegram payloads out
+of Railway's live processing state without deleting unresolved work.
 
 The owner price-verification action requires a valid current source revision. When
 the current row has no valid supplier price, the card explains the missing source
@@ -82,11 +84,12 @@ edits a channel post, Telegram's `edit_date` refreshes that evidence. A forwarde
 post does not carry that edit timestamp, so an owner must check the original source
 before manually refreshing an old post.
 
-Successful completed payloads are compacted after ninety days; failed, pending and
-review-needed receipts remain intact. Older failed work is deliberately not replayed
-as a bulk operation: it needs a bounded reconciliation against its Sheets and Woo
-receipts first, so retries cannot create duplicate offers or resurrect withdrawn
-products.
+At the time of this 2026-11-04 audit, successful completed payloads were compacted
+after ninety days; the 2026-11-05 storage release lowers the default to thirty days.
+Failed, pending and review-needed receipts remain intact. Older failed work is
+deliberately not replayed as a bulk operation: it needs a bounded reconciliation
+against its Sheets and Woo receipts first, so retries cannot create duplicate offers
+or resurrect withdrawn products.
 
 ## 2026-11-04 end-to-end audit
 
@@ -219,6 +222,13 @@ forward receipt time is later than the original source time. Explicit bases such
 `owner_submission` remain untouched. The affected Product rows were written by a
 historical re-extraction run; the current atomic append and Offer-ID verification
 prevent a new Product pointer from being written unless its Offer row is present.
+
+The follow-up implementation adds the stable Product ID to each new Offer and
+verifies that foreign key after append before the Products pointer is rebuilt. The
+catalog and publication checks now hold an Offer linked to a different Product ID.
+This is an additive Offers column; historical rows remain untouched and continue
+using their source-provenance checks until replayed. The 2026-11-05 release includes
+this fix; its live deployment result is recorded in `site-change-workflow.md`.
 
 The apparent WooCommerce-missing croissant was a false alarm. Its stable Product ID
 matched a live, purchasable Woo product, but WordPress had retained the legacy SKU

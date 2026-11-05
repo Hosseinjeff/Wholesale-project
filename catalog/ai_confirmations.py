@@ -732,6 +732,7 @@ def apply_decision(store, ledger, case, decision):
     from datetime import datetime, timezone
     from catalog.sync import (
         OFFER_HEADERS, _append_at_next_row, _headers, _offer_fields, _positive_price,
+        _product_id_for_offer,
         _product_restore_key, _read_sheet_if_present, _records, _restore_current_book, _row_from_map,
     )
     source_rows = _read_sheet_if_present(store, 'Offers')
@@ -792,7 +793,10 @@ def apply_decision(store, ledger, case, decision):
         'forwarded_by': source.get('Forwarded By') or '', 'batch_id': 'owner-ai-confirmation:' + decision_id,
         'image_file_id': source.get('Image File ID') or '',
         'image_file_unique_id': source.get('Image File Unique ID') or '',
-    }, derived_id, now, reason)
+    }, derived_id, now, reason,
+        product_id=(str(source.get('Product ID') or '')
+            or _product_id_for_offer(product, str(source.get('Channel Username') or ''),
+                _read_sheet_if_present(store, 'Products'))))
     imported.update({
         'Package Price': product.get('package_price') or '',
         'Reference Snapshot ID': source.get('Reference Snapshot ID') or '',
