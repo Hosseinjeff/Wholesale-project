@@ -1,8 +1,9 @@
 # Bot-to-shelf scenario and recovery architecture
 
-**Status:** scenario architecture with the first recovery slice live at commit
-`e31a2a596ddb83520f55d64669400f04fc0c8ef9`. The baseline review changed no production
-data or configuration. **Updated:** 2026-11-05 (Asia/Tehran).
+**Status:** scenario architecture with durable queue visibility (`e31a2a5`), no-product
+recovery (`7e48c28`), failed-batch reconciliation (`c0f474e`), and image/OCR recovery
+(`870aea7`) implemented. Remaining gaps below are planned reformations, not claims of
+current incidents. **Updated:** 2026-11-05 (Asia/Tehran).
 
 ## What runs today
 

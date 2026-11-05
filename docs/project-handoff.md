@@ -59,6 +59,14 @@ files were verified from cPanel and the owner workbench interaction test passed.
 Validation: 60 focused Python tests, Node syntax and interaction tests, Python
 compilation, and `git diff --check` all passed.
 
+The follow-up OCR release is live at Railway commit `870aea7e1c91820001139000a7e603cdde91ee4a`
+in deployment `4574280d-145c-4f7b-81c8-77880267390f`; WordPress assets and the audit
+store deployed and read back successfully. The pending-account queue was checked again
+after deployment and remained empty. HTTP logs since 16:40 UTC contained no Telegram
+webhook deliveries, so the messages mentioned for the second account did not reach the
+capture path. A fresh private message is required; once it appears, approve it in the
+operations dashboard so the identity and receipt are recorded in WordPress.
+
 ## 2026-11-05 extraction no-result and rejection states
 
 Railway commit `7e48c286184fab50ad61efac334b6b07d521dd66` is live in deployment

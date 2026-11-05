@@ -1,5 +1,28 @@
 # Whole-pipeline readiness — checkpoints through 2026-11-05
 
+## Image and OCR review recovery — 2026-11-05
+
+Railway commit `870aea7e1c91820001139000a7e603cdde91ee4a` is live in deployment
+`4574280d-145c-4f7b-81c8-77880267390f` (`SUCCESS`). The live health route returned
+HTTP 200, and deployment logs show both `pipeline-worker` and `web` running. The
+WordPress owner-workbench assets and audit-store change from this commit were deployed
+through cPanel and read back successfully.
+
+Image-backed posts with no useful caption now appear in one paginated media-review
+queue. Owners can inspect the source image, explicitly dismiss a non-product, or run a
+bounded Gemini OCR transcription. OCR text is stored separately from the original
+source, and extracted offers remain in owner review. `needs_media_review` lets source
+batch reconciliation complete without approving a product or publishing it. Validation
+passed 160 focused Python tests, the owner-workbench interaction test, JavaScript and
+PHP parsing, Python compilation, and `git diff --check`.
+
+After this release, the Telegram enrollment queue still had zero pending identities.
+Railway HTTP logs since 16:40 UTC showed no webhook deliveries, so the messages
+mentioned for the second account were not captured by the live endpoint. The five
+earlier deliveries at 15:04 UTC predate identity capture and contain no recoverable
+sender ID. The account is not registered; one fresh private message to the bot will
+create its auditable approval card.
+
 ## Extraction no-result recovery — 2026-11-05
 
 Railway commit `7e48c286184fab50ad61efac334b6b07d521dd66` is deployed successfully
