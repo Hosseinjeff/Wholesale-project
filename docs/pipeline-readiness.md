@@ -2,21 +2,26 @@
 
 ## Image and OCR review recovery — 2026-11-05
 
-Railway commit `870aea7e1c91820001139000a7e603cdde91ee4a` is live in deployment
-`4574280d-145c-4f7b-81c8-77880267390f` (`SUCCESS`). The live health route returned
-HTTP 200, and deployment logs show both `pipeline-worker` and `web` running. The
-WordPress owner-workbench assets and audit-store change from this commit were deployed
-through cPanel and read back successfully.
+Railway commit `2707d9b11a4eb4f33a6683a8212d0bf12d470aac` is live in deployment
+`cfca825d-e8c0-4f43-8954-5ef24aa2835a` (`SUCCESS`). The live `/health` route returned
+HTTP 200 with version `2026-11-05-image-ocr-review`, and deployment logs show both
+`pipeline-worker` and `web` running. WordPress owner-workbench JavaScript revision
+`2707d9b11a4eb4f33a6683a8212d0bf12d470aac` deployed through cPanel and read back
+successfully.
 
 Image-backed posts with no useful caption now appear in one paginated media-review
 queue. Owners can inspect the source image, explicitly dismiss a non-product, or run a
 bounded Gemini OCR transcription. OCR text is stored separately from the original
 source, and extracted offers remain in owner review. `needs_media_review` lets source
-batch reconciliation complete without approving a product or publishing it. Validation
-passed 160 focused Python tests, the owner-workbench interaction test, JavaScript and
-PHP parsing, Python compilation, and `git diff --check`.
+batch reconciliation complete without approving a product or publishing it. Live
+inventory shows 31 photos; 9 have downloadable Telegram file IDs and the other 22
+remain source-linked for inspection. Another 229 sticker-only items are counted
+separately and are neither queued for OCR nor auto-rejected. A live image fetch returned
+HTTP 200 (`image/jpeg`, 156,220 bytes). Validation passed 161 focused Python tests,
+the owner-workbench interaction test, JavaScript and PHP parsing, Python compilation,
+and `git diff --check`.
 
-After this release, the Telegram enrollment queue still had zero pending identities.
+The Telegram enrollment queue still had zero pending identities after this release.
 Railway HTTP logs since 16:40 UTC showed no webhook deliveries, so the messages
 mentioned for the second account were not captured by the live endpoint. The five
 earlier deliveries at 15:04 UTC predate identity capture and contain no recoverable

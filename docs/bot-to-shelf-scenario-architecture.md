@@ -2,7 +2,7 @@
 
 **Status:** scenario architecture with durable queue visibility (`e31a2a5`), no-product
 recovery (`7e48c28`), failed-batch reconciliation (`c0f474e`), and image/OCR recovery
-(`870aea7`) implemented. Remaining gaps below are planned reformations, not claims of
+(`2707d9b`) implemented. Remaining gaps below are planned reformations, not claims of
 current incidents. **Updated:** 2026-11-05 (Asia/Tehran).
 
 ## What runs today
@@ -66,6 +66,8 @@ and complete-catalog reconciliation before declaring a publication successful.
    only, combines it with the saved caption, stores the transcript separately from the
    original source, and forces every extracted offer into owner review. Unavailable,
    unreadable, unsupported, and no-product outcomes remain visible for manual review.
+   The OCR inventory includes supported image types only; unsupported media such as
+   stickers is counted separately, never auto-rejected, and never shown as an OCR card.
    `needs_media_review` counts as source capture completion for batch reconciliation;
    it does not approve a product or authorize publication.
 4. **A successful “no products” result is indistinguishable from an owner rejection.**

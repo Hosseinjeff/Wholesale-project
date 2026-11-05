@@ -59,13 +59,15 @@ files were verified from cPanel and the owner workbench interaction test passed.
 Validation: 60 focused Python tests, Node syntax and interaction tests, Python
 compilation, and `git diff --check` all passed.
 
-The follow-up OCR release is live at Railway commit `870aea7e1c91820001139000a7e603cdde91ee4a`
-in deployment `4574280d-145c-4f7b-81c8-77880267390f`; WordPress assets and the audit
-store deployed and read back successfully. The pending-account queue was checked again
-after deployment and remained empty. HTTP logs since 16:40 UTC contained no Telegram
-webhook deliveries, so the messages mentioned for the second account did not reach the
-capture path. A fresh private message is required; once it appears, approve it in the
-operations dashboard so the identity and receipt are recorded in WordPress.
+The image-review release is live at Railway commit `2707d9b11a4eb4f33a6683a8212d0bf12d470aac`
+in deployment `cfca825d-e8c0-4f43-8954-5ef24aa2835a`; WordPress JavaScript deployed and
+read back through cPanel. Inventory shows 31 photos, 22 with no saved file ID, and 229
+unsupported sticker items grouped outside OCR. One real saved photo fetched through the
+live media endpoint successfully. The pending-account queue remained empty; HTTP logs
+since 16:40 UTC contained no Telegram webhook deliveries. The messages mentioned for
+the second account did not reach the capture path. A fresh private message is required;
+once it appears, approve it in the operations dashboard so WordPress stores its decision
+and receipt.
 
 ## 2026-11-05 extraction no-result and rejection states
 
