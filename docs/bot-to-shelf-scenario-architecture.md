@@ -1,9 +1,10 @@
 # Bot-to-shelf scenario and recovery architecture
 
 **Status:** scenario architecture with durable queue visibility (`e31a2a5`), no-product
-recovery (`7e48c28`), failed-batch reconciliation (`c0f474e`), and image/OCR recovery
-(`2707d9b`) implemented. Remaining gaps below are planned reformations, not claims of
-current incidents. **Updated:** 2026-11-05 (Asia/Tehran).
+recovery (`7e48c28`), failed-batch reconciliation (`c0f474e`), image/OCR recovery
+(`2707d9b`), and source-scoped owner decisions during publication holds implemented.
+Remaining gaps below are planned reformations, not claims of current incidents.
+**Updated:** 2026-11-05 (Asia/Tehran).
 
 ## What runs today
 
@@ -41,10 +42,13 @@ and complete-catalog reconciliation before declaring a publication successful.
 ## Deadlock and silent-loss risks found in the current implementation
 
 1. **A batch hold can stop unrelated work.** `guarded_publish_shop` refuses every
-   catalog publish while any publication hold exists. AI confirmation also rejects
-   decisions while any hold exists. One bad batch can therefore block unrelated
-   product decisions and the entire shelf. A hold is currently broader than its source
-   batch/product scope.
+   catalog publish while any publication hold exists. This remains intentionally
+   fail-closed because publication sends a complete catalog snapshot and could expose
+   held products. AI decisions are now scoped to the held source batch/messages: an
+   owner can continue resolving independent cases, while the held source and public
+   catalog remain blocked. Holds with missing source context still block all decisions
+   until recovered. The remaining gap is product-scoped publication that can safely
+   publish unrelated catalog rows without exposing held products.
 2. **Some terminal generic batch failures are not included in the dashboard's repair
    action.** Most failures that create a hold are safely parked as `needs_review` on the
    next worker claim and can be reviewed. But a batch that reaches `failed` without a

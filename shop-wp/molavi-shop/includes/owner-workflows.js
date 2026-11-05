@@ -1969,13 +1969,16 @@
             const selection = node('label', null, 'molavi-ai-case-select');
             const checkbox = document.createElement('input');
             checkbox.type = 'checkbox';
-            checkbox.disabled = !contextStored;
+            checkbox.disabled = !contextStored || !decisionsEnabled;
             checkbox.addEventListener('change', () => relatedItems.forEach(row => onSelect(row, checkbox.checked, checkbox)));
             selection.append(checkbox, document.createTextNode(' انتخاب برای رد گروهی'));
             card.appendChild(selection);
         }
         const cardName = relatedItems.length > 1 ? aiVariantBaseName(item) || item.product_name : item.product_name;
         card.appendChild(node('h2', cardName || 'کالای بدون نام'));
+        if (relatedItems.some(row => row.publication_held)) {
+            card.appendChild(notice('این منبع به دستهٔ متوقف‌شده وصل است؛ پس از رفع همان توقف می‌توانید تصمیم بگیرید. موارد مستقل همچنان قابل رسیدگی‌اند.', 'warning'));
+        }
         const sourceVariant = aiSourceVariantLabel(item);
         if (sourceVariant) card.appendChild(node('p', `برچسب نوع در متن پیام: ${sourceVariant}`, 'molavi-ai-source-variant'));
         if (Number(item.duplicate_count) > 1) {
@@ -2641,7 +2644,7 @@
         await reextractionPanel(reextract);
         try {
             const data = await request();
-            if (data.publication_held) root.appendChild(notice('توقف ایمنی انتشار فعال است؛ ابتدا آن را در بخش انتشار و بازیابی بررسی کنید.', 'warning'));
+            if (data.publication_held) root.appendChild(notice('انتشار فروشگاه تا رفع توقف‌های باز متوقف است؛ تصمیم‌های منابع مستقل همچنان قابل ثبت‌اند.', 'warning'));
             const openCases = (data.cases || []).filter(item => item && item.case_id);
             const recentCases = (data.recent_decisions || []).filter(item => item && item.case_id);
             const allCases = [...new Map([...openCases, ...recentCases]
@@ -2658,7 +2661,8 @@
                     root.appendChild(notice('موارد برای بررسی نمایش داده می‌شوند، اما ذخیرهٔ زمینهٔ آن‌ها در پایگاه داده وردپرس تأیید نشد؛ تا رفع خطا، تصمیم تازه‌ای ارسال نمی‌شود.', 'error'));
                 }
             }
-            const decisionsEnabled = contextStored && !Boolean(data.publication_held);
+            const decisionsEnabled = contextStored;
+            const eligibleOpenCases = openCases.filter(item => !item.publication_held);
             const selected = new Map();
             const caseCheckboxes = new Map();
             if (openCases.length) {
@@ -2666,8 +2670,8 @@
                 const selectAllLabel = node('label', null, 'molavi-bulk-select-all');
                 const selectAll = document.createElement('input');
                 selectAll.type = 'checkbox';
-                selectAll.disabled = !contextStored;
-                selectAllLabel.append(selectAll, document.createTextNode(' انتخاب همه موارد باز'));
+                selectAll.disabled = !contextStored || !eligibleOpenCases.length;
+                selectAllLabel.append(selectAll, document.createTextNode(' انتخاب همه موارد مستقل و باز'));
                 const count = node('span', 'انتخاب‌شده: ۰');
                 const dismiss = node('button', 'ردّ انتخاب‌شده‌ها به‌عنوان «کالا نیست»', 'button');
                 const preview = node('div', null, 'molavi-bulk-preview');
@@ -2679,8 +2683,8 @@
                     const selectedCount = selected.size;
                     count.textContent = `انتخاب‌شده: ${new Intl.NumberFormat('fa-IR').format(selectedCount)}`;
                     dismiss.disabled = !selectedCount || !decisionsEnabled;
-                    selectAll.checked = selectedCount === openCases.length;
-                    selectAll.indeterminate = selectedCount > 0 && selectedCount < openCases.length;
+                    selectAll.checked = eligibleOpenCases.length > 0 && selectedCount === eligibleOpenCases.length;
+                    selectAll.indeterminate = selectedCount > 0 && selectedCount < eligibleOpenCases.length;
                     preview.replaceChildren();
                     if (!selectedCount) {
                         preview.appendChild(node('p', 'برای پیش‌نمایش پیام‌ها و اثر تصمیم، موردها را انتخاب کنید.'));
@@ -2701,7 +2705,7 @@
                 };
                 selectAll.addEventListener('change', () => {
                     selected.clear();
-                    openCases.forEach(item => {
+                    eligibleOpenCases.forEach(item => {
                         const checkbox = caseCheckboxes.get(item.case_id);
                         if (checkbox) checkbox.checked = selectAll.checked;
                         if (selectAll.checked) selected.set(item.case_id, item);
@@ -2777,16 +2781,26 @@
                         updateSelection();
                     }
                 });
-                groupAiVariantCases(openCases).forEach(items => root.appendChild(aiCaseCard(items[0], (row, checked, checkbox) => {
-                    caseCheckboxes.set(row.case_id, checkbox);
-                    if (checked) selected.set(row.case_id, row);
-                    else selected.delete(row.case_id);
-                    updateSelection();
-                }, contextStored, decisionsEnabled, items)));
+                const caseGroups = [
+                    ...groupAiVariantCases(openCases.filter(item => !item.publication_held)),
+                    ...groupAiVariantCases(openCases.filter(item => item.publication_held))
+                ];
+                caseGroups.forEach(items => {
+                    const groupHeld=Boolean(items[0].publication_held);
+                    const groupSelection=groupHeld ? null : (row, checked, checkbox) => {
+                        caseCheckboxes.set(row.case_id, checkbox);
+                        if (checked) selected.set(row.case_id, row);
+                        else selected.delete(row.case_id);
+                        updateSelection();
+                    };
+                    root.appendChild(aiCaseCard(items[0], groupSelection, contextStored,
+                        decisionsEnabled && !groupHeld, items));
+                });
             }
             const seenCaseIds = new Set(openCases.map(item => item.case_id));
             recentCases.filter(item => !seenCaseIds.has(item.case_id))
-                .forEach(item => root.appendChild(aiCaseCard(item, null, contextStored, decisionsEnabled)));
+                .forEach(item => root.appendChild(aiCaseCard(item, null, contextStored,
+                    decisionsEnabled && !item.publication_held)));
             if (!openCases.length && !recentCases.length) root.appendChild(node('p', 'موردی برای بررسی وجود ندارد.'));
         } catch (error) { root.appendChild(notice(errorText(error.message), 'error')); }
     }

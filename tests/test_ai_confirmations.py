@@ -11,6 +11,7 @@ from catalog.ai_confirmations import (
     AIConfirmationLedger, ConfirmationConflict, apply_decision, case_reextraction_inventory,
     reextraction_inventory, review_cases, review_case_id, validate_choice,
 )
+from catalog.durable import Handoffs
 from catalog.extract import MESSAGE_HEADERS, OFFER_HEADERS, PRODUCT_HEADERS
 from catalog.pricing import catalog_from_records, default_settings
 from catalog.sync import MemoryStore, _records, _row_from_map, refresh_ai_message_status
@@ -646,6 +647,85 @@ class AIConfirmationRouteTests(unittest.TestCase):
                 self.assertEqual(client.post('/pipeline/ai-confirmations',json=payload,
                     headers={**headers,'X-Molavi-Reference-Token':'bad'}).status_code,401)
             server.USE_SHEETS = old_sheets
+
+    def test_publication_hold_blocks_only_cases_from_its_source(self):
+        from importlib import import_module
+        server=import_module('app')
+        with tempfile.TemporaryDirectory() as tmp:
+            path=str(Path(tmp)/'pipeline.sqlite')
+            store=MemoryStore();store.ensure('Offers',OFFER_HEADERS);store.ensure('Products',PRODUCT_HEADERS)
+            store.ensure('MessageData',MESSAGE_HEADERS)
+            held_source={'Offer ID':'held-batch:held-message:0','Product Name':'Held Beans',
+                'Channel':'telegram','Channel Username':'@supplier','Sale Price':100000,
+                'Actual Price':150000,'Price Type':'needs_review','Currency':'IRT',
+                'Status':'needs_review','Review Reason':'supplier price role is unclear',
+                'Stock Status':'Available','Package Count':0,'Min Qty':1,
+                'Message ID':'held-message','Batch ID':'held-batch',
+                'Message Timestamp':'2026-10-28T10:00:00Z','Original Message':'Held Beans, 100000 toman'}
+            independent={**held_source,'Offer ID':'independent-batch:free-message:0',
+                'Product Name':'Independent Beans','Message ID':'free-message',
+                'Batch ID':'independent-batch','Original Message':'Independent Beans, 100000 toman'}
+            store.append('Offers',[_row_from_map(OFFER_HEADERS,held_source),
+                _row_from_map(OFFER_HEADERS,independent)])
+            store.append('MessageData',[_row_from_map(MESSAGE_HEADERS,{
+                'ID':source['Message ID'],'Channel':'telegram','Channel Username':'@supplier',
+                'Content':source['Original Message'],'Timestamp':source['Message Timestamp'],
+                'Status':'product','Batch ID':source['Batch ID'],'AI Status':'pending_ai'})
+                for source in (held_source,independent)])
+            queue=Handoffs(path)
+            queue.put('batch','held-batch',{'batch_id':'held-batch','expected_count':1,'messages':[{
+                'id':'held-message','channel_username':'@supplier','content':'Held Beans offer'}]})
+            queue.hold_publication('held-batch','batch_unverified')
+            headers={'X-Molavi-Reference-Token':'x'*40,'X-Molavi-Actor':'wp:7'}
+            env={'PIPELINE_DB_PATH':path,'REFERENCE_BRIDGE_TOKEN':'x'*40,'REFERENCE_OWNER_IDS':'wp:7'}
+            with patch.dict(os.environ,env),patch.object(server,'USE_SHEETS',True), \
+                    patch.object(server,'build_store',return_value=store), \
+                    patch.object(server,'handoff_queue',return_value=queue), \
+                    patch.object(server,'ensure_telegram_webhook',return_value=None):
+                client=server.app.test_client()
+                listed=client.get('/pipeline/ai-confirmations',headers=headers).get_json()
+                held=next(item for item in listed['cases'] if item['offer_id']==held_source['Offer ID'])
+                free=next(item for item in listed['cases'] if item['offer_id']==independent['Offer ID'])
+                self.assertTrue(listed['publication_held'])
+                self.assertTrue(held['publication_held'])
+                self.assertFalse(free['publication_held'])
+                def payload(case):
+                    return {'case_id':case['case_id'],'offer_id':case['offer_id'],
+                        'signature':case['signature'],'choice':'confirm',
+                        'fields':{'price_role':'unit','sale_price':100000,'actual_price':150000,
+                            'package_count':'','min_qty':1,'stock_status':'Available'},
+                        'note':'Verified against source post','expected_decision_id':None}
+                blocked=client.post('/pipeline/ai-confirmations',json=payload(held),headers=headers)
+                self.assertEqual(blocked.status_code,409,blocked.get_json())
+                accepted=client.post('/pipeline/ai-confirmations',json=payload(free),headers=headers)
+                self.assertEqual(accepted.status_code,200,accepted.get_json())
+                self.assertEqual(len(queue.publication_holds()),1,
+                    'the unrelated decision must not clear or change the held source batch')
+
+    def test_hold_without_source_receipt_remains_a_global_fail_closed_guard(self):
+        from importlib import import_module
+        server=import_module('app')
+        with tempfile.TemporaryDirectory() as tmp:
+            path=str(Path(tmp)/'pipeline.sqlite')
+            store=MemoryStore();store.ensure('Offers',OFFER_HEADERS);store.ensure('Products',PRODUCT_HEADERS)
+            source={'Offer ID':'batch:message:0','Product Name':'Beans','Channel':'telegram',
+                'Channel Username':'@supplier','Sale Price':100000,'Actual Price':150000,
+                'Price Type':'needs_review','Currency':'IRT','Status':'needs_review',
+                'Review Reason':'supplier price role is unclear','Stock Status':'Available',
+                'Package Count':0,'Min Qty':1,'Message ID':'message','Batch ID':'batch',
+                'Message Timestamp':'2026-10-28T10:00:00Z','Original Message':'Beans, 100000 toman'}
+            store.append('Offers',[_row_from_map(OFFER_HEADERS,source)])
+            queue=Handoffs(path);queue.hold_publication('unknown-scope','legacy_hold')
+            headers={'X-Molavi-Reference-Token':'x'*40,'X-Molavi-Actor':'wp:7'}
+            env={'PIPELINE_DB_PATH':path,'REFERENCE_BRIDGE_TOKEN':'x'*40,'REFERENCE_OWNER_IDS':'wp:7'}
+            with patch.dict(os.environ,env),patch.object(server,'USE_SHEETS',True), \
+                    patch.object(server,'build_store',return_value=store), \
+                    patch.object(server,'handoff_queue',return_value=queue), \
+                    patch.object(server,'ensure_telegram_webhook',return_value=None):
+                response=server.app.test_client().get('/pipeline/ai-confirmations',headers=headers)
+                item=response.get_json()['cases'][0]
+                self.assertTrue(item['publication_held'],
+                    'a legacy hold without source context must remain globally fail closed')
 
     def test_historical_confirmation_keeps_unknown_stock_explicit(self):
         from importlib import import_module

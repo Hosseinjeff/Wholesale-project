@@ -820,6 +820,41 @@ async function main() {
     && row.review_id===mediaMessageKey);
   assert(mediaEvents.some(row=>row.state==='pending') && mediaEvents.some(row=>row.state==='accepted'),
     'the photo decision and server receipt are saved in the WordPress review database');
+
+  const scopedAiCase=(letter,name,held) => ({case_id:`ai:${letter.repeat(64)}`,
+    offer_id:`batch-${letter}:message-${letter}:0`,signature:letter.repeat(64),
+    product_name:name,channel:'@supplier',source_channel:'telegram',
+    message_id:`message-${letter}`,batch_id:`batch-${letter}`,historical_reextract:false,
+    price_type:'unit',sale_price:'100000',detected_price:'100000',actual_price:'150000',
+    package_count:'',min_qty:'1',stock_status:'Available',reason:'Check source price',
+    original_message:`${name}, supplier price 100000 toman`,publication_held:held});
+  data['ai-confirmations']={publication_held:true,cases:[
+    scopedAiCase('f','Held Beans',true),scopedAiCase('g','Independent Beans',false)
+  ],recent_decisions:[]};
+  const scopedRoot=new Element('div');
+  const scopedDocument={...document,getElementById:id=>id==='molavi-owner-workflow'?scopedRoot:null};
+  const scopedWindow={...window,molaviOwnerWorkflow:{...window.molaviOwnerWorkflow,
+    page:'molavi-ai-confirmations',apiUrl:base+'/pipeline/ai-confirmations',token:'scoped-ai-confirmations'}};
+  scopedWindow.parent=scopedWindow;
+  vm.runInNewContext(fs.readFileSync(workflowScriptPath,'utf8'),
+    {window:scopedWindow,document:scopedDocument,fetch,URL,Intl,Map,Set,Promise,TextEncoder,Date,Math,
+      Number,String,Boolean,Array,Object,Error,Uint8Array,URLSearchParams,console,setTimeout:()=>0,clearTimeout:()=>{}});
+  for (let attempt=0;attempt<20;attempt++) {
+    if (scopedRoot.text.includes('Independent Beans')) break;
+    await new Promise(resolve=>setTimeout(resolve,0));
+  }
+  const caseCard=name=>walk(scopedRoot).find(element=>element.tagName==='SECTION'
+    && element.childNodes.some(child=>child.tagName==='H2' && child.textContent===name));
+  const heldCard=caseCard('Held Beans'); const independentCard=caseCard('Independent Beans');
+  assert(heldCard && independentCard,'the dashboard renders both held and independent source cases');
+  assert(walk(heldCard).filter(element=>element.tagName==='BUTTON').every(button=>button.disabled),
+    'only the case linked to the held batch has its decision actions disabled');
+  const independentConfirm=walk(independentCard).find(element=>element.tagName==='BUTTON'
+    && element.textContent.startsWith('تأیید با همین مشخصات'));
+  assert(independentConfirm && !independentConfirm.disabled,
+    'an unrelated source case remains actionable while publication is held');
+  assert.match(scopedRoot.text,/تصمیم‌های منابع مستقل همچنان قابل ثبت‌اند/,
+    'the dashboard explains that a hold is scoped to its source');
 }
 
 main().catch(error => { console.error(error); process.exitCode = 1; });

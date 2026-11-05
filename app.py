@@ -906,6 +906,38 @@ def _shop_token_ok() -> bool:
     return hmac.compare_digest(sent, secret)
 
 
+def _publication_hold_scope(queue):
+    """Index held source batches/messages so unrelated owner decisions can proceed."""
+    batch_ids=set()
+    source_messages=set()
+    global_hold=False
+    for hold in queue.publication_holds():
+        hold_id=str(hold.get('hold_id') or '')
+        if hold_id:
+            batch_ids.add(hold_id)
+        messages=queue.publication_hold_context(hold_id).get('messages') or []
+        if not messages:
+            # A hold without recoverable source context cannot safely be narrowed.
+            global_hold=True
+            continue
+        for message in messages:
+            message_id=str(message.get('message_id') or '')
+            channel=str(message.get('channel') or '')
+            if message_id and channel:
+                source_messages.add((message_id,channel))
+    return {'global':global_hold,'batch_ids':batch_ids,'source_messages':source_messages}
+
+
+def _source_blocked_by_publication_hold(scope, source):
+    if scope.get('global'):
+        return True
+    batch_id=str(source.get('batch_id') or '')
+    message_id=str(source.get('message_id') or '')
+    channel=str(source.get('channel') or source.get('channel_username') or '')
+    return batch_id in scope.get('batch_ids',set()) or (
+        bool(message_id and channel) and (message_id,channel) in scope.get('source_messages',set()))
+
+
 @app.route("/pipeline/publication-holds", methods=["GET", "POST"])
 def publication_holds_route():
     token = os.getenv("REFERENCE_BRIDGE_TOKEN") or ""
@@ -2300,8 +2332,12 @@ def ai_confirmations_route():
             cases, recent = review_cases(store, ledger, include_history=True,
                                          reference_snapshot=reference_snapshot,
                                          reference_item_ledger=reference_item_ledger)
+            hold_scope=_publication_hold_scope(queue)
+            for item in [*cases,*recent]:
+                item['publication_held']=_source_blocked_by_publication_hold(hold_scope,item)
             response = jsonify({'ok': True, 'cases': cases, 'recent_decisions': recent,
-                                'publication_held': bool(queue.publication_holds())})
+                                'publication_held': bool(hold_scope['batch_ids']),
+                                'publication_hold_scope':'source_batch'})
             response.headers['Cache-Control'] = 'no-store'
             return response
         body = request.get_json(silent=True)
@@ -2466,8 +2502,7 @@ def ai_confirmations_route():
             dismissed=[]
             failed=[]
             with queue.publication_lock():
-                if queue.publication_holds():
-                    return jsonify({'ok':False,'error':'publication_held_for_review'}),409
+                hold_scope=_publication_hold_scope(queue)
                 available={case['case_id']:case for case in review_cases(store,ledger,limit=200)}
                 cases_to_dismiss=[]
                 for item in selected:
@@ -2477,6 +2512,9 @@ def ai_confirmations_route():
                             or case['previous_decision_id']!=item['expected_decision_id']):
                         return jsonify({'ok':False,'error':'stale_case'}),409
                     cases_to_dismiss.append(case)
+                if any(_source_blocked_by_publication_hold(hold_scope,case)
+                       for case in cases_to_dismiss):
+                    return jsonify({'ok':False,'error':'publication_held_for_review'}),409
                 for case in cases_to_dismiss:
                     try:
                         decision=ledger.decide(case_id=case['case_id'],offer_id=case['offer_id'],
@@ -2559,11 +2597,11 @@ def ai_confirmations_route():
         except ValueError as exc:
             return jsonify({'ok': False, 'error': str(exc)}), 400
         with queue.publication_lock():
-            if queue.publication_holds():
-                return jsonify({'ok': False, 'error': 'publication_held_for_review'}), 409
             case = find_case(store, ledger, body['case_id'], body['offer_id'])
             if not case or case['signature'] != body['signature']:
                 return jsonify({'ok': False, 'error': 'stale_case'}), 409
+            if _source_blocked_by_publication_hold(_publication_hold_scope(queue),case):
+                return jsonify({'ok':False,'error':'publication_held_for_review'}),409
             if (body['choice']=='confirm' and case.get('historical_reextract')
                     and body.get('source_current_verified') is not True):
                 return jsonify({'ok':False,'error':'reextraction_price_not_verified'}),400
