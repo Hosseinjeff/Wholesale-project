@@ -211,13 +211,20 @@ def handoff_queue():
     return Handoffs(path) if path else None
 
 
-def _notice_chat_allowlists():
+def _notice_chat_allowlists(queue=None):
     """Explicit recipients allowed to receive private operational notices."""
     def values(*names):
         return {part.strip() for name in names
                 for part in (os.getenv(name) or '').split(',') if part.strip()}
+    telegram = values('TELEGRAM_OPERATOR_CHAT_IDS', 'TELEGRAM_ADDITIONAL_OPERATOR_CHAT_IDS',
+                      'ORDER_NOTIFY_CHAT_ID')
+    if queue is not None:
+        try:
+            telegram.update(queue.approved_telegram_operator_ids())
+        except Exception:
+            logger.exception('Could not read approved Telegram operator identities')
     return {
-        'telegram': values('TELEGRAM_OPERATOR_CHAT_IDS', 'ORDER_NOTIFY_CHAT_ID'),
+        'telegram': telegram,
         'bale': values('BALE_OPERATOR_CHAT_IDS'),
     }
 
@@ -228,7 +235,7 @@ def run_durable_handoff(queue, job_id=None, worker_id=None):
 
     def notice(key, chat_id, text, channel="telegram"):
         if (channel not in {'telegram', 'bale'}
-                or str(chat_id or '').strip() not in _notice_chat_allowlists()[channel]):
+                or str(chat_id or '').strip() not in _notice_chat_allowlists(queue)[channel]):
             logger.warning("Skipped operational notice for a non-allowlisted recipient")
             return False
         queue.put("notice", key + ":" + str(chat_id) + ":" + channel,
@@ -313,9 +320,9 @@ def run_durable_handoff(queue, job_id=None, worker_id=None):
         if result.get("written") is True and payload.get("notify"):
             import hashlib
             key = hashlib.sha256(queue.encode(payload).encode()).hexdigest()
-            recipients = _notice_chat_allowlists()
+            recipients = _notice_chat_allowlists(queue)
             for channel, token, chats in (
-                    ("telegram", BOT_TOKEN, operator_chat_ids(store)),
+                    ("telegram", BOT_TOKEN, operator_chat_ids(store, queue.approved_telegram_operator_ids())),
                     ("bale", BALE_BOT_TOKEN, sorted(recipients['bale']))):
                 if token:
                     for chat in chats:
@@ -325,7 +332,7 @@ def run_durable_handoff(queue, job_id=None, worker_id=None):
     def notify(payload):
         channel = payload["channel"]
         if (channel not in {'telegram', 'bale'}
-                or str(payload.get('chat_id') or '').strip() not in _notice_chat_allowlists().get(channel, set())):
+                or str(payload.get('chat_id') or '').strip() not in _notice_chat_allowlists(queue).get(channel, set())):
             return {"delivered": False, "skipped": "recipient_not_allowlisted"}
         token = BALE_BOT_TOKEN if channel == "bale" else BOT_TOKEN
         host = "https://tapi.bale.ai" if channel == "bale" else "https://api.telegram.org"
@@ -792,7 +799,26 @@ def handle_inbound_update(update_json, channel):
     if private_chat(data):
         allowlist_name = 'TELEGRAM_OPERATOR_CHAT_IDS' if channel == 'telegram' else 'BALE_OPERATOR_CHAT_IDS'
         allowlist = {part.strip() for part in (os.getenv(allowlist_name) or '').split(',') if part.strip()}
+        if channel == 'telegram':
+            allowlist.update(part.strip() for part in
+                (os.getenv('TELEGRAM_ADDITIONAL_OPERATOR_CHAT_IDS') or '').split(',') if part.strip())
+            queue = handoff_queue()
+            if queue is not None:
+                try:
+                    allowlist.update(queue.approved_telegram_operator_ids())
+                except Exception:
+                    logger.exception('Could not read approved Telegram operator identities')
         if not allowlist or str(data.get('chat_id')) not in allowlist:
+            if channel == 'telegram':
+                if queue is None:
+                    return jsonify({'status':'enrollment_storage_unavailable'}),503
+                try:
+                    stored=queue.record_pending_telegram_chat(data.get('chat_id'))
+                    if not stored:
+                        return jsonify({'status':'ignored'})
+                except Exception:
+                    logger.exception('Could not record pending Telegram account identity')
+                    return jsonify({'status':'enrollment_storage_unavailable'}),503
             logger.warning("Ignoring private %s update from a non-allowlisted chat", channel)
             return jsonify({'status': 'ignored'})
     command = command_name(data.get("content") or "") if source == "direct" else None
@@ -1029,10 +1055,47 @@ def operations_dashboard_route():
     summary['publication_holds']=len(queue.publication_holds())
     summary['sheet_conflicts']=len(queue.sheet_sync_conflicts(state='open'))
     summary['worker']=queue.worker_status()
+    summary['pending_telegram_chats']=queue.pending_telegram_chats(limit=50)
     backlog=queue.failed_backlog_snapshot()
     summary['failed_publication_ids']=backlog['publication_ids']
     summary['failed_batch_ids']=backlog['batch_ids']
     response=jsonify({'ok':True,'operations':summary})
+    response.headers['Cache-Control']='no-store'
+    return response
+
+
+@app.route('/pipeline/telegram-operator-chats', methods=['POST','OPTIONS'])
+def telegram_operator_chats_route():
+    """Owner-only approval/rejection of a private Telegram sender identity."""
+    if request.method == 'OPTIONS':
+        return '', 204
+    token=os.getenv('REFERENCE_BRIDGE_TOKEN') or ''
+    owners={value.strip() for value in (os.getenv('REFERENCE_OWNER_IDS') or '').split(',') if value.strip()}
+    queue=handoff_queue()
+    if queue is None or len(token)<32 or not owners:
+        return jsonify({'ok':False,'error':'unconfigured'}),503
+    actor,auth_error=_owner_api_actor('owner:/pipeline/telegram-operator-chats',token,owners)
+    if auth_error:
+        return jsonify({'ok':False,'error':'unauthorized' if auth_error==401 else 'owner_required'}),auth_error
+    body=request.get_json(silent=True)
+    required={'action','chat_id','expected_revision'}
+    if (not isinstance(body,dict) or set(body)!=required
+            or body.get('action') not in {'approve','reject'}
+            or not isinstance(body.get('chat_id'),str)
+            or not re.fullmatch(r'[0-9]{1,20}',body['chat_id'])
+            or type(body.get('expected_revision')) is not int or body['expected_revision']<1):
+        return jsonify({'ok':False,'error':'invalid_body'}),400
+    try:
+        result=queue.resolve_pending_telegram_chat(body['chat_id'],
+            expected_revision=body['expected_revision'],approve=body['action']=='approve',actor_id=actor)
+    except JobConflict:
+        return jsonify({'ok':False,'error':'telegram_account_changed'}),409
+    except ValueError:
+        return jsonify({'ok':False,'error':'invalid_body'}),400
+    except Exception:
+        logger.exception('Telegram operator decision could not be persisted')
+        return jsonify({'ok':False,'error':'telegram_operator_unavailable'}),503
+    response=jsonify({'ok':True,**result})
     response.headers['Cache-Control']='no-store'
     return response
 
@@ -1934,6 +1997,7 @@ def reference_snapshots_browser_cors(response):
         '/reference/decisions',
         '/reference/item-reviews',
         '/pipeline/operations-dashboard',
+        '/pipeline/telegram-operator-chats',
         '/pipeline/reconcile-publication-backlog',
         '/pipeline/product-status-snapshots',
         '/pipeline/ai-confirmations',
@@ -2715,7 +2779,7 @@ def shop_order():
             return jsonify({"status": "error", "message": "sheet write failed"}), 502
     if body.get("notify"):
         notice = format_order_notice(order)
-        chats = operator_chat_ids(store)
+        chats = operator_chat_ids(store, queue.approved_telegram_operator_ids() if queue is not None else ())
         for chat_id in chats:
             send_chat_text(chat_id, notice)
         result["notified"] = len(chats)

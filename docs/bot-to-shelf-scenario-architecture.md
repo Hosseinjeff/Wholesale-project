@@ -196,7 +196,7 @@ by looking up the original command ID; it is never converted into a second comma
 | Telegram sends the same update again or a request times out after persistence | Return the original receipt by idempotency key; do not create another message, offer or batch. | Show “already received” and link to the same source card. |
 | Supplier edits a channel post | Create a new source revision using Telegram `edit_date`; retain prior revisions and offers. | New revision appears on the existing Product card with old/new source values. |
 | Owner re-forwards an old supplier post | Preserve Telegram's original forward date when exposed. If origin/date is hidden, record the source date as unknown; do not refresh supplier price or stock age from the owner's forward time. | Show “old source” or “source date unknown” with an action to open the original post and verify current price. |
-| Unauthorized sender, group, malformed or unsupported update | Do not create work. Record a safe rejection reason; avoid leaking credentials or replying to arbitrary users. | Owner sees a counter/diagnostic; authorized sender gets a clear “not accepted” response where safe. |
+| Unauthorized private Telegram sender, group, malformed or unsupported update | Groups and unsupported updates create no work. For a private Telegram sender, persist only chat ID, first/last seen time, count and revision; never persist its message text. If that small identity receipt cannot commit, return 503 so Telegram retries instead of silently losing the enrollment request. | Owner sees the private sender in the operations dashboard and can allow or reject with one click. The revision-bound decision and receipt are written to the WordPress review database; the Railway ingress database keeps only the approved chat ID needed to enforce access at webhook time. |
 | Railway cannot durably accept an update, or WordPress is temporarily unavailable after acceptance | If Railway cannot commit its inbox receipt, do not acknowledge; let Telegram retry and alert on pending updates. If the durable Railway receipt exists, acknowledge and retry the same payload to WordPress until WP returns its durable receipt. | Show ingress storage health, pending-update count, oldest buffered item, and WordPress delivery age. The catch-up procedure covers expiry of Telegram's retry window. |
 | Text + image, album, image-only, unsupported media, or inaccessible media | Extract text when available; track media/OCR separately. Never mark image-only as `owner_rejected`. If OCR is unavailable, save `needs_media_review`. | One source card with preview, text/OCR state and actions to inspect, retry OCR, resend/attach accessible media, or explicitly mark not a product. |
 | Gemini timeout, quota, malformed JSON or schema drift | Save the run/error code; retry only transient errors; preserve source and prior runs. No product projection. | “Retry extraction” for transient errors; “prompt/schema needs repair” with a run ID for deterministic errors. |
@@ -884,6 +884,16 @@ yet implement WordPress canonical workflow tables or the transactional WordPress
 outbox; those are the next migration stages and still require shadow comparison before
 they can replace live writers. The schema addition is additive and leaves existing
 queue receipts intact.
+
+The Telegram enrollment recovery slice is now in the release worktree. Unknown private
+senders are captured as bounded, 30-day identity-only requests, surfaced in the
+owner-only operations card, and approved/rejected with an expected revision. A repeat
+request by the same owner is idempotent. WordPress records the decision and receipt;
+the Railway SQLite table carries only approved Telegram IDs because the webhook must
+check access locally. Existing environment allowlists remain valid and unchanged.
+Five messages received before this behavior existed were acknowledged by the old
+webhook and discarded, so their sender ID cannot be recovered; one new message from
+that account will create the pending row.
 
 Acceptance requires that every accepted Telegram receipt reaches exactly one explicit
 terminal or owner-waiting state; every offer links to one product and source revision;

@@ -75,7 +75,11 @@ class Handoffs:
                 progress_at REAL NOT NULL,
                 state TEXT NOT NULL, current_job_id TEXT, last_claimed_job_id TEXT,
                 last_claimed_at REAL, last_completed_job_id TEXT, last_completed_at REAL,
-                last_error_code TEXT);''')
+                last_error_code TEXT);
+                CREATE TABLE IF NOT EXISTS pending_telegram_chats (
+                chat_id TEXT PRIMARY KEY, first_seen_at REAL NOT NULL, last_seen_at REAL NOT NULL,
+                seen_count INTEGER NOT NULL DEFAULT 1, revision INTEGER NOT NULL DEFAULT 1,
+                state TEXT NOT NULL DEFAULT 'pending', decided_at REAL, decided_by TEXT);''')
             self._ensure_column(db, 'jobs', 'created_at', 'REAL')
             self._ensure_column(db, 'jobs', 'updated_at', 'REAL')
             self._ensure_column(db, 'inbox', 'received_at', 'REAL')
@@ -113,6 +117,70 @@ class Handoffs:
         try:
             with db: yield db
         finally: db.close()
+
+    def record_pending_telegram_chat(self, chat_id, *, now=None):
+        """Keep only the identity/timing of an unapproved private Telegram sender."""
+        value = str(chat_id or '').strip()
+        if not re.fullmatch(r'[0-9]{1,20}', value):
+            return False
+        stamp = float(time.time() if now is None else now)
+        with self.connect() as db:
+            db.execute("DELETE FROM pending_telegram_chats WHERE state!='approved' AND last_seen_at<?",
+                       (stamp - 30 * 86400,))
+            db.execute('''INSERT INTO pending_telegram_chats
+                (chat_id,first_seen_at,last_seen_at,seen_count,revision,state) VALUES (?,?,?,?,1,'pending')
+                ON CONFLICT(chat_id) DO UPDATE SET
+                    last_seen_at=excluded.last_seen_at,
+                    seen_count=pending_telegram_chats.seen_count+1,
+                    revision=pending_telegram_chats.revision+1
+                WHERE pending_telegram_chats.state='pending' ''',
+                (value, stamp, stamp, 1))
+            db.execute('''DELETE FROM pending_telegram_chats WHERE chat_id IN (
+                SELECT chat_id FROM pending_telegram_chats
+                WHERE state='pending' ORDER BY last_seen_at DESC,chat_id DESC LIMIT -1 OFFSET 500)''')
+        return True
+
+    def pending_telegram_chats(self, *, limit=50):
+        """Return bounded, owner-only enrollment context without message payloads."""
+        try:
+            size = max(1, min(int(limit), 100))
+        except (TypeError, ValueError, OverflowError):
+            size = 50
+        with self.connect() as db:
+            rows = db.execute('''SELECT chat_id,first_seen_at,last_seen_at,seen_count,revision
+                FROM pending_telegram_chats WHERE state='pending'
+                ORDER BY last_seen_at DESC,chat_id DESC LIMIT ?''',
+                (size,)).fetchall()
+        return [dict(row) for row in rows]
+
+    def approved_telegram_operator_ids(self):
+        with self.connect() as db:
+            rows=db.execute("SELECT chat_id FROM pending_telegram_chats WHERE state='approved' ORDER BY chat_id").fetchall()
+        return [str(row['chat_id']) for row in rows]
+
+    def resolve_pending_telegram_chat(self, chat_id, *, expected_revision, approve, actor_id):
+        """Record an owner decision against the exact pending-sender revision."""
+        value=str(chat_id or '').strip()
+        if (not re.fullmatch(r'[0-9]{1,20}',value)
+                or type(expected_revision) is not int or expected_revision < 1
+                or type(approve) is not bool or not isinstance(actor_id,str) or not actor_id.strip()):
+            raise ValueError('valid Telegram account decision required')
+        now=time.time()
+        state='approved' if approve else 'rejected'
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row=db.execute('SELECT revision,state,decided_by,decided_at FROM pending_telegram_chats WHERE chat_id=?',(value,)).fetchone()
+            if (row and row['state']==state and int(row['revision'])==expected_revision
+                    and str(row['decided_by'] or '')==actor_id.strip()):
+                return {'chat_id':value,'state':state,'revision':expected_revision,
+                        'decided_at':row['decided_at'],'already_done':True}
+            if not row or row['state']!='pending' or int(row['revision'])!=expected_revision:
+                raise JobConflict('pending Telegram account changed')
+            db.execute('''UPDATE pending_telegram_chats SET state=?,decided_at=?,decided_by=?
+                WHERE chat_id=? AND state='pending' AND revision=?''',
+                (state,now,actor_id.strip()[:120],value,expected_revision))
+        return {'chat_id':value,'state':state,'revision':expected_revision,'decided_at':now,
+                'already_done':False}
 
     @contextmanager
     def publication_lock(self):

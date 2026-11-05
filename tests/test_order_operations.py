@@ -18,6 +18,12 @@ class OperatorDestinationTests(unittest.TestCase):
         with patch.dict(os.environ,{'TELEGRAM_BOT_TOKEN':'configured','TELEGRAM_OPERATOR_CHAT_IDS':'288165176'},clear=True):
             self.assertEqual(operator_chat_ids(store),['288165176'])
 
+    def test_approved_additional_chat_is_preserved_with_existing_recipients(self):
+        with patch.dict(os.environ,{'TELEGRAM_BOT_TOKEN':'configured',
+            'TELEGRAM_OPERATOR_CHAT_IDS':'288165176,444','TELEGRAM_ADDITIONAL_OPERATOR_CHAT_IDS':'555'},clear=True):
+            self.assertEqual(operator_chat_ids(None,['444','666']),
+                ['288165176','444','555','666'])
+
 
 class OrderOperationsTests(unittest.TestCase):
     def setUp(self):

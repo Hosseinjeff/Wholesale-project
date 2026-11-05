@@ -46,6 +46,7 @@ async function main() {
     ['sheet_conflicts','/pipeline/sheet-conflicts'],
     ['publication_holds','/pipeline/publication-holds'],
     ['reference_decisions','/reference/decisions'],
+    ['telegram_operators','/pipeline/telegram-operator-chats'],
   ].map(([key,path]) => [key,{url:base+path,token:`scoped-${key}`} ]));
   const data = {
     'product-status-snapshots': {products:[{product_id:'product-1',product_name:'Noodle 12 pack',
@@ -69,7 +70,8 @@ async function main() {
       next_action:'resolve_reference_decision',age_seconds:3600}],actionable_count:2,
       next_cursor:'cursor-next',has_more:true,failed_publication_ids:[],failed_batch_ids:[],
       publication_holds:0,sheet_conflicts:1,worker:{status:'alive',heartbeat_age_seconds:4,
-        state:'idle',progress_status:'active',progress_age_seconds:4,current_job_id:null,last_error_code:''}}},
+        state:'idle',progress_status:'active',progress_age_seconds:4,current_job_id:null,last_error_code:''},
+      pending_telegram_chats:[]}},
   };
   const calls = [];
   const storedReviewRows = [];
@@ -98,6 +100,13 @@ async function main() {
       data['supplier-price-evidence'].offers = [];
       return {ok:true,status:200,json:async()=>({ok:true,product_id:payload.product_id,
         source_revision:payload.expected_revision,verified_at:'2026-11-03T08:30:00Z',publish_job:'publish:one'})};
+    }
+    if (path.endsWith('/telegram-operator-chats') && options.method === 'POST') {
+      const payload = JSON.parse(options.body);
+      data.operations.operations.pending_telegram_chats = [];
+      return {ok:true,status:200,json:async()=>({ok:true,chat_id:payload.chat_id,
+        state:payload.action === 'approve' ? 'approved' : 'rejected',
+        revision:payload.expected_revision,already_done:false})};
     }
     if (path.endsWith('/item-reviews') && options.method === 'POST') {
       const payload = JSON.parse(options.body);
@@ -219,6 +228,7 @@ async function main() {
     'the final conflict result updates the same WordPress event instead of stranding a pending record');
   assert.equal(conflictAttemptRows[1].state,'failed');
   for (const key of Object.keys(workflowApis)) {
+    if (key === 'telegram_operators') continue; // write-only endpoint; pending rows arrive with operations state.
     const call = calls.find(item => item.url === workflowApis[key].url);
     assert(call, `${key} API must load independently`);
     assert.equal(call.options.headers.Authorization,`Bearer scoped-${key}`);
@@ -615,6 +625,42 @@ async function main() {
     'an offer without a current price revision cannot submit price verification');
   assert.match(missingPriceRoot.text,/قیمت فروش معتبر/,
     'the card explains that the source price needs correction before verification');
+
+  data.operations.operations.pending_telegram_chats = [{chat_id:'44556677',first_seen_at:1793782800,
+    last_seen_at:1793782801,seen_count:2,revision:2}];
+  const operatorRoot = new Element('div');
+  const operatorDocument = {...document,getElementById:id=>id === 'molavi-owner-workflow' ? operatorRoot : null};
+  const operatorWindow = {...window,molaviOwnerWorkflow:{...window.molaviOwnerWorkflow,
+    page:'molavi-operations',workflowApis,reviewStoreUrl:'/admin-ajax.php',reviewStoreNonce:'nonce'}};
+  operatorWindow.parent = operatorWindow;
+  vm.runInNewContext(fs.readFileSync(workflowScriptPath,'utf8'),
+    {window:operatorWindow,document:operatorDocument,fetch,URL,Intl,Map,Set,Promise,TextEncoder,Date,Math,
+      Number,String,Boolean,Array,Object,Error,URLSearchParams,console,setTimeout,clearTimeout});
+  for (let attempt=0; attempt<20; attempt++) {
+    if (operatorRoot.text.includes('44556677')) break;
+    await new Promise(resolve => setTimeout(resolve,0));
+  }
+  assert.match(operatorRoot.text,/حساب‌های تلگرام منتظر تأیید/,
+    'unapproved private Telegram senders appear as owner-only enrollment requests');
+  assert.match(operatorRoot.text,/پیام‌های حساب‌های ناشناس ذخیره یا پردازش نمی‌شوند/,
+    'the dashboard explains that message contents were discarded');
+  const allowTelegram = walk(operatorRoot).find(element => element.tagName === 'BUTTON'
+    && element.textContent === 'اجازه دسترسی');
+  assert(allowTelegram,'the owner can approve a pending Telegram identity without typing');
+  await allowTelegram.listeners.click();
+  for (let attempt=0; attempt<20; attempt++) {
+    if (operatorRoot.text.includes('دسترسی حساب تلگرام 44556677 ثبت شد')) break;
+    await new Promise(resolve => setTimeout(resolve,0));
+  }
+  assert.match(operatorRoot.text,/دسترسی حساب تلگرام 44556677 ثبت شد/,
+    'the approval completes in place and refreshes the pending-account queue');
+  const accessRequest = calls.find(item => new URL(item.url,base).pathname.endsWith('/telegram-operator-chats')
+    && item.options.method === 'POST');
+  assert(accessRequest,'approval reaches the owner-scoped Telegram operator endpoint');
+  assert.equal(accessRequest.options.headers.Authorization,'Bearer scoped-telegram_operators');
+  const accessEvents = storedReviewRows.filter(row => row.review_type === 'telegram_operator');
+  assert(accessEvents.some(row => row.state === 'pending') && accessEvents.some(row => row.state === 'accepted'),
+    'the approval and its receipt are durably recorded in the WordPress review database');
 }
 
 main().catch(error => { console.error(error); process.exitCode = 1; });

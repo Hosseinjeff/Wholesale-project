@@ -48,7 +48,7 @@ function molavi_owner_review_store_write(array $record): bool {
     global $wpdb;
     if (!molavi_owner_review_store_ensure_schema()) { return false; }
     $types = ['publication_hold','sheet_conflict','ai_confirmation','ai_reextraction','reference_item',
-        'supplier_price','publication_backlog'];
+        'supplier_price','publication_backlog','telegram_operator'];
     $states = ['observed','pending','accepted','failed'];
     $eventId = (string)($record['event_id'] ?? '');
     $type = (string)($record['review_type'] ?? '');

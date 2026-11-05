@@ -79,8 +79,46 @@ class OperationsSnapshotTests(unittest.TestCase):
         self.queue.set_worker_state(worker_id,'stopped')
         self.assertEqual(self.queue.worker_status()['status'],'stopped')
 
+    def test_pending_telegram_account_stores_identity_only_and_uses_revisioned_decisions(self):
+        from catalog.durable import JobConflict
+        self.assertTrue(self.queue.record_pending_telegram_chat('123456789',now=1000))
+        self.assertTrue(self.queue.record_pending_telegram_chat('123456789',now=1001))
+        pending=self.queue.pending_telegram_chats()
+        self.assertEqual(len(pending),1)
+        self.assertEqual(set(pending[0]),{'chat_id','first_seen_at','last_seen_at','seen_count','revision'})
+        self.assertEqual(pending[0]['seen_count'],2)
+        self.assertEqual(pending[0]['revision'],2)
+        with self.queue.connect() as db:
+            columns={row['name'] for row in db.execute('PRAGMA table_info(pending_telegram_chats)')}
+            self.assertNotIn('message',columns)
+            self.assertNotIn('payload',columns)
+        result=self.queue.resolve_pending_telegram_chat('123456789',expected_revision=2,
+            approve=True,actor_id='wp:7')
+        self.assertEqual(result['state'],'approved')
+        self.assertFalse(result['already_done'])
+        self.assertEqual(self.queue.approved_telegram_operator_ids(),['123456789'])
+        self.assertEqual(self.queue.pending_telegram_chats(),[])
+        retry=self.queue.resolve_pending_telegram_chat('123456789',expected_revision=2,
+            approve=True,actor_id='wp:7')
+        self.assertTrue(retry['already_done'])
+        with self.assertRaises(JobConflict):
+            self.queue.resolve_pending_telegram_chat('123456789',expected_revision=1,
+                approve=False,actor_id='wp:7')
+
+    def test_pending_telegram_account_capture_expires_and_is_bounded(self):
+        self.queue.record_pending_telegram_chat('123456789',now=1000)
+        self.queue.record_pending_telegram_chat('987654321',now=1000+31*86400)
+        self.assertEqual([row['chat_id'] for row in self.queue.pending_telegram_chats()],['987654321'])
+        for value in range(600000000,600000510):
+            self.queue.record_pending_telegram_chat(str(value),now=1000000+value)
+        self.assertEqual(len(self.queue.pending_telegram_chats(limit=100)),100)
+        with self.queue.connect() as db:
+            count=db.execute("SELECT COUNT(*) FROM pending_telegram_chats WHERE state='pending'").fetchone()[0]
+        self.assertEqual(count,500)
+
     def test_owner_route_is_private_no_store_and_payload_free(self):
         import app
+        self.queue.record_pending_telegram_chat('55667788',now=1000)
         self.queue.put('batch','review-1',{'source_message':'PRIVATE SOURCE BODY'})
         self.queue.hold_publication('batch-1','batch_unverified')
         self.queue.record_sheet_conflict({'conflict_id':'conflict-1','product_id':'sku-1',
@@ -103,7 +141,44 @@ class OperationsSnapshotTests(unittest.TestCase):
         self.assertEqual(data['worker']['status'],'unknown')
         self.assertEqual(data['failed_publication_ids'],[])
         self.assertEqual(data['failed_batch_ids'],[])
+        self.assertEqual([item['chat_id'] for item in data['pending_telegram_chats']],['55667788'])
         self.assertNotIn('PRIVATE SOURCE BODY',response.get_data(as_text=True))
+
+    def test_owner_can_approve_pending_telegram_account_with_retry_safe_receipt(self):
+        import app
+        self.queue.record_pending_telegram_chat('123456789',now=1000)
+        env={'PIPELINE_DB_PATH':self.path,'REFERENCE_OWNER_IDS':'wp:7',
+             'REFERENCE_BRIDGE_TOKEN':'synthetic-bridge-token-0123456789'}
+        headers={'X-Molavi-Reference-Token':env['REFERENCE_BRIDGE_TOKEN'],'X-Molavi-Actor':'wp:7'}
+        body={'action':'approve','chat_id':'123456789','expected_revision':1}
+        with patch.dict(os.environ,env):
+            client=app.app.test_client()
+            unauth=client.post('/pipeline/telegram-operator-chats',json=body)
+            self.assertEqual(unauth.status_code,401)
+            response=client.post('/pipeline/telegram-operator-chats',json=body,headers=headers)
+            self.assertEqual(response.status_code,200)
+            self.assertFalse(response.get_json()['already_done'])
+            retry=client.post('/pipeline/telegram-operator-chats',json=body,headers=headers)
+            self.assertEqual(retry.status_code,200)
+            self.assertTrue(retry.get_json()['already_done'])
+            operations=client.get('/pipeline/operations-dashboard',headers=headers).get_json()['operations']
+        self.assertEqual(self.queue.approved_telegram_operator_ids(),['123456789'])
+        self.assertEqual(operations['pending_telegram_chats'],[])
+        with patch.dict(os.environ,{},clear=True):
+            self.assertEqual(app._notice_chat_allowlists(self.queue)['telegram'],{'123456789'})
+            from catalog.orders import operator_chat_ids
+            self.assertEqual(operator_chat_ids(None,self.queue.approved_telegram_operator_ids()),['123456789'])
+        queued=[]
+        with patch.object(app,'ensure_telegram_webhook'),patch.object(app,'USE_SHEETS',False), \
+                patch.object(app,'enqueue_message',side_effect=lambda data:queued.append(data) or True), \
+                patch.dict(os.environ,{**env,'TELEGRAM_OPERATOR_CHAT_IDS':'288165176',
+                    'TELEGRAM_WEBHOOK_SECRET':'configured-webhook-secret-0123456789'}):
+            accepted=app.app.test_client().post('/webhook',json={'message':{'message_id':8,
+                'text':'hello','chat':{'id':123456789,'type':'private'},
+                'from':{'id':123456789}}},headers={
+                    'X-Telegram-Bot-Api-Secret-Token':'configured-webhook-secret-0123456789'})
+        self.assertEqual(accepted.get_json()['status'],'success')
+        self.assertEqual(queued[0]['chat_id'],123456789)
 
     def test_owner_dashboard_does_not_hide_actionable_rows_after_first_hundred(self):
         import app

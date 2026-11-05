@@ -96,6 +96,8 @@
             resolution_failed: 'ثبت تصمیم تعارض ناموفق بود؛ وضعیت را تازه کنید.',
             publication_hold_changed: 'وضعیت دسته تغییر کرده؛ فهرست تازه شد تا دوباره بررسی کنید.',
             review_store_failed: 'ثبت اطلاعات بررسی در پایگاه داده وردپرس ناموفق بود؛ تصمیم ارسال نشد.',
+            telegram_account_changed: 'درخواست دسترسی تغییر کرده است؛ فهرست تلگرام را تازه کنید.',
+            telegram_operator_unavailable: 'ثبت دسترسی تلگرام ناموفق بود؛ وضعیت درخواست را تازه کنید.',
             invalid_records: 'ثبت اطلاعات بررسی معتبر نبود؛ صفحه را تازه کنید.',
             reconciliation_unavailable: 'گزارش تطبیق موقتاً در دسترس نیست؛ وضعیت اتصال شیت و فروشگاه را بررسی کنید.',
             backlog_changed: 'صف هنگام اجرا تغییر کرد؛ صفحه را تازه کنید و وضعیت جدید را بررسی کنید.',
@@ -1131,6 +1133,58 @@
             const workerError = worker.last_error_code ? ` · آخرین کد خطا ${worker.last_error_code}` : '';
             const workerProgress=workerProgressLabels[worker.progress_status]||'پیشرفت نامشخص';
             technical.appendChild(node('p',`کارگر صف: ${workerLabels[worker.status] || worker.status || 'وضعیت نامشخص'} · پیشرفت: ${workerProgress}${progressAge}${workerAge}${workerJob}${workerError}`));
+            const pendingTelegramChats = Array.isArray(ops.pending_telegram_chats) ? ops.pending_telegram_chats : [];
+            if (pendingTelegramChats.length) {
+                const telegramDetails = document.createElement('details');
+                const telegramSummary = node('summary', `حساب‌های تلگرام منتظر تأیید (${pendingTelegramChats.length})`);
+                telegramDetails.appendChild(telegramSummary);
+                telegramDetails.appendChild(node('p', 'پیام‌های حساب‌های ناشناس ذخیره یا پردازش نمی‌شوند؛ فقط شناسه و زمان درخواست نگه‌داری می‌شود.'));
+                pendingTelegramChats.forEach(chat => {
+                    const row = document.createElement('section');
+                    row.className = 'molavi-product-subsection';
+                    const firstSeen = Number(chat.first_seen_at);
+                    row.appendChild(node('p', `شناسه تلگرام: ${chat.chat_id} · درخواست‌ها: ${chat.seen_count || 1}`
+                        + (Number.isFinite(firstSeen) ? ` · نخستین درخواست: ${new Date(firstSeen * 1000).toLocaleString('fa-IR')}` : '')));
+                    const actionStatusBox = node('p', '');
+                    row.appendChild(actionStatusBox);
+                    for (const [action,label] of [['approve','اجازه دسترسی'],['reject','رد حساب']]) {
+                        const button = node('button', label, 'button button-secondary');
+                        button.type = 'button';
+                        button.addEventListener('click', async () => {
+                            const revision = Number(chat.revision);
+                            const targetState = action === 'approve' ? 'approved' : 'rejected';
+                            const eventId = `decision:telegram-operator:${chat.chat_id}:${revision}:${action}`;
+                            const context = {chat_id:String(chat.chat_id),revision,
+                                first_seen_at:chat.first_seen_at,last_seen_at:chat.last_seen_at,
+                                seen_count:chat.seen_count};
+                            const decision = {action,expected_revision:revision};
+                            button.disabled = true;
+                            actionStatusBox.textContent = 'در حال ثبت تصمیم…';
+                            try {
+                                await persistOwnerReviews([reviewRecord(eventId,'telegram_operator',String(chat.chat_id),'pending',context,decision)]);
+                                const receipt = await request('POST',{action,chat_id:String(chat.chat_id),expected_revision:revision},undefined,'telegram_operators');
+                                if (receipt.chat_id !== String(chat.chat_id) || receipt.state !== targetState
+                                    || Number(receipt.revision) !== revision) throw new Error('invalid_receipt');
+                                let warning = '';
+                                try { await persistOwnerReviews([reviewRecord(eventId,'telegram_operator',String(chat.chat_id),'accepted',context,decision,receipt)]); }
+                                catch (_error) { warning = ' تصمیم ثبت شد، اما رسید آن هنوز در پایگاه داده وردپرس همگام نشده است.'; }
+                                await dashboard(action === 'approve'
+                                    ? `دسترسی حساب تلگرام ${chat.chat_id} ثبت شد.${warning}`
+                                    : `درخواست حساب تلگرام ${chat.chat_id} رد شد.${warning}`,
+                                    warning ? 'warning' : 'success',['operations']);
+                            } catch (error) {
+                                try { await persistOwnerReviews([reviewRecord(eventId,'telegram_operator',String(chat.chat_id),error.remoteRejected?'failed':'pending',context,decision,{error:String(error.message||'request_failed')})]); }
+                                catch (_ignored) {}
+                                actionStatusBox.textContent = errorText(error.message);
+                                button.disabled = false;
+                            }
+                        });
+                        row.appendChild(button);
+                    }
+                    telegramDetails.appendChild(row);
+                });
+                technical.appendChild(telegramDetails);
+            }
             const failedPublicationIds = Array.isArray(ops.failed_publication_ids) ? ops.failed_publication_ids : [];
             const failedBatchIds = Array.isArray(ops.failed_batch_ids) ? ops.failed_batch_ids : [];
             if (failedPublicationIds.length || failedBatchIds.length) {

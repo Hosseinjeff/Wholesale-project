@@ -36,7 +36,8 @@ function molavi_owner_workflow_page_urls(): array {
 
 function molavi_owner_workflow_token(string $scope): string {
     if (!molavi_reference_owner()) { return ''; }
-    $allowed = array_column(molavi_owner_workflow_pages(), 1);
+    $allowed = array_merge(array_column(molavi_owner_workflow_pages(), 1),
+        ['owner:/pipeline/telegram-operator-chats']);
     if (!in_array($scope, $allowed, true)) { return ''; }
     $secret = defined('MOLAVI_REFERENCE_BRIDGE_TOKEN') ? MOLAVI_REFERENCE_BRIDGE_TOKEN : '';
     if (!is_string($secret) || strlen($secret) < 32) { return ''; }
@@ -98,6 +99,7 @@ add_action('admin_enqueue_scripts', static function (): void {
             'publication_holds' => ['/pipeline/publication-holds', 'owner:/pipeline/publication-holds'],
             'product_status' => ['/pipeline/product-status-snapshots', 'owner:/pipeline/product-status-snapshots'],
             'reference_decisions' => ['/reference/decisions', 'owner:/reference/decisions'],
+            'telegram_operators' => ['/pipeline/telegram-operator-chats', 'owner:/pipeline/telegram-operator-chats'],
         ];
         $browserConfig['workflowApis'] = [];
         foreach ($workflowSources as $key=>$source) {

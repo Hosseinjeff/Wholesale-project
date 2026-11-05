@@ -285,15 +285,21 @@ def remember_operator(store: Any, chat_id: Any, username: str = "", name: str = 
     store.append("Operators", [_row(headers, record)])
 
 
-def operator_chat_ids(store: Any | None = None) -> list[str]:
+def operator_chat_ids(store: Any | None = None, additional_chat_ids: Any = ()) -> list[str]:
     """Chats that should hear about a new order."""
     found: list[str] = []
     extra = os.getenv("ORDER_NOTIFY_CHAT_ID") or ""
     explicit = extra + "," + (os.getenv("TELEGRAM_OPERATOR_CHAT_IDS") or "")
+    explicit += "," + (os.getenv("TELEGRAM_ADDITIONAL_OPERATOR_CHAT_IDS") or "")
     for part in explicit.split(","):
         chat = part.strip()
         if chat and chat not in found:
             found.append(chat)
+    if isinstance(additional_chat_ids, (list, tuple, set)):
+        for value in additional_chat_ids:
+            chat = str(value or "").strip()
+            if chat and chat not in found:
+                found.append(chat)
     # Once a production allowlist exists, the editable Operators sheet is only a
     # roster display. It must not be able to redirect private order notices.
     if os.getenv("TELEGRAM_OPERATOR_CHAT_IDS"):

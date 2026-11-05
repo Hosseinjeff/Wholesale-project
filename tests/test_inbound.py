@@ -1,9 +1,11 @@
 import unittest
 import os
+import tempfile
 from unittest.mock import patch
 
 import app
 from app import inbound_payload, webhook_url_from_env
+from catalog.durable import Handoffs
 
 
 class InboundPayloadTests(unittest.TestCase):
@@ -142,21 +144,40 @@ class WebhookRouteTests(unittest.TestCase):
 
     def test_private_sender_must_be_in_the_trusted_owner_allowlist(self):
         queued=[]
-        with patch.object(app,'ensure_telegram_webhook'), \
-             patch.object(app,'enqueue_message',side_effect=lambda data: queued.append(data) or True), \
-             patch.object(app,'USE_SHEETS',False), \
-             patch.dict(os.environ, {'TELEGRAM_WEBHOOK_SECRET':'configured-webhook-secret-0123456789',
-                                    'TELEGRAM_OPERATOR_CHAT_IDS':'288165176'}):
-            client=app.app.test_client()
-            outsider=client.post('/webhook',json={'message':{'message_id':1,'text':'price',
-                'chat':{'id':99,'type':'private'},'from':{'id':99}}},
-                headers={'X-Telegram-Bot-Api-Secret-Token':'configured-webhook-secret-0123456789'})
-            owner=client.post('/webhook',json={'message':{'message_id':2,'text':'price',
-                'chat':{'id':288165176,'type':'private'},'from':{'id':288165176}}},
-                headers={'X-Telegram-Bot-Api-Secret-Token':'configured-webhook-secret-0123456789'})
+        with tempfile.TemporaryDirectory() as directory:
+            queue=Handoffs(os.path.join(directory,'queue.sqlite'))
+            with patch.object(app,'ensure_telegram_webhook'), \
+                 patch.object(app,'handoff_queue',return_value=queue), \
+                 patch.object(app,'enqueue_message',side_effect=lambda data: queued.append(data) or True), \
+                 patch.object(app,'USE_SHEETS',False), \
+                 patch.dict(os.environ, {'TELEGRAM_WEBHOOK_SECRET':'configured-webhook-secret-0123456789',
+                                        'TELEGRAM_OPERATOR_CHAT_IDS':'288165176'}):
+                client=app.app.test_client()
+                outsider=client.post('/webhook',json={'message':{'message_id':1,'text':'PRIVATE MESSAGE TEXT',
+                    'chat':{'id':99,'type':'private'},'from':{'id':99}}},
+                    headers={'X-Telegram-Bot-Api-Secret-Token':'configured-webhook-secret-0123456789'})
+                owner=client.post('/webhook',json={'message':{'message_id':2,'text':'price',
+                    'chat':{'id':288165176,'type':'private'},'from':{'id':288165176}}},
+                    headers={'X-Telegram-Bot-Api-Secret-Token':'configured-webhook-secret-0123456789'})
+            pending=queue.pending_telegram_chats()
         self.assertEqual(outsider.get_json()['status'],'ignored')
         self.assertEqual(owner.get_json()['status'],'success')
         self.assertEqual([item['chat_id'] for item in queued],[288165176])
+        self.assertEqual([item['chat_id'] for item in pending],['99'])
+        self.assertNotIn('PRIVATE MESSAGE TEXT',repr(pending))
+
+    def test_unapproved_telegram_sender_is_not_acknowledged_if_identity_cannot_be_saved(self):
+        with patch.object(app,'ensure_telegram_webhook'), \
+             patch.object(app,'handoff_queue',return_value=None), \
+             patch.object(app,'USE_SHEETS',False), \
+             patch.dict(os.environ,{'TELEGRAM_OPERATOR_CHAT_IDS':'288165176',
+                 'TELEGRAM_WEBHOOK_SECRET':'configured-webhook-secret-0123456789'}):
+            response=app.app.test_client().post('/webhook',json={'message':{'message_id':3,
+                'text':'ignored unless identity persists','chat':{'id':99,'type':'private'},
+                'from':{'id':99}}},headers={
+                    'X-Telegram-Bot-Api-Secret-Token':'configured-webhook-secret-0123456789'})
+        self.assertEqual(response.status_code,503)
+        self.assertEqual(response.get_json()['status'],'enrollment_storage_unavailable')
 
     def test_supplier_channel_post_uses_channel_identity_and_edit_time(self):
         data,source=inbound_payload({
