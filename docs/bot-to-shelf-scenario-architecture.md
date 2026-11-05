@@ -885,15 +885,24 @@ outbox; those are the next migration stages and still require shadow comparison 
 they can replace live writers. The schema addition is additive and leaves existing
 queue receipts intact.
 
-The Telegram enrollment recovery slice is now in the release worktree. Unknown private
-senders are captured as bounded, 30-day identity-only requests, surfaced in the
-owner-only operations card, and approved/rejected with an expected revision. A repeat
-request by the same owner is idempotent. WordPress records the decision and receipt;
-the Railway SQLite table carries only approved Telegram IDs because the webhook must
-check access locally. Existing environment allowlists remain valid and unchanged.
+The Telegram enrollment recovery slice is live at commit `9839ab76fce9ec48ba87bf09bedf0520dc81e0f9`
+(Railway deployment `951324bb-64f4-49f5-8dc3-8273c59d2186`). Unknown private senders
+are captured as bounded, 30-day identity-only requests, surfaced in the owner-only
+operations card, and approved/rejected with an expected revision. A repeat request by
+the same owner is idempotent. WordPress records the decision and receipt; the Railway
+SQLite table carries only approved Telegram IDs because the webhook must check access
+locally. Existing environment allowlists remain valid and unchanged. cPanel read-back
+verified the three changed WordPress files. The live health endpoint returned 200, the
+worker is alive/idle, and there are no current pending Telegram enrollment requests.
 Five messages received before this behavior existed were acknowledged by the old
 webhook and discarded, so their sender ID cannot be recovered; one new message from
 that account will create the pending row.
+
+Validation passed: 60 focused Python tests, the owner workbench Node interaction test,
+JavaScript syntax validation, Python compilation, and `git diff --check`. The authenticated
+operations endpoint returned HTTP 200 and its queue summary contained zero actionable
+items. An authenticated visual browser session was unavailable in this workspace; the
+committed owner script was read back from cPanel and exercised by the interaction test.
 
 Acceptance requires that every accepted Telegram receipt reaches exactly one explicit
 terminal or owner-waiting state; every offer links to one product and source revision;

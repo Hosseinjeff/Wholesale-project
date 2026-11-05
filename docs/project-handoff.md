@@ -30,6 +30,35 @@ workflow state from Railway/Sheets into WordPress. The staged next phase remains
 WordPress decision ledger and transactional outbox, preceded by shadow comparison and
 bounded migration receipts in `bot-to-shelf-scenario-architecture.md`.
 
+## 2026-11-05 Telegram account enrollment recovery
+
+Commit `9839ab76fce9ec48ba87bf09bedf0520dc81e0f9` is live in Railway deployment
+`951324bb-64f4-49f5-8dc3-8273c59d2186` (`SUCCESS`). The service is online with no
+warnings; `/health` returned HTTP 200, both web and worker processes started, and the
+authenticated operations endpoint showed an alive/idle worker, zero actionable work,
+and no pending Telegram enrollment requests. The cPanel deployer read back
+`owner-browser-api.php`, `owner-review-store.php`, and `owner-workflows.js` byte-for-byte.
+
+Private Telegram messages from unapproved accounts are still discarded. The webhook
+now durably records only the chat ID, first/last seen times, count, and revision, with
+a 30-day retention and a 500-request cap. If it cannot persist the identity receipt it
+returns 503 so Telegram retries. The unified owner dashboard shows a no-typing
+allow/reject action. It saves the decision and receipt in the WordPress review database
+and updates the Railway runtime allowlist using an idempotent, revision-bound action;
+approved accounts also receive normal operator notifications. Existing configured
+allowlists remain intact.
+
+The five unapproved messages received at 15:04 UTC before the new capture code was live
+were acknowledged and discarded by the previous webhook, so their sender ID is no
+longer available. The secondary account has not yet been registered; one fresh message
+from it will produce an owner card. The dashboard interaction test covers approval,
+the WordPress audit receipt, and in-place refresh. The live browser profile has no
+WordPress sign-in recorded, so visual browser inspection was unavailable; the changed
+files were verified from cPanel and the owner workbench interaction test passed.
+
+Validation: 60 focused Python tests, Node syntax and interaction tests, Python
+compilation, and `git diff --check` all passed.
+
 ## Live baseline before the product-streamline integrity release — 2026-11-04
 
 Railway deployment `ae46c5fd-4f9f-45b7-bdfe-088fb25fe662` runs backend commit `566bfb8` and is
