@@ -2367,7 +2367,10 @@
             const aiConfigured = supportsAiOnly && preview.ai_configured;
             panel.appendChild(node('p', `در صف بررسی: ${counts.pending || 0} پیام · همه پیام‌های متنی آماده: ${counts.all_available || 0}`));
             panel.appendChild(node('p', `کارت‌های باز استخراج: ${openCases.case_count || 0} · پیام‌های اصلی یکتا: ${openCases.message_count || 0} · قبلاً بازاستخراج‌شده: ${counts.already_reprocessed || 0}`));
-            panel.appendChild(node('p', `پیام‌های فقط‌رسانه‌ای برای بررسی: ${counts.media_review || 0} · خروجی بدون نامزد محصول: ${counts.no_product_candidates || 0} · تصمیم‌های مالک حفظ‌شده: ${counts.owner_decisions_preserved || 0} · ردشده توسط مالک: ${counts.dismissed_by_owner || 0} · قبلاً در صف بررسی بازاستخراج‌شده: ${counts.already_staged || 0}`));
+            panel.appendChild(node('p', `عکس‌های نیازمند بررسی: ${counts.media_review || 0} · عکس بدون فایل قابل‌خواندن: ${counts.media_without_file || 0} · رسانهٔ پشتیبانی‌نشده برای OCR: ${counts.unsupported_media || 0} · خروجی بدون نامزد محصول: ${counts.no_product_candidates || 0} · تصمیم‌های مالک حفظ‌شده: ${counts.owner_decisions_preserved || 0} · ردشده توسط مالک: ${counts.dismissed_by_owner || 0} · قبلاً در صف بررسی بازاستخراج‌شده: ${counts.already_staged || 0}`));
+            if (Number(counts.unsupported_media || 0) > 0) {
+                panel.appendChild(notice('رسانه‌های غیرعکسی مثل استیکر در صف OCR قرار نمی‌گیرند و خودکار هم رد نمی‌شوند. اگر یکی از آن‌ها آگهی محصول است، پست را با متن یا عکس قابل‌خواندن دوباره بفرستید.', 'info'));
+            }
             const mediaItems = Array.isArray(preview.media_review_messages) ? preview.media_review_messages : [];
             if (mediaItems.length) {
                 const mediaSection = node('section', null, 'molavi-media-review');

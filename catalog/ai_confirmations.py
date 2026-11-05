@@ -14,6 +14,8 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from catalog.stock import normalize_stock_status
 
+_OCR_MEDIA_TYPES = frozenset({'image','photo','document','image_document','document_image'})
+
 
 class ConfirmationConflict(ValueError):
     pass
@@ -641,6 +643,8 @@ def reextraction_inventory(store, ledger=None):
     no_product_candidates=0
     already_staged=0
     dismissed_by_owner=0
+    unsupported_media=0
+    media_without_file=0
     already_reprocessed=0
     reprocessed_sources={key for key,value in (ledger.source_reextractions().items() if ledger else [])
                          if value.get('outcome')=='products'}
@@ -666,7 +670,9 @@ def reextraction_inventory(store, ledger=None):
         marker=(message_id,channel)
         ai_status=str(message.get('AI Status') or '').strip().lower()
         media_no_product=ai_status in {'no_product_candidate','not_product'}
-        media_review_needed=(has_media and (not content.strip() or media_no_product))
+        media_candidate=has_media and (not content.strip() or media_no_product)
+        media_review_needed=media_candidate and media_type.lower() in _OCR_MEDIA_TYPES
+        unsupported_media_needed=media_candidate and not media_review_needed
         source_key=reextraction_source_key(
             source_url=message.get('URL'),channel=channel,message_id=message_id,
             timestamp=str(message.get('Timestamp') or ''),content=content)
@@ -676,7 +682,7 @@ def reextraction_inventory(store, ledger=None):
         message_key=reextraction_message_key({
             'message_id':message_id,'batch_id':batch_id,'channel_username':channel,
             'timestamp':str(message.get('Timestamp') or ''),'content':content,
-            'media_identity':media_identity if media_review_needed else '',
+            'media_identity':media_identity if media_candidate else '',
         })
         if message_key in dismissed_keys:
             dismissed_by_owner+=1
@@ -691,9 +697,17 @@ def reextraction_inventory(store, ledger=None):
         if marker in staged:
             already_staged+=1
             continue
+        if unsupported_media_needed:
+            unsupported_media+=1
+            # Preserve caption-bearing messages for text extraction. Empty unsupported
+            # media has no recoverable OCR input and should not flood the image queue.
+            if not content.strip():
+                continue
         if media_review_needed:
             if not content.strip():
                 no_content+=1
+            if not image_file_id:
+                media_without_file+=1
             media_review.append({
                 'message_id':message_id,'batch_id':batch_id,'channel_username':channel,
                 'channel':str(message.get('Channel') or ''),
@@ -729,6 +743,7 @@ def reextraction_inventory(store, ledger=None):
         'counts':{
             'all_available':len(candidates),'pending':len(pending),'without_text':no_content,
             'media_review':len(media_review),
+            'media_without_file':media_without_file,'unsupported_media':unsupported_media,
             'owner_decisions_preserved':excluded_owner,'not_product_preserved':explicitly_rejected,
             'no_product_candidates':no_product_candidates,
             'already_staged':already_staged,'already_reprocessed':already_reprocessed,

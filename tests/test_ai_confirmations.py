@@ -345,6 +345,22 @@ class AIConfirmationTests(unittest.TestCase):
         self.assertEqual(decision['message_key'],item['message_key'])
         self.assertEqual(reextraction_inventory(store,self.ledger)['counts']['media_review'],0)
 
+    def test_sticker_only_message_is_reported_without_flooding_ocr_review(self):
+        store=MemoryStore()
+        store.ensure('Offers',OFFER_HEADERS)
+        store.ensure('MessageData',MESSAGE_HEADERS)
+        store.append('MessageData',[_row_from_map(MESSAGE_HEADERS,{
+            'ID':'msg-sticker','Channel':'telegram','Channel Username':'@supplier','Content':'',
+            'Timestamp':'2026-11-05T10:00:00Z','Status':'product','Batch ID':'batch-sticker',
+            'Has Media':True,'Media Type':'sticker','AI Status':'needs_media_review'})])
+
+        inventory=reextraction_inventory(store,self.ledger)
+
+        self.assertEqual(inventory['counts']['media_review'],0)
+        self.assertEqual(inventory['counts']['unsupported_media'],1)
+        self.assertEqual(inventory['media_review_messages'],[])
+        self.assertEqual(inventory['pending_messages'],[])
+
     def test_photo_only_dismissal_identity_uses_saved_media_id(self):
         from catalog.ai_confirmations import reextraction_message_key
         first={'message_id':'photo-msg','batch_id':'photo-batch','channel_username':'@supplier',
