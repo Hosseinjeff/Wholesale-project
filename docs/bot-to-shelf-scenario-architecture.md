@@ -58,7 +58,12 @@ and complete-catalog reconciliation before declaring a publication successful.
 4. **A successful “no products” result is indistinguishable from an owner rejection.**
    `not_product` is used both when extraction produced no offer and when every offer
    was explicitly rejected. These outcomes need distinct states and different replay
-   rules.
+   rules. Implemented in live commit `7e48c28`: zero-result and model-generated
+   `not_product` outputs without an owner decision use `no_product_candidate`; only a
+   durable owner decision uses `owner_rejected`. Re-extraction includes candidate and
+   legacy undecided rows, while preserving explicit rejections. Empty results stay
+   retryable after a run, and batch reconciliation accepts the new terminal statuses.
+   Image-only posts still need the separate media/OCR review path.
 5. **Reference activation is a multi-store operation without a resumable receipt.**
    The active snapshot can be switched before the Sheet projection and product
    re-evaluation finish. A later failure can return an error even though the active

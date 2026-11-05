@@ -1,6 +1,6 @@
 # MolaviSale — whole-workflow handoff
 
-Snapshot 4.73. Updated 2026-11-05, Asia/Tehran. The canonical roleplay decisions are in
+Snapshot 4.74. Updated 2026-11-05, Asia/Tehran. The canonical roleplay decisions are in
 `roleplay-state.json`; current live evidence and release gates are in
 `pipeline-readiness.md` and `pipeline-readiness-evidence.json`.
 The product intake and shelf policy is documented in `products-streamline-integrity.md`.
@@ -58,6 +58,28 @@ files were verified from cPanel and the owner workbench interaction test passed.
 
 Validation: 60 focused Python tests, Node syntax and interaction tests, Python
 compilation, and `git diff --check` all passed.
+
+## 2026-11-05 extraction no-result and rejection states
+
+Railway commit `7e48c286184fab50ad61efac334b6b07d521dd66` is live in deployment
+`166d02f4-29cd-4a4b-a13d-693ea4b9d6e5` (`SUCCESS`). Both `pipeline-worker` and `web`
+entered `RUNNING`; `/health` returned HTTP 200. WordPress commit `441de3853bbc8b2697e2d16d3e28163c268f320d`
+deployed and read back the updated owner workbench text through cPanel.
+
+An extraction with zero products, or a model-generated `not_product` result without a
+durable owner decision, now stays in `no_product_candidate` and remains available for
+review or another extraction. `owner_rejected` is reserved for an explicit durable owner
+decision. Legacy `not_product` rows without an owner decision remain recoverable, while
+explicit owner decisions remain excluded from reprocessing. Empty re-extractions remain
+available after the run, and batch recovery recognizes these outcomes as completed
+source processing instead of leaving the source batch stuck.
+
+Validation passed: 71 focused Python tests, JavaScript syntax and owner-workbench
+interaction tests, Python compilation, and `git diff --check`. No source messages,
+product rows, or Sheet values were changed. The latest live account-enrollment read at
+15:49 UTC still showed no pending Telegram identity; the five earlier messages had already
+been acknowledged by the previous webhook and cannot supply the sender ID. A new message
+after enrollment capture is live is still needed to create the dashboard approval card.
 
 ## Live baseline before the product-streamline integrity release — 2026-11-04
 

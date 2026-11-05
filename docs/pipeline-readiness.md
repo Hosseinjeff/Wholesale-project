@@ -1,4 +1,27 @@
-# Whole-pipeline readiness — checkpoints through 2026-11-04
+# Whole-pipeline readiness — checkpoints through 2026-11-05
+
+## Extraction no-result recovery — 2026-11-05
+
+Railway commit `7e48c286184fab50ad61efac334b6b07d521dd66` is deployed successfully
+as `166d02f4-29cd-4a4b-a13d-693ea4b9d6e5`. `/health` returned HTTP 200, and the
+deployment logs show both `pipeline-worker` and `web` running. WordPress commit
+`441de3853bbc8b2697e2d16d3e28163c268f320d` deployed and read back its owner workbench
+JavaScript through cPanel.
+
+Zero-product extraction results and model-generated `not_product` rows without owner
+decisions now remain `no_product_candidate` and can be reviewed or re-extracted.
+`owner_rejected` now represents a durable owner decision only. Legacy undecided
+`not_product` messages remain recoverable, while explicit owner decisions remain
+protected. Empty re-extraction runs stay in the pending inventory, and batch recovery
+accepts the new terminal source statuses. Seventy-one focused Python tests, the
+WordPress workbench interaction test, JavaScript syntax, Python compilation, and
+`git diff --check` passed. No source, Sheet, product, WooCommerce, or publication data
+changed.
+
+At 15:49 UTC the owner queue still had no pending Telegram account identity. The five
+messages received before identity capture was deployed were already acknowledged by
+the old webhook and did not preserve the sender ID; one new message from the second
+account is needed to create its approval card.
 
 ## Historical price registration after reference assignment — 2026-11-04
 
