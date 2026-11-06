@@ -2,6 +2,27 @@
 
 Updated: 2026-11-06, Asia/Tehran
 
+## 2026-11-06 Supplier price verification outbox live
+
+Commit `99fbecff9c22b227916e282fbbb650dd2be1c728` is live in Railway production
+and WordPress. The protected cPanel deployer uploaded and read back
+`includes/owner-browser-api.php`, `includes/owner-review-store.php`, and
+`includes/owner-workflows.js` exactly. The authenticated Railway worker then
+connected to the WordPress workflow outbox with zero due commands. An
+unauthenticated request to the new route returned 403, confirming the route is
+registered and requires the service token. No product, Sheet, order, or WooCommerce
+record was changed.
+
+Railway deployment `808b79a3-d709-4f63-be97-68b6b0ceb174` reached `SUCCESS` from
+`main`. The service is restored to follow `main` without a pinned commit. The public
+Railway `/health` endpoint returned `healthy`; both `web` and `pipeline-worker`
+entered `RUNNING`.
+
+Validation passed: 54 focused Python tests, the owner workbench interaction test,
+Python and JavaScript syntax checks, PHP syntax parsing, and `git diff --check`.
+The disposable WordPress/WooCommerce runtime test remained unavailable because
+the workspace cannot access the Docker socket.
+
 ## 2026-11-06 WordPress conflict decision ledger and Railway consumer live
 
 Commit `1cc498cd58a59e43e42b37c3740d7205306843f1` is pushed to `main`, and the
