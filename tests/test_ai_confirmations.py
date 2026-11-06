@@ -40,6 +40,9 @@ class AIConfirmationTests(unittest.TestCase):
             'Status': 'needs_review', 'Review Reason': 'supplier price role is unclear; low confidence',
             'Extraction Confidence Score': .42, 'Confidence': .42, 'Message ID': 'msg-1',
             'Batch ID': 'batch-1', 'Message Timestamp': '2026-10-27T10:00:00Z',
+            'Source Timestamp Basis': 'supplier_channel_update',
+            'Source Post Created At': '2026-10-20T10:00:00Z',
+            'Source Post Updated At': '2026-10-27T10:00:00Z',
             'Source Post URL': 'https://t.me/supplier/1',
             'Forwarded By': 'owner', 'Import Timestamp': '2026-10-27T10:01:00Z',
             'Original Message': 'Tuna 24 pack, 240000 toman', 'Min Qty': 24,
@@ -51,6 +54,8 @@ class AIConfirmationTests(unittest.TestCase):
             'Timestamp':'2026-10-27T10:00:00Z','Status':'product','Batch ID':'batch-1','AI Status':'pending_ai'})])
         self.case = review_cases(self.store, self.ledger)[0]
         self.assertEqual(self.case['source_post_url'], 'https://t.me/supplier/1')
+        self.assertEqual(self.case['source_created_at'], '2026-10-20T10:00:00Z')
+        self.assertEqual(self.case['source_updated_at'], '2026-10-27T10:00:00Z')
 
     def decision(self, *, choice='confirm', fields=None, expected=None, note='Checked source'):
         return self.ledger.decide(case_id=self.case['case_id'], offer_id=self.case['offer_id'],
@@ -60,6 +65,23 @@ class AIConfirmationTests(unittest.TestCase):
     def package_fields(self):
         return {'price_role':'package','sale_price':240000,'actual_price':320000,
                 'package_count':24,'min_qty':24,'stock_status':'Available'}
+
+    def test_recent_trusted_edit_controls_freshness_when_original_post_is_old(self):
+        created = datetime.now(timezone.utc) - timedelta(days=30)
+        updated = datetime.now(timezone.utc) - timedelta(days=1)
+        offer = dict(self.source, **{
+            'Offer ID':'batch-edited:msg-1:0', 'Batch ID':'batch-edited',
+            'Message Timestamp':updated.isoformat(),
+            'Source Post Created At':created.isoformat(),
+            'Source Post Updated At':updated.isoformat(),
+        })
+        self.store.append('Offers', [_row_from_map(OFFER_HEADERS, offer)])
+        case = next(item for item in review_cases(self.store, self.ledger)
+            if item['offer_id'] == offer['Offer ID'])
+        self.assertFalse(case['historical_reextract'])
+        self.assertFalse(case['source_current_check_required'])
+        self.assertEqual(case['source_created_at'], created.isoformat())
+        self.assertEqual(case['source_updated_at'], updated.isoformat())
 
     def test_reference_only_hold_is_not_duplicated_in_ai_queue(self):
         other = dict(self.source, **{'Offer ID':'batch-1:msg-2:0',
@@ -767,6 +789,7 @@ class AIConfirmationRouteTests(unittest.TestCase):
                 'Currency':'IRT','Status':'needs_review','Review Reason':'supplier price role is unclear',
                 'Stock Status':'Available','Package Count':0,'Min Qty':1,'Message ID':'message',
                 'Batch ID':'batch','Message Timestamp':'2026-10-28T10:00:00Z',
+                'Source Timestamp Basis':'supplier_channel_update',
                 'Import Timestamp':'2026-10-28T10:01:00Z','Original Message':'Beans, 100000 toman'}
             store.append('Offers', [_row_from_map(OFFER_HEADERS, source)])
             ledger = AIConfirmationLedger(path)
@@ -818,7 +841,9 @@ class AIConfirmationRouteTests(unittest.TestCase):
                 'Status':'needs_review','Review Reason':'supplier price role is unclear',
                 'Stock Status':'Available','Package Count':0,'Min Qty':1,
                 'Message ID':'held-message','Batch ID':'held-batch',
-                'Message Timestamp':'2026-10-28T10:00:00Z','Original Message':'Held Beans, 100000 toman'}
+                'Message Timestamp':'2026-10-28T10:00:00Z',
+                'Source Timestamp Basis':'supplier_channel_update',
+                'Original Message':'Held Beans, 100000 toman'}
             independent={**held_source,'Offer ID':'independent-batch:free-message:0',
                 'Product Name':'Independent Beans','Message ID':'free-message',
                 'Batch ID':'independent-batch','Original Message':'Independent Beans, 100000 toman'}
@@ -884,33 +909,43 @@ class AIConfirmationRouteTests(unittest.TestCase):
                 self.assertTrue(item['publication_held'],
                     'a legacy hold without source context must remain globally fail closed')
 
-    def test_historical_confirmation_keeps_unknown_stock_explicit(self):
+    def test_old_forwarded_source_requires_fresh_verification_and_keeps_unknown_stock_explicit(self):
         from importlib import import_module
         server = import_module('app')
         with tempfile.TemporaryDirectory() as tmp:
             path = str(Path(tmp) / 'pipeline.sqlite')
             store = MemoryStore(); store.ensure('Offers', OFFER_HEADERS); store.ensure('Products', PRODUCT_HEADERS)
-            source = {'Offer ID':'reextract:run:message:0','Product Name':'Beans',
+            source = {'Offer ID':'batch-old:message:0','Product Name':'Beans',
                 'Channel':'telegram','Channel Username':'@supplier','Sale Price':0,
                 'Detected Price':100000,'Actual Price':150000,'Price Type':'needs_review',
                 'Currency':'IRT','Status':'needs_review','Review Reason':'Re-extraction result awaiting owner review',
                 'Stock Status':'Unknown','Package Count':12,'Min Qty':1,'Message ID':'message',
-                'Batch ID':'reextract:run','Message Timestamp':'2026-09-28T10:00:00Z',
+                'Batch ID':'batch-old','Message Timestamp':'2026-09-28T10:00:00Z',
+                'Source Timestamp Basis':'supplier_channel_forward',
+                'Source Post Created At':'2026-09-28T10:00:00Z',
                 'Source Post URL':'https://t.me/supplier/1','Import Timestamp':'2026-10-28T10:01:00Z',
                 'Original Message':'Beans, 100000 toman'}
             store.append('Offers', [_row_from_map(OFFER_HEADERS, source)])
             ledger = AIConfirmationLedger(path)
             case = review_cases(store, ledger)[0]
+            self.assertFalse(case['historical_reextract'])
+            self.assertTrue(case['source_current_check_required'])
             payload = {'case_id':case['case_id'],'offer_id':case['offer_id'],'signature':case['signature'],
                 'choice':'confirm','fields':{'price_role':'unit','sale_price':100000,'actual_price':150000,
                     'package_count':12,'min_qty':1,'stock_status':'Unknown'},
                 'note':'Checked the current supplier post; stock was not stated.',
-                'expected_decision_id':None,'source_current_verified':True}
+                'expected_decision_id':None,'source_current_verified':False}
             with patch.dict(os.environ, {'PIPELINE_DB_PATH':path,'REFERENCE_BRIDGE_TOKEN':'x'*40,
                     'REFERENCE_OWNER_IDS':'wp:7'}), patch.object(server,'USE_SHEETS',True), \
                     patch.object(server,'build_store',return_value=store), \
                     patch.object(server,'ensure_telegram_webhook',return_value=None):
                 client=server.app.test_client()
+                blocked=client.post('/pipeline/ai-confirmations',json=payload,
+                    headers={'X-Molavi-Reference-Token':'x'*40,'X-Molavi-Actor':'wp:7'})
+                self.assertEqual(blocked.status_code,400,blocked.get_json())
+                self.assertEqual(blocked.get_json()['error'],'source_current_verification_required')
+                self.assertIsNone(ledger.latest(case['case_id']))
+                payload['source_current_verified']=True
                 response=client.post('/pipeline/ai-confirmations',json=payload,
                     headers={'X-Molavi-Reference-Token':'x'*40,'X-Molavi-Actor':'wp:7'})
                 self.assertEqual(response.status_code,200,response.get_json())

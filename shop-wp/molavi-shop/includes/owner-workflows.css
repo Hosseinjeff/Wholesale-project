@@ -214,6 +214,20 @@
     background:#fcf9e8;
 }
 #molavi-owner-workflow .molavi-review-reason .molavi-review-fact { border:0; background:transparent; padding:.1rem .2rem; }
+#molavi-owner-workflow .molavi-review-next-step { display:grid; gap:.3rem; padding:.6rem .75rem; border-inline-start:3px solid #2271b1; border-radius:5px; background:#f0f6fc; color:#1d4d73; }
+#molavi-owner-workflow .molavi-review-next-step > strong { font-size:.86em; }
+#molavi-owner-workflow .molavi-review-next-step > p { margin:0; line-height:1.55; }
+#molavi-owner-workflow .molavi-hold-next-step { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:.5rem; }
+#molavi-owner-workflow .molavi-ai-group-reference-details,
+#molavi-owner-workflow .molavi-reference-compare-details { padding:.55rem .65rem; border:1px solid #e1e5e9; border-radius:6px; background:#fafafa; }
+#molavi-owner-workflow .molavi-ai-group-reference-details > summary,
+#molavi-owner-workflow .molavi-reference-compare-details > summary { font-weight:600; }
+#molavi-owner-workflow .molavi-ai-group-reference-details > .molavi-ai-reference-assignment { margin-top:.65rem; }
+#molavi-owner-workflow .molavi-ai-reference-assignment > h4 { margin:0 0 .4rem; font-size:.95em; }
+#molavi-owner-workflow .molavi-ai-source-date-facts .molavi-review-fact { background:#f7f8fa; }
+#molavi-owner-workflow .molavi-operation-queue-item { display:grid; gap:.35rem; padding:.55rem .65rem; border-bottom:1px solid #e1e5e9; }
+#molavi-owner-workflow .molavi-operation-queue-item > p { margin:0; }
+#molavi-owner-workflow .molavi-operation-queue-item details > summary { color:#646970; font-size:.85em; }
 #molavi-owner-workflow .molavi-review-prior-decision { border-inline-start:3px solid #72aee6; }
 #molavi-owner-workflow .molavi-conflict-values { grid-template-columns:repeat(3,minmax(0,1fr)); }
 #molavi-owner-workflow .molavi-conflict-values .molavi-review-fact:nth-child(2) { border-color:#c8d9eb; background:#f0f6fc; }

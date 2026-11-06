@@ -37,6 +37,8 @@ MESSAGE_HEADERS = [
     "AI Status",
     "AI Review Case IDs",
     "AI Processed At",
+    "Source Post Created At",
+    "Source Post Updated At",
 ]
 
 PRODUCT_HEADERS = [
@@ -91,6 +93,8 @@ PRODUCT_HEADERS = [
     "Reference Price Change Percent",
     "Reference Price Checked At",
     "Reference Review Reason",
+    "Source Post Created At",
+    "Source Post Updated At",
 ]
 
 OFFER_HEADERS = [
@@ -154,6 +158,8 @@ OFFER_HEADERS = [
     "Historical Median Unit Price",
     "Category Reference Count",
     "Media OCR Text",
+    "Source Post Created At",
+    "Source Post Updated At",
 ]
 
 ITEM_HEADERS = [

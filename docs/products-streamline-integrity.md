@@ -84,6 +84,15 @@ edits a channel post, Telegram's `edit_date` refreshes that evidence. A forwarde
 post does not carry that edit timestamp, so an owner must check the original source
 before manually refreshing an old post.
 
+Owner extraction cards show the original post date and Telegram edit date separately,
+with relative ages against the fourteen-day limit. The freshness clock uses the most
+recent trusted source edit when available; otherwise it uses the source post date.
+At or beyond fourteen days, or when the source time is missing or untrusted, the owner
+must check the current source before confirming price. Railway enforces this at the
+confirmation endpoint, and WordPress records the source dates, provenance, and
+acknowledgement with the decision. A forwarded post without edit metadata is labeled
+as unknown; an owner message timestamp never resets the supplier clock.
+
 At the time of this 2026-11-04 audit, successful completed payloads were compacted
 after ninety days; the 2026-11-05 storage release lowers the default to thirty days.
 Failed, pending and review-needed receipts remain intact. Older failed work is

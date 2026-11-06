@@ -1,5 +1,6 @@
 import os
 import unittest
+from unittest.mock import patch
 
 from catalog.extract import OFFER_HEADERS, PRODUCT_HEADERS, extract_products, extract_volume, extract_weight
 from catalog.sync import (
@@ -215,17 +216,21 @@ class FailFirstProductUpdate(FailProductUpdates):
 class SyncTests(unittest.TestCase):
     def test_batch_writes_message_product_and_status(self):
         store = MemoryStore()
-        result = finalize_batch(store, {
-            "batch_id": "batch-1",
-            "expected_count": 1,
-            "messages": [{
-                "id": "m1",
-                "channel": "telegram",
-                "channel_username": "@bonakdarjavan",
-                "author": "shop",
-                "content": BONAKDAR,
-            }],
-        })
+        with patch("catalog.sync._extract_supplier_products", side_effect=extract_products):
+            result = finalize_batch(store, {
+                "batch_id": "batch-1",
+                "expected_count": 1,
+                "messages": [{
+                    "id": "m1",
+                    "channel": "telegram",
+                    "channel_username": "@bonakdarjavan",
+                    "author": "shop",
+                    "content": BONAKDAR,
+                    "timestamp": "2026-11-04T10:00:00Z",
+                    "source_created_at": "2026-10-01T10:00:00Z",
+                    "source_update_at": "2026-11-04T10:00:00Z",
+                }],
+            })
         self.assertEqual(result["status"], "success")
         self.assertEqual(result["ack"], "ingestion_complete")
         self.assertEqual(result["processed_messages"], 1)
@@ -234,6 +239,8 @@ class SyncTests(unittest.TestCase):
         messages = store.read("MessageData")
         self.assertEqual(messages[1][messages[0].index("ID")], "m1")
         self.assertEqual(messages[1][messages[0].index("Status")], "product_listing")
+        self.assertEqual(messages[1][messages[0].index("Source Post Created At")], "2026-10-01T10:00:00Z")
+        self.assertEqual(messages[1][messages[0].index("Source Post Updated At")], "2026-11-04T10:00:00Z")
 
         products = store.read("Products")
         self.assertEqual(len(products), 2)
@@ -250,6 +257,8 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(len(offers), 2)
         self.assertEqual(offers[1][offers[0].index("Offer ID")], "batch-1:m1:0")
         self.assertEqual(offers[1][offers[0].index("Sale Price")], 52000)
+        self.assertEqual(offers[1][offers[0].index("Source Post Created At")], "2026-10-01T10:00:00Z")
+        self.assertEqual(offers[1][offers[0].index("Source Post Updated At")], "2026-11-04T10:00:00Z")
         self.assertEqual(products[1][products[0].index("Offer Count")], 1)
         self.assertEqual(products[1][products[0].index("Previous Sale Price")], "")
         self.assertEqual(products[1][products[0].index("Latest Offer ID")], "batch-1:m1:0")

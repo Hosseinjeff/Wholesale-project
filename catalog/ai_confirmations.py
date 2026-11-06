@@ -236,7 +236,21 @@ def _historical_reextraction(offer):
         return False
     from catalog.launch_policies import BLOCKING_AGE
     from catalog.supplier_freshness import source_datetime
-    stamp = source_datetime(offer.get('Message Timestamp'))
+    stamp = source_datetime(offer.get('Source Post Updated At')
+        or offer.get('Message Timestamp') or offer.get('Source Post Created At'))
+    now = datetime.now(timezone.utc)
+    return stamp is None or stamp > now or now - stamp >= BLOCKING_AGE
+
+
+def _source_current_check_required(offer):
+    """Require a human source check when provenance is untrusted or the quote is stale."""
+    from catalog.launch_policies import BLOCKING_AGE
+    from catalog.supplier_freshness import source_datetime
+    basis = str(offer.get('Source Timestamp Basis') or '').strip()
+    if basis not in {'supplier_channel_update', 'supplier_channel_forward'}:
+        return True
+    stamp = source_datetime(offer.get('Source Post Updated At')
+        or offer.get('Message Timestamp') or offer.get('Source Post Created At'))
     now = datetime.now(timezone.utc)
     return stamp is None or stamp > now or now - stamp >= BLOCKING_AGE
 
@@ -261,8 +275,12 @@ def _as_case(offer, ledger, *, include_decided=False):
         'source_channel': str(offer.get('Channel') or ''),
         'batch_id': str(offer.get('Batch ID') or ''),
         'historical_reextract': _historical_reextraction(offer),
+        'source_current_check_required': _source_current_check_required(offer),
         'message_id': str(offer.get('Message ID') or ''),
         'message_timestamp': str(offer.get('Message Timestamp') or ''),
+        'source_timestamp_basis': str(offer.get('Source Timestamp Basis') or ''),
+        'source_created_at': str(offer.get('Source Post Created At') or ''),
+        'source_updated_at': str(offer.get('Source Post Updated At') or ''),
         'source_post_url': str(offer.get('Source Post URL') or ''),
         'original_message': str(offer.get('Original Message') or ''),
         'media_ocr_text': str(offer.get('Media OCR Text') or ''),

@@ -22,7 +22,9 @@ class HandoffTests(unittest.TestCase):
             side_effect=lambda content,channel:extract_products(content,channel))
         extractor.start();self.addCleanup(extractor.stop)
         self.store=MemoryStore()
-        self.message=dict(id='post-1',channel='telegram',channel_username='@bonakdarjavan',content=TEXT,chat_id=7)
+        self.message=dict(id='post-1',channel='telegram',channel_username='@bonakdarjavan',content=TEXT,chat_id=7,
+            timestamp='2026-11-04T10:00:00Z',source_created_at='2026-10-01T10:00:00Z',
+            source_update_at='2026-11-04T10:00:00Z',source_timestamp_basis='supplier_channel_update')
         self.adapters=dict(finalize=lambda p:finalize_batch(self.store,p),
             publish=lambda:dict(ok=True,pushed=True,images_left=0),
             order_write=lambda p:upsert_shop_order(self.store,p['order']))
@@ -128,6 +130,9 @@ class HandoffTests(unittest.TestCase):
             inbox=json.loads(db.execute('SELECT payload FROM inbox WHERE batch_id=?',(batch,)).fetchone()['payload'])
         self.assertTrue(job['compacted'])
         self.assertNotIn('content',job['messages'][0])
+        self.assertEqual(job['messages'][0]['source_created_at'],'2026-10-01T10:00:00Z')
+        self.assertEqual(job['messages'][0]['source_update_at'],'2026-11-04T10:00:00Z')
+        self.assertEqual(job['messages'][0]['source_timestamp_basis'],'supplier_channel_update')
         self.assertEqual(inbox['content_sha256'],__import__('hashlib').sha256(TEXT.encode()).hexdigest())
         self.assertEqual(inbox['timestamp'],'2026-10-01T00:00:00Z')
 

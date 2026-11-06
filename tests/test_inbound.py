@@ -187,7 +187,18 @@ class WebhookRouteTests(unittest.TestCase):
         self.assertEqual(source,'channel')
         self.assertEqual(data['channel_username'],'@supplier')
         self.assertEqual(data['timestamp'],1700003600)
+        self.assertEqual(data['source_created_at'],1700000000)
         self.assertEqual(data['source_update_at'],1700003600)
         self.assertEqual(data['url'],'https://t.me/supplier/12')
         self.assertEqual(data['chat_type'],'channel')
         self.assertEqual(data['source_timestamp_basis'],'supplier_channel_update')
+
+    def test_unedited_supplier_channel_post_keeps_original_as_freshness_timestamp(self):
+        data,source=inbound_payload({
+            'message_id':13,'date':1700000000,'text':'Item price',
+            'chat':{'id':-1001,'type':'channel','title':'Supplier','username':'supplier'},
+        },'telegram')
+        self.assertEqual(source,'channel')
+        self.assertEqual(data['timestamp'],1700000000)
+        self.assertEqual(data['source_created_at'],1700000000)
+        self.assertEqual(data['source_update_at'],'')

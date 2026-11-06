@@ -153,6 +153,13 @@ async function main() {
       return {ok:true,status:200,json:async()=>({ok:true,decision_id:payload.message_key,
         choice:'not_product',message_id:'photo-message'})};
     }
+    if (path.endsWith('/ai-confirmations') && options.method === 'POST'
+        && JSON.parse(options.body).choice) {
+      const payload=JSON.parse(options.body);
+      return {ok:true,status:200,json:async()=>({ok:true,case_id:payload.case_id,
+        offer_id:payload.offer_id,signature:payload.signature,choice:payload.choice,
+        decision_id:'d'.repeat(64),projection_state:'imported',publish_job:'publish:ai-test'})};
+    }
     if (path.endsWith('/operations-dashboard') && new URL(String(url),base).searchParams.get('cursor') === 'cursor-next') {
       return {ok:true,status:200,json:async()=>({ok:true,operations:{...data.operations.operations,
         items:[{id:'publish:queue-2',kind:'publish',state:'failed',attempts:8,error:'catalog_write_failed',
@@ -282,7 +289,9 @@ async function main() {
   assert(walk(cards[0]).some(element => element.tagName === 'A'
     && element.href === 'https://t.me/supplier/18'),
   'the conflict card links the related prior decision back to its source post');
-  assert.match(cards[0].text,/REF-12/);
+  assert.match(cards[0].text,/تطبیق ثبت شده/);
+  assert.doesNotMatch(cards[0].text,/REF-12|owner-confirm:owner-decision-1/,
+    'internal reference and offer identifiers stay out of the product card');
   assert(!walk(root).some(element => element.tagName === 'IFRAME'));
   assert(!walk(root).some(element => element.className.split(/\s+/).includes('molavi-admin-tabs')));
   const allQueue = walk(root).find(element => element.tagName === 'BUTTON'
@@ -384,7 +393,11 @@ async function main() {
   const teaCase = (letter, salePrice, actualPrice) => ({
     case_id:`ai:${letter.repeat(64)}`,offer_id:`historical:${letter}`,signature:letter.repeat(64),
     product_name:'چای شهرزاد فلزی ۳۵۰ گرم،۶ عدد',channel:'@bonakdarjavan',source_channel:'telegram',
-    message_id:'7289',source_post_url:'',message_timestamp:'1787571328',historical_reextract:true,
+    message_id:'7289',source_post_url:'',
+    message_timestamp:new Date(Date.now()-2*86400000).toISOString(),
+    source_timestamp_basis:'supplier_channel_update',
+    source_created_at:new Date(Date.now()-20*86400000).toISOString(),
+    source_updated_at:new Date(Date.now()-2*86400000).toISOString(),historical_reextract:true,
     price_type:'unit',detected_price:String(salePrice),sale_price:String(salePrice),
     actual_price:String(actualPrice),package_count:'6',stock_status:'Unknown',
     reason:'Historical price needs current supplier verification',original_message:teaMessage
@@ -426,11 +439,10 @@ async function main() {
   await extractionQueue.listeners.click();
   visibleCards = walk(root).filter(element => element.className.split(/\s+/).includes('molavi-product-card'));
   assert.equal(visibleCards.length,1,'AI review also keeps only the current product card visible');
-  const variantLabels = walk(visibleCards[0]).filter(element => element.className
-    .split(/\s+/).includes('molavi-ai-source-variant')).map(element => element.textContent);
-  assert.deepEqual(new Set(variantLabels),new Set([
-    'برچسب نوع در متن پیام: ساده','برچسب نوع در متن پیام: عطری'
-  ]),'distinct source-labeled offers sharing one product title remain distinguishable');
+  assert.match(visibleCards[0].text,/ساده/,
+    'the grouped card keeps the first source-labeled offer visible');
+  assert.match(visibleCards[0].text,/عطری/,
+    'the grouped card keeps the second source-labeled offer visible without duplicate fact rows');
   const postLink = walk(visibleCards[0]).find(element => element.tagName === 'A'
     && element.href === 'https://t.me/bonakdarjavan/7289');
   assert(postLink,'a missing Telegram URL is safely recovered from its public channel and message ID');
@@ -438,11 +450,40 @@ async function main() {
   assert(walk(visibleCards[0]).some(element => element.tagName === 'A'
     && element.href === 'https://t.me/s/bonakdarjavan'),
   'historical cards also link directly to newer supplier posts');
-  assert.match(visibleCards[0].text,/پست مبدأ به‌تنهایی تازگی قیمت را ثابت نمی‌کند/);
+  assert.match(visibleCards[0].text,/پست قدیمی به‌تنهایی قیمت امروز را ثابت نمی‌کند/);
   assert.match(visibleCards[0].text,/قیمت را در پیام جدیدتر/);
   assert(factValue(visibleCards[0],'قیمت فروش تأمین‌کننده'),'extraction facts keep the supplier price in its own labeled value');
-  assert(visibleCards[0].text.includes('زمان پیام:'),'source timestamps have a concise visible label');
-  assert(!visibleCards[0].text.includes('1787571328'),'source times are shown as readable dates');
+  assert.match(visibleCards[0].text,/تاریخ انتشار اولیه/,'the card distinguishes the original post date from its latest edit');
+  assert.match(visibleCards[0].text,/۲۰ روز پیش · از آستانهٔ ۱۴ روز گذشته/,
+    'an old post gets a relative age acknowledgement at the 14-day boundary');
+  assert.match(visibleCards[0].text,/آخرین ویرایش منبع/,'the card preserves the distinct source edit time');
+  assert.match(visibleCards[0].text,/۲ روز پیش · کمتر از آستانهٔ ۱۴ روز/,
+    'a recent edit is shown separately from the older original post');
+
+  const staleForward = {...teaCase('c',100000,150000),case_id:`ai:${'c'.repeat(64)}`,
+    offer_id:'batch:stale-forward',signature:'c'.repeat(64),
+    product_name:'لوبیا ۱۲ عددی',variation_type:'',batch_id:'batch:stale-forward',
+    message_timestamp:new Date(Date.now()-20*86400000).toISOString(),
+    source_created_at:new Date(Date.now()-20*86400000).toISOString(),source_updated_at:'',
+    source_timestamp_basis:'supplier_channel_update',historical_reextract:false,
+    source_current_check_required:true,detected_price:'100000',sale_price:'100000',
+    actual_price:'150000',package_count:'12',original_message:'لوبیا ۱۲ عددی\nقیمت فروش ما: ۱۰۰/۰۰۰ تومان'};
+  data['ai-confirmations'].cases = [staleForward];
+  await refreshButton.listeners.click();
+  visibleCards = walk(root).filter(element => element.className.split(/\s+/).includes('molavi-product-card'));
+  assert.match(visibleCards[0].text,/آخرین زمان معتبر منبع ۲۰ روز پیش · از آستانهٔ ۱۴ روز گذشته/,
+    'an ordinary source post older than 14 days gets a relative acknowledgement');
+  assert.match(visibleCards[0].text,/ویرایشی ثبت نشده؛ تاریخ انتشار اولیه مبنای تازگی است/,
+    'the card explicitly says when Telegram has no edit timestamp');
+  const staleSourceCheck = walk(visibleCards[0]).find(element => element.tagName === 'INPUT');
+  const staleSourceConfirm = walk(visibleCards[0]).find(element => element.tagName === 'BUTTON'
+    && element.dataset.priceRole === 'unit');
+  assert(staleSourceCheck && staleSourceConfirm && staleSourceConfirm.disabled,
+    'the final confirmation stays locked for an ordinary stale source post');
+  staleSourceCheck.checked = true;
+  staleSourceCheck.listeners.change();
+  assert(!staleSourceConfirm.disabled,
+    'the owner can proceed after explicitly checking the current source');
   const aiPosts = calls.filter(item => item.options.method === 'POST'
     && item.url === workflowApis.ai_confirmations.url);
   assert.equal(aiPosts.length,0,'inspecting the card never submits an owner decision');
@@ -534,8 +575,10 @@ async function main() {
     .map(item => item.url),[workflowApis.ai_confirmations.url],
   'saving a reference refreshes only its owning extraction queue, not every dashboard endpoint');
   visibleCards = walk(root).filter(element => element.className.split(/\s+/).includes('molavi-product-card'));
-  assert.match(visibleCards[0].text,/مرجع ذخیره‌شده برای این بررسی: آبمیوه تتراپک سون ۲۴ عددی/,
-    'the saved assignment remains visible in the same workbench card');
+  assert.match(visibleCards[0].text,/آبمیوه تتراپک سون ۲۴ عددی/,
+    'the saved assignment remains visible by reference name in the same workbench card');
+  assert.doesNotMatch(visibleCards[0].text,/REF-JUICE-24/,
+    'the saved assignment keeps its internal reference identifier out of the normal card view');
   assert.match(visibleCards[0].text,/نقش ثبت‌شده .* با راهنمای مقایسهٔ مرجع/,
     'a saved reference role that conflicts with its price-scale hint is surfaced for review');
   const stillGatedConfirm = walk(visibleCards[0]).find(element => element.tagName === 'BUTTON'
@@ -587,6 +630,8 @@ async function main() {
   visibleCards = walk(root).filter(element => element.className.split(/\s+/).includes('molavi-product-card'));
   assert.equal(visibleCards.length,1,
     'same-source, same-price, same-package flavors share one dashboard review card');
+  assert(!visibleCards[0].text.includes('reextract:mookoko'),
+    'internal re-extraction batch IDs are not exposed in the readable card');
   assert.match(visibleCards[0].text,/انواع هم‌قیمت در همین پیام/,
     'the grouped card tells the owner exactly why variants are reviewed together');
   const groupedTitles = walk(visibleCards[0]).filter(element => element.tagName === 'H2');
@@ -645,7 +690,7 @@ async function main() {
     'the source names the exact blue flavor missing from the two extracted cases');
   assert.equal(factValue(visibleCards[0],'قیمت فروش تأمین‌کننده'),'۶۶٬۲۵۰ تومان',
     'the card shows the per-unit sale field instead of its raw carton total');
-  assert.equal(factValue(visibleCards[0],'قیمت کل بسته / کارتن'),'۱٬۵۹۰٬۰۰۰ تومان · ۲۴ عدد');
+  assert.equal(factValue(visibleCards[0],'قیمت کل بسته / کارتن تأمین‌کننده'),'۱٬۵۹۰٬۰۰۰ تومان');
   assert.match(visibleCards[0].text,/مبلغ فروش تأمین‌کننده را با برچسب روشن نشان نمی‌دهد/,
     'an extracted price absent from labeled source text is flagged for verification');
   const unsupportedCakeConfirm = walk(visibleCards[0]).find(element => element.tagName === 'BUTTON'
@@ -952,6 +997,43 @@ async function main() {
     'an unrelated source case remains actionable while publication is held');
   assert.match(scopedRoot.text,/تصمیم‌های منابع مستقل همچنان قابل ثبت‌اند/,
     'the dashboard explains that a hold is scoped to its source');
+
+  data['ai-confirmations']={cases:[staleForward],recent_decisions:[]};
+  const auditRoot=new Element('div');
+  const auditDocument={...document,getElementById:id=>id==='molavi-owner-workflow'?auditRoot:null};
+  const auditWindow={...window,molaviOwnerWorkflow:{...window.molaviOwnerWorkflow,
+    page:'molavi-ai-confirmations',apiUrl:base+'/pipeline/ai-confirmations',token:'scoped-ai-confirmations'}};
+  auditWindow.parent=auditWindow;
+  vm.runInNewContext(fs.readFileSync(workflowScriptPath,'utf8'),
+    {window:auditWindow,document:auditDocument,fetch,URL,Intl,Map,Set,Promise,TextEncoder,Date,Math,
+      Number,String,Boolean,Array,Object,Error,Uint8Array,URLSearchParams,console,setTimeout,clearTimeout});
+  for (let attempt=0;attempt<20;attempt++) {
+    if (auditRoot.text.includes('لوبیا ۱۲ عددی')) break;
+    await new Promise(resolve=>setTimeout(resolve,0));
+  }
+  const auditCheck=walk(auditRoot).find(element=>element.tagName==='INPUT'
+    && element.parentNode.className.includes('molavi-reextract-current-check'));
+  const auditConfirm=walk(auditRoot).find(element=>element.tagName==='BUTTON'
+    && element.dataset.priceRole==='unit');
+  assert(auditCheck && auditConfirm && auditConfirm.disabled,
+    'the standalone extraction card applies the same stale-source gate');
+  auditCheck.checked=true;
+  auditCheck.listeners.change();
+  assert(!auditConfirm.disabled,'the standalone card unlocks after the current source is checked');
+  await auditConfirm.listeners.click();
+  const staleConfirmationRequest=calls.find(call=>call.options.method==='POST'
+    && call.url===workflowApis.ai_confirmations.url
+    && JSON.parse(call.options.body).offer_id==='batch:stale-forward');
+  assert(staleConfirmationRequest
+    && JSON.parse(staleConfirmationRequest.options.body).source_current_verified,
+  'the confirmation request carries the explicit current-source acknowledgement');
+  const staleAudit=storedReviewRows.find(row=>row.review_type==='ai_confirmation'
+    && row.review_id===staleForward.case_id && row.state==='pending');
+  assert(staleAudit,'the WordPress decision record stores the source verification context');
+  assert.equal(staleAudit.context.source_timestamp_basis,'supplier_channel_update');
+  assert.equal(staleAudit.context.source_created_at,staleForward.source_created_at);
+  assert.equal(staleAudit.context.source_updated_at,'');
+  assert.equal(staleAudit.context.source_current_check_required,true);
 }
 
 main().catch(error => { console.error(error); process.exitCode = 1; });

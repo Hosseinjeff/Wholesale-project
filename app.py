@@ -475,6 +475,8 @@ def extract_forward_data(message):
         'channel_username': 'Unknown',
         'author': 'Unknown',
         'timestamp': None,
+        'source_created_at': None,
+        'source_update_at': None,
         'url': '',
         'chat_id': message.get('chat', {}).get('id')
     }
@@ -485,7 +487,8 @@ def extract_forward_data(message):
         chat = forward_origin.get('chat', {})
         data['channel_username'] = f"@{chat.get('username', '')}" if chat.get('username') else chat.get('title', 'Channel')
         data['author'] = chat.get('title', 'Channel')
-        data['timestamp'] = forward_origin.get('date', '')
+        data['timestamp'] = forward_origin.get('date') or ''
+        data['source_created_at'] = forward_origin.get('date') or ''
         if chat.get('username'):
             data['url'] = f"https://t.me/{chat['username']}/{forward_origin.get('message_id', '')}"
 
@@ -743,7 +746,9 @@ def extract_direct_data(message, channel):
     is_channel_post = str(chat.get('type') or '') == 'channel'
     channel_username = str(chat.get('username') or '').strip()
     post_id = str(message.get('message_id') or '')
-    source_timestamp = (message.get('edit_date') or message.get('date')) if is_channel_post else message.get('date')
+    source_created_at = (message.get('date') or '') if is_channel_post else ''
+    source_update_at = (message.get('edit_date') or '') if is_channel_post else ''
+    source_timestamp = (source_update_at or source_created_at) if is_channel_post else message.get('date')
     if is_channel_post and channel_username:
         source_url = f"https://t.me/{channel_username}/{post_id}" if post_id else ''
     else:
@@ -761,7 +766,8 @@ def extract_direct_data(message, channel):
         'channel_username': (f"@{channel_username}" if channel_username else (chat.get('title') or 'Channel')) if is_channel_post else 'DirectMessage',
         'author': author,
         'timestamp': source_timestamp,
-        'source_update_at': message.get('edit_date') if is_channel_post else '',
+        'source_created_at': source_created_at,
+        'source_update_at': source_update_at,
         'url': source_url,
         'chat_id': chat.get('id'),
         'chat_type': chat.get('type') or '',
@@ -2761,8 +2767,12 @@ def ai_confirmations_route():
             if (body['choice']=='confirm' and case.get('historical_reextract')
                     and body.get('source_current_verified') is not True):
                 return jsonify({'ok':False,'error':'reextraction_price_not_verified'}),400
+            if (body['choice']=='confirm' and case.get('source_current_check_required')
+                    and body.get('source_current_verified') is not True):
+                return jsonify({'ok':False,'error':'source_current_verification_required'}),400
             decision_note=body['note'].strip()
-            if body['choice']=='confirm' and case.get('historical_reextract'):
+            if body['choice']=='confirm' and (case.get('historical_reextract')
+                    or case.get('source_current_check_required')):
                 if body['fields']['stock_status'] == 'Unknown':
                     decision_note='قیمت با منبع فعلی بررسی شد؛ موجودی همچنان نامشخص است. '+decision_note
                 else:
