@@ -135,6 +135,13 @@ async function main() {
         catalog_publication:{state:'done',result:{ok:true,pushed:true}}})};
     }
     if (path.endsWith('/ai-confirmations') && options.method === 'POST'
+        && JSON.parse(options.body).action === 'start_recent_policy_reextraction') {
+      const payload=JSON.parse(options.body);
+      return {ok:true,status:202,json:async()=>({ok:true,run_id:payload.run_id,
+        queued:payload.expected_count,scope:'recent_policy',
+        policy_version:payload.policy_version,digest:payload.expected_digest})};
+    }
+    if (path.endsWith('/ai-confirmations') && options.method === 'POST'
         && JSON.parse(options.body).action === 'start_media_reextraction') {
       const payload=JSON.parse(options.body);
       return {ok:true,status:202,json:async()=>({ok:true,run_id:payload.run_id,queued:1,
@@ -378,7 +385,9 @@ async function main() {
   });
   data['ai-confirmations'].cases = [teaCase('a',680000,870000),teaCase('b',780000,1030000)];
   const refreshButton = walk(root).find(element => element.tagName === 'BUTTON'
-    && element.textContent === 'به‌روزرسانی صف');
+    && element.textContent === 'به‌روزرسانی همه صف‌ها');
+  assert(refreshButton && refreshButton.className.includes('button-primary'),
+    'the unified workbench exposes a prominent refresh-all-queues action');
   pendingOutboxCommands = [{event_id:'decision:sheet_conflict:sheet:retry:attempt',
     review_type:'sheet_conflict',review_id:'sheet:retry',context:{source_revision:'revision-retry',
       product_id:'product-1',field:'Consumer Price',base:50000,server:52000,sheet:53000},
@@ -817,6 +826,10 @@ async function main() {
   const mediaMessageKey='a'.repeat(64);
   mediaPreview={counts:{media_review:1,pending:0,all_available:0,without_text:1,
       no_product_candidates:0,owner_decisions_preserved:0,dismissed_by_owner:0,already_staged:0},
+    recent_policy:{policy_version:'gemini-abcdef0123456789',window_days:14,eligible_count:1,
+      digest:'f'.repeat(64),source_posts:[{source_key:'e'.repeat(64),message_id:'recent-21',
+        channel:'@supplier',timestamp:'2026-11-05T09:00:00Z',
+        source_post_url:'https://t.me/supplier/21'}]},
     ai_configured:true,pending_digest:'b'.repeat(64),media_review_digest:'c'.repeat(64),
     media_review_total:1,media_review_after:'',media_review_next_after:null,
     media_review_messages:[{message_id:'photo-message',batch_id:'photo-batch',
@@ -840,6 +853,24 @@ async function main() {
   }
   assert.match(mediaRoot.text,/رسانه‌های بدون متن \(1\)/,
     'photo-only messages are visible as a distinct source-review queue');
+  assert.match(mediaRoot.text,/بازپردازش با قواعد فعلی: 1 پست در 14 روز اخیر/,
+    'the extraction panel shows the current-policy replay scope and date window');
+  const replayRecent=walk(mediaRoot).find(element=>element.tagName==='BUTTON'
+    && element.textContent.startsWith('بازپردازش و به‌روزرسانی پست‌های اخیر'));
+  assert(replayRecent && !replayRecent.disabled,
+    'the owner can start one-click current-policy replay from the preview');
+  await replayRecent.listeners.click();
+  const recentReplayRequest=calls.find(item=>new URL(item.url,base).pathname.endsWith('/ai-confirmations')
+    && item.options.method==='POST'
+    && JSON.parse(item.options.body).action==='start_recent_policy_reextraction');
+  assert(recentReplayRequest,'recent posts are replayed through the revision-bound API action');
+  assert.equal(JSON.parse(recentReplayRequest.options.body).policy_version,'gemini-abcdef0123456789');
+  assert.equal(JSON.parse(recentReplayRequest.options.body).expected_digest,'f'.repeat(64));
+  const recentReplayEvents=storedReviewRows.filter(row=>row.review_type==='ai_reextraction'
+    && row.context && row.context.scope==='recent_policy');
+  assert(recentReplayEvents.some(row=>row.state==='pending')
+    && recentReplayEvents.some(row=>row.state==='accepted'),
+    'the replay request and result are audited in WordPress with the policy version');
   const mediaImage=walk(mediaRoot).find(element=>element.tagName==='IMG');
   assert(mediaImage && mediaImage.src.includes('/media/file/AgACAgQAAxkBAAIB'),
     'the owner can preview the saved Telegram image without typing an identifier');

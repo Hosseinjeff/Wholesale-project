@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 import tempfile
+import time
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -9,7 +10,8 @@ from unittest.mock import patch
 
 from catalog.ai_confirmations import (
     AIConfirmationLedger, ConfirmationConflict, apply_decision, case_reextraction_inventory,
-    reextraction_inventory, review_cases, review_case_id, validate_choice,
+    recent_policy_reextraction_inventory, reextraction_inventory, review_cases,
+    review_case_id, validate_choice,
 )
 from catalog.durable import Handoffs
 from catalog.extract import MESSAGE_HEADERS, OFFER_HEADERS, PRODUCT_HEADERS
@@ -525,6 +527,161 @@ class AIConfirmationTests(unittest.TestCase):
         retry_inventory=reextraction_inventory(store,self.ledger)
         self.assertEqual(retry_inventory['counts']['pending'],1)
         self.assertEqual(retry_inventory['pending_messages'][0]['message_id'],'msg-empty-retry')
+
+    def test_recent_policy_inventory_is_freshness_bound_and_version_idempotent(self):
+        from catalog.gemini import extraction_policy_version
+        from catalog.ai_confirmations import reextraction_source_key
+        now=datetime(2026,11,6,12,0,tzinfo=timezone.utc)
+        store=MemoryStore()
+        store.ensure('Offers',OFFER_HEADERS)
+        store.ensure('MessageData',MESSAGE_HEADERS)
+        sources=[
+            {'ID':'recent','Batch ID':'batch-recent','Timestamp':(now-timedelta(days=1)).isoformat(),
+             'Content':'Beans, price 100000 toman','AI Status':'ai_processed'},
+            {'ID':'old','Batch ID':'batch-old','Timestamp':(now-timedelta(days=15)).isoformat(),
+             'Content':'Old beans, price 100000 toman','AI Status':'ai_processed'},
+            {'ID':'unknown','Batch ID':'batch-unknown','Timestamp':'',
+             'Content':'Unknown-time beans, price 100000 toman','AI Status':'pending_ai'},
+            {'ID':'future','Batch ID':'batch-future','Timestamp':(now+timedelta(hours=1)).isoformat(),
+             'Content':'Future beans, price 100000 toman','AI Status':'pending_ai'},
+        ]
+        store.append('MessageData',[_row_from_map(MESSAGE_HEADERS,{
+            'Channel':'telegram','Channel Username':'@supplier','Status':'product',**item})
+            for item in sources])
+        # A prior review-stage result is eligible under a new policy version.
+        store.append('Offers',[_row_from_map(OFFER_HEADERS,{
+            'Offer ID':'reextract:old-run:old-offer','Product Name':'Beans',
+            'Channel Username':'@supplier','Status':'needs_review','Review Reason':'low confidence',
+            'Message ID':'recent','Batch ID':'reextract:old-run',
+            'Message Timestamp':sources[0]['Timestamp'],'Original Message':sources[0]['Content'],
+        })])
+        version=extraction_policy_version()
+        old_version='gemini-0000000000000000'
+        receipt_key=reextraction_source_key(source_url='',channel='@supplier',message_id='recent',
+            timestamp=sources[0]['Timestamp'],content=sources[0]['Content'])
+        self.ledger.record_source_reextraction(source_key=receipt_key,
+            batch_id='reextract:old-run:old-message',outcome='products',run_id='1'*32,
+            actor_id='wp:7',policy_version=old_version)
+
+        preview=recent_policy_reextraction_inventory(store,self.ledger,now=now)
+        self.assertEqual(preview['policy_version'],version)
+        self.assertEqual([item['message_id'] for item in preview['messages']],['recent'])
+        self.assertEqual(preview['unknown_or_future_timestamp_count'],2)
+        self.assertEqual(preview['outside_window_count'],1)
+
+        self.ledger.record_source_reextraction(source_key=receipt_key,
+            batch_id='reextract:current-run:current-message',outcome='no_products',run_id='2'*32,
+            actor_id='wp:7',policy_version=version)
+        same_policy=recent_policy_reextraction_inventory(store,self.ledger,now=now)
+        self.assertEqual(same_policy['eligible_count'],0,
+            'even a no-product result is not repeatedly charged to the same extraction policy')
+
+    def test_recent_policy_inventory_includes_image_posts_as_review_only_ocr_work(self):
+        now=datetime.now(timezone.utc)
+        store=MemoryStore()
+        store.ensure('Offers',OFFER_HEADERS);store.ensure('MessageData',MESSAGE_HEADERS)
+        store.append('MessageData',[_row_from_map(MESSAGE_HEADERS,{
+            'ID':'recent-photo','Channel':'telegram','Channel Username':'@supplier',
+            'Content':'','Timestamp':(now-timedelta(hours=4)).isoformat(),
+            'Status':'product','Batch ID':'photo-batch','Has Media':True,'Media Type':'photo',
+            'Image File ID':'AgACAgQAAxkBAAIB','Image File Unique ID':'photo-unique',
+            'AI Status':'needs_media_review'})])
+        preview=recent_policy_reextraction_inventory(store,self.ledger,now=now)
+        self.assertEqual(preview['eligible_count'],1)
+        self.assertEqual(preview['media_ocr_count'],1)
+        self.assertTrue(preview['messages'][0]['media_ocr'])
+        self.assertEqual(preview['messages'][0]['image_file_unique_id'],'photo-unique')
+
+    def test_recent_policy_job_stops_when_the_policy_changes_after_enqueue(self):
+        from catalog.gemini import extraction_policy_version
+        from catalog.sync import reextract_saved_message
+        current=extraction_policy_version()
+        stale='gemini-0000000000000000'
+        if stale==current:
+            stale='gemini-1111111111111111'
+        payload={'message_id':'stale-message','batch_id':'stale-batch',
+            'channel_username':'@supplier','timestamp':'2026-11-06T10:00:00Z',
+            'content_sha256':hashlib.sha256(b'post').hexdigest(),'message_key':'a'*64,
+            'run_id':'5'*32,'actor_id':'wp:7','reextraction_scope':'recent_policy',
+            'policy_version':stale}
+        with patch('catalog.sync._extract_supplier_products') as extract:
+            result=reextract_saved_message(self.store,payload)
+        self.assertEqual(result['status'],'policy_changed')
+        extract.assert_not_called()
+
+    def test_source_reextraction_ledger_migrates_legacy_rows_to_unknown_policy(self):
+        import sqlite3
+        path=str(Path(self.tmp.name)/'legacy-pipeline.sqlite')
+        with sqlite3.connect(path) as db:
+            db.execute('''CREATE TABLE ai_source_reextractions (
+                source_key TEXT PRIMARY KEY,batch_id TEXT NOT NULL,outcome TEXT NOT NULL,
+                run_id TEXT NOT NULL,actor_id TEXT NOT NULL,completed_at REAL NOT NULL)''')
+            db.execute('INSERT INTO ai_source_reextractions VALUES (?,?,?,?,?,?)',
+                ('a'*64,'reextract:legacy:message','products','3'*32,'wp:7',time.time()))
+        legacy=AIConfirmationLedger(path)
+        row=legacy.source_reextractions()['a'*64]
+        self.assertEqual(row['policy_version'],'')
+
+    def test_prompt_and_model_changes_change_the_extraction_policy_fingerprint(self):
+        from catalog import gemini
+        version=gemini.extraction_policy_version()
+        with patch.object(gemini,'_MESSAGE_PROMPT',gemini._MESSAGE_PROMPT+'\nNew extraction rule.'):
+            self.assertNotEqual(gemini.extraction_policy_version(),version)
+        with patch.dict(os.environ,{'AI_MODEL':'gemini-policy-test'},clear=True):
+            self.assertNotEqual(gemini.extraction_policy_version(),version)
+
+    def test_recent_policy_reextraction_updates_the_existing_product_row(self):
+        from catalog.ai_confirmations import recent_policy_reextraction_inventory
+        from catalog.gemini import extraction_policy_version
+        from catalog.sync import _product_id_for_offer, reextract_saved_message
+        content='Beans 12 pack\nقیمت فروش ما: ۱۰۵/۰۰۰ تومان'
+        timestamp=(datetime.now(timezone.utc)-timedelta(days=1)).isoformat()
+        store=MemoryStore()
+        store.ensure('Offers',OFFER_HEADERS);store.ensure('Products',PRODUCT_HEADERS)
+        store.ensure('MessageData',MESSAGE_HEADERS)
+        product={'name':'Beans 12 pack','sale_price':100000,'price':100000,
+            'actual_price':150000,'consumer_price':150000,'price_type':'unit',
+            'currency':'IRT','package_count':12,'confidence':0.99,
+            'extraction_confidence':0.99,'stock_status':'Available'}
+        stable_id=_product_id_for_offer(product,'@supplier')
+        store.append('Offers',[_row_from_map(OFFER_HEADERS,{
+            'Offer ID':'batch-recent:msg-recent:0','Product ID':stable_id,
+            'Product Name':'Beans 12 pack','Channel':'telegram','Channel Username':'@supplier',
+            'Sale Price':100000,'Price':100000,'Actual Price':150000,'Consumer Price':150000,
+            'Price Type':'unit','Currency':'IRT','Package Count':12,'Status':'imported',
+            'Message ID':'msg-recent','Batch ID':'batch-recent','Message Timestamp':timestamp,
+            'Source Post URL':'https://t.me/supplier/21','Original Message':content,
+        })])
+        store.append('Products',[_row_from_map(PRODUCT_HEADERS,{
+            'Product ID':stable_id,'Product Name':'Beans 12 pack','Channel':'telegram',
+            'Channel Username':'@supplier','Sale Price':100000,'Price':100000,
+            'Actual Price':150000,'Consumer Price':150000,'Price Type':'unit',
+            'Currency':'IRT','Package Count':12,'Status':'imported',
+        })])
+        store.append('MessageData',[_row_from_map(MESSAGE_HEADERS,{
+            'ID':'msg-recent','Channel':'telegram','Channel Username':'@supplier',
+            'Content':content,'Timestamp':timestamp,'URL':'https://t.me/supplier/21',
+            'Status':'product','Batch ID':'batch-recent','AI Status':'ai_processed'})])
+        preview=recent_policy_reextraction_inventory(store,self.ledger)
+        item=preview['messages'][0]
+        payload={**item,'content_sha256':hashlib.sha256(content.encode()).hexdigest(),
+            'run_id':'4'*32,'actor_id':'wp:7','reextraction_scope':'recent_policy',
+            'policy_version':extraction_policy_version(),
+            'reextraction_digest':preview['digest']}
+        from catalog.ai_confirmations import reextraction_message_key
+        payload['message_key']=reextraction_message_key(item)
+        corrected={**product,'name':'Beans carton of 12','sale_price':105000,'price':105000}
+        with patch.dict(os.environ,{'PIPELINE_DB_PATH':self.path},clear=True), \
+                patch('catalog.sync._extract_supplier_products',return_value=[corrected]):
+            result=reextract_saved_message(store,payload)
+        self.assertEqual(result['status'],'reprocessed')
+        _,products=_records(store.read('Products'))
+        self.assertEqual(len(products),1)
+        self.assertEqual(products[0]['Product ID'],stable_id)
+        self.assertEqual(products[0]['Product Name'],'Beans carton of 12')
+        self.assertEqual(products[0]['Sale Price'],105000)
+        saved_receipt=AIConfirmationLedger(self.path).source_reextractions()[item['source_key']]
+        self.assertEqual(saved_receipt['policy_version'],payload['policy_version'])
 
     def test_legacy_not_product_state_without_owner_decision_is_recoverable(self):
         store=MemoryStore()

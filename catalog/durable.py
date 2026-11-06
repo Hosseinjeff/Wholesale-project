@@ -839,6 +839,7 @@ class Handoffs:
         scope='saved_messages'
         case_count=0
         digest=''
+        policy_version=''
         for row in rows:
             state=str(row['state'])
             counts[state]=counts.get(state,0)+1
@@ -846,6 +847,7 @@ class Handoffs:
             scope=str(payload.get('reextraction_scope') or scope)
             case_count+=int(payload.get('case_count') or 0)
             digest=str(payload.get('reextraction_digest') or digest)
+            policy_version=str(payload.get('policy_version') or policy_version)
             result=json.loads(row['result']) if row['result'] else None
             items.append({'job_id':row['id'],'state':state,'error':row['error'] or '',
                           'result':result})
@@ -854,6 +856,7 @@ class Handoffs:
                   +counts.get('cancelled',0))
         return {'run_id':run_id,'total':total,'completed':complete,'counts':counts,
                 'items':items,'scope':scope,'case_count':case_count,'digest':digest,
+                'policy_version':policy_version,
                 'state':'complete' if complete==total else 'running'}
 
     def cancel_reextraction(self, run_id, actor_id):
@@ -881,7 +884,8 @@ class Handoffs:
         if not status:
             return None
         return {key:status[key] for key in
-                ('run_id','state','total','completed','counts','scope','case_count','digest')}
+                ('run_id','state','total','completed','counts','scope','case_count','digest',
+                 'policy_version')}
 
     def receive(self, message):
         # Source identity ignores re-forward metadata but includes direct channel edit time.

@@ -362,7 +362,41 @@ def run_durable_handoff(queue, job_id=None, worker_id=None):
         return result
 
     def reextract(payload):
-        return reextract_saved_message(build_store(),payload,write_lock=queue.publication_lock())
+        from contextlib import ExitStack, nullcontext
+        from datetime import datetime, timezone
+        from reference_import.snapshots import ReferenceStore
+        from reference_import.workflow import active_reference_use
+        from reference_import.item_reviews import ItemReviewLedger
+
+        store=build_store()
+        reference_snapshot=None
+        reference_path=os.getenv('REFERENCE_STORE_PATH') or ''
+        owners=[value.strip() for value in (os.getenv('REFERENCE_OWNER_IDS') or '').split(',')
+                if value.strip()]
+        with queue.publication_lock():
+            reference_locks=ExitStack()
+            if reference_path and os.path.isfile(reference_path):
+                try:
+                    reference_store=ReferenceStore(reference_path,owner_ids=owners)
+                    reference_locks.enter_context(reference_store.activation_lock())
+                    eligibility=active_reference_use(reference_store,now=datetime.now(timezone.utc))
+                    candidate=reference_store.active_snapshot()
+                    if (eligibility.get('allow_automatic') and candidate
+                            and candidate.get('snapshot_id')==eligibility.get('snapshot_id')):
+                        reference_snapshot=candidate
+                        reference_snapshot['usage_warning']=eligibility.get('warning') or ''
+                        reference_snapshot['item_overrides']=ItemReviewLedger(
+                            reference_store.database,owner_ids=owners).overrides(
+                                reference_snapshot['snapshot_id'])
+                except Exception:
+                    reference_locks.close()
+                    logger.exception('Could not load the active reference snapshot for saved-message re-extraction')
+                    reference_locks=ExitStack()
+            try:
+                return reextract_saved_message(store,payload,write_lock=nullcontext(),
+                    reference_snapshot=reference_snapshot)
+            finally:
+                reference_locks.close()
 
     return queue.run_one(finalize=finalize, publish=publish_projection,
                          publish_with_payload=publish_projection,
@@ -2240,10 +2274,11 @@ def ai_confirmations_route():
     """Owner review of uncertain AI supplier extracts; source Offers are append-only."""
     from catalog.ai_confirmations import (
         AIConfirmationLedger, ConfirmationConflict, apply_decision, find_case,
-        case_reextraction_inventory, reextraction_inventory, reextraction_message_key,
+        case_reextraction_inventory, recent_policy_reextraction_inventory,
+        reextraction_inventory, reextraction_message_key,
         review_cases, validate_choice,
     )
-    from catalog.gemini import ai_extraction_configured
+    from catalog.gemini import ai_extraction_configured, extraction_policy_version
     token = os.getenv('REFERENCE_BRIDGE_TOKEN') or ''
     owners = {value.strip() for value in (os.getenv('REFERENCE_OWNER_IDS') or '').split(',') if value.strip()}
     queue = handoff_queue()
@@ -2259,6 +2294,7 @@ def ai_confirmations_route():
             reextract_action=request.args.get('reextract') or ''
             if reextract_action=='preview':
                 inventory=reextraction_inventory(store,ledger)
+                recent_inventory=recent_policy_reextraction_inventory(store,ledger)
                 open_case_inventory=case_reextraction_inventory(store,ledger)
                 pending_digest=hashlib.sha256(json.dumps(
                     sorted(item['message_key'] for item in inventory['pending_messages']),
@@ -2281,8 +2317,29 @@ def ai_confirmations_route():
                 media_next=(str(media_page[-1]['message_key']) if media_page
                     and any(str(item.get('message_key') or '')>str(media_page[-1]['message_key'])
                             for item in media_items) else None)
+                from datetime import datetime, timezone
+                from catalog.supplier_freshness import source_datetime
+                recent_posts=sorted(recent_inventory['messages'],
+                    key=lambda item:source_datetime(item.get('timestamp')) or datetime.min.replace(tzinfo=timezone.utc),
+                    reverse=True)
                 response=jsonify({'ok':True,'counts':inventory['counts'],
                     'ai_configured':ai_extraction_configured(),
+                    'recent_policy':{
+                        'policy_version':recent_inventory['policy_version'],
+                        'window_days':recent_inventory['window_days'],
+                        'eligible_count':recent_inventory['eligible_count'],
+                        'media_ocr_count':recent_inventory['media_ocr_count'],
+                        'digest':recent_inventory['digest'],
+                        'unknown_or_future_timestamp_count':recent_inventory['unknown_or_future_timestamp_count'],
+                        'outside_window_count':recent_inventory['outside_window_count'],
+                        'source_posts':[{
+                            'source_key':item['source_key'],'message_id':item['message_id'],
+                            'channel':item.get('channel') or item.get('channel_username') or '',
+                            'timestamp':item.get('timestamp') or '',
+                            'source_post_url':item.get('source_post_url') or '',
+                            'media_ocr':bool(item.get('media_ocr')),
+                        } for item in recent_posts[:12]],
+                    },
                     'pending_digest':pending_digest,
                     'media_review_digest':media_digest,
                     'media_review_messages':media_page,
@@ -2320,6 +2377,7 @@ def ai_confirmations_route():
                 response=jsonify({'ok':True,'run_id':status['run_id'],'state':status['state'],
                     'total':status['total'],'completed':status['completed'],'counts':status['counts'],
                     'scope':status.get('scope') or 'saved_messages',
+                    'policy_version':status.get('policy_version') or '',
                     'case_count':int(status.get('case_count') or 0),
                     'digest':status.get('digest') or '',
                     'outcomes':outcomes,'products_found':products_found,
@@ -2610,6 +2668,62 @@ def ai_confirmations_route():
             threading.Thread(target=_drain_reextraction_run,args=(queue,run_id),
                              name='owner-saved-message-reextract',daemon=True).start()
             response=jsonify({'ok':True,'run_id':run_id,'queued':queued,'scope':body['scope']})
+            response.headers['Cache-Control']='no-store'
+            return response,202
+        if isinstance(body,dict) and body.get('action')=='start_recent_policy_reextraction':
+            if set(body)!={'action','run_id','expected_count','expected_digest','policy_version'}:
+                return jsonify({'ok':False,'error':'invalid_recent_reextraction_request'}),400
+            if not ai_extraction_configured():
+                return jsonify({'ok':False,'error':'ai_extraction_unconfigured'}),409
+            run_id=body.get('run_id')
+            expected_count=body.get('expected_count')
+            expected_digest=body.get('expected_digest')
+            policy_version=body.get('policy_version')
+            if (not isinstance(run_id,str) or not re.fullmatch(r'[a-f0-9]{32}',run_id)
+                    or isinstance(expected_count,bool) or not isinstance(expected_count,int) or expected_count<1
+                    or not isinstance(expected_digest,str) or not re.fullmatch(r'[a-f0-9]{64}',expected_digest)
+                    or not isinstance(policy_version,str)
+                    or not re.fullmatch(r'[a-z0-9][a-z0-9._-]{0,63}',policy_version)):
+                return jsonify({'ok':False,'error':'invalid_recent_reextraction_request'}),400
+            current_policy_version=extraction_policy_version()
+            if policy_version!=current_policy_version:
+                return jsonify({'ok':False,'error':'extraction_policy_changed',
+                    'policy_version':current_policy_version}),409
+            try:
+                with queue.publication_lock():
+                    if queue.active_reextraction_run():
+                        return jsonify({'ok':False,'error':'reextraction_active'}),409
+                    current_inventory=recent_policy_reextraction_inventory(
+                        store,ledger,policy_version=current_policy_version)
+                    if (current_inventory['eligible_count']!=expected_count
+                            or current_inventory['digest']!=expected_digest):
+                        return jsonify({'ok':False,'error':'reextraction_preview_changed',
+                            'current_count':current_inventory['eligible_count']}),409
+                    selected=current_inventory['messages']
+                    if not selected:
+                        return jsonify({'ok':False,'error':'no_recent_reextraction_messages'}),409
+                    items=[]
+                    for message in selected:
+                        items.append({
+                            'message_id':message['message_id'],'batch_id':message['batch_id'],
+                            'channel_username':message['channel_username'],
+                            'message_key':message['message_key'],
+                            'content_sha256':hashlib.sha256(message['content'].encode()).hexdigest(),
+                            'timestamp':message['timestamp'],'source_key':message['source_key'],
+                            'reextraction_scope':'recent_policy','policy_version':current_policy_version,
+                            'media_ocr':bool(message.get('media_ocr')),
+                            'reextraction_digest':current_inventory['digest'],
+                        })
+                    queued=queue.enqueue_reextraction(run_id,actor,items)
+            except JobConflict as exc:
+                if str(exc).startswith('re-extraction run already active:'):
+                    return jsonify({'ok':False,'error':'reextraction_active'}),409
+                return jsonify({'ok':False,'error':'reextraction_conflict'}),409
+            threading.Thread(target=_drain_reextraction_run,args=(queue,run_id),
+                name='owner-recent-policy-reextract',daemon=True).start()
+            response=jsonify({'ok':True,'run_id':run_id,'queued':queued,
+                'scope':'recent_policy','policy_version':current_policy_version,
+                'digest':current_inventory['digest']})
             response.headers['Cache-Control']='no-store'
             return response,202
         try:

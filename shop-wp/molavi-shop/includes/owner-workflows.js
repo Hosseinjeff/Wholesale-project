@@ -203,7 +203,9 @@
                 scope:String(context.scope || 'open_cases').slice(0, 40),
                 case_count:Math.max(0, Math.min(10000, Number(context.case_count) || 0)),
                 message_count:Math.max(0, Math.min(10000, Number(context.message_count) || 0)),
-                digest:String(context.digest || '').slice(0, 64)
+                digest:String(context.digest || '').slice(0, 64),
+                policy_version:String(context.policy_version || '').slice(0, 64),
+                window_days:Math.max(0, Math.min(365, Number(context.window_days) || 0))
             };
         }
         if (type === 'ai_confirmation' && context && typeof context === 'object') {
@@ -493,7 +495,7 @@
         if (!workbenchMounted) {
             shell('بررسی کالاها', 'یک کالا در هر نوبت؛ صف را بر اساس نوع کار انتخاب کنید و همان‌جا انجام دهید.');
             const toolbar = node('div', null, 'molavi-workbench-toolbar');
-            workbenchRefresh = node('button', 'به‌روزرسانی صف', 'button button-secondary');
+            workbenchRefresh = node('button', 'به‌روزرسانی همه صف‌ها', 'button button-primary');
             workbenchRefresh.type = 'button';
             workbenchRefresh.addEventListener('click', () => dashboard());
             toolbar.appendChild(workbenchRefresh);
@@ -509,7 +511,7 @@
         }
         const thisLoad = ++workbenchLoadId;
         workbenchRefresh.disabled = true;
-        workbenchRefresh.textContent = 'در حال تازه‌سازی…';
+        workbenchRefresh.textContent = 'در حال تازه‌سازی همه صف‌ها…';
         try {
             const outbox = await drainWordPressWorkflowOutbox();
             if (outbox.delivered) {
@@ -567,7 +569,7 @@
         const unavailable = Object.values(workbenchErrors).filter(Boolean);
         board.replaceChildren();
         workbenchRefresh.disabled = false;
-        workbenchRefresh.textContent = 'به‌روزرسانی صف';
+        workbenchRefresh.textContent = 'به‌روزرسانی همه صف‌ها';
         if (!message) {
             workbenchLiveStatus.className = 'molavi-workbench-live-status';
             workbenchLiveStatus.textContent = 'صف آماده است؛ اقدام‌ها بدون خروج از این صفحه ثبت می‌شوند.';
@@ -2382,6 +2384,10 @@
             if (status.state === 'complete') {
                 const outcomes = status.outcomes || {};
                 box.appendChild(node('p', `کالاهای استخراج‌شده: ${status.products_found || 0} · ردیف‌های ثبت‌شده: ${status.offers_written || 0} · موارد باقی‌مانده برای بررسی: ${status.open_cases_remaining || 0} · پیام بدون نتیجه: ${outcomes.no_products || 0}`));
+                if (String(auditContext.scope || '') === 'recent_policy') {
+                    box.appendChild(node('p', `نسخه قواعد اجراشده: ${status.policy_version || auditContext.policy_version || 'نامشخص'}`));
+                    if (outcomes.policy_changed) box.appendChild(notice('قواعد استخراج هنگام شروع کار تغییر کرده بود؛ این پیام‌ها بدون ثبت تغییر محصول متوقف شدند. صف را تازه کنید و نسخه جدید را اجرا کنید.','warning'));
+                }
                 const mediaOcrRun=Boolean(auditContext && auditContext.media_review_key);
                 if (mediaOcrRun) {
                     const labels={reprocessed:'متن تصویر استخراج شد؛ پیشنهادها در بررسی کالا نمایش داده می‌شوند.',
@@ -2416,8 +2422,11 @@
                         const reviewType=mediaRun?'ai_media_review':'ai_reextraction';
                         const reviewId=mediaRun?auditContext.media_review_key:runId;
                         const eventId=mediaRun?'media-ocr:'+runId:'reextraction-run:'+runId;
+                        const policyRun=String(auditContext.scope || '')==='recent_policy';
                         const decision=mediaRun?{action:'retry_media_ocr',run_id:runId}
-                            :{action:'reprocess_open_extraction_cases'};
+                            :policyRun?{action:'reprocess_recent_posts_with_current_policy',
+                                policy_version:String(auditContext.policy_version || '')}
+                                :{action:'reprocess_open_extraction_cases'};
                         await persistOwnerReviews([reviewRecord(eventId, reviewType, reviewId,
                             counts.failed ? 'failed' : 'accepted',
                             storedReviewContext(reviewType,auditContext),decision, {
@@ -2461,11 +2470,25 @@
             const preview = await request('GET', undefined, reextractionUrl('preview'));
             const counts = preview.counts || {};
             const openCases = preview.open_cases || {};
+            const recentPolicy = preview.recent_policy || {};
             const supportsAiOnly = typeof preview.ai_configured === 'boolean';
             const aiConfigured = supportsAiOnly && preview.ai_configured;
             panel.appendChild(node('p', `در صف بررسی: ${counts.pending || 0} پیام · همه پیام‌های متنی آماده: ${counts.all_available || 0}`));
             panel.appendChild(node('p', `کارت‌های باز استخراج: ${openCases.case_count || 0} · پیام‌های اصلی یکتا: ${openCases.message_count || 0} · قبلاً بازاستخراج‌شده: ${counts.already_reprocessed || 0}`));
+            panel.appendChild(node('p', `بازپردازش با قواعد فعلی: ${recentPolicy.eligible_count || 0} پست در ${recentPolicy.window_days || 14} روز اخیر · شامل ${recentPolicy.media_ocr_count || 0} پست تصویری که خروجی OCR آن‌ها به بررسی مالک می‌رود · نسخه استخراج ${recentPolicy.policy_version || 'نامشخص'}. تصمیم‌های مالک و نتیجه‌های همین نسخه حفظ می‌شوند.`));
             panel.appendChild(node('p', `عکس‌های نیازمند بررسی: ${counts.media_review || 0} · عکس بدون فایل قابل‌خواندن: ${counts.media_without_file || 0} · رسانهٔ پشتیبانی‌نشده برای OCR: ${counts.unsupported_media || 0} · خروجی بدون نامزد محصول: ${counts.no_product_candidates || 0} · تصمیم‌های مالک حفظ‌شده: ${counts.owner_decisions_preserved || 0} · ردشده توسط مالک: ${counts.dismissed_by_owner || 0} · قبلاً در صف بررسی بازاستخراج‌شده: ${counts.already_staged || 0}`));
+            const policyPosts = Array.isArray(recentPolicy.source_posts) ? recentPolicy.source_posts : [];
+            if (policyPosts.length) {
+                const sourceList = document.createElement('details');
+                sourceList.appendChild(node('summary', `نمونه پست‌های آماده (${policyPosts.length} از ${recentPolicy.eligible_count || policyPosts.length})`));
+                for (const item of policyPosts) {
+                    const row = node('p', `${item.channel || 'منبع نامشخص'} · پیام ${item.message_id || '—'} · ${item.timestamp || 'زمان نامشخص'}${item.media_ocr ? ' · نیازمند OCR' : ''}`);
+                    const link = safeSourceLink(item.source_post_url);
+                    if (link) row.appendChild(link);
+                    sourceList.appendChild(row);
+                }
+                panel.appendChild(sourceList);
+            }
             if (Number(counts.unsupported_media || 0) > 0) {
                 panel.appendChild(notice('رسانه‌های غیرعکسی مثل استیکر در صف OCR قرار نمی‌گیرند و خودکار هم رد نمی‌شوند. اگر یکی از آن‌ها آگهی محصول است، پست را با متن یا عکس قابل‌خواندن دوباره بفرستید.', 'info'));
             }
@@ -2619,21 +2642,27 @@
                 const progress = notice('در حال آماده‌سازی وضعیت بازاستخراج…', 'info');
                 progress.classList.add('molavi-reextract-progress');
                 panel.appendChild(progress);
-                const activeAudit = preview.active_run.scope === 'open_cases' ? {
-                    run_id:preview.active_run.run_id, scope:'open_cases',
+                const activeAudit = ['open_cases','recent_policy'].includes(preview.active_run.scope) ? {
+                    run_id:preview.active_run.run_id, scope:preview.active_run.scope,
                     case_count:Number(preview.active_run.case_count || 0),
                     message_count:Number(preview.active_run.total || 0),
-                    digest:String(preview.active_run.digest || '')
+                    digest:String(preview.active_run.digest || ''),
+                    policy_version:String(preview.active_run.policy_version || ''),
+                    window_days:Number(preview.recent_policy && preview.recent_policy.window_days || 0)
                 } : {};
                 showReextractionProgress(panel, preview.active_run.run_id, activeAudit);
                 return;
             }
             const controls = node('div', null, 'molavi-reextract-actions');
+            const recentPolicyButton = node('button', `بازپردازش و به‌روزرسانی پست‌های اخیر (${recentPolicy.eligible_count || 0})`, 'button button-primary');
             const openCasesButton = node('button', `بازاستخراج همه کارت‌های باز (${openCases.case_count || 0} کارت · ${openCases.message_count || 0} پیام)`, 'button button-primary');
             const pendingButton = node('button', `بازاستخراج پیام‌های در صف بررسی (${counts.pending || 0})`, 'button button-primary');
             const allButton = node('button', `بازاستخراج همه پیام‌های ذخیره‌شده (${counts.all_available || 0})`, 'button');
             const dismissButton = node('button', `ردّ گروهی پیام‌های منتظر (${counts.pending || 0})`, 'button');
-            openCasesButton.type = 'button'; pendingButton.type = 'button'; allButton.type = 'button'; dismissButton.type = 'button';
+            recentPolicyButton.type = 'button'; openCasesButton.type = 'button'; pendingButton.type = 'button'; allButton.type = 'button'; dismissButton.type = 'button';
+            recentPolicyButton.disabled = !aiConfigured || !(recentPolicy.eligible_count > 0)
+                || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(recentPolicy.policy_version || '')
+                || !/^[a-f0-9]{64}$/.test(recentPolicy.digest || '');
             openCasesButton.disabled = !aiConfigured || !(openCases.case_count > 0)
                 || Number(openCases.unmatched_case_count || 0) > 0;
             pendingButton.disabled = !aiConfigured || !(counts.pending > 0);
@@ -2657,6 +2686,59 @@
                     allButton.disabled = !(counts.all_available > 0);
                 }
             }
+            recentPolicyButton.addEventListener('click', async () => {
+                const count = Number(recentPolicy.eligible_count || 0);
+                const windowDays = Number(recentPolicy.window_days || 14);
+                const version = String(recentPolicy.policy_version || '');
+                const digest = String(recentPolicy.digest || '');
+                if (!count || !version || !digest) return;
+                const warning = `${count} پست دارای زمان معتبر از ${windowDays} روز اخیر با نسخه فعلی استخراج (${version}) دوباره پردازش می‌شود. خروجی‌های روشنِ کنترل‌شده کالاهای همسان را به‌روزرسانی می‌کنند؛ خروجی نامطمئن و همه نتیجه‌های OCR برای بررسی می‌مانند. تصمیم‌های مالک و پست‌های قدیمی‌تر حفظ می‌شوند. ادامه می‌دهید؟`;
+                if (!window.confirm(warning)) return;
+                const bytes = new Uint8Array(16);
+                if (window.crypto && window.crypto.getRandomValues) window.crypto.getRandomValues(bytes);
+                else for (let index=0; index<bytes.length; index++) bytes[index]=Math.floor(Math.random()*256);
+                const runId = Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('');
+                const auditContext = {run_id:runId,scope:'recent_policy',case_count:0,
+                    message_count:count,digest,policy_version:version,window_days:windowDays};
+                const eventId = 'reextraction-run:' + runId;
+                const decision = {action:'reprocess_recent_posts_with_current_policy',
+                    policy_version:version};
+                recentPolicyButton.disabled = true;
+                try {
+                    await persistOwnerReviews([reviewRecord(eventId,'ai_reextraction',runId,
+                        'pending',auditContext,decision,{})]);
+                } catch (error) {
+                    panel.appendChild(notice(errorText(error.message),'error'));
+                    recentPolicyButton.disabled = false;
+                    return;
+                }
+                let receipt;
+                try {
+                    receipt = await request('POST',{action:'start_recent_policy_reextraction',
+                        run_id:runId,expected_count:count,expected_digest:digest,
+                        policy_version:version});
+                    if (receipt.run_id!==runId || receipt.queued!==count
+                        || receipt.policy_version!==version || receipt.digest!==digest) {
+                        throw new Error('invalid_receipt');
+                    }
+                } catch (error) {
+                    try { await persistOwnerReviews([reviewRecord(eventId,'ai_reextraction',runId,
+                        'failed',auditContext,decision,{error:String(error.message || 'request_failed')})]); }
+                    catch (_auditError) { }
+                    panel.appendChild(notice(errorText(error.message),'error'));
+                    recentPolicyButton.disabled = !(recentPolicy.eligible_count > 0) || !aiConfigured;
+                    return;
+                }
+                let auditWarning = false;
+                try { await persistOwnerReviews([reviewRecord(eventId,'ai_reextraction',runId,
+                    'accepted',auditContext,decision,receipt)]); }
+                catch (_error) { auditWarning = true; }
+                const progress = notice('بازپردازش پست‌های اخیر در صف قرار گرفت…','info');
+                progress.classList.add('molavi-reextract-progress');
+                if (auditWarning) progress.appendChild(node('p','اجرا در صف است، اما ذخیره رسید اولیه در وردپرس ناموفق بود.','notice'));
+                controls.replaceWith(progress);
+                showReextractionProgress(panel,runId,auditContext);
+            });
             openCasesButton.addEventListener('click', async () => {
                 const caseCount = Number(openCases.case_count || 0);
                 const messageCount = Number(openCases.message_count || 0);
@@ -2724,7 +2806,7 @@
                     dismissButton.disabled = !(counts.pending > 0);
                 }
             });
-            controls.append(openCasesButton, pendingButton, allButton, dismissButton);
+            controls.append(recentPolicyButton, openCasesButton, pendingButton, allButton, dismissButton);
             panel.appendChild(controls);
         } catch (error) {
             panel.appendChild(notice(errorText(error.message), 'error'));

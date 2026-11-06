@@ -43,7 +43,11 @@ class AIConfirmationLedger:
                 db.execute("ALTER TABLE ai_message_dismissals ADD COLUMN media_unique_id TEXT NOT NULL DEFAULT ''")
             db.execute('''CREATE TABLE IF NOT EXISTS ai_source_reextractions (
                 source_key TEXT PRIMARY KEY, batch_id TEXT NOT NULL, outcome TEXT NOT NULL,
-                run_id TEXT NOT NULL, actor_id TEXT NOT NULL, completed_at REAL NOT NULL)''')
+                run_id TEXT NOT NULL, actor_id TEXT NOT NULL, completed_at REAL NOT NULL,
+                policy_version TEXT NOT NULL DEFAULT '')''')
+            columns={str(row['name']) for row in db.execute('PRAGMA table_info(ai_source_reextractions)')}
+            if 'policy_version' not in columns:
+                db.execute("ALTER TABLE ai_source_reextractions ADD COLUMN policy_version TEXT NOT NULL DEFAULT ''")
         os.chmod(self.path, 0o600)
 
     @contextmanager
@@ -100,20 +104,27 @@ class AIConfirmationLedger:
                            (str(message_key or ''),)).fetchone()
         return dict(row) if row else None
 
-    def record_source_reextraction(self, *, source_key, batch_id, outcome, run_id, actor_id):
+    def record_source_reextraction(self, *, source_key, batch_id, outcome, run_id, actor_id,
+                                   policy_version=None):
+        if policy_version is None:
+            from catalog.gemini import extraction_policy_version
+            policy_version=extraction_policy_version()
         if (not isinstance(source_key, str) or not re.fullmatch(r'[a-f0-9]{64}', source_key)
                 or not isinstance(batch_id, str) or not batch_id.startswith('reextract:')
                 or outcome not in {'products', 'no_products'}
                 or not isinstance(run_id, str) or not re.fullmatch(r'[a-f0-9]{32}', run_id)
-                or not isinstance(actor_id, str) or not actor_id.strip()):
+                or not isinstance(actor_id, str) or not actor_id.strip()
+                or not isinstance(policy_version,str)
+                or not re.fullmatch(r'[a-z0-9][a-z0-9._-]{0,63}',policy_version)):
             raise ValueError('invalid source re-extraction receipt')
         with self.connect() as db:
             db.execute('''INSERT INTO ai_source_reextractions
-                (source_key,batch_id,outcome,run_id,actor_id,completed_at) VALUES (?,?,?,?,?,?)
+                (source_key,batch_id,outcome,run_id,actor_id,completed_at,policy_version)
+                VALUES (?,?,?,?,?,?,?)
                 ON CONFLICT(source_key) DO UPDATE SET batch_id=excluded.batch_id,
                 outcome=excluded.outcome,run_id=excluded.run_id,actor_id=excluded.actor_id,
-                completed_at=excluded.completed_at''',
-                (source_key, batch_id, outcome, run_id, actor_id, time.time()))
+                completed_at=excluded.completed_at,policy_version=excluded.policy_version''',
+                (source_key, batch_id, outcome, run_id, actor_id, time.time(),policy_version))
 
     def source_reextractions(self):
         with self.connect() as db:
@@ -616,7 +627,7 @@ def case_reextraction_inventory(store, ledger):
     }
 
 
-def reextraction_inventory(store, ledger=None):
+def reextraction_inventory(store, ledger=None, *, policy_version=None):
     """List saved source messages safe to re-extract without replaying owner decisions."""
     from catalog.sync import _records
     _, messages = _records(store.read('MessageData'))
@@ -647,7 +658,8 @@ def reextraction_inventory(store, ledger=None):
     media_without_file=0
     already_reprocessed=0
     reprocessed_sources={key for key,value in (ledger.source_reextractions().items() if ledger else [])
-                         if value.get('outcome')=='products'}
+                         if (value.get('policy_version')==policy_version if policy_version is not None
+                             else value.get('outcome')=='products')}
     for message in messages:
         message_id=str(message.get('ID') or '').strip()
         batch_id=str(message.get('Batch ID') or '').strip()
@@ -694,7 +706,9 @@ def reextraction_inventory(store, ledger=None):
         if marker in owner_decisions:
             excluded_owner+=1
             continue
-        if marker in staged:
+        # A staged result from an older extraction policy is eligible for an explicit
+        # current-policy replay. Same-policy results are filtered by their receipt above.
+        if marker in staged and policy_version is None:
             already_staged+=1
             continue
         if unsupported_media_needed:
@@ -726,7 +740,7 @@ def reextraction_inventory(store, ledger=None):
         item={
             'message_id':message_id,'batch_id':batch_id,'channel_username':channel,
             'channel':str(message.get('Channel') or ''),'timestamp':str(message.get('Timestamp') or ''),
-            'content':content,
+            'content':content,'source_post_url':str(message.get('URL') or ''),
             'ai_status':'no_product_candidate' if ai_status=='not_product' else ai_status,
             'message_key':message_key,
         }
@@ -749,6 +763,57 @@ def reextraction_inventory(store, ledger=None):
             'already_staged':already_staged,'already_reprocessed':already_reprocessed,
             'dismissed_by_owner':dismissed_by_owner,
         },
+    }
+
+
+def recent_policy_reextraction_inventory(store, ledger=None, *, policy_version=None, now=None):
+    """Build a revision-bound replay plan for eligible supplier posts in the live window."""
+    from catalog.gemini import extraction_policy_version
+    from catalog.launch_policies import BLOCKING_AGE
+    from catalog.supplier_freshness import source_datetime
+    from datetime import datetime, timezone
+
+    version=policy_version or extraction_policy_version()
+    current=now or datetime.now(timezone.utc)
+    if current.tzinfo is None or current.utcoffset() is None:
+        raise ValueError('timezone-aware replay preview time required')
+    current=current.astimezone(timezone.utc)
+    inventory=reextraction_inventory(store,ledger,policy_version=version)
+    eligible=[]
+    unknown_or_future=0
+    outside_window=0
+    candidates=[*inventory['all_messages'],
+        *({**item,'media_ocr':True} for item in inventory['media_review_messages']
+          if str(item.get('image_file_id') or '').strip())]
+    for item in candidates:
+        stamp=source_datetime(item.get('timestamp'))
+        if stamp is None or stamp>current:
+            unknown_or_future+=1
+            continue
+        if current-stamp>=BLOCKING_AGE:
+            outside_window+=1
+            continue
+        item=dict(item)
+        item['source_key']=reextraction_source_key(
+            source_url=item.get('source_post_url'),channel=item.get('channel_username'),
+            message_id=item.get('message_id'),timestamp=item.get('timestamp'),
+            content=item.get('content'))
+        eligible.append(item)
+    identities=sorted((str(item['source_key']),str(item['message_key']),str(item['message_id']),
+                       str(item['batch_id']),str(item['timestamp'])) for item in eligible)
+    digest=hashlib.sha256(_stable({
+        'policy_version':version,'window_seconds':int(BLOCKING_AGE.total_seconds()),
+        'messages':identities,
+    })).hexdigest()
+    return {
+        'policy_version':version,
+        'window_days':int(BLOCKING_AGE.total_seconds()/86400),
+        'digest':digest,
+        'messages':eligible,
+        'eligible_count':len(eligible),
+        'media_ocr_count':sum(1 for item in eligible if item.get('media_ocr')),
+        'unknown_or_future_timestamp_count':unknown_or_future,
+        'outside_window_count':outside_window,
     }
 
 

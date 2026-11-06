@@ -174,6 +174,72 @@ class OwnerWorkflowBrowserAPITests(unittest.TestCase):
         self.assertEqual(payload['content_sha256'],hashlib.sha256(
             payload['content'].encode()).hexdigest())
 
+    def test_recent_policy_replay_is_bound_to_preview_policy_and_source_digest(self):
+        import app as server
+        from datetime import datetime, timedelta, timezone
+        from catalog.extract import OFFER_HEADERS, PRODUCT_HEADERS, MESSAGE_HEADERS
+        from catalog.gemini import extraction_policy_version
+        from catalog.sync import MemoryStore, _row_from_map
+
+        queue=Handoffs(self.db_path)
+        store=MemoryStore()
+        store.ensure('Offers',OFFER_HEADERS);store.ensure('Products',PRODUCT_HEADERS)
+        store.ensure('MessageData',MESSAGE_HEADERS)
+        stamp=(datetime.now(timezone.utc)-timedelta(days=1)).isoformat()
+        content='Beans 12 pack\nقیمت فروش ما: ۱۰۵/۰۰۰ تومان'
+        store.append('MessageData',[_row_from_map(MESSAGE_HEADERS,{
+            'ID':'recent-message','Channel':'telegram','Channel Username':'@supplier',
+            'Content':content,'Timestamp':stamp,'URL':'https://t.me/supplier/99',
+            'Status':'product','Batch ID':'recent-batch','AI Status':'ai_processed'})])
+        # A previous review-stage extraction must be eligible under a new policy.
+        store.append('Offers',[_row_from_map(OFFER_HEADERS,{
+            'Offer ID':'reextract:old:message','Product Name':'Beans 12 pack',
+            'Channel':'telegram','Channel Username':'@supplier','Status':'needs_review',
+            'Review Reason':'low confidence','Message ID':'recent-message',
+            'Batch ID':'reextract:old','Message Timestamp':stamp,
+            'Source Post URL':'https://t.me/supplier/99','Original Message':content,
+        })])
+        env={'PIPELINE_DB_PATH':self.db_path,'REFERENCE_STORE_PATH':self.reference_path,
+            'REFERENCE_OWNER_IDS':'wp:7','REFERENCE_BRIDGE_TOKEN':self.secret,
+            'GOOGLE_API_KEY':'synthetic-gemini-key'}
+        auth={'Authorization':'Bearer '+owner_token(self.secret,
+            scope='owner:/pipeline/ai-confirmations')}
+        with patch.dict(os.environ,env),patch.object(server,'USE_SHEETS',True), \
+                patch.object(server,'handoff_queue',return_value=queue), \
+                patch.object(server,'build_store',return_value=store), \
+                patch.object(server.threading,'Thread') as worker:
+            client=server.app.test_client()
+            preview=client.get('/pipeline/ai-confirmations?reextract=preview',headers=auth)
+            self.assertEqual(preview.status_code,200,preview.get_json())
+            details=preview.get_json()['recent_policy']
+            self.assertEqual(details['eligible_count'],1)
+            self.assertEqual(details['policy_version'],extraction_policy_version())
+            self.assertEqual(details['source_posts'][0]['source_post_url'],'https://t.me/supplier/99')
+            run_id='9'*32
+            request={'action':'start_recent_policy_reextraction','run_id':run_id,
+                'expected_count':1,'expected_digest':details['digest'],
+                'policy_version':details['policy_version']}
+            stale_policy=client.post('/pipeline/ai-confirmations',headers=auth,json={
+                **request,'policy_version':'gemini-0000000000000000'})
+            self.assertEqual(stale_policy.status_code,409,stale_policy.get_json())
+            stale_preview=client.post('/pipeline/ai-confirmations',headers=auth,json={
+                **request,'expected_digest':'0'*64})
+            self.assertEqual(stale_preview.status_code,409,stale_preview.get_json())
+            started=client.post('/pipeline/ai-confirmations',headers=auth,json=request)
+
+        self.assertEqual(started.status_code,202,started.get_json())
+        self.assertEqual(started.get_json()['queued'],1)
+        self.assertEqual(started.get_json()['scope'],'recent_policy')
+        worker.assert_called_once()
+        job=queue.reextraction_status(run_id)
+        self.assertEqual(job['scope'],'recent_policy')
+        self.assertEqual(job['policy_version'],details['policy_version'])
+        with queue.connect() as db:
+            payload=json.loads(db.execute('SELECT payload FROM jobs WHERE id LIKE ?',
+                ('reextract:'+run_id+':%',)).fetchone()['payload'])
+        self.assertEqual(payload['source_key'],details['source_posts'][0]['source_key'])
+        self.assertEqual(payload['policy_version'],details['policy_version'])
+
     def test_open_ai_case_can_be_linked_to_reference_before_price_confirmation(self):
         import app as server
         from catalog.ai_confirmations import AIConfirmationLedger, review_cases

@@ -924,7 +924,8 @@ def import_product_data(
         return {"success": False, "error": exc.__class__.__name__}
 
 
-def reextract_saved_message(store, payload: dict[str, Any], *, write_lock=None) -> dict[str, Any]:
+def reextract_saved_message(store, payload: dict[str, Any], *, write_lock=None,
+                           reference_snapshot=None) -> dict[str, Any]:
     """Re-run extraction for one saved source and let quality checks decide review."""
     from catalog.ai_confirmations import (AIConfirmationLedger, reextraction_message_key,
         reextraction_source_key, review_cases)
@@ -944,6 +945,15 @@ def reextract_saved_message(store, payload: dict[str, Any], *, write_lock=None) 
     actor_id=str(payload.get('actor_id') or '')
     if not actor_id:
         raise ValueError('invalid_re-extraction_actor')
+    reextraction_scope=str(payload.get('reextraction_scope') or '')
+    policy_version=str(payload.get('policy_version') or '')
+    if reextraction_scope=='recent_policy':
+        from catalog.gemini import extraction_policy_version
+        if (not re.fullmatch(r'[a-z0-9][a-z0-9._-]{0,63}',policy_version)
+                or policy_version!=extraction_policy_version()):
+            return {'ok':True,'message_id':message_id,'status':'policy_changed',
+                    'products_found':0,'offers_written':0,'open_cases_remaining':0,
+                    'policy_version':policy_version}
 
     source_offer_id=str(payload.get('source_offer_id') or '')
     if source_offer_id:
@@ -1035,10 +1045,15 @@ def reextract_saved_message(store, payload: dict[str, Any], *, write_lock=None) 
     if not str(source.get('Source Timestamp Basis') or '').strip():
         source=dict(source)
         source['Source Timestamp Basis']=infer_legacy_source_timestamp_basis(source)
+    if reextraction_scope=='recent_policy' and payload.get('source_key')!=source_key:
+        return {'ok':True,'message_id':message_id,'status':'source_changed',
+                'products_found':0,'offers_written':0,'open_cases_remaining':0,
+                'source_key':source_key}
     source_content=str(source.get('Content') or '')
     content=source_content
     media_ocr_text=''
-    media_ocr=str(payload.get('reextraction_scope') or '')=='media_review'
+    media_ocr=(str(payload.get('reextraction_scope') or '')=='media_review'
+        or (reextraction_scope=='recent_policy' and payload.get('media_ocr') is True))
     if media_ocr or not content.strip():
         image_file_id=str(source.get('Image File ID') or '').strip()
         if not image_file_id:
@@ -1059,16 +1074,26 @@ def reextract_saved_message(store, payload: dict[str, Any], *, write_lock=None) 
         content='\n'.join(part for part in (source_content,media_ocr_text) if part.strip())
         media_ocr=True
     products=_extract_supplier_products(content,channel_username)
+    stage_batch_id=f'reextract:{run_id}:{message_key}'
     if not products:
+        if reextraction_scope=='recent_policy':
+            from catalog.ai_confirmations import AIConfirmationLedger
+            AIConfirmationLedger(os.getenv('PIPELINE_DB_PATH') or 'pipeline.sqlite').record_source_reextraction(
+                source_key=source_key,batch_id=stage_batch_id,outcome='no_products',run_id=run_id,
+                actor_id=actor_id,policy_version=policy_version)
         return {'ok':True,'message_id':message_id,'status':'ocr_no_products' if media_ocr else 'no_products','products_found':0,
-                'offers_written':0,'open_cases_remaining':int(payload.get('case_count') or 0)}
+                'offers_written':0,'open_cases_remaining':int(payload.get('case_count') or 0),
+                'source_key':source_key}
+    if reextraction_scope=='recent_policy' and not media_ocr and len(products)==1:
+        prior_product_id=_unique_current_product_id_for_source(store,source)
+        if prior_product_id:
+            products[0]['_source_product_id']=prior_product_id
     if media_ocr:
         for product in products:
             product['needs_review']=True
             prior_reason=str(product.get('review_reason') or '').strip()
             product['review_reason']='; '.join(part for part in
                 (prior_reason,'Image OCR requires owner verification') if part)
-    stage_batch_id=f'reextract:{run_id}:{message_key}'
     source_stamp=source_datetime(source.get('Timestamp'))
     now=datetime.now(timezone.utc)
     historical=(source_stamp is None or source_stamp>now or now-source_stamp>=BLOCKING_AGE)
@@ -1092,15 +1117,22 @@ def reextract_saved_message(store, payload: dict[str, Any], *, write_lock=None) 
     with lock_context:
         with _WRITE_LOCK:
             result=import_product_data(store,data,prepared_products=products,
-                defer_current_book=historical)
+                defer_current_book=historical,reference_snapshot=reference_snapshot)
     if not result.get('success'):
         raise RuntimeError('re-extraction import failed')
     if int(result.get('products_found') or 0)<=0:
+        if reextraction_scope=='recent_policy':
+            ledger=AIConfirmationLedger(os.getenv('PIPELINE_DB_PATH') or 'pipeline.sqlite')
+            ledger.record_source_reextraction(source_key=source_key,batch_id=stage_batch_id,
+                outcome='no_products',run_id=run_id,actor_id=actor_id,
+                policy_version=policy_version)
         return {'ok':True,'message_id':message_id,'status':'no_products','products_found':0,
-                'offers_written':0,'open_cases_remaining':int(payload.get('case_count') or 0)}
+                'offers_written':0,'open_cases_remaining':int(payload.get('case_count') or 0),
+                'source_key':source_key}
     ledger=AIConfirmationLedger(os.getenv('PIPELINE_DB_PATH') or 'pipeline.sqlite')
     ledger.record_source_reextraction(source_key=source_key,batch_id=stage_batch_id,
-        outcome='products',run_id=run_id,actor_id=actor_id)
+        outcome='products',run_id=run_id,actor_id=actor_id,
+        policy_version=policy_version if reextraction_scope=='recent_policy' else None)
     source_cases=[]
     for case in review_cases(store,ledger,limit=1000):
         case_source_key=reextraction_source_key(
@@ -1122,6 +1154,30 @@ def reextract_saved_message(store, payload: dict[str, Any], *, write_lock=None) 
             'products_found':int(result.get('products_found') or 0),
             'offers_written':int(result.get('products_found') or 0),
             'open_cases_remaining':len(source_cases),'source_key':source_key}
+
+
+def _unique_current_product_id_for_source(store, source):
+    """Keep a one-to-one refreshed listing attached to its existing stable product row."""
+    from catalog.ai_confirmations import reextraction_source_key
+    _,offers=_records(_read_sheet_if_present(store,'Offers'))
+    message_id=str(source.get('ID') or '')
+    channel=str(source.get('Channel Username') or '')
+    source_key=reextraction_source_key(source_url=source.get('URL'),channel=channel,
+        message_id=message_id,timestamp=source.get('Timestamp'),content=source.get('Content'))
+    product_ids={str(offer.get('Product ID') or '').strip() for offer in offers
+        if str(offer.get('Product ID') or '').strip()
+        and str(offer.get('Message ID') or '')==message_id
+        and str(offer.get('Channel Username') or '')==channel
+        and reextraction_source_key(source_url=offer.get('Source Post URL'),
+            channel=offer.get('Channel Username'),message_id=offer.get('Message ID'),
+            timestamp=offer.get('Message Timestamp'),content=offer.get('Original Message'))==source_key}
+    if len(product_ids)!=1:
+        return ''
+    product_id=next(iter(product_ids))
+    _,products=_records(_read_sheet_if_present(store,'Products'))
+    rows=[item for item in products if str(item.get('Product ID') or '')==product_id
+          and str(item.get('Channel Username') or '')==channel]
+    return product_id if len(rows)==1 else ''
 
 
 _SYSTEM_ITEM_FIELDS = {
@@ -1933,6 +1989,16 @@ def _restore_current_book(store, keys: list[Any]) -> int | None:
         row_number = _find_product_row(products, headers, name, channel, identity=identity)
         if not row_number and matching:
             row_number=_find_product_row_by_offer_ids(products,headers,{str(o.get('Offer ID') or '') for o in matching})
+        if not row_number and matching and 'Product ID' in headers:
+            product_ids={str(offer.get('Product ID') or '').strip() for offer in matching
+                if str(offer.get('Product ID') or '').strip()}
+            if len(product_ids)==1:
+                product_id=next(iter(product_ids))
+                product_rows=[index for index,row in enumerate(products[1:],start=2)
+                    if str(_cell(row,headers,'Product ID') or '')==product_id
+                    and str(_cell(row,headers,'Channel Username') or '')==str(channel or '')]
+                if len(product_rows)==1:
+                    row_number=product_rows[0]
         if not matching:
             if row_number:
                 deletions.append(row_number)
@@ -2345,6 +2411,14 @@ def _product_id_for_offer(product: dict[str, Any], channel: str,
                 existing_id = str(_cell(product_rows[row_number - 1], headers, "Product ID") or "").strip()
                 if existing_id:
                     return existing_id
+        source_product_id=str(product.get('_source_product_id') or '').strip()
+        if source_product_id and 'Product ID' in headers and 'Channel Username' in headers:
+            source_rows=[row for row in product_rows[1:]
+                if str(_cell(row,headers,'Product ID') or '')==source_product_id
+                and str(_cell(row,headers,'Channel Username') or '')
+                    ==str(identity['Channel Username'] or '')]
+            if len(source_rows)==1:
+                return source_product_id
     return _product_row_id(identity)
 
 
