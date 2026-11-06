@@ -2,6 +2,36 @@
 
 Updated: 2026-11-06, Asia/Tehran
 
+## 2026-11-06 User-confirmed package quantity steps live
+
+WordPress plugin commit `b4a91259817e7f9ecd17cef93da05365aee22ecf` deployed the
+pack-size policy, editor labels, and replay explanation. Follow-up
+`30caffd13dd1f0994cbda1fd5cf60c1647a22316` versions the catalog transient as v5 so
+cached profiles from the old policy are recomputed. The protected cPanel uploader
+read back `includes/owner-workflows.js`, `includes/pricing.php`, and
+`includes/woocommerce-admin.php` successfully.
+
+The live defaults are household/shop-owner: pack sizes 6→1/3, 12→3/6, 18→4/9,
+24→4/12, 36→8/18, and 48→12/24. Explicit WooCommerce per-product overrides remain
+in force; unlisted sizes retain the documented fallback. The public `/` and `/shop/`
+routes both returned HTTP 200 with 30 catalog products. Their rendered profiles now
+include pack 6 at 1/3 and pack 24 at 4/12, confirming the old one-day transient no
+longer masks the updated policy. No source post, product record, order, or cart was
+changed during deployment.
+
+The dashboard link opens the reprocessing panel; its separate button starts the run.
+Eligible timestamped posts from the last 14 days are extracted under the current AI
+policy. Successful results queue a catalog publish; if a pack count changes, WordPress
+recomputes the customer steps. Uncertain results and OCR remain in review, owner
+decisions are preserved, and explicit product overrides are not overwritten. The run
+is not needed just to apply this quantity policy.
+
+Validation passed: `node --check`, `node tests/owner_workbench.test.js`, JSON parsing,
+and `git diff --check`. The disposable WordPress/WooCommerce runtime loaded the plugin
+and reached the later supplier-outbox retry assertion after the new quantity-profile
+checks, but the overall harness stopped at that unrelated assertion. No Railway change
+was needed for this WordPress-only policy update.
+
 ## 2026-11-06 Original-post freshness acknowledgement live
 
 Railway commit `9ac0e149872cf1aae716019fb2dab35757010747` is live in production
