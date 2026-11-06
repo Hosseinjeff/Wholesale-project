@@ -392,7 +392,7 @@ function molavi_unit_price(array $curve, float $progress): int
 
 function molavi_catalog_map(): array
 {
-    $map = get_transient('molavi_catalog_v4');
+    $map = get_transient('molavi_catalog_v5');
     if (is_array($map)) {
         return $map;
     }
@@ -426,7 +426,7 @@ function molavi_catalog_map(): array
             'discountable' => $curve['discountable'] ? 1 : 0,
         ];
     }
-    set_transient('molavi_catalog_v4', $map, DAY_IN_SECONDS);
+    set_transient('molavi_catalog_v5', $map, DAY_IN_SECONDS);
     return $map;
 }
 
@@ -436,6 +436,7 @@ function molavi_forget_catalog(): void
     delete_transient('molavi_catalog_v2');
     delete_transient('molavi_catalog_v3');
     delete_transient('molavi_catalog_v4');
+    delete_transient('molavi_catalog_v5');
 }
 
 add_action('woocommerce_update_product', 'molavi_forget_catalog');

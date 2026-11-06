@@ -35,6 +35,23 @@ $quantity_product->update_meta_data('_molavi_shop_order_unit', 12);
 $profile = molavi_product_profile($quantity_product);
 ref_assert($profile['household_unit'] === 5 && $profile['shop_unit'] === 12,
     'an explicit per-product household quantity override remains in force');
+$quantity_product->delete_meta_data('_molavi_household_order_unit');
+$quantity_product->delete_meta_data('_molavi_shop_order_unit');
+$quantity_product->set_status('publish');
+$quantity_product->set_regular_price('1000');
+$quantity_product->update_meta_data('_molavi_pack_size', 24);
+$quantity_product->save();
+$quantityProductId = (string) $quantity_product->get_id();
+$catalogProfile = molavi_catalog_map()[$quantityProductId] ?? [];
+ref_assert(($catalogProfile['household_unit'] ?? null) === 4 && ($catalogProfile['shop_unit'] ?? null) === 12,
+    'the storefront catalog applies the pack-24 policy after its cache-key change');
+$quantity_product->update_meta_data('_molavi_pack_size', 36);
+$quantity_product->save();
+$catalogProfile = molavi_catalog_map()[$quantityProductId] ?? [];
+ref_assert(($catalogProfile['household_unit'] ?? null) === 8 && ($catalogProfile['shop_unit'] ?? null) === 18,
+    'a changed extracted pack size invalidates the storefront catalog and recalculates both customer steps');
+wp_delete_post((int) $quantityProductId, true);
+molavi_forget_catalog();
 $storefront_title_test_id = wp_insert_post([
     'post_type' => 'product',
     'post_status' => 'publish',
