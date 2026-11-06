@@ -2,6 +2,30 @@
 
 Updated: 2026-11-06, Asia/Tehran
 
+## 2026-11-06 Original-post freshness acknowledgement live
+
+Railway commit `9ac0e149872cf1aae716019fb2dab35757010747` is live in production
+as deployment `db8fb3fc-b3a1-477e-acfc-ae7f99c2bd79` (`SUCCESS`). The service is
+online with no pending work, and the public `/health` endpoint returned `healthy`.
+WordPress plugin revision `c60cda221e4e9ddba38c83db83aa3a9911874a2d` was deployed
+through the protected cPanel uploader; it uploaded and read back
+`includes/owner-workflows.css` and `includes/owner-workflows.js` successfully.
+
+Intake now keeps the original supplier-post time separate from the supplier edit
+time. Review cards show relative age and the 14-day boundary, and explain which
+timestamp is available and being used. If the trusted supplier timestamp is missing,
+untrusted, in the future, or at least 14 days old, confirmation requires an explicit
+current-source check in the card. The server enforces the same gate and WordPress
+records the timestamp provenance and acknowledgement with the decision. Stock stays
+unknown unless the source states it. Existing records cannot recover a separate
+original or edit time if it was never stored; those cards identify the recorded date
+that is available. No product or order data was changed during deployment.
+
+Validation passed: 35 AI-confirmation tests, 38 inbound/pipeline/persistence tests,
+12 owner browser API tests, `node --check`, `node tests/owner_workbench.test.js`,
+Python compilation, and `git diff --check`. The cPanel read-back verified the deployed
+plugin bytes. An authenticated visual dashboard session was not available here.
+
 ## 2026-11-06 Policy-versioned recent intake replay live
 
 Commit `d136afdc421bd187e69cfd341d29755e86aa9617` is live in WordPress and
