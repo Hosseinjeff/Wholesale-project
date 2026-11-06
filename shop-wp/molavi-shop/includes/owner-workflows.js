@@ -27,6 +27,41 @@
         return Number.isFinite(number) ? new Intl.NumberFormat('fa-IR').format(number) + ' تومان' : String(value);
     }
 
+    function reviewCardHeader(title, state = '') {
+        const header = node('header', null, 'molavi-review-card-header');
+        header.appendChild(node('h2', title || 'مورد نیازمند بررسی'));
+        if (state) header.appendChild(node('span', state, 'molavi-review-card-state'));
+        return header;
+    }
+
+    function reviewFacts(rows, className = 'molavi-review-facts') {
+        const facts = node('dl', null, className);
+        rows.filter(row => row && row[0] && row[1] !== null && row[1] !== undefined && row[1] !== '')
+            .forEach(([label, value]) => {
+                const fact = node('div', null, 'molavi-review-fact');
+                fact.append(node('dt', label), node('dd', value));
+                facts.appendChild(fact);
+            });
+        return facts;
+    }
+
+    function reviewActions(className = 'molavi-review-actions') {
+        return node('div', null, className);
+    }
+
+    function readableWorkflowStatus(value) {
+        const labels = {
+            approved:'تأیید شده', blocked:'قیمت کهنه؛ سفارش متوقف', current:'به‌روز',
+            held_for_review:'متوقف برای بررسی', imported:'در فهرست کالاها', match:'تطبیق ثبت‌شده',
+            needs_review:'نیازمند بررسی', no_match:'بدون تطبیق', not_product:'کالا نیست',
+            pending:'در انتظار تصمیم', pending_verification:'ثبت در فهرست تأیید نشده',
+            awaiting_ai_confirmation:'در انتظار تأیید استخراج', warning:'بررسی تازه لازم است',
+            verified:'تأیید شده', sell:'قابل فروش'
+        };
+        const key = String(value || '');
+        return labels[key] || key || 'ثبت نشده';
+    }
+
     function referenceComparisonSummary(candidate) {
         const labels = {brand:'برند',category:'دسته',variant:'طعم/مدل',
             package_count:'تعداد بسته',volume:'حجم',weight:'وزن'};
@@ -749,7 +784,7 @@
 
         const renderProduct = product => {
             const primaryKey = workbenchQueue === 'next' ? workbenchActionKey(product) : workbenchQueue;
-            const card = node('article', null, 'card molavi-product-card');
+            const card = node('article', null, 'card molavi-review-card molavi-product-card');
             const secondaryContent = node('div', null, 'molavi-secondary-product-checks');
             const secondaryChecks = document.createElement('details');
             secondaryChecks.className = 'molavi-secondary-product-details';
@@ -768,21 +803,22 @@
             const nextStep = node('p', workbenchNextStep(product), 'molavi-product-next-step');
             card.appendChild(nextStep);
             const status = product.status || {};
-            const sourceParts = [];
-            if (product.product_id) sourceParts.push(`شناسه: ${product.product_id}`);
-            if (product.channel) sourceParts.push(`تأمین‌کننده: ${product.channel}`);
-            if (status.status) sourceParts.push(`وضعیت انتشار: ${status.status}`);
-            if (sourceParts.length) card.appendChild(node('p', sourceParts.join(' · '), 'molavi-product-identity'));
+            const identityFacts = [];
+            if (product.product_id) identityFacts.push(['شناسه کالا', product.product_id]);
+            if (product.channel) identityFacts.push(['تأمین‌کننده', product.channel]);
+            if (status.status) identityFacts.push(['وضعیت انتشار', readableWorkflowStatus(status.status)]);
+            if (identityFacts.length) card.appendChild(reviewFacts(identityFacts,
+                'molavi-review-facts molavi-product-identity'));
 
             const stateRow = node('div', null, 'molavi-product-state-row');
             let supplierPricePill = null;
             if (status.reference_match_id) appendStatusPill(stateRow, 'مرجع', status.reference_match_id);
-            else if (status.reference_approval_state) appendStatusPill(stateRow, 'مرجع', status.reference_approval_state,
+            else if (status.reference_approval_state) appendStatusPill(stateRow, 'مرجع', readableWorkflowStatus(status.reference_approval_state),
                 status.reference_update_needed ? 'warning' : '');
             if (status.reference_price_role) appendStatusPill(stateRow, 'مبنای قیمت مرجع',
                 status.reference_price_role === 'package' ? 'بسته' : status.reference_price_role === 'unit' ? 'واحد' : status.reference_price_role);
             if (status.reference_price_change_percent) appendStatusPill(stateRow, 'تغییر مرجع', `${status.reference_price_change_percent}٪`, status.reference_update_needed ? 'warning' : '');
-            if (status.supplier_price_state) supplierPricePill = appendStatusPill(stateRow, 'قیمت تأمین‌کننده', status.supplier_price_state,
+            if (status.supplier_price_state) supplierPricePill = appendStatusPill(stateRow, 'قیمت تأمین‌کننده', readableWorkflowStatus(status.supplier_price_state),
                 ['blocked','needs_review'].includes(status.supplier_price_state) ? 'warning' : '');
             if (status.update_needed) appendStatusPill(stateRow, 'به‌روزرسانی', 'لازم است', 'warning');
             if (product.holds.length) appendStatusPill(stateRow, 'انتشار', 'متوقف', 'warning');
@@ -819,18 +855,24 @@
                 addWorkflowSection(reference, 'references');
             });
             product.supplierPrices.forEach(offer => {
-                const section = node('section', null, 'molavi-product-subsection');
+                const section = node('section', null, 'molavi-product-subsection molavi-review-block molavi-supplier-price-review');
                 section.appendChild(node('h3', 'تازگی قیمت تأمین‌کننده'));
                 const statusText = offer.acknowledged
                     ? 'قیمت تأیید شد؛ انتشار دوباره در صف است'
-                    : ({warning:'نیاز به بررسی تازه',blocked:'قیمت کهنه؛ سفارش متوقف است',needs_review:'مدرک قیمت نیاز به بررسی دارد'}[offer.state] || offer.state || 'نیازمند بررسی');
-                section.appendChild(node('p', `${offer.channel || product.channel || 'تأمین‌کننده نامشخص'} · قیمت: ${amount(offer.sale_price)} · ${statusText}`));
-                if (offer.source_timestamp) {
-                    const timeLabel=offer.source_timestamp_trusted?'زمان به‌روزرسانی تأمین‌کننده':'زمان پیام ارسالی';
-                    section.appendChild(node('p', `${timeLabel}: ${offer.source_timestamp}`));
-                }
+                    : ({warning:'نیاز به بررسی تازه',blocked:'قیمت کهنه؛ سفارش متوقف است',needs_review:'مدرک قیمت نیاز به بررسی دارد'}[offer.state] || 'نیازمند بررسی');
+                const timeLabel=offer.source_timestamp_trusted?'زمان به‌روزرسانی تأمین‌کننده':'زمان پیام';
+                section.appendChild(reviewFacts([
+                    ['تأمین‌کننده', offer.channel || product.channel || 'نامشخص'],
+                    ['قیمت ثبت‌شده', amount(offer.sale_price)],
+                    ['وضعیت', statusText],
+                    [timeLabel, formatSourceTimestamp(offer.source_timestamp) || 'ثبت نشده']
+                ]));
                 const sourceLink = safeSourceLink(offer.source_post_url);
-                if (sourceLink) section.appendChild(sourceLink);
+                if (sourceLink) {
+                    const tools = node('div', null, 'molavi-card-source-tools');
+                    tools.appendChild(sourceLink);
+                    section.appendChild(tools);
+                }
                 if (!offer.source_timestamp_trusted && !offer.acknowledged) {
                     section.appendChild(notice('این پیام از حساب مالک رسیده یا زمان اصلی تأمین‌کننده را ندارد؛ تاریخ ارسال به‌تنهایی تازگی قیمت را ثابت نمی‌کند. قیمت را از منبع فعلی بررسی کنید. این تأیید فقط قیمت است و وضعیت موجودی را تغییر نمی‌دهد.', 'warning'));
                 }
@@ -892,16 +934,19 @@
                         errorBox(errorText(error.message), section); verify.disabled = !sourceRevision || !contextStored.supplier_prices;
                     }
                 });
-                section.appendChild(verify);
+                const actions = reviewActions();
+                actions.appendChild(verify);
+                section.appendChild(actions);
                 addWorkflowSection(section, 'supplier_prices');
             });
             product.conflicts.forEach(conflict => {
-                const section = node('section', null, 'molavi-product-subsection molavi-product-conflict');
+                const section = node('section', null, 'molavi-product-subsection molavi-review-block molavi-product-conflict');
                 section.appendChild(node('h3', `تعارض داده · ${conflict.field || 'فیلد نامشخص'}`));
-                for (const [caption,key] of [['آخرین مقدار هماهنگ‌شده','base'],
-                    ['مقدار فعلی سرور','server'],['مقدار فعلی شیت','sheet']]) {
-                    section.appendChild(node('p', `${caption}: ${conflictValue(conflict[key])}`));
-                }
+                section.appendChild(reviewFacts([
+                    ['آخرین مقدار هماهنگ‌شده', conflictValue(conflict.base)],
+                    ['مقدار فعلی سرور', conflictValue(conflict.server)],
+                    ['مقدار فعلی شیت', conflictValue(conflict.sheet)]
+                ], 'molavi-review-facts molavi-conflict-values'));
                 const serverOwned = conflict.server_owned === true;
                 const sheetPreserved = conflict.sheet_preserved === true;
                 if (!serverOwned && !sheetPreserved) {
@@ -933,7 +978,7 @@
                     }
                     section.appendChild(context);
                 }
-                const actions = node('div', null, 'molavi-product-actions');
+                const actions = reviewActions('molavi-product-actions molavi-review-actions');
                 const useServer = node('button', sheetPreserved ? 'حفظ هویت اصلی کالا'
                     : serverOwned ? 'همگام‌سازی مقدار سیستمی از سرور'
                     : 'اعمال مقدار فعلی سرور', 'button button-primary');
@@ -1134,10 +1179,15 @@
                 const reconcileWithoutRetry = hold.reason === 'batch_in_progress'
                     && context.batch_state === 'failed' && context.batch_error === 'JobConflict'
                     && context.expected_messages > 0 && messages.length === context.expected_messages;
-                const card = node('section', null, 'molavi-batch-card');
-                card.appendChild(node('h3', ({batch_in_progress:'نتیجه دسته نیازمند تطبیق است',batch_unverified:'نتیجه پردازش نیاز به بررسی دارد',batch_write_unverified:'ثبت پیام‌های دسته تأیید نشده'}[hold.reason]) || 'دسته متوقف‌شده'));
-                card.appendChild(node('p', `شناسه دسته: ${hold.hold_id} · زمان: ${hold.created_at || 'نامشخص'} · محصولات متصل: ${relatedCount}`));
-                card.appendChild(node('p', `وضعیت پردازش: ${context.batch_state || 'نامشخص'} · پیام‌های ثبت‌شده: ${context.written_messages || 0}/${context.expected_messages || 0} · پردازش‌شده: ${context.processed_messages || 0}`));
+                const card = node('section', null, 'molavi-batch-card molavi-review-card');
+                card.appendChild(reviewCardHeader(({batch_in_progress:'نتیجه دسته نیازمند تطبیق است',batch_unverified:'نتیجه پردازش نیاز به بررسی دارد',batch_write_unverified:'ثبت پیام‌های دسته تأیید نشده'}[hold.reason]) || 'دسته متوقف‌شده', 'اقدام دسته‌ای'));
+                card.appendChild(reviewFacts([
+                    ['شناسه دسته', hold.hold_id], ['زمان ثبت', hold.created_at || 'نامشخص'],
+                    ['محصولات متصل', new Intl.NumberFormat('fa-IR').format(relatedCount)],
+                    ['وضعیت پردازش', context.batch_state || 'نامشخص'],
+                    ['پیام‌های ثبت‌شده', `${context.written_messages || 0} از ${context.expected_messages || 0}`],
+                    ['پیام‌های پردازش‌شده', context.processed_messages || 0]
+                ]));
                 if (context.processing_error || context.batch_error) card.appendChild(notice(`خطای ثبت‌شده: ${context.processing_error || context.batch_error}`, 'warning'));
                 const sources = node('details');
                 sources.appendChild(node('summary', `پیام‌های منبع (${messages.length})`));
@@ -1201,7 +1251,9 @@
                         errorBox(errorText(error.message),card); action.disabled = !holdsContextStored || !messages.length;
                     }
                 });
-                card.appendChild(action);
+                const batchActions = reviewActions();
+                batchActions.appendChild(action);
+                card.appendChild(batchActions);
                 batchGroup.appendChild(card);
             }
             board.appendChild(batchGroup);
@@ -2067,8 +2119,13 @@
 
     function aiCaseCard(item, onSelect = null, contextStored = true, decisionsEnabled = true,
         relatedItems = [item], options = {}) {
-        const card = node('section', null, options.embedded ? 'molavi-product-subsection' : 'card');
+        const card = node('section', null, options.embedded
+            ? 'molavi-product-subsection molavi-review-card molavi-ai-review-card'
+            : 'card molavi-review-card molavi-ai-review-card');
         if (relatedItems.length > 1) card.classList.add('molavi-ai-variant-group');
+        const cardName = relatedItems.length > 1 ? aiVariantBaseName(item) || item.product_name : item.product_name;
+        const header = reviewCardHeader(cardName || 'کالای بدون نام', relatedItems.length > 1
+            ? `گروه ${new Intl.NumberFormat('fa-IR').format(relatedItems.length)} نوع هم‌قیمت` : 'استخراج');
         if (typeof onSelect === 'function') {
             const selection = node('label', null, 'molavi-ai-case-select');
             const checkbox = document.createElement('input');
@@ -2076,10 +2133,9 @@
             checkbox.disabled = !contextStored || !decisionsEnabled;
             checkbox.addEventListener('change', () => relatedItems.forEach(row => onSelect(row, checkbox.checked, checkbox)));
             selection.append(checkbox, document.createTextNode(' انتخاب برای رد گروهی'));
-            card.appendChild(selection);
+            header.appendChild(selection);
         }
-        const cardName = relatedItems.length > 1 ? aiVariantBaseName(item) || item.product_name : item.product_name;
-        card.appendChild(node('h2', cardName || 'کالای بدون نام'));
+        card.appendChild(header);
         if (relatedItems.some(row => row.publication_held)) {
             card.appendChild(notice('این منبع به دستهٔ متوقف‌شده وصل است؛ پس از رفع همان توقف می‌توانید تصمیم بگیرید. موارد مستقل همچنان قابل رسیدگی‌اند.', 'warning'));
         }
@@ -2090,24 +2146,24 @@
         }
         const extractedAttributes = [];
         const displayAttributes = aiProductAttributes(item);
-        if (relatedItems.length === 1 && displayAttributes.variationType) extractedAttributes.push(`طعم/مدل: ${displayAttributes.variationType}`);
-        if (displayAttributes.volume) extractedAttributes.push(`حجم: ${displayAttributes.volume}`);
-        if (displayAttributes.weight) extractedAttributes.push(`وزن: ${displayAttributes.weight}`);
-        if (displayAttributes.packaging) extractedAttributes.push(`بسته‌بندی: ${displayAttributes.packaging}`);
+        if (relatedItems.length === 1 && displayAttributes.variationType) extractedAttributes.push(['طعم / مدل', displayAttributes.variationType]);
+        if (displayAttributes.volume) extractedAttributes.push(['حجم', displayAttributes.volume]);
+        if (displayAttributes.weight) extractedAttributes.push(['وزن', displayAttributes.weight]);
+        if (displayAttributes.packaging) extractedAttributes.push(['بسته‌بندی', displayAttributes.packaging]);
         const packageCount = normalizedAiInteger(item.package_count);
-        if (packageCount) extractedAttributes.push(`تعداد در کارتن/بسته: ${new Intl.NumberFormat('fa-IR').format(packageCount)}`);
-        if (displayAttributes.brand) extractedAttributes.push(`برند: ${displayAttributes.brand}`);
-        if (displayAttributes.category) extractedAttributes.push(`دسته: ${displayAttributes.category}`);
+        if (packageCount) extractedAttributes.push(['تعداد در بسته / کارتن', new Intl.NumberFormat('fa-IR').format(packageCount)]);
+        if (displayAttributes.brand) extractedAttributes.push(['برند', displayAttributes.brand]);
+        if (displayAttributes.category) extractedAttributes.push(['دسته', displayAttributes.category]);
         if (extractedAttributes.length) {
-            const attributes = node('div', null, 'molavi-ai-product-attributes');
-            extractedAttributes.forEach(value => attributes.appendChild(node('span', value)));
-            card.appendChild(attributes);
+            card.appendChild(reviewFacts(extractedAttributes, 'molavi-review-facts molavi-ai-product-attributes'));
         }
         if (relatedItems.length > 1) {
-            card.appendChild(node('p', `انواع هم‌قیمت از یک پیام (${relatedItems.length} مورد)`));
+            const variantBlock = node('section', null, 'molavi-review-block molavi-ai-variant-block');
+            variantBlock.appendChild(node('h3', 'انواع هم‌قیمت در همین پیام'));
             const variants = node('ul', null, 'molavi-ai-variant-list');
             relatedItems.forEach(row => variants.appendChild(node('li', `${aiProductAttributes(row).variationType || row.product_name || 'نوع نامشخص'}${row.product_name && row.product_name !== item.product_name ? ` · ${row.product_name}` : ''}`)));
-            card.appendChild(variants);
+            variantBlock.appendChild(variants);
+            card.appendChild(variantBlock);
         }
         relatedItems.forEach(referenceItem => {
             const assignmentSection = aiReferenceAssignmentSection(referenceItem,
@@ -2127,27 +2183,38 @@
         const regularPrice = normalizedAiInteger(item.actual_price || item.consumer_price);
         const regularPackagePrice = normalizedAiInteger(item.double_pack_consumer_price
             || item.consumer_package_price || item.regular_package_price);
-        card.appendChild(node('p', `قیمت فروش تأمین‌کننده: ${visibleSupplierPrice ? amount(visibleSupplierPrice) : 'در پیام پیدا نشد'} · مبنا: ${roleLabel}`));
+        const priceFacts = [
+            ['قیمت فروش تأمین‌کننده', visibleSupplierPrice ? amount(visibleSupplierPrice) : 'در پیام پیدا نشد'],
+            ['مبنای قیمت در پیام', roleLabel],
+            ['قیمت مصرف‌کننده / عادی', regularPrice ? amount(regularPrice) : 'در پیام پیدا نشد'],
+            ['تأمین‌کننده', item.channel || 'نامشخص'],
+            ['حداقل خرید', item.min_qty || 'ثبت نشده']
+        ];
         if (packagePrice && packagePrice !== visibleSupplierPrice) {
-            card.appendChild(node('p', `قیمت کل بسته/کارتن تأمین‌کننده: ${amount(packagePrice)}${packageCount ? ` · ${new Intl.NumberFormat('fa-IR').format(packageCount)} عدد` : ''}`));
+            priceFacts.push(['قیمت کل بسته / کارتن', `${amount(packagePrice)}${packageCount ? ` · ${new Intl.NumberFormat('fa-IR').format(packageCount)} عدد` : ''}`]);
         }
-        card.appendChild(node('p', `قیمت مصرف‌کننده / عادی: ${regularPrice ? amount(regularPrice) : 'در پیام پیدا نشد'} · تأمین‌کننده: ${item.channel || 'نامشخص'}`));
-        if (regularPackagePrice) card.appendChild(node('p', `قیمت عادی کل بسته/کارتن: ${amount(regularPackagePrice)}`));
-        card.appendChild(node('p', `دلیل بررسی: ${item.reason || 'نیازمند بررسی'} · حداقل خرید: ${item.min_qty || 'ثبت نشده'}`));
+        if (regularPackagePrice) priceFacts.push(['قیمت عادی کل بسته / کارتن', amount(regularPackagePrice)]);
+        card.appendChild(reviewFacts(priceFacts, 'molavi-review-facts molavi-ai-price-facts'));
+        card.appendChild(reviewFacts([['دلیل قرارگرفتن در صف', item.reason || 'نیازمند بررسی']], 'molavi-review-facts molavi-review-reason'));
         const messageTimestamp = formatSourceTimestamp(item.message_timestamp);
-        if (messageTimestamp) card.appendChild(node('p', `زمان پیام منبع: ${messageTimestamp}`));
+        const sourceTools = node('div', null, 'molavi-card-source-tools');
+        if (messageTimestamp) sourceTools.appendChild(node('span', `زمان پیام: ${messageTimestamp}`));
         const sourcePostUrl = aiSourcePostUrl(item);
         const originalPost = safeSourceLink(sourcePostUrl,
             item.historical_reextract ? 'باز کردن پیام مبدأ (تاریخی)'
                 : sourcePostUrl && sourcePostUrl !== item.source_post_url ? 'باز کردن پست تلگرام' : 'باز کردن پیام اصلی');
-        if (originalPost) card.appendChild(originalPost);
+        if (originalPost) sourceTools.appendChild(originalPost);
+        if (sourceTools.childNodes.length) card.appendChild(sourceTools);
         if (item.image_file_id) {
+            const mediaDetails = node('details', null, 'molavi-review-media-details');
+            mediaDetails.appendChild(node('summary', 'دیدن تصویر پیام مبدأ'));
             const sourceImage=node('img',null,'molavi-ai-source-image');
             sourceImage.src=new URL('/media/file/'+encodeURIComponent(String(item.image_file_id)),config.apiUrl).toString();
             sourceImage.alt='תמונת منبع پیشنهاد'; sourceImage.loading='lazy'; sourceImage.decoding='async';
             sourceImage.referrerPolicy='no-referrer';
             sourceImage.onerror=()=>sourceImage.remove();
-            card.appendChild(sourceImage);
+            mediaDetails.appendChild(sourceImage);
+            card.appendChild(mediaDetails);
         }
         if (item.media_ocr_text) {
             card.appendChild(notice('این متن از روی تصویر خوانده شده و هنوز تصمیم نهایی نیست؛ نام و همه مبلغ‌ها را با عکس مقایسه کنید.','warning'));
@@ -2990,17 +3057,34 @@
     }
 
     function referenceItemCard(item, contextStored = true, options = {}) {
-        const card = node('section', null, options.embedded ? 'molavi-product-subsection' : 'card');
-        card.appendChild(node('h2', item.product_name || 'کالای بدون نام'));
-        card.appendChild(node('p', `تأمین‌کننده: ${item.channel || ''} · قیمت ثبت‌شده: ${amount(item.supplier_price)}`));
-        card.appendChild(node('p', `دلیل بررسی: ${item.reason || ''} · نقش پیشنهادی: ${item.price_role_hint || 'نیازمند بررسی'}`));
+        const card = node('section', null, options.embedded
+            ? 'molavi-product-subsection molavi-review-card molavi-reference-review-card'
+            : 'card molavi-review-card molavi-reference-review-card');
+        card.appendChild(reviewCardHeader(item.product_name || 'کالای بدون نام', 'تطبیق مرجع'));
+        const referenceFacts = [
+            ['تأمین‌کننده', item.channel || 'نامشخص'],
+            ['قیمت تأمین‌کننده', amount(item.supplier_price)],
+            ['نقش پیشنهادی قیمت', item.price_role_hint || 'نیازمند بررسی'],
+            ['دلیل بررسی', item.reason || 'نیازمند بررسی']
+        ];
         if (item.reference_update) {
             const percent = Number(item.reference_update.change_percent);
-            card.appendChild(notice(`تغییر قیمت مرجع: ${Number.isFinite(percent) ? percent.toLocaleString('fa-IR') + '٪' : 'نامشخص'}؛ برای به‌روزرسانی، پیام منبع را بازبینی کنید.`, 'warning'));
+            referenceFacts.push(['تغییر قیمت مرجع', Number.isFinite(percent) ? percent.toLocaleString('fa-IR') + '٪' : 'نامشخص']);
+            card.appendChild(notice('برای ثبت تغییر مرجع، ابتدا مبلغ را با پیام اصلی تطبیق دهید.', 'warning'));
         }
+        card.appendChild(reviewFacts(referenceFacts));
         const originalPost = safeSourceLink(item.source_post_url);
-        if (originalPost) card.appendChild(originalPost);
-        if (item.decision) card.appendChild(node('p', `تصمیم فعلی: ${item.decision.choice || ''} · مرجع: ${item.decision.reference_id || 'ندارد'} · نقش: ${item.decision.price_role || ''} · ${item.decision.note || ''}`));
+        if (originalPost) {
+            const tools = node('div', null, 'molavi-card-source-tools');
+            tools.appendChild(originalPost);
+            card.appendChild(tools);
+        }
+        if (item.decision) card.appendChild(reviewFacts([
+            ['تصمیم ذخیره‌شده', item.decision.choice || 'ثبت شده'],
+            ['مرجع ثبت‌شده', item.decision.reference_id || 'ندارد'],
+            ['نقش قیمت', item.decision.price_role || 'نامشخص'],
+            ['یادداشت', item.decision.note || '']
+        ], 'molavi-review-facts molavi-review-prior-decision'));
         const form = document.createElement('form');
         async function submitChoice(choice, submitter, retryStoredDecision = false) {
             const previous = item.decision || {};
@@ -3152,7 +3236,9 @@
         noMatch.type = 'submit'; noMatch.value = 'no_match'; noMatch.formNoValidate = true;
         match.disabled = !contextStored;
         noMatch.disabled = !contextStored;
-        form.append(match, noMatch);
+        const actions = reviewActions();
+        actions.append(match, noMatch);
+        form.appendChild(actions);
         form.addEventListener('submit', async event => {
             event.preventDefault();
             const choice = event.submitter && event.submitter.value;
@@ -3269,13 +3355,24 @@
                 root.appendChild(title);
             }
             products.forEach(item => {
-                const card = node('section', null, 'card');
-                card.appendChild(node('h3', item.product_name || 'کالای بدون نام'));
-                card.appendChild(node('p', `وضعیت: ${item.status || 'نامشخص'} · وضعیت به‌روزرسانی: ${item.update_needed ? 'نیازمند بررسی' : 'فعلاً نیاز ندارد'}`));
-                card.appendChild(node('p', `تطبیق مرجع: ${item.reference_approval_state || 'ثبت نشده'} · تغییر قیمت: ${item.reference_price_change_percent ? item.reference_price_change_percent + '٪' : '—'} · نقش قیمت: ${item.reference_price_role || '—'}`));
-                card.appendChild(node('p', `تازگی قیمت تأمین‌کننده: ${item.supplier_price_state || 'ثبت نشده'} · بررسی مرجع: ${item.reference_review_result || 'ثبت نشده'}`));
+                const card = node('section', null, 'card molavi-review-card molavi-status-snapshot-card');
+                card.appendChild(reviewCardHeader(item.product_name || 'کالای بدون نام',
+                    item.update_needed ? 'نیازمند بررسی' : 'وضعیت ثبت‌شده'));
+                card.appendChild(reviewFacts([
+                    ['وضعیت محصول', item.status || 'نامشخص'],
+                    ['وضعیت به‌روزرسانی', item.update_needed ? 'نیازمند بررسی' : 'فعلاً نیاز ندارد'],
+                    ['تطبیق مرجع', item.reference_approval_state || 'ثبت نشده'],
+                    ['تغییر قیمت مرجع', item.reference_price_change_percent ? item.reference_price_change_percent + '٪' : '—'],
+                    ['مبنای قیمت مرجع', item.reference_price_role || '—'],
+                    ['تازگی قیمت تأمین‌کننده', item.supplier_price_state || 'ثبت نشده'],
+                    ['نتیجه بررسی مرجع', item.reference_review_result || 'ثبت نشده']
+                ]));
                 const originalPost = safeSourceLink(item.source_post_url);
-                if (originalPost) card.appendChild(originalPost);
+                if (originalPost) {
+                    const tools = node('div', null, 'molavi-card-source-tools');
+                    tools.appendChild(originalPost);
+                    card.appendChild(tools);
+                }
                 root.appendChild(card);
             });
         } catch (error) { root.appendChild(notice(errorText(error.message), 'error')); }
@@ -3289,10 +3386,13 @@
             const events = Array.isArray(data.events) ? data.events : [];
             if (!events.length) root.appendChild(node('p', 'تصمیمی در انتظار بررسی وجود ندارد.'));
             for (const event of events) {
-                const card = node('section', null, 'card');
+                const card = node('section', null, 'card molavi-review-card molavi-reference-event-card');
                 const reason = ({ stale: 'قیمت مرجع بیش از ۲۴ ساعت قدمت دارد', refresh_failed: 'دریافت قیمت مرجع ناموفق بود', missing: 'قیمت مرجع قبلی موجود نیست' })[event.reason] || 'نیاز به بررسی';
-                card.appendChild(node('h2', reason));
-                card.appendChild(node('p', `شناسه رخداد: ${event.event_id} · زمان UTC: ${event.created_at || ''} · نسخه مرجع: ${event.snapshot_id || 'موجود نیست'}`));
+                card.appendChild(reviewCardHeader(reason, 'تصمیم سیستمی'));
+                card.appendChild(reviewFacts([
+                    ['شناسه رخداد', event.event_id], ['زمان UTC', event.created_at || 'ثبت نشده'],
+                    ['نسخه مرجع', event.snapshot_id || 'موجود نیست']
+                ]));
                 const form = document.createElement('form');
                 const pause = node('button', 'توقف و بررسی موارد مرتبط', 'button'); pause.type = 'submit'; pause.value = 'pause_review';
                 form.appendChild(pause);
@@ -3393,13 +3493,14 @@
             });
             updateSelection();
         for (const [holdIndex, hold] of holds.entries()) {
-                const card = node('section', null, 'card');
-                card.appendChild(node('h2', reasons[hold.reason] || 'این دسته نیاز به بررسی دارد.'));
+                const card = node('section', null, 'card molavi-review-card molavi-publication-hold-card');
                 const rawTime = hold.created_at;
                 const parsedTime = rawTime === null || rawTime === undefined ? NaN
                     : (Number.isFinite(Number(rawTime)) ? Number(rawTime) * 1000 : new Date(rawTime).getTime());
                 const timeLabel = Number.isFinite(parsedTime) ? new Date(parsedTime).toLocaleString() : 'نامشخص';
-                card.appendChild(node('p', `شناسه دسته: ${hold.hold_id || ''} · زمان ثبت: ${timeLabel}`));
+                card.appendChild(reviewCardHeader(reasons[hold.reason] || 'این دسته نیاز به بررسی دارد.', 'بازیابی دسته'));
+                card.appendChild(reviewFacts([['شناسه دسته', hold.hold_id || 'ثبت نشده'], ['زمان ثبت', timeLabel]],
+                    'molavi-review-facts molavi-hold-meta'));
                 const context = hold.context && typeof hold.context === 'object' ? hold.context : {};
                 const messages = Array.isArray(context.messages) ? context.messages : [];
                 const reconcileWithoutRetry = hold.reason === 'batch_in_progress'
@@ -3420,8 +3521,11 @@
                     ingestion_incomplete: 'همه پیام‌های دسته در جدول دریافت ثبت نشدند.'
                 };
                 const statusLabels = {needs_review:'نیازمند بررسی',failed:'ناموفق',queued:'در صف',done:'انجام‌شده',running:'در حال اجرا'};
-                const stats = `وضعیت: ${statusLabels[context.batch_state] || context.batch_state || 'نامشخص'} · پیام‌های ثبت‌شده: ${context.written_messages || 0}/${context.expected_messages || 0} · پیام‌های پردازش‌شده: ${context.processed_messages || 0}`;
-                card.appendChild(node('p', stats));
+                card.appendChild(reviewFacts([
+                    ['وضعیت دسته', statusLabels[context.batch_state] || context.batch_state || 'نامشخص'],
+                    ['پیام‌های ثبت‌شده', `${context.written_messages || 0} از ${context.expected_messages || 0}`],
+                    ['پیام‌های پردازش‌شده', context.processed_messages || 0]
+                ], 'molavi-review-facts molavi-batch-progress-facts'));
                 if (context.processing_error || context.batch_error) {
                     const code = context.processing_error || context.batch_error;
                     card.appendChild(notice(processingErrors[code] || `دلیل فنی: ${code}`, 'warning'));
@@ -3469,7 +3573,9 @@
                         link.href = reviewUrl; link.target = '_top'; card.appendChild(link);
                     }
                 }
-                card.appendChild(node('h3', `پیام‌های مبدأ این دسته (${messages.length})`));
+                const sources = node('details', null, 'molavi-review-source-details');
+                sources.open = messages.length === 1;
+                sources.appendChild(node('summary', `پیام‌های مبدأ (${new Intl.NumberFormat('fa-IR').format(messages.length)})`));
                 if (!messages.length) card.appendChild(notice('جزئیات پیام مبدأ از سرویس پردازش دریافت نشد؛ برای جلوگیری از پردازش دوبارهٔ دستهٔ نامشخص، این مورد تا نمایش جزئیات غیرفعال است.', 'warning'));
                 for (const source of messages) {
                     const item = node('div', null, 'molavi-review-source');
@@ -3492,8 +3598,9 @@
                     } else if (source.has_media) {
                         item.appendChild(node('p', `این پیام رسانه دارد${source.media_type ? ` (${source.media_type})` : ''}؛ متن جداگانه ثبت نشده است.`));
                     } else item.appendChild(node('p', 'متن پیام در رسید این دسته ثبت نشده است.'));
-                    card.appendChild(item);
+                    sources.appendChild(item);
                 }
+                if (messages.length) card.appendChild(sources);
                 root.appendChild(card);
             }
             updateSelection();
@@ -3522,13 +3629,22 @@
                 needs_review: 'مدرک تاریخ یا نسخه قیمت نیاز به بررسی دارد.'
             };
             for (const offer of offers) {
-                const card = node('section', null, 'card');
-                card.appendChild(node('h2', offer.name || 'کالای بدون نام'));
-                card.appendChild(node('p', `تأمین‌کننده: ${offer.channel || 'نامشخص'} · قیمت ثبت‌شده: ${amount(offer.sale_price)}`));
-                const status = node('p', labels[offer.state] || labels.needs_review);
+                const card = node('section', null, 'card molavi-review-card molavi-supplier-price-card');
+                card.appendChild(reviewCardHeader(offer.name || 'کالای بدون نام', 'تأیید تازگی قیمت'));
+                const status = notice(labels[offer.state] || labels.needs_review, 'warning');
                 card.appendChild(status);
+                card.appendChild(reviewFacts([
+                    ['تأمین‌کننده', offer.channel || 'نامشخص'],
+                    ['قیمت ثبت‌شده', amount(offer.sale_price)],
+                    ['زمان آخرین منبع', formatSourceTimestamp(offer.source_timestamp) || 'ثبت نشده'],
+                    ['نسخه منبع', offer.source_revision || 'ثبت نشده']
+                ]));
                 const sourceLink = safeSourceLink(offer.source_post_url);
-                if (sourceLink) card.appendChild(sourceLink);
+                if (sourceLink) {
+                    const tools = node('div', null, 'molavi-card-source-tools');
+                    tools.appendChild(sourceLink);
+                    card.appendChild(tools);
+                }
                 const sourceRevision = String(offer.source_revision || '').trim();
                 if (!sourceRevision) card.appendChild(notice(
                     'برای این ردیف قیمت فروش معتبر در منبع فعلی ثبت نشده است؛ ابتدا داده قیمت را اصلاح کنید. این مورد قابل تأیید نیست.',
@@ -3538,7 +3654,10 @@
                 const decision = {action:'verify_current_supplier_price',note:'Owner checked the current supplier source.'};
                 const form = document.createElement('form');
                 const submit = node('button', 'قیمت تأمین‌کننده را بررسی کردم', 'button button-primary');
-                submit.type = 'submit'; submit.disabled = !sourceRevision; form.appendChild(submit);
+                submit.type = 'submit'; submit.disabled = !sourceRevision;
+                const actions = reviewActions();
+                actions.appendChild(submit);
+                form.appendChild(actions);
                 form.addEventListener('submit', async event => {
                     event.preventDefault();
                     if (!sourceRevision) return;
@@ -3606,19 +3725,22 @@
             }
             if (!conflicts.length) root.appendChild(node('p', 'تعارض بازی در انتظار بررسی نیست.'));
             for (const conflict of conflicts) {
-                const card = node('section', null, 'card');
-                card.appendChild(node('h2', conflict.product_name || 'کالای بدون نام'));
-                card.appendChild(node('p', `تأمین‌کننده: ${conflict.channel || 'نامشخص'} · فیلد: ${conflict.field || 'نامشخص'}`));
-                for (const [label, key] of [['آخرین مقدار هماهنگ‌شده', 'base'],
-                    ['مقدار محاسبه‌شده در Railway', 'server'], ['مقدار فعلی شیت', 'sheet']]) {
-                    card.appendChild(node('p', `${label}: ${conflictValue(conflict[key])}`));
-                }
+                const card = node('section', null, 'card molavi-review-card molavi-conflict-review-card');
+                card.appendChild(reviewCardHeader(conflict.product_name || 'کالای بدون نام', 'تعارض داده'));
+                card.appendChild(reviewFacts([
+                    ['تأمین‌کننده', conflict.channel || 'نامشخص'], ['فیلد', conflict.field || 'نامشخص']
+                ], 'molavi-review-facts molavi-conflict-meta'));
+                card.appendChild(reviewFacts([
+                    ['آخرین مقدار هماهنگ‌شده', conflictValue(conflict.base)],
+                    ['مقدار فعلی Railway', conflictValue(conflict.server)],
+                    ['مقدار فعلی شیت', conflictValue(conflict.sheet)]
+                ], 'molavi-review-facts molavi-conflict-values'));
                 const serverOwned = conflict.server_owned === true;
                 const sheetPreserved = conflict.sheet_preserved === true;
                 const primaryChoice = sheetPreserved ? 'preserve' : 'server';
                 if (serverOwned) card.appendChild(notice('این فیلد سیستمی است؛ فقط مقدار Railway می‌تواند در شیت ثبت شود.', 'info'));
                 if (sheetPreserved) card.appendChild(notice('هویت و زمان ثبت اولیه حفظ می‌شود؛ این فیلد قابل اصلاح دستی نیست.', 'info'));
-                const actions = node('div', null, 'molavi-reextract-actions');
+                const actions = reviewActions('molavi-reextract-actions molavi-review-actions');
                 const chooseServer = node('button', sheetPreserved ? 'حفظ مقدار اصلی شیت'
                     : serverOwned ? 'همگام‌سازی مقدار سیستمی از Railway'
                     : 'اعمال مقدار فعلی Railway', 'button button-primary');

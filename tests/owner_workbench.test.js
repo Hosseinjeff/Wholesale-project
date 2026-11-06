@@ -248,6 +248,11 @@ async function main() {
   }
 
   const walk = element => [element,...element.childNodes.filter(child=>child instanceof Element).flatMap(walk)];
+  const factValue = (scope,label) => {
+    const fact=walk(scope).find(element=>element.className.split(/\s+/).includes('molavi-review-fact')
+      && element.childNodes[0] && element.childNodes[0].textContent===label);
+    return fact && fact.childNodes[1] ? fact.childNodes[1].textContent : undefined;
+  };
   const cards = walk(root).filter(element => element.className.split(/\s+/).includes('molavi-product-card'));
   assert.equal(cards.length,1,'the review queue renders one product card at a time');
   assert.match(root.text,/تعارض شیت · کالای ۱ از ۱/,'the first screen opens directly on the highest-priority non-empty queue');
@@ -268,8 +273,8 @@ async function main() {
     'the continuation request sends the opaque server cursor');
   assert.match(cards[0].text,/تازگی قیمت تأمین‌کننده/);
   assert.match(cards[0].text,/تعارض داده/);
-  assert.match(cards[0].text,/آخرین مقدار هماهنگ‌شده: needs_review/,
-    'the conflict card shows the baseline needed to tell which side changed');
+  assert.equal(factValue(cards[0],'آخرین مقدار هماهنگ‌شده'),'needs_review',
+    'the conflict card presents the baseline as a labeled fact needed to tell which side changed');
   assert.match(cards[0].text,/هر دو مقدار از آخرین هماهنگی تغییر کرده‌اند/,
     'the card explains why the Sheet value needs an explicit manual-edit confirmation');
   assert.match(cards[0].text,/مالک قبلاً «کالا نیست» را ثبت کرده است/,
@@ -435,7 +440,8 @@ async function main() {
   'historical cards also link directly to newer supplier posts');
   assert.match(visibleCards[0].text,/پست مبدأ به‌تنهایی تازگی قیمت را ثابت نمی‌کند/);
   assert.match(visibleCards[0].text,/قیمت را در پیام جدیدتر/);
-  assert.match(visibleCards[0].text,/زمان پیام منبع:/);
+  assert(factValue(visibleCards[0],'قیمت فروش تأمین‌کننده'),'extraction facts keep the supplier price in its own labeled value');
+  assert(visibleCards[0].text.includes('زمان پیام:'),'source timestamps have a concise visible label');
   assert(!visibleCards[0].text.includes('1787571328'),'source times are shown as readable dates');
   const aiPosts = calls.filter(item => item.options.method === 'POST'
     && item.url === workflowApis.ai_confirmations.url);
@@ -581,7 +587,7 @@ async function main() {
   visibleCards = walk(root).filter(element => element.className.split(/\s+/).includes('molavi-product-card'));
   assert.equal(visibleCards.length,1,
     'same-source, same-price, same-package flavors share one dashboard review card');
-  assert.match(visibleCards[0].text,/انواع هم‌قیمت از یک پیام/,
+  assert.match(visibleCards[0].text,/انواع هم‌قیمت در همین پیام/,
     'the grouped card tells the owner exactly why variants are reviewed together');
   const groupedTitles = walk(visibleCards[0]).filter(element => element.tagName === 'H2');
   assert(groupedTitles.length >= 1,'the grouped card has a readable product title');
@@ -637,9 +643,9 @@ async function main() {
   assert.equal(visibleCards.length,1,'the two same-price cake flavors are grouped for review');
   assert.match(visibleCards[0].text,/موارد جاافتاده یا ناهماهنگ: آبی/,
     'the source names the exact blue flavor missing from the two extracted cases');
-  assert.match(visibleCards[0].text,/قیمت فروش تأمین‌کننده: ۶۶٬۲۵۰ تومان/,
+  assert.equal(factValue(visibleCards[0],'قیمت فروش تأمین‌کننده'),'۶۶٬۲۵۰ تومان',
     'the card shows the per-unit sale field instead of its raw carton total');
-  assert.match(visibleCards[0].text,/قیمت کل بسته\/کارتن تأمین‌کننده: ۱٬۵۹۰٬۰۰۰ تومان/);
+  assert.equal(factValue(visibleCards[0],'قیمت کل بسته / کارتن'),'۱٬۵۹۰٬۰۰۰ تومان · ۲۴ عدد');
   assert.match(visibleCards[0].text,/مبلغ فروش تأمین‌کننده را با برچسب روشن نشان نمی‌دهد/,
     'an extracted price absent from labeled source text is flagged for verification');
   const unsupportedCakeConfirm = walk(visibleCards[0]).find(element => element.tagName === 'BUTTON'
@@ -663,7 +669,7 @@ async function main() {
   assert.match(visibleCards[0].text,/مبلغ منبع ۲٬۵۲۰٬۰۰۰ تومان با ۲۱۰٬۰۰۰ تومان × ۱۲ برابر است/,
     'a package amount divided by the explicit count is shown as arithmetic evidence, not proof of price basis');
   assert.match(visibleCards[0].text,/مبنای قیمت را ثابت نمی‌کند/);
-  assert(!visibleCards[0].text.includes('قیمت فروش تأمین‌کننده: ۲٬۵۲۰٬۰۰۰ تومان'),
+  assert.notEqual(factValue(visibleCards[0],'قیمت فروش تأمین‌کننده'),'۲٬۵۲۰٬۰۰۰ تومان',
     'a derived unit sale is not mislabeled with the raw package total');
   assert.match(visibleCards[0].text,/پست مبدأ تاریخی صریحاً اتمام موجودی را ذکر می‌کند/,
     'the card surfaces source stock text that the extraction left unknown');
@@ -934,8 +940,8 @@ async function main() {
     if (scopedRoot.text.includes('Independent Beans')) break;
     await new Promise(resolve=>setTimeout(resolve,0));
   }
-  const caseCard=name=>walk(scopedRoot).find(element=>element.tagName==='SECTION'
-    && element.childNodes.some(child=>child.tagName==='H2' && child.textContent===name));
+  const caseCard=name=>walk(scopedRoot).find(element=>element.className.split(/\s+/).includes('molavi-ai-review-card')
+    && walk(element).some(child=>child.tagName==='H2' && child.textContent===name));
   const heldCard=caseCard('Held Beans'); const independentCard=caseCard('Independent Beans');
   assert(heldCard && independentCard,'the dashboard renders both held and independent source cases');
   assert(walk(heldCard).filter(element=>element.tagName==='BUTTON').every(button=>button.disabled),
