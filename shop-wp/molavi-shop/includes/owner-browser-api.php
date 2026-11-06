@@ -112,7 +112,7 @@ add_action('admin_enqueue_scripts', static function (): void {
         }
     }
     if (in_array($page, ['molavi-operations','molavi-publication-holds','molavi-sheet-conflicts',
-        'molavi-ai-confirmations','molavi-reference-items'], true)) {
+        'molavi-ai-confirmations','molavi-reference-items','molavi-supplier-prices'], true)) {
         $browserConfig['reviewStoreUrl'] = molavi_owner_workflow_relative_admin_url('admin-ajax.php');
         $browserConfig['reviewStoreNonce'] = wp_create_nonce('molavi_owner_review_store');
     }

@@ -45,6 +45,20 @@ class SupplierFreshnessTests(unittest.TestCase):
   with self.assertRaises(ValueError):self.ledger.observe_source(offer_id='A',source_revision='x',source_timestamp=self.now+timedelta(days=1),now=self.now)
   with self.assertRaises(ValueError):self.ledger.verify_manually(offer_id='unknown',source_revision='x',actor_id='owner',note='',now=self.now)
 
+ def test_verification_command_replay_is_idempotent_and_revision_bound(self):
+  command_id='a'*64
+  first=self.ledger.verify_manually(offer_id='A',source_revision='post-1',actor_id='wp:7',
+   note='checked supplier source',now=self.now,command_id=command_id)
+  replay=self.ledger.verify_manually(offer_id='A',source_revision='post-1',actor_id='wp:7',
+   note='checked supplier source',now=self.now+timedelta(minutes=1),command_id=command_id)
+  self.assertFalse(first['idempotent']);self.assertTrue(replay['idempotent'])
+  self.assertEqual(first['verified_at'],replay['verified_at'])
+  with self.ledger._connect() as db:
+   self.assertEqual(db.execute('SELECT COUNT(*) FROM supplier_price_evidence_history').fetchone()[0],1)
+  with self.assertRaises(ValueError):
+   self.ledger.verify_manually(offer_id='A',source_revision='post-2',actor_id='wp:7',
+    note='wrong revision',now=self.now+timedelta(minutes=2),command_id=command_id)
+
  def test_sheet_price_edit_invalidates_existing_manual_verification(self):
   product_headers=['Product ID','Product Name','Channel Username','Sale Price','Currency','Latest Offer ID','Message Timestamp','Source Timestamp Basis']
   old_stamp=int((self.now-timedelta(days=15)).timestamp())
@@ -131,6 +145,30 @@ class SupplierFreshnessRouteTests(unittest.TestCase):
    self.assertEqual(Handoffs(self.db).get(response.get_json()['publish_job'])['kind'],'publish')
    self.assertEqual(client.get('/pipeline/supplier-price-evidence',headers=headers).get_json()['offers'],[])
    self.assertIn('product-1',[p['product_id'] for p in client.get('/api/shop').get_json()['products']])
+
+ def test_command_replay_returns_original_receipt_and_does_not_duplicate_history(self):
+  import app
+  command_id='c'*64
+  body={'product_id':'product-1','expected_revision':self.revision,
+        'note':'checked current supplier source','command_id':command_id}
+  with patch.dict(os.environ,self.env),patch.object(app,'USE_SHEETS',True),\
+       patch.object(app,'build_store',return_value=self.store),patch.object(app,'ensure_telegram_webhook'):
+   client=app.app.test_client();headers={'X-Molavi-Reference-Token':self.env['REFERENCE_BRIDGE_TOKEN'],
+       'X-Molavi-Actor':'wp:7'}
+   first=client.post('/pipeline/supplier-price-evidence',headers=headers,json=body)
+   # A worker may retry after the original price row has changed. The command ID
+   # still identifies the already-applied revision and must close its outbox.
+   self.store.sheets['Products'][1][3]=41000
+   self.store.sheets['Products'][1][6]='offer-2'
+   replay=client.post('/pipeline/supplier-price-evidence',headers=headers,json=body)
+  self.assertEqual(first.status_code,200,first.get_json())
+  self.assertEqual(replay.status_code,200,replay.get_json())
+  self.assertEqual(replay.get_json()['command_id'],command_id)
+  self.assertTrue(replay.get_json()['idempotent'])
+  self.assertEqual(replay.get_json()['verified_at'],first.get_json()['verified_at'])
+  self.assertEqual(replay.get_json()['publish_job'],first.get_json()['publish_job'])
+  with PriceFreshness(self.db)._connect() as db:
+   self.assertEqual(db.execute("SELECT COUNT(*) FROM supplier_price_evidence_history WHERE method='manual'").fetchone()[0],1)
 
  def test_invalid_price_verification_requests_return_specific_safe_errors(self):
   import app

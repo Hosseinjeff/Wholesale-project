@@ -18,7 +18,7 @@ def wordpress_outbox_token(bridge_token: str) -> str:
     return hmac.new(bridge_token.encode("utf-8"), _TOKEN_SCOPE, hashlib.sha256).hexdigest()
 
 
-def drain_sheet_conflict_outbox(
+def drain_wordpress_workflow_outbox(
     site_url: str,
     bridge_token: str,
     process_command,
@@ -44,7 +44,7 @@ def drain_sheet_conflict_outbox(
         "X-Molavi-Outbox-Token": wordpress_outbox_token(bridge_token),
         "Accept": "application/json",
     }
-    root = site_url.rstrip("/") + "/wp-json/molavi/v1/outbox/sheet-conflicts"
+    root = site_url.rstrip("/") + "/wp-json/molavi/v1/outbox/commands"
     try:
         response = http.get(root, headers=headers, params={"limit": max(1, min(10, int(limit)))},
                             timeout=(4, 12))
@@ -76,39 +76,55 @@ def drain_sheet_conflict_outbox(
         if not isinstance(command, dict):
             continue
         command_id = str(command.get("command_id") or "")
+        command_type = str(command.get("command_type") or "")
         payload = command.get("payload")
         if not _COMMAND_ID.fullmatch(command_id):
             continue
-        if not isinstance(payload, dict):
+        if not isinstance(payload, dict) or command_type not in ("sheet_conflict", "supplier_price"):
             result["failed"] += 1
             if not save_receipt(command_id, "failed", {"error": "outbox_command_invalid"}):
                 result["error"] = "outbox_receipt_rejected"
             continue
         expected_revision = payload.get("expected_revision")
-        if (not isinstance(expected_revision, str) or not expected_revision
-                or not isinstance(payload.get("conflict_id"), str)
-                or payload.get("choice") not in ("server", "sheet", "preserve")):
+        valid_payload = isinstance(expected_revision, str) and bool(expected_revision)
+        if command_type == "sheet_conflict":
+            valid_payload = valid_payload and isinstance(payload.get("conflict_id"), str) \
+                and payload.get("choice") in ("server", "sheet", "preserve")
+        else:
+            valid_payload = valid_payload and isinstance(payload.get("product_id"), str) \
+                and payload.get("command_id") == command_id
+        if not valid_payload:
             result["failed"] += 1
             if not save_receipt(command_id, "failed", {"error": "outbox_command_invalid"}):
                 result["error"] = "outbox_receipt_rejected"
             continue
 
         try:
-            status_code, receipt = process_command(payload)
+            status_code, receipt = process_command(command_type, payload)
             status_code = int(status_code)
         except Exception:
             status_code, receipt = 503, {"error": "railway_command_failed"}
         if not isinstance(receipt, dict):
             receipt = {"error": "railway_receipt_invalid"}
 
-        valid_success = (
-            status_code == 200
-            and receipt.get("ok") is True
-            and receipt.get("conflict_id") == payload.get("conflict_id")
-            and receipt.get("choice") == payload.get("choice")
-            and (receipt.get("server_owned") is True or receipt.get("sheet_preserved") is True
-                 or bool(receipt.get("publish_job")))
-        )
+        if command_type == "sheet_conflict":
+            valid_success = (
+                status_code == 200
+                and receipt.get("ok") is True
+                and receipt.get("conflict_id") == payload.get("conflict_id")
+                and receipt.get("choice") == payload.get("choice")
+                and (receipt.get("server_owned") is True or receipt.get("sheet_preserved") is True
+                     or bool(receipt.get("publish_job")))
+            )
+        else:
+            valid_success = (
+                status_code == 200
+                and receipt.get("ok") is True
+                and receipt.get("product_id") == payload.get("product_id")
+                and receipt.get("source_revision") == payload.get("expected_revision")
+                and receipt.get("command_id") == command_id
+                and bool(receipt.get("verified_at")) and bool(receipt.get("publish_job"))
+            )
         transient = status_code in (408, 425, 429) or status_code >= 500
         if valid_success:
             state = "delivered"
@@ -126,3 +142,8 @@ def drain_sheet_conflict_outbox(
         if not save_receipt(command_id, state, recorded_receipt):
             result["error"] = "outbox_receipt_unreachable"
     return result
+
+
+def drain_sheet_conflict_outbox(site_url, bridge_token, process_command, **kwargs):
+    """Backward-compatible name for the first outbox consumer release."""
+    return drain_wordpress_workflow_outbox(site_url, bridge_token, process_command, **kwargs)

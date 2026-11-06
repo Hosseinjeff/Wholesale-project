@@ -1927,9 +1927,12 @@ def supplier_price_evidence_route():
             return jsonify({'ok':False,'error':reason}),status
 
         body=request.get_json(silent=True)
-        if not isinstance(body,dict) or set(body)!={'product_id','expected_revision','note'}:
+        required_body={'product_id','expected_revision','note'}
+        if (not isinstance(body,dict)
+                or set(body) not in (required_body,required_body|{'command_id'})):
             return reject('invalid_body')
         product_id,revision,note=(body.get('product_id'),body.get('expected_revision'),body.get('note'))
+        command_id=body.get('command_id')
         if not isinstance(product_id,str) or not product_id or len(product_id)>200:
             return reject('invalid_product_id')
         if not isinstance(revision,str) or not revision:
@@ -1938,18 +1941,26 @@ def supplier_price_evidence_route():
             return reject('invalid_source_revision')
         if not isinstance(note,str) or not note.strip() or len(note)>1000:
             return reject('invalid_note')
-        offer=next((item for item in offers if item['product_id']==product_id),None)
-        if offer is None or offer['source_revision']!=revision:
-            return jsonify({'ok':False,'error':'offer_changed'}),409
+        if command_id is not None and (not isinstance(command_id,str)
+                or not re.fullmatch(r'[a-f0-9]{64}',command_id)):
+            return reject('invalid_command_id')
         try:
-            ledger.verify_manually(offer_id=product_id,source_revision=revision,actor_id=actor,
-                                   note=note,now=now)
+            verification=(ledger.prior_verification_command(command_id=command_id,offer_id=product_id,
+                source_revision=revision) if command_id is not None else None)
+            if verification is None:
+                offer=next((item for item in offers if item['product_id']==product_id),None)
+                if offer is None or offer['source_revision']!=revision:
+                    return jsonify({'ok':False,'error':'offer_changed'}),409
+                verification=ledger.verify_manually(offer_id=product_id,source_revision=revision,actor_id=actor,
+                    note=note,now=now,command_id=command_id)
             publish_job=queue.put('publish','supplier-verification:'+product_id+':'+revision,
                                   {'product_id':product_id,'source_revision':revision})
         except ValueError:
             return jsonify({'ok':False,'error':'verification_rejected'}),409
         result={'ok':True,'product_id':product_id,'source_revision':revision,
-                'verified_at':now.isoformat(),'publish_job':publish_job}
+                'verified_at':verification['verified_at'],'publish_job':publish_job,
+                'idempotent':verification['idempotent']}
+        if command_id is not None:result['command_id']=command_id
     response=jsonify(result)
     response.headers['Cache-Control']='no-store'
     return response

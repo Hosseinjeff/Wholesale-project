@@ -162,6 +162,18 @@
         }
     }
 
+    async function requestSupplierPrice(payload, apiKey = 'supplier_prices') {
+        try { return await request('POST', payload, undefined, apiKey); }
+        catch (error) {
+            if (!payload || !Object.prototype.hasOwnProperty.call(payload, 'command_id')
+                || !error.responseBody || error.responseBody.error !== 'invalid_body') throw error;
+            const compatiblePayload = {...payload};
+            delete compatiblePayload.command_id;
+            const receipt = await request('POST', compatiblePayload, undefined, apiKey);
+            return {...receipt,command_id:payload.command_id,compatibility_retry:true};
+        }
+    }
+
     function reviewEventId(type, id) {
         const suffix = window.crypto && typeof window.crypto.randomUUID === 'function'
             ? window.crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2);
@@ -281,6 +293,7 @@
             current.push(record); currentBytes += bytes;
         }
         if (current.length) batches.push(current);
+        const commands = {};
         for (const batch of batches) {
             const response = await fetch(config.reviewStoreUrl, {
                 method:'POST', mode:'same-origin', credentials:'same-origin', cache:'no-store',
@@ -293,11 +306,12 @@
                 || !body.data || body.data.stored !== batch.length) {
                 throw new Error(body && body.data && body.data.code || 'review_store_failed');
             }
+            if (body.data.commands && typeof body.data.commands === 'object') Object.assign(commands, body.data.commands);
         }
-        return {stored:records.length};
+        return {stored:records.length,commands};
     }
 
-    async function drainSheetConflictOutbox() {
+    async function drainWordPressWorkflowOutbox() {
         if (!config.reviewStoreUrl || !config.reviewStoreNonce) return {attempted:0,delivered:0};
         const response = await fetch(config.reviewStoreUrl, {
             method:'POST', mode:'same-origin', credentials:'same-origin', cache:'no-store',
@@ -310,25 +324,36 @@
             || !Array.isArray(body.data.commands)) throw new Error('review_store_failed');
         const commands = body.data.commands;
         let delivered = 0;
-        const apiKey = config.workflowApis && config.workflowApis.sheet_conflicts ? 'sheet_conflicts' : '';
         for (const command of commands) {
             if (!command || !command.payload || !command.context || !command.decision
                 || typeof command.event_id !== 'string' || typeof command.review_id !== 'string') continue;
+            const type = command.command_type || command.review_type;
+            const apiKey = type === 'supplier_price' ? 'supplier_prices' : 'sheet_conflicts';
+            const selectedApiKey = config.workflowApis && config.workflowApis[apiKey] ? apiKey
+                : (type === 'supplier_price' && config.page === 'molavi-supplier-prices' ? '' : null);
+            if (selectedApiKey === null) continue;
             try {
-                const receipt = await requestSheetConflict(command.payload, apiKey);
-                if (receipt.conflict_id !== command.payload.conflict_id
-                    || receipt.choice !== command.payload.choice
-                    || (receipt.server_owned !== true && receipt.sheet_preserved !== true && !receipt.publish_job)) {
+                const receipt = type === 'supplier_price'
+                    ? await requestSupplierPrice(command.payload, selectedApiKey)
+                    : await requestSheetConflict(command.payload, selectedApiKey);
+                const validReceipt = type === 'supplier_price'
+                    ? receipt.product_id === command.payload.product_id
+                        && receipt.source_revision === command.payload.expected_revision
+                        && receipt.command_id === command.command_id && receipt.verified_at && receipt.publish_job
+                    : receipt.conflict_id === command.payload.conflict_id
+                        && receipt.choice === command.payload.choice
+                        && (receipt.server_owned === true || receipt.sheet_preserved === true || receipt.publish_job);
+                if (!validReceipt) {
                     const error = new Error('invalid_receipt');
                     error.remoteRejected = true;
                     throw error;
                 }
-                await persistOwnerReviews([reviewRecord(command.event_id,'sheet_conflict',command.review_id,
+                await persistOwnerReviews([reviewRecord(command.event_id,type,command.review_id,
                     'accepted',command.context,command.decision,receipt)]);
                 delivered += 1;
             } catch (error) {
                 try {
-                    await persistOwnerReviews([reviewRecord(command.event_id,'sheet_conflict',command.review_id,
+                    await persistOwnerReviews([reviewRecord(command.event_id,type,command.review_id,
                         error.remoteRejected ? 'failed' : 'pending',command.context,command.decision,
                         {error:String(error.message || 'request_failed')})]);
                 } catch (_ignored) {}
@@ -486,7 +511,7 @@
         workbenchRefresh.disabled = true;
         workbenchRefresh.textContent = 'در حال تازه‌سازی…';
         try {
-            const outbox = await drainSheetConflictOutbox();
+            const outbox = await drainWordPressWorkflowOutbox();
             if (outbox.delivered) {
                 message = `${new Intl.NumberFormat('fa-IR').format(outbox.delivered)} تصمیم ذخیره‌شده در وردپرس به Railway تحویل شد.`;
                 messageKind = 'success';
@@ -820,10 +845,14 @@
                         source_revision:offer.source_revision};
                     const decision = {action:'verify_current_supplier_price',note:'Owner checked the current supplier source.'};
                     try {
-                        await persistOwnerReviews([reviewRecord(eventId,'supplier_price',offer.product_id,'pending',context,decision)]);
-                        const receipt = await request('POST', {product_id:offer.product_id,
-                            expected_revision:offer.source_revision,note:'مالک منبع فعلی قیمت را از پنل بررسی تأیید کرد.'}, undefined, 'supplier_prices');
-                        if (receipt.product_id !== offer.product_id || receipt.source_revision !== offer.source_revision || !receipt.verified_at || !receipt.publish_job) throw new Error('invalid_receipt');
+                        const stored = await persistOwnerReviews([reviewRecord(eventId,'supplier_price',offer.product_id,'pending',context,decision)]);
+                        const commandId = stored.commands[eventId];
+                        if (!commandId) throw new Error('review_store_failed');
+                        const receipt = await requestSupplierPrice({product_id:offer.product_id,
+                            expected_revision:offer.source_revision,note:'مالک منبع فعلی قیمت را از پنل بررسی تأیید کرد.',
+                            command_id:commandId},'supplier_prices');
+                        if (receipt.product_id !== offer.product_id || receipt.source_revision !== offer.source_revision
+                            || receipt.command_id !== commandId || !receipt.verified_at || !receipt.publish_job) throw new Error('invalid_receipt');
                         let warning = '';
                         try { await persistOwnerReviews([reviewRecord(eventId,'supplier_price',offer.product_id,'accepted',context,decision,receipt)]); }
                         catch (_error) { warning = ' قیمت تأیید شد، اما رسید محلی وردپرس هنوز همگام نشده است.'; }
@@ -3386,6 +3415,9 @@
         shell('تازگی قیمت تأمین‌کنندگان', 'قیمت‌های کهنه یا فاقد نسخه منبع برای بررسی نمایش داده می‌شوند. تأیید فقط پس از بررسی واقعی منبع ثبت شود؛ این کار انتشار را به صف می‌فرستد.');
         if (message) root.appendChild(notice(message, messageKind));
         try {
+            const outbox = await drainWordPressWorkflowOutbox();
+            if (outbox.delivered) root.appendChild(notice(
+                `${new Intl.NumberFormat('fa-IR').format(outbox.delivered)} تصمیم ذخیره‌شده در وردپرس به Railway تحویل شد.`, 'success'));
             const data = await request();
             const requestedProductId = new URLSearchParams(window.location.search).get('product_id') || '';
             let offers = Array.isArray(data.offers) ? data.offers : [];
@@ -3412,6 +3444,9 @@
                 if (!sourceRevision) card.appendChild(notice(
                     'برای این ردیف قیمت فروش معتبر در منبع فعلی ثبت نشده است؛ ابتدا داده قیمت را اصلاح کنید. این مورد قابل تأیید نیست.',
                     'warning'));
+                const context = {product_id:offer.product_id,name:offer.name,channel:offer.channel,
+                    sale_price:offer.sale_price,source_timestamp:offer.source_timestamp,source_revision:sourceRevision};
+                const decision = {action:'verify_current_supplier_price',note:'Owner checked the current supplier source.'};
                 const form = document.createElement('form');
                 const submit = node('button', 'قیمت تأمین‌کننده را بررسی کردم', 'button button-primary');
                 submit.type = 'submit'; submit.disabled = !sourceRevision; form.appendChild(submit);
@@ -3419,19 +3454,32 @@
                     event.preventDefault();
                     if (!sourceRevision) return;
                     submit.disabled = true;
+                    const eventId = reviewEventId('supplier_price', offer.product_id);
                     try {
-                        const receipt = await request('POST', {product_id: offer.product_id,
+                        const stored = await persistOwnerReviews([reviewRecord(eventId,'supplier_price',offer.product_id,
+                            'pending',context,decision)]);
+                        const commandId = stored.commands[eventId];
+                        if (!commandId) throw new Error('review_store_failed');
+                        const receipt = await requestSupplierPrice({product_id: offer.product_id,
                             expected_revision: sourceRevision,
-                            note: 'مالک منبع فعلی قیمت را از پنل بررسی تأیید کرد.'});
+                            note: 'مالک منبع فعلی قیمت را از پنل بررسی تأیید کرد.',command_id:commandId},
+                            config.workflowApis && config.workflowApis.supplier_prices ? 'supplier_prices' : '');
                         if (receipt.product_id !== offer.product_id || receipt.source_revision !== sourceRevision
-                            || !receipt.verified_at || !receipt.publish_job) throw new Error('invalid_receipt');
+                            || receipt.command_id !== commandId || !receipt.verified_at || !receipt.publish_job) throw new Error('invalid_receipt');
+                        await persistOwnerReviews([reviewRecord(eventId,'supplier_price',offer.product_id,
+                            'accepted',context,decision,receipt)]);
                         status.textContent = 'بررسی قیمت ثبت شد و انتشار دوباره به صف فرستاده شد.';
                         status.className = 'notice notice-success';
                         status.setAttribute('role', 'status');
                         status.setAttribute('aria-live', 'polite');
                         submit.textContent = 'قیمت تأیید شد';
                         submit.disabled = true;
-                    } catch (error) { errorBox(errorText(error.message), card); submit.disabled = !sourceRevision; }
+                    } catch (error) {
+                        try { await persistOwnerReviews([reviewRecord(eventId,'supplier_price',offer.product_id,
+                            error.remoteRejected?'failed':'pending',context,decision,{error:String(error.message||'request_failed')})]); }
+                        catch (_ignored) {}
+                        errorBox(errorText(error.message), card); submit.disabled = !sourceRevision;
+                    }
                 });
                 card.appendChild(form); root.appendChild(card);
             }
@@ -3450,7 +3498,7 @@
         shell('تعارض‌های اطلاعات کالا', 'پیش‌فرض مقدار محاسبه‌شدهٔ Railway است. فقط اگر سلول شیت را دستی تغییر داده‌اید، همان اصلاح را به فروشگاه WordPress بفرستید؛ یادداشت و تأیید اضافه لازم نیست.');
         if (message) root.appendChild(notice(message, messageKind));
         try {
-            const outbox = await drainSheetConflictOutbox();
+            const outbox = await drainWordPressWorkflowOutbox();
             if (outbox.delivered) root.appendChild(notice(
                 `${new Intl.NumberFormat('fa-IR').format(outbox.delivered)} تصمیم ذخیره‌شده در وردپرس به Railway تحویل شد.`, 'success'));
             const data = await request();

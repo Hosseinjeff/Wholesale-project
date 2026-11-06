@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+import re
 import sqlite3
 from datetime import datetime, timezone
 from contextlib import contextmanager
@@ -30,6 +31,9 @@ class PriceFreshness:
             columns={row['name'] for row in db.execute('PRAGMA table_info(supplier_price_evidence_history)')}
             if 'note' not in columns:
                 db.execute("ALTER TABLE supplier_price_evidence_history ADD COLUMN note TEXT NOT NULL DEFAULT ''")
+            db.execute('''CREATE TABLE IF NOT EXISTS supplier_price_verification_commands (
+                command_id TEXT PRIMARY KEY, offer_id TEXT NOT NULL, source_revision TEXT NOT NULL,
+                verified_at TEXT NOT NULL, verified_by TEXT NOT NULL, note TEXT NOT NULL)''')
         os.chmod(self.path,0o600)
 
     @contextmanager
@@ -57,14 +61,24 @@ class PriceFreshness:
                        (offer_id,source_revision,timestamp.isoformat()))
             return True
 
-    def verify_manually(self, *, offer_id, source_revision, actor_id, note, now):
+    def verify_manually(self, *, offer_id, source_revision, actor_id, note, now, command_id=None):
         """Caller must authenticate an authorized actor and actually verify the offer."""
         if not offer_id or not source_revision or not actor_id or not isinstance(note,str) or not note.strip():
             raise ValueError('offer, current revision, actor and verification note required')
         if len(note)>1000:raise ValueError('verification note exceeds length limit')
+        if command_id is not None and (not isinstance(command_id,str)
+                or not re.fullmatch(r'[a-f0-9]{64}',command_id)):
+            raise ValueError('valid verification command id required')
         timestamp=_utc(now)
         with self._connect() as db:
             db.execute('BEGIN IMMEDIATE')
+            if command_id:
+                prior=db.execute('SELECT * FROM supplier_price_verification_commands WHERE command_id=?',
+                                  (command_id,)).fetchone()
+                if prior:
+                    if prior['offer_id']!=offer_id or prior['source_revision']!=source_revision:
+                        raise ValueError('verification command was reused for another source revision')
+                    return {'verified_at':prior['verified_at'],'idempotent':True}
             old=db.execute('SELECT * FROM supplier_price_evidence WHERE offer_id=?',(offer_id,)).fetchone()
             if old and timestamp<datetime.fromisoformat(old['verified_at']):raise ValueError('verification time regressed')
             db.execute('''INSERT INTO supplier_price_evidence (offer_id,source_revision,verified_at,method,verified_by)
@@ -73,6 +87,30 @@ class PriceFreshness:
                 (offer_id,source_revision,timestamp.isoformat(),actor_id))
             db.execute("INSERT INTO supplier_price_evidence_history (offer_id,source_revision,verified_at,method,verified_by,note) VALUES (?,?,?,'manual',?,?)",
                        (offer_id,source_revision,timestamp.isoformat(),actor_id,note.strip()))
+            if command_id:
+                db.execute('''INSERT INTO supplier_price_verification_commands
+                    (command_id,offer_id,source_revision,verified_at,verified_by,note)
+                    VALUES (?,?,?,?,?,?)''',
+                    (command_id,offer_id,source_revision,timestamp.isoformat(),actor_id,note.strip()))
+            return {'verified_at':timestamp.isoformat(),'idempotent':False}
+
+    def prior_verification_command(self, *, command_id, offer_id, source_revision):
+        """Return an existing receipt before checking today's source projection.
+
+        The source can legitimately change after a command was applied but before
+        WordPress received its receipt. Exact replays must still close that outbox
+        command; a different product or revision reusing the ID is rejected.
+        """
+        if not isinstance(command_id,str) or not re.fullmatch(r'[a-f0-9]{64}',command_id):
+            raise ValueError('valid verification command id required')
+        with self._connect() as db:
+            prior=db.execute('SELECT * FROM supplier_price_verification_commands WHERE command_id=?',
+                              (command_id,)).fetchone()
+        if not prior:
+            return None
+        if prior['offer_id']!=offer_id or prior['source_revision']!=source_revision:
+            raise ValueError('verification command was reused for another source revision')
+        return {'verified_at':prior['verified_at'],'idempotent':True}
 
     def state(self, offer_id, *, now, expected_revision):
         with self._connect() as db:

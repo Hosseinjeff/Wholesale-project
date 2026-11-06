@@ -100,44 +100,72 @@ function molavi_owner_review_store_ensure_schema(): bool {
 }
 add_action('admin_init', 'molavi_owner_review_store_ensure_schema', 1);
 
-function molavi_owner_review_store_write_sheet_conflict_decision(array $record): bool {
+function molavi_owner_review_store_write_workflow_decision(array $record): bool {
     global $wpdb;
-    if (($record['review_type'] ?? '') !== 'sheet_conflict'
+    $type = (string)($record['review_type'] ?? '');
+    if (!in_array($type, ['sheet_conflict','supplier_price'], true)
         || !in_array(($record['state'] ?? ''), ['pending','accepted','failed'], true)) { return true; }
     $reviewId = (string)($record['review_id'] ?? '');
     $context = is_array($record['context'] ?? null) ? $record['context'] : [];
     $decision = is_array($record['decision'] ?? null) ? $record['decision'] : [];
     $receipt = is_array($record['receipt'] ?? null) ? $record['receipt'] : [];
-    $choice = (string)($decision['choice'] ?? '');
+    $domain = $type;
+    $choice = $type === 'supplier_price'
+        ? (($decision['action'] ?? '') === 'verify_current_supplier_price' ? 'verified' : '')
+        : (string)($decision['choice'] ?? '');
     $revision = (string)($context['source_revision'] ?? '');
     $note = (string)($decision['note'] ?? '');
-    if (!preg_match('/^sheet:[A-Za-z0-9:_-]{1,74}$/', $reviewId)
-        || !preg_match('/^[A-Za-z0-9:_-]{1,191}$/', $revision)
-        || !in_array($choice, ['server','sheet','preserve'], true)
-        || strlen($note) > 1000) { return false; }
+    $validReviewId = $type === 'sheet_conflict'
+        ? preg_match('/^sheet:[A-Za-z0-9:_-]{1,74}$/', $reviewId)
+        : preg_match('/^[A-Za-z0-9:_-]{1,191}$/', $reviewId);
+    $validChoice = $type === 'sheet_conflict'
+        ? in_array($choice, ['server','sheet','preserve'], true)
+        : $choice === 'verified';
+    if (!$validReviewId || !preg_match('/^[A-Za-z0-9:_-]{1,191}$/', $revision)
+        || !$validChoice || strlen($note) > 1000) { return false; }
 
     $eventId = (string)($record['event_id'] ?? '');
     if (!preg_match('/^[A-Za-z0-9:_-]{1,191}$/', $eventId)) { return false; }
-    $decisionId = hash('sha256', "sheet_conflict\0" . $reviewId . "\0" . $revision);
-    $commandId = hash('sha256', "sheet_conflict\0" . $decisionId);
-    $payload = [
-        'conflict_id' => $reviewId,
-        'choice' => $choice,
-        'note' => $note,
-        'expected_revision' => $revision,
-    ];
+    $decisionId = hash('sha256', $domain . "\0" . $reviewId . "\0" . $revision);
+    $commandId = hash('sha256', $domain . "\0" . $decisionId);
+    if ($type === 'sheet_conflict') {
+        $payload = [
+            'conflict_id' => $reviewId,
+            'choice' => $choice,
+            'note' => $note,
+            'expected_revision' => $revision,
+        ];
+        $contextData = [
+            'product_id'=>(string)($context['product_id'] ?? ''),
+            'product_name'=>(string)($context['product_name'] ?? ''),
+            'channel'=>(string)($context['channel'] ?? ''),
+            'field'=>(string)($context['field'] ?? ''),
+            'base'=>$context['base'] ?? null,
+            'server'=>$context['server'] ?? null,
+            'sheet'=>$context['sheet'] ?? null,
+        ];
+    } else {
+        $payload = [
+            'product_id'=>$reviewId,
+            'expected_revision'=>$revision,
+            'note'=>$note,
+            'command_id'=>$commandId,
+        ];
+        $contextData = [
+            'product_id'=>$reviewId,
+            'product_name'=>(string)($context['name'] ?? $context['product_name'] ?? ''),
+            'channel'=>(string)($context['channel'] ?? ''),
+            'sale_price'=>$context['sale_price'] ?? '',
+            'source_timestamp'=>$context['source_timestamp'] ?? null,
+            'source_revision'=>$revision,
+        ];
+    }
     $payloadJson = wp_json_encode($payload);
-    $decisionJson = wp_json_encode(['choice'=>$choice,'note'=>$note]);
+    $decisionData = ['choice'=>$choice,'note'=>$note];
+    if ($type === 'supplier_price') { $decisionData['action'] = 'verify_current_supplier_price'; }
+    $decisionJson = wp_json_encode($decisionData);
     $receiptJson = wp_json_encode($receipt);
-    $contextJson = wp_json_encode([
-        'product_id'=>(string)($context['product_id'] ?? ''),
-        'product_name'=>(string)($context['product_name'] ?? ''),
-        'channel'=>(string)($context['channel'] ?? ''),
-        'field'=>(string)($context['field'] ?? ''),
-        'base'=>$context['base'] ?? null,
-        'server'=>$context['server'] ?? null,
-        'sheet'=>$context['sheet'] ?? null,
-    ]);
+    $contextJson = wp_json_encode($contextData);
     if (!is_string($payloadJson) || !is_string($decisionJson)
         || !is_string($receiptJson) || !is_string($contextJson)) { return false; }
 
@@ -153,7 +181,7 @@ function molavi_owner_review_store_write_sheet_conflict_decision(array $record):
     $now = current_time('mysql', true);
     $state = (string)$record['state'];
     $decisionRow = [
-        'decision_id'=>$decisionId,'event_id'=>$eventId,'domain'=>'sheet_conflict',
+        'decision_id'=>$decisionId,'event_id'=>$eventId,'domain'=>$domain,
         'subject_id'=>$reviewId,'expected_revision'=>$revision,'choice'=>$choice,
         'state'=>$state,'context_json'=>$contextJson,'decision_json'=>$decisionJson,'receipt_json'=>$receiptJson,
         'actor_id'=>get_current_user_id(),'created_at'=>$now,'updated_at'=>$now,
@@ -173,12 +201,15 @@ function molavi_owner_review_store_write_sheet_conflict_decision(array $record):
     if (is_array($outbox)) {
         $outboxState = (string)$outbox['state'];
         if ($outboxState === 'delivered' && $targetState !== 'delivered') { return false; }
-        if ($outboxState === 'failed' && $targetState === 'queued') { return false; }
+        // A fresh owner attempt may retry a terminal rejection or stale-command
+        // failure. Keep the command ID stable so Railway can safely deduplicate it.
+        $retryFailed = $outboxState === 'failed' && $targetState === 'queued';
         $delay = $state === 'pending' && $outboxState === 'queued'
             ? min(3600, 30 * (2 ** min(7, max(0, (int)$outbox['attempts'])))) : 0;
         $availableAt = $delay > 0 ? gmdate('Y-m-d H:i:s', time() + $delay) : $now;
         $outboxRow = [
             'payload_json'=>$payloadJson,'state'=>$targetState,
+            'attempts'=>$retryFailed ? 0 : (int)$outbox['attempts'],
             'available_at'=>$availableAt,'last_error'=>$state === 'failed'
                 ? substr((string)($receipt['error'] ?? 'remote_rejected'), 0, 500) : '',
             'receipt_json'=>$receiptJson,'updated_at'=>$now,
@@ -187,7 +218,7 @@ function molavi_owner_review_store_write_sheet_conflict_decision(array $record):
     } else {
         $written = $wpdb->insert($outboxTable, [
             'command_id'=>$commandId,'decision_id'=>$decisionId,
-            'command_type'=>'sheet_conflict','payload_json'=>$payloadJson,
+            'command_type'=>$domain,'payload_json'=>$payloadJson,
             'state'=>$targetState,'attempts'=>0,'available_at'=>$now,
             'last_error'=>$state === 'failed'
                 ? substr((string)($receipt['error'] ?? 'remote_rejected'), 0, 500) : '',
@@ -230,23 +261,28 @@ function molavi_owner_review_store_write(array $record): bool {
         get_current_user_id(), $now, $now
     );
     if ($wpdb->query($sql) === false) { return false; }
-    return molavi_owner_review_store_write_sheet_conflict_decision($record);
+    return molavi_owner_review_store_write_workflow_decision($record);
 }
 
-function molavi_owner_review_store_pending_sheet_conflicts(int $limit = 20): ?array {
+function molavi_owner_review_store_pending_commands(int $limit = 20, array $domains = ['sheet_conflict','supplier_price']): ?array {
     global $wpdb;
     if (!molavi_owner_review_store_ensure_schema()) { return null; }
     $limit = max(1, min(50, $limit));
+    $domains = array_values(array_intersect($domains, ['sheet_conflict','supplier_price']));
+    if (!$domains) { return []; }
     $decisionsTable = molavi_workflow_decisions_table();
     $outboxTable = molavi_workflow_outbox_table();
     $now = current_time('mysql', true);
     if ($wpdb->query('START TRANSACTION') === false) { return null; }
-    $rows = $wpdb->get_results($wpdb->prepare(
-        "SELECT d.event_id,d.subject_id,d.context_json,d.decision_json,o.command_id,o.payload_json,o.attempts
+    $domainPlaceholders = implode(',', array_fill(0, count($domains), '%s'));
+    $sql = "SELECT d.event_id,d.subject_id,d.domain,d.context_json,d.decision_json,
+                o.command_id,o.command_type,o.payload_json,o.attempts
          FROM {$outboxTable} o INNER JOIN {$decisionsTable} d ON d.decision_id=o.decision_id
-         WHERE o.command_type=%s AND o.state=%s AND d.domain=%s AND o.available_at<=%s
-         ORDER BY o.created_at ASC LIMIT %d FOR UPDATE",
-        'sheet_conflict','queued','sheet_conflict',$now,$limit), ARRAY_A);
+         WHERE o.command_type IN ({$domainPlaceholders}) AND o.state=%s
+            AND d.domain=o.command_type AND o.available_at<=%s
+         ORDER BY o.created_at ASC LIMIT %d FOR UPDATE";
+    $queryArgs = array_merge($domains, ['queued',$now,$limit]);
+    $rows = $wpdb->get_results($wpdb->prepare($sql, ...$queryArgs), ARRAY_A);
     if ($wpdb->last_error !== '' || !is_array($rows)) {
         $wpdb->query('ROLLBACK');
         return null;
@@ -271,7 +307,8 @@ function molavi_owner_review_store_pending_sheet_conflicts(int $limit = 20): ?ar
         if ($claimed !== 1) { continue; }
         $commands[] = [
             'event_id'=>(string)$row['event_id'],
-            'review_type'=>'sheet_conflict',
+            'command_type'=>(string)$row['command_type'],
+            'review_type'=>(string)$row['domain'],
             'review_id'=>(string)$row['subject_id'],
             'context'=>$context,
             'decision'=>$decision,
@@ -284,6 +321,10 @@ function molavi_owner_review_store_pending_sheet_conflicts(int $limit = 20): ?ar
         return null;
     }
     return $commands;
+}
+
+function molavi_owner_review_store_pending_sheet_conflicts(int $limit = 20): ?array {
+    return molavi_owner_review_store_pending_commands($limit, ['sheet_conflict']);
 }
 
 function molavi_owner_review_outbox_service_permission($request) {
@@ -303,7 +344,7 @@ function molavi_owner_review_outbox_service_permission($request) {
 function molavi_owner_review_outbox_rest_pending($request) {
     $limit = is_object($request) && method_exists($request, 'get_param')
         ? (int)$request->get_param('limit') : 5;
-    $commands = molavi_owner_review_store_pending_sheet_conflicts(max(1, min(10, $limit ?: 5)));
+    $commands = molavi_owner_review_store_pending_commands(max(1, min(10, $limit ?: 5)));
     if (!is_array($commands)) {
         return new WP_Error('molavi_outbox_unavailable', 'صف تصمیم‌ها در دسترس نیست.', ['status'=>503]);
     }
@@ -322,20 +363,30 @@ function molavi_owner_review_outbox_store_receipt(array $input): bool {
     $decisionsTable = molavi_workflow_decisions_table();
     $eventsTable = molavi_owner_review_store_table();
     $row = $wpdb->get_row($wpdb->prepare(
-        "SELECT o.state AS outbox_state,o.payload_json,d.decision_id,d.event_id,d.subject_id,d.choice
+        "SELECT o.state AS outbox_state,o.command_type,o.payload_json,
+                d.decision_id,d.event_id,d.subject_id,d.choice
          FROM {$outboxTable} o INNER JOIN {$decisionsTable} d ON d.decision_id=o.decision_id
-         WHERE o.command_id=%s AND o.command_type=%s",
-        $commandId,'sheet_conflict'), ARRAY_A);
+         WHERE o.command_id=%s",
+        $commandId), ARRAY_A);
     if ($wpdb->last_error !== '' || !is_array($row)) { return false; }
     $payload = json_decode((string)$row['payload_json'], true);
     if (!is_array($payload)) { return false; }
-    if ($state === 'delivered'
-        && (($receipt['ok'] ?? true) === false
-            || (string)($receipt['conflict_id'] ?? '') !== (string)($payload['conflict_id'] ?? '')
-            || (string)($receipt['choice'] ?? '') !== (string)($payload['choice'] ?? '')
-            || (($receipt['server_owned'] ?? false) !== true
-                && ($receipt['sheet_preserved'] ?? false) !== true
-                && empty($receipt['publish_job'])))) { return false; }
+    if ($state === 'delivered') {
+        if (($row['command_type'] ?? '') === 'sheet_conflict'
+            && (($receipt['ok'] ?? true) === false
+                || (string)($receipt['conflict_id'] ?? '') !== (string)($payload['conflict_id'] ?? '')
+                || (string)($receipt['choice'] ?? '') !== (string)($payload['choice'] ?? '')
+                || (($receipt['server_owned'] ?? false) !== true
+                    && ($receipt['sheet_preserved'] ?? false) !== true
+                    && empty($receipt['publish_job'])))) { return false; }
+        if (($row['command_type'] ?? '') === 'supplier_price'
+            && (($receipt['ok'] ?? true) === false
+                || (string)($receipt['product_id'] ?? '') !== (string)($payload['product_id'] ?? '')
+                || (string)($receipt['source_revision'] ?? '') !== (string)($payload['expected_revision'] ?? '')
+                || (string)($receipt['command_id'] ?? '') !== $commandId
+                || empty($receipt['verified_at']) || empty($receipt['publish_job']))) { return false; }
+        if (!in_array(($row['command_type'] ?? ''), ['sheet_conflict','supplier_price'], true)) { return false; }
+    }
     if ($state !== 'delivered') {
         $error = sanitize_text_field((string)($receipt['error'] ?? 'remote_unavailable'));
         $receipt = ['error'=>substr($error ?: 'remote_unavailable', 0, 500)];
@@ -382,14 +433,19 @@ function molavi_owner_review_outbox_rest_receipt($request) {
 }
 
 add_action('rest_api_init', static function (): void {
-    register_rest_route('molavi/v1', '/outbox/sheet-conflicts', [
+    $pendingRoute = [
         'methods'=>'GET','permission_callback'=>'molavi_owner_review_outbox_service_permission',
         'callback'=>'molavi_owner_review_outbox_rest_pending',
-    ]);
-    register_rest_route('molavi/v1', '/outbox/sheet-conflicts/receipt', [
+    ];
+    $receiptRoute = [
         'methods'=>'POST','permission_callback'=>'molavi_owner_review_outbox_service_permission',
         'callback'=>'molavi_owner_review_outbox_rest_receipt',
-    ]);
+    ];
+    register_rest_route('molavi/v1', '/outbox/commands', $pendingRoute);
+    register_rest_route('molavi/v1', '/outbox/commands/receipt', $receiptRoute);
+    // Keep the first production endpoint stable while the Railway rollout is updated.
+    register_rest_route('molavi/v1', '/outbox/sheet-conflicts', $pendingRoute);
+    register_rest_route('molavi/v1', '/outbox/sheet-conflicts/receipt', $receiptRoute);
 });
 
 function molavi_owner_review_store_ajax(): void {
@@ -421,7 +477,22 @@ function molavi_owner_review_store_ajax(): void {
         $wpdb->query('ROLLBACK');
         wp_send_json_error(['code'=>'review_store_failed'], 503);
     }
-    wp_send_json_success(['stored'=>count($records)]);
+    $commands = [];
+    $decisionsTable = molavi_workflow_decisions_table();
+    $outboxTable = molavi_workflow_outbox_table();
+    foreach ($records as $record) {
+        if (!is_array($record) || !in_array(($record['review_type'] ?? ''), ['sheet_conflict','supplier_price'], true)
+            || !in_array(($record['state'] ?? ''), ['pending','accepted','failed'], true)) { continue; }
+        $eventId = (string)($record['event_id'] ?? '');
+        if ($eventId === '') { continue; }
+        $commandId = $wpdb->get_var($wpdb->prepare(
+            "SELECT o.command_id FROM {$outboxTable} o INNER JOIN {$decisionsTable} d ON d.decision_id=o.decision_id
+             WHERE d.event_id=%s LIMIT 1", $eventId));
+        if (is_string($commandId) && preg_match('/^[a-f0-9]{64}$/', $commandId)) {
+            $commands[$eventId] = $commandId;
+        }
+    }
+    wp_send_json_success(['stored'=>count($records),'commands'=>$commands]);
 }
 add_action('wp_ajax_molavi_owner_review_store', 'molavi_owner_review_store_ajax');
 
@@ -431,7 +502,7 @@ function molavi_owner_review_outbox_pending_ajax(): void {
         wp_send_json_error(['code'=>'owner_required'], 403);
     }
     check_ajax_referer('molavi_owner_review_store', 'nonce');
-    $commands = molavi_owner_review_store_pending_sheet_conflicts();
+    $commands = molavi_owner_review_store_pending_commands();
     if (!is_array($commands)) { wp_send_json_error(['code'=>'review_store_failed'], 503); }
     wp_send_json_success(['commands'=>$commands]);
 }

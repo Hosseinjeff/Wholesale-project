@@ -1,11 +1,12 @@
 import unittest
 from unittest.mock import Mock
 
-from catalog.wordpress_outbox import drain_sheet_conflict_outbox, wordpress_outbox_token
+from catalog.wordpress_outbox import drain_wordpress_workflow_outbox, wordpress_outbox_token
 
 
 TOKEN = "synthetic-reference-bridge-token-" + ("x" * 32)
 COMMAND = {
+    "command_type": "sheet_conflict",
     "command_id": "a" * 64,
     "payload": {
         "conflict_id": "sheet:fixture",
@@ -55,7 +56,8 @@ class WordPressOutboxTests(unittest.TestCase):
             return 200, {"ok": True, "conflict_id": payload["conflict_id"],
                 "choice": payload["choice"], "server_owned": True}
 
-        result = drain_sheet_conflict_outbox("https://www.molavisale.ir", TOKEN, apply, session=session)
+        result = drain_wordpress_workflow_outbox("https://www.molavisale.ir", TOKEN,
+            lambda _type,payload: apply(payload), session=session)
         self.assertEqual(result["delivered"], 1)
         self.assertEqual(result["retried"], 0)
         self.assertEqual(processed, [COMMAND["payload"]])
@@ -73,8 +75,8 @@ class WordPressOutboxTests(unittest.TestCase):
             (503, {"error": "sheet_unavailable"}),
             (409, {"error": "conflict_changed"}),
         ])
-        result = drain_sheet_conflict_outbox("https://www.molavisale.ir", TOKEN,
-            lambda _payload: next(responses), session=session)
+        result = drain_wordpress_workflow_outbox("https://www.molavisale.ir", TOKEN,
+            lambda _type,_payload: next(responses), session=session)
         self.assertEqual((result["retried"], result["failed"]), (1, 1))
         receipts = [call[2]["json"] for call in session.calls if call[0] == "POST"]
         self.assertEqual([item["state"] for item in receipts], ["queued", "failed"])
@@ -82,10 +84,29 @@ class WordPressOutboxTests(unittest.TestCase):
 
     def test_invalid_configuration_does_not_contact_wordpress_or_railway(self):
         session = Session([COMMAND])
-        result = drain_sheet_conflict_outbox("https://attacker.example", TOKEN,
-            lambda _payload: self.fail("must not process an untrusted URL"), session=session)
+        result = drain_wordpress_workflow_outbox("https://attacker.example", TOKEN,
+            lambda _type,_payload: self.fail("must not process an untrusted URL"), session=session)
         self.assertEqual(result["error"], "unconfigured")
         self.assertEqual(session.calls, [])
+
+    def test_supplier_price_receipt_is_revision_bound_and_uses_the_command_id(self):
+        command_id="c"*64
+        command={"command_type":"supplier_price","command_id":command_id,
+            "payload":{"product_id":"product-1","expected_revision":"revision-1",
+                "note":"checked source","command_id":command_id}}
+        session=Session([command])
+        applied=[]
+        def apply(command_type,payload):
+            applied.append((command_type,payload))
+            return 200,{"ok":True,"product_id":payload["product_id"],
+                "source_revision":payload["expected_revision"],"command_id":command_id,
+                "verified_at":"2026-11-06T00:00:00Z","publish_job":"publish:1"}
+        result=drain_wordpress_workflow_outbox("https://www.molavisale.ir",TOKEN,apply,session=session)
+        self.assertEqual(result["delivered"],1)
+        self.assertEqual(applied,[("supplier_price",command["payload"])])
+        receipt=[call for call in session.calls if call[0]=="POST"][0][2]["json"]
+        self.assertEqual(receipt["state"],"delivered")
+        self.assertEqual(receipt["receipt"]["command_id"],command_id)
 
 
 if __name__ == "__main__":

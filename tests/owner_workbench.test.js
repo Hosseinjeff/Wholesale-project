@@ -117,7 +117,11 @@ async function main() {
       }
       const parsed = JSON.parse(form.get('records'));
       storedReviewRows.push(...parsed);
-      return {ok:true,status:200,json:async()=>({success:true,data:{stored:parsed.length}})};
+      const commands = Object.fromEntries(parsed
+        .filter(item => ['sheet_conflict','supplier_price'].includes(item.review_type)
+          && ['pending','accepted','failed'].includes(item.state))
+        .map(item => [item.event_id,'c'.repeat(64)]));
+      return {ok:true,status:200,json:async()=>({success:true,data:{stored:parsed.length,commands}})};
     }
     const path = new URL(String(url),base).pathname;
     if (path.endsWith('/ai-confirmations') && new URL(String(url),base).searchParams.get('reextract') === 'preview') {
@@ -170,7 +174,8 @@ async function main() {
       const payload = JSON.parse(options.body);
       data['supplier-price-evidence'].offers = [];
       return {ok:true,status:200,json:async()=>({ok:true,product_id:payload.product_id,
-        source_revision:payload.expected_revision,verified_at:'2026-11-03T08:30:00Z',publish_job:'publish:one'})};
+        source_revision:payload.expected_revision,command_id:payload.command_id,
+        verified_at:'2026-11-03T08:30:00Z',publish_job:'publish:one'})};
     }
     if (path.endsWith('/telegram-operator-chats') && options.method === 'POST') {
       const payload = JSON.parse(options.body);
@@ -338,6 +343,8 @@ async function main() {
     && item.url === workflowApis.supplier_prices.url);
   assert(verification, 'supplier verification submits asynchronously without a page form post');
   assert.equal(verification.options.headers.Authorization,'Bearer scoped-supplier_prices');
+  assert.equal(JSON.parse(verification.options.body).command_id,'c'.repeat(64),
+    'supplier verification sends the stable WordPress command id for idempotent Railway replay');
   assert.equal(calls.filter(item => item.url === workflowApis.product_status.url).length,
     statusRefreshesBeforeVerification,'supplier acknowledgement does not rebuild the whole dashboard');
   assert.match(root.text,/بررسی قیمت ثبت شد/,'success feedback remains visible in the existing card');
@@ -693,7 +700,8 @@ async function main() {
   const supplierRoot = new Element('div');
   const supplierDocument = {...document,getElementById:id=>id === 'molavi-owner-workflow' ? supplierRoot : null};
   const supplierWindow = {...window,molaviOwnerWorkflow:{page:'molavi-supplier-prices',
-    apiUrl:base+'/pipeline/supplier-price-evidence',token:'scoped-supplier_prices'},
+    apiUrl:base+'/pipeline/supplier-price-evidence',token:'scoped-supplier_prices',
+    reviewStoreUrl:'/admin-ajax.php',reviewStoreNonce:'nonce'},
     location:{href:'https://site.test/wp-admin/admin.php?page=molavi-supplier-prices',
       pathname:'/wp-admin/admin.php',search:'?page=molavi-supplier-prices'}};
   supplierWindow.parent = supplierWindow;

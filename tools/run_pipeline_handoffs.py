@@ -16,7 +16,7 @@ from catalog.durable import compact_pipeline_payloads
 from app import (USE_SHEETS, _notice_chat_allowlists, _wake_reference_waiters_if_eligible,
                  build_store, handoff_queue, run_durable_handoff)
 from catalog.sheet_projection import observe_sheet_projection
-from catalog.wordpress_outbox import drain_sheet_conflict_outbox
+from catalog.wordpress_outbox import drain_wordpress_workflow_outbox
 import requests
 
 if __name__=='__main__':
@@ -96,9 +96,12 @@ if __name__=='__main__':
     outbox_session=requests.Session()
     try:local_api_port=int(os.getenv('PORT','8080'))
     except ValueError:local_api_port=8080
-    local_sheet_conflicts_url=f'http://127.0.0.1:{local_api_port}/pipeline/sheet-conflicts'
-    def apply_wordpress_sheet_conflict(payload):
-        response=outbox_session.post(local_sheet_conflicts_url,json=payload,timeout=(3,20),headers={
+    local_api_root=f'http://127.0.0.1:{local_api_port}'
+    def apply_wordpress_workflow_command(command_type,payload):
+        endpoint={'sheet_conflict':'/pipeline/sheet-conflicts',
+            'supplier_price':'/pipeline/supplier-price-evidence'}.get(command_type)
+        if not endpoint:raise ValueError('unsupported WordPress workflow command')
+        response=outbox_session.post(local_api_root+endpoint,json=payload,timeout=(3,20),headers={
             'X-Molavi-Reference-Token':bridge_token,
             'X-Molavi-Actor':reference_owners[0],
         })
@@ -136,7 +139,7 @@ if __name__=='__main__':
             last_reference_check=time.monotonic()
         if outbox_enabled and (last_outbox_poll==0 or time.monotonic()-last_outbox_poll>=outbox_poll_seconds):
             try:
-                outcome=drain_sheet_conflict_outbox(site_url,bridge_token,apply_wordpress_sheet_conflict,
+                outcome=drain_wordpress_workflow_outbox(site_url,bridge_token,apply_wordpress_workflow_command,
                     session=outbox_session,limit=5)
                 if not outcome['error'] and not outbox_ready_reported:
                     print('WordPress workflow outbox connected; '

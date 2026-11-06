@@ -374,6 +374,62 @@ $supplier_price_event=['event_id'=>'context:supplier_price:runtime-product','rev
         'name'=>'چای سبز','source_revision'=>'runtime-revision']];
 ref_assert(molavi_owner_review_store_write($supplier_price_event),
     'supplier-price review context is stored in the WordPress review database');
+$supplier_decision_event=['event_id'=>'decision:supplier_price:runtime-product:attempt-1',
+    'review_type'=>'supplier_price','review_id'=>'runtime-product','state'=>'pending',
+    'context'=>['product_id'=>'runtime-product','name'=>'چای سبز','channel'=>'@supplier',
+        'sale_price'=>'450000','source_timestamp'=>'2026-10-28T09:00:00+00:00',
+        'source_revision'=>'runtime-revision'],
+    'decision'=>['action'=>'verify_current_supplier_price','note'=>'Owner checked the current supplier source.']];
+ref_assert(molavi_owner_review_store_write($supplier_decision_event),
+    'supplier-price verification is normalized and queued in WordPress before Railway is called');
+$supplier_decision_id=hash('sha256',"supplier_price\0runtime-product\0runtime-revision");
+$supplier_command_id=hash('sha256',"supplier_price\0".$supplier_decision_id);
+$supplier_outbox=$wpdb->get_row($wpdb->prepare('SELECT state,command_type,payload_json FROM '
+    .molavi_workflow_outbox_table().' WHERE command_id=%s',$supplier_command_id),ARRAY_A);
+ref_assert($supplier_outbox && $supplier_outbox['state']==='queued'
+    && $supplier_outbox['command_type']==='supplier_price'
+    && json_decode($supplier_outbox['payload_json'],true)['command_id']===$supplier_command_id,
+    'supplier-price outbox commands carry a stable idempotency key and source revision');
+$supplier_commands=molavi_owner_review_store_pending_commands(10);
+ref_assert(is_array($supplier_commands) && count($supplier_commands)===1
+    && $supplier_commands[0]['command_type']==='supplier_price'
+    && $supplier_commands[0]['decision']['action']==='verify_current_supplier_price'
+    && $supplier_commands[0]['event_id']===$supplier_decision_event['event_id'],
+    'Railway and the WordPress dashboard can replay the same due supplier-price decision');
+$supplier_receipt=['ok'=>true,'product_id'=>'runtime-product','source_revision'=>'runtime-revision',
+    'command_id'=>$supplier_command_id,'verified_at'=>'2026-10-28T10:00:00+00:00','publish_job'=>'publish:runtime'];
+$wrong_supplier_receipt=$supplier_receipt;
+$wrong_supplier_receipt['command_id']=str_repeat('f',64);
+ref_assert(!molavi_owner_review_outbox_store_receipt(['command_id'=>$supplier_command_id,
+    'state'=>'delivered','receipt'=>$wrong_supplier_receipt]),
+    'a supplier receipt cannot close a different WordPress command');
+ref_assert(molavi_owner_review_outbox_store_receipt(['command_id'=>$supplier_command_id,
+    'state'=>'delivered','receipt'=>$supplier_receipt]),
+    'a matching source-price receipt completes the WordPress decision');
+$supplier_outbox=$wpdb->get_row($wpdb->prepare('SELECT state FROM '.molavi_workflow_outbox_table()
+    .' WHERE command_id=%s',$supplier_command_id),ARRAY_A);
+ref_assert($supplier_outbox['state']==='delivered',
+    'a verified supplier-price receipt closes its outbox command');
+$supplier_retry_event=['event_id'=>'decision:supplier_price:retry-product:attempt-1',
+    'review_type'=>'supplier_price','review_id'=>'retry-product','state'=>'failed',
+    'context'=>['product_id'=>'retry-product','name'=>'چای سبز','channel'=>'@supplier',
+        'sale_price'=>'450000','source_revision'=>'retry-revision'],
+    'decision'=>['action'=>'verify_current_supplier_price','note'=>'Owner checked the current supplier source.'],
+    'receipt'=>['error'=>'offer_changed']];
+ref_assert(molavi_owner_review_store_write($supplier_retry_event),
+    'a rejected supplier verification remains recorded for owner recovery');
+$supplier_retry_event['event_id']='decision:supplier_price:retry-product:attempt-2';
+$supplier_retry_event['state']='pending';
+$supplier_retry_event['receipt']=[];
+ref_assert(molavi_owner_review_store_write($supplier_retry_event),
+    'a fresh owner attempt can requeue a failed source-price command');
+$supplier_retry_id=hash('sha256',"supplier_price\0retry-product\0retry-revision");
+$supplier_retry_command=hash('sha256',"supplier_price\0".$supplier_retry_id);
+$supplier_retry_outbox=$wpdb->get_row($wpdb->prepare('SELECT state,attempts FROM '
+    .molavi_workflow_outbox_table().' WHERE command_id=%s',$supplier_retry_command),ARRAY_A);
+ref_assert($supplier_retry_outbox && $supplier_retry_outbox['state']==='queued'
+    && (int)$supplier_retry_outbox['attempts']===0,
+    'manual retry resets failed command backoff while preserving its idempotency key');
 $workflow_js=file_get_contents('/plugin/includes/owner-workflows.js');
 ref_assert(strpos($workflow_js,'original_message')!==false && strpos($workflow_js,'expected_decision_id')!==false,
     'browser review UI displays source messages and submits optimistic decision revisions');
@@ -686,6 +742,17 @@ ref_assert(is_array($reference_workflow)
     && is_string($reference_workflow['reviewStoreNonce'] ?? null)
     && $reference_workflow['reviewStoreNonce']!=='',
     'reference-match decisions have a same-origin WordPress audit-store capability');
+$http_mode='queue';ref_prepare_owner_workflow_page('molavi-supplier-prices');
+$supplier_workflow_data=wp_scripts()->get_data('molavi-owner-workflows','data');
+$supplier_workflow_matches=[];
+$has_supplier_workflow=is_string($supplier_workflow_data)
+    && preg_match_all('/var molaviOwnerWorkflow = (\{.*?\});/s',$supplier_workflow_data,$supplier_workflow_matches);
+$supplier_workflow=$has_supplier_workflow ? json_decode(end($supplier_workflow_matches[1]),true) : null;
+ref_assert(is_array($supplier_workflow)
+    && str_starts_with((string)($supplier_workflow['reviewStoreUrl'] ?? ''),'/')
+    && is_string($supplier_workflow['reviewStoreNonce'] ?? null)
+    && $supplier_workflow['reviewStoreNonce']!=='',
+    'standalone supplier-price decisions have a same-origin WordPress outbox capability');
 $reference_item_php=file_get_contents('/plugin/includes/reference-item-reviews.php');
 ref_assert(strpos($workflow_js,'item.projection_pending && item.decision')!==false
     && strpos($workflow_js,'تکمیل ثبت تصمیم قبلی')!==false
