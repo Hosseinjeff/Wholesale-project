@@ -47,7 +47,7 @@ app = Flask(__name__)
 WEB_APP_URL = os.getenv('GOOGLE_WEB_APP_URL')
 BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 BALE_BOT_TOKEN = os.getenv('BALE_BOT_TOKEN')
-APP_VERSION = "2026-11-05-source-scoped-holds"
+APP_VERSION = "2026-11-06-policy-versioned-intake-replay"
 setup_logger(logging.INFO, log_file=None)
 logger = logging.getLogger(__name__)
 
