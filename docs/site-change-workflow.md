@@ -2,6 +2,31 @@
 
 Updated: 2026-11-06, Asia/Tehran
 
+## 2026-11-06 Policy-versioned recent intake replay live
+
+Commit `d136afdc421bd187e69cfd341d29755e86aa9617` is live in WordPress and
+Railway; follow-up commit `10ce97c5e05bf37e3918f3f58550f804b131bfb3` updates the
+Railway health version label. The protected cPanel deployer uploaded and read back
+`includes/owner-workflows.js`. Railway deployment
+`14011041-43d6-4e5b-a1f6-67e27c99a408` reached `SUCCESS` from `main`; both `web`
+and `pipeline-worker` entered `RUNNING`, and the authenticated WordPress outbox
+consumer connected with zero due commands. The public `/health` endpoint returned
+HTTP 200, `healthy`, and version `2026-11-06-policy-versioned-intake-replay`.
+
+The Owner Operations workbench now has a prominent all-queues refresh control and a
+policy-versioned replay preview/action. It offers supplier posts with valid timestamps
+from the last 14 days that have not already been processed by the current extraction
+policy, with source links and an explicit confirmation. Owner decisions and dismissed
+posts are preserved. Clear, quality-checked text results can update a uniquely linked
+existing product while retaining its product ID; uncertain results and image OCR stay
+in owner review. This release only installed the capability: no replay was started and
+no product, Sheet, WooCommerce, or order data changed during deployment.
+
+Validation passed: 143 focused Python tests, `node --check`, the owner workbench
+interaction test, Python compilation, and `git diff --check`. The live queue refresh
+and replay buttons were verified in the published JavaScript and interaction test; an
+authenticated visual dashboard session was not available in this workspace.
+
 ## 2026-11-06 Supplier price verification outbox live
 
 Commit `99fbecff9c22b227916e282fbbb650dd2be1c728` is live in Railway production
