@@ -2589,7 +2589,9 @@
             currentPriceVerified.type = 'checkbox';
             currentPriceVerified.checked = sourceVerificationItems.length > 0
                 && sourceVerificationItems.every(row => verifiedCurrentPriceCases.has(currentPriceVerificationKey(row)));
-            checkLabel.append(currentPriceVerified, document.createTextNode(sourceStockNeedsReview
+            const stockNeedsCurrentCheck = sourceStockNeedsReview || relatedItems.some(row =>
+                !['','Unknown','unknown'].includes(String(row && row.stock_status || '')));
+            checkLabel.append(currentPriceVerified, document.createTextNode(stockNeedsCurrentCheck
                 ? 'قیمت و وضعیت موجودی را در منبع فعلی بررسی کردم؛ اگر موجودی ذکر نشده، نامشخص می‌ماند.'
                 : 'قیمت را در پیام جدیدتر یا مستقیماً از تأمین‌کننده بررسی کردم؛ اگر موجودی ذکر نشده، نامشخص می‌ماند.'));
             card.appendChild(checkLabel);
