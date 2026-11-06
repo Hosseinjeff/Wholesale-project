@@ -507,3 +507,103 @@ function molavi_owner_review_outbox_pending_ajax(): void {
     wp_send_json_success(['commands'=>$commands]);
 }
 add_action('wp_ajax_molavi_owner_review_outbox_pending', 'molavi_owner_review_outbox_pending_ajax');
+
+function molavi_owner_review_migration_snapshot_ajax(): void {
+    global $wpdb;
+    if (!current_user_can('manage_woocommerce') || !function_exists('molavi_reference_owner')
+        || !molavi_reference_owner()) {
+        wp_send_json_error(['code'=>'owner_required'], 403);
+    }
+    check_ajax_referer('molavi_owner_review_store', 'nonce');
+    if (!molavi_owner_review_store_ensure_schema()) {
+        wp_send_json_error(['code'=>'review_store_unavailable'], 503);
+    }
+
+    $events = molavi_owner_review_store_table();
+    $decisions = molavi_workflow_decisions_table();
+    $outbox = molavi_workflow_outbox_table();
+    $decisionGroups = $wpdb->get_results(
+        "SELECT domain,state,COUNT(*) AS row_count FROM {$decisions} GROUP BY domain,state ORDER BY domain,state",
+        ARRAY_A);
+    $outboxGroups = $wpdb->get_results(
+        "SELECT command_type,state,COUNT(*) AS row_count FROM {$outbox} GROUP BY command_type,state ORDER BY command_type,state",
+        ARRAY_A);
+    if ($wpdb->last_error !== '' || !is_array($decisionGroups) || !is_array($outboxGroups)) {
+        wp_send_json_error(['code'=>'review_store_unavailable'], 503);
+    }
+
+    $total = (int)$wpdb->get_var(
+        "SELECT COUNT(*) FROM {$decisions} WHERE domain IN ('sheet_conflict','supplier_price')");
+    $rows = $wpdb->get_results(
+        "SELECT d.decision_id,d.domain,d.subject_id,d.expected_revision,d.choice,d.state,
+                o.command_id,o.state AS command_state,o.attempts
+         FROM {$decisions} d LEFT JOIN {$outbox} o ON o.decision_id=d.decision_id
+         WHERE d.domain IN ('sheet_conflict','supplier_price')
+         ORDER BY d.created_at,d.decision_id LIMIT 5001", ARRAY_A);
+    if ($wpdb->last_error !== '' || !is_array($rows)) {
+        wp_send_json_error(['code'=>'review_store_unavailable'], 503);
+    }
+    $truncated = count($rows) > 5000;
+    if ($truncated) { $rows = array_slice($rows, 0, 5000); }
+    $canonical = [];
+    foreach ($rows as $row) {
+        $canonical[] = implode("\x1f", [
+            (string)($row['decision_id'] ?? ''),(string)($row['domain'] ?? ''),
+            (string)($row['subject_id'] ?? ''),(string)($row['expected_revision'] ?? ''),
+            (string)($row['choice'] ?? ''),(string)($row['state'] ?? ''),
+            (string)($row['command_id'] ?? ''),(string)($row['command_state'] ?? ''),
+        ]);
+    }
+    sort($canonical, SORT_STRING);
+
+    $tables = [];
+    foreach (['events'=>$events,'decisions'=>$decisions,'outbox'=>$outbox] as $key=>$table) {
+        $like = method_exists($wpdb, 'esc_like') ? $wpdb->esc_like($table) : $table;
+        $status = $wpdb->get_row($wpdb->prepare("SHOW TABLE STATUS LIKE %s", $like), ARRAY_A);
+        $tables[$key] = [
+            'engine'=>is_array($status) ? (string)($status['Engine'] ?? '') : '',
+            'estimated_rows'=>is_array($status) ? (int)($status['Rows'] ?? 0) : 0,
+        ];
+    }
+
+    $actionTable = $wpdb->prefix . 'actionscheduler_actions';
+    $actionLike = method_exists($wpdb, 'esc_like') ? $wpdb->esc_like($actionTable) : $actionTable;
+    $actionFound = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $actionLike)) === $actionTable;
+    $scheduler = ['available'=>$actionFound,'counts_by_state'=>[],'overdue_pending'=>null,'oldest_pending_gmt'=>null];
+    if ($actionFound) {
+        $quotedActionTable = '`' . str_replace('`', '``', $actionTable) . '`';
+        $statuses = $wpdb->get_results(
+            "SELECT status,COUNT(*) AS row_count FROM {$quotedActionTable} GROUP BY status ORDER BY status",
+            ARRAY_A);
+        foreach (is_array($statuses) ? $statuses : [] as $status) {
+            $scheduler['counts_by_state'][(string)$status['status']] = (int)$status['row_count'];
+        }
+        $columns = $wpdb->get_col("SHOW COLUMNS FROM {$quotedActionTable}");
+        if (is_array($columns) && in_array('scheduled_date_gmt', $columns, true)) {
+            $scheduler['overdue_pending'] = (int)$wpdb->get_var(
+                "SELECT COUNT(*) FROM {$quotedActionTable}
+                 WHERE status='pending' AND scheduled_date_gmt<=UTC_TIMESTAMP() AND scheduled_date_gmt<>'0000-00-00 00:00:00'");
+            $scheduler['oldest_pending_gmt'] = $wpdb->get_var(
+                "SELECT MIN(scheduled_date_gmt) FROM {$quotedActionTable} WHERE status='pending'");
+        }
+    }
+
+    wp_send_json_success([
+        'schema_version'=>(string)get_option('molavi_owner_review_schema_version', ''),
+        'tables'=>$tables,
+        'decision_groups'=>is_array($decisionGroups) ? $decisionGroups : [],
+        'outbox_groups'=>is_array($outboxGroups) ? $outboxGroups : [],
+        'decision_total'=>$total,
+        'decision_rows'=>$rows,
+        'decision_rows_truncated'=>$truncated,
+        'decision_digest'=>hash('sha256', implode("\n", $canonical)),
+        'action_scheduler'=>$scheduler,
+        'runtime'=>[
+            'php_version'=>PHP_VERSION,
+            'memory_limit'=>(string)ini_get('memory_limit'),
+            'max_execution_time'=>(string)ini_get('max_execution_time'),
+            'wp_cron_disabled'=>defined('DISABLE_WP_CRON') && DISABLE_WP_CRON,
+        ],
+    ]);
+}
+add_action('wp_ajax_molavi_owner_review_migration_snapshot', 'molavi_owner_review_migration_snapshot_ajax');

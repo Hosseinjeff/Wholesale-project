@@ -1137,6 +1137,28 @@ def operations_dashboard_route():
     return response
 
 
+@app.route('/pipeline/migration-shadow', methods=['GET'])
+def migration_shadow_route():
+    """Owner-only, read-only inventory for comparing persistent workflow domains."""
+    token=os.getenv('REFERENCE_BRIDGE_TOKEN') or ''
+    owners={value.strip() for value in (os.getenv('REFERENCE_OWNER_IDS') or '').split(',') if value.strip()}
+    if len(token)<32 or not owners:
+        return jsonify({'ok':False,'error':'unconfigured'}),503
+    actor,auth_error=_owner_api_actor('owner:/pipeline/migration-shadow',token,owners)
+    if auth_error:
+        return jsonify({'ok':False,'error':'unauthorized' if auth_error==401 else 'owner_required'}),auth_error
+    try:
+        from catalog.migration_shadow import migration_shadow_report
+        report=migration_shadow_report(
+            os.getenv('PIPELINE_DB_PATH') or '',os.getenv('REFERENCE_STORE_PATH') or '')
+    except Exception:
+        logger.exception('Read-only migration shadow inventory failed')
+        return jsonify({'ok':False,'error':'migration_shadow_unavailable'}),503
+    response=jsonify({'ok':True,'actor':actor,**report})
+    response.headers['Cache-Control']='no-store'
+    return response
+
+
 @app.route('/pipeline/telegram-operator-chats', methods=['POST','OPTIONS'])
 def telegram_operator_chats_route():
     """Owner-only approval/rejection of a private Telegram sender identity."""

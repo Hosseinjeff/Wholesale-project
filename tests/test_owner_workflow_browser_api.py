@@ -56,6 +56,32 @@ class OwnerWorkflowBrowserAPITests(unittest.TestCase):
                 'Access-Control-Request-Headers': 'authorization,content-type'})
             self.assertIsNone(denied_origin.headers.get('Access-Control-Allow-Origin'))
 
+    def test_migration_shadow_inventory_is_owner_only_and_read_only(self):
+        import sqlite3
+        import app as server
+        path = str(Path(self.tmp.name) / 'shadow.sqlite')
+        with sqlite3.connect(path) as db:
+            db.execute('CREATE TABLE jobs (id TEXT PRIMARY KEY,kind TEXT,state TEXT,payload TEXT)')
+            db.execute("INSERT INTO jobs VALUES ('private-id','batch','queued','private payload')")
+        before = Path(path).stat().st_mtime_ns
+        env = {'PIPELINE_DB_PATH':path,'REFERENCE_STORE_PATH':'',
+               'REFERENCE_OWNER_IDS':'wp:7','REFERENCE_BRIDGE_TOKEN':self.secret}
+        with patch.dict(os.environ,env):
+            client = server.app.test_client()
+            denied = client.get('/pipeline/migration-shadow')
+            self.assertEqual(denied.status_code,401)
+            wrong_scope = client.get('/pipeline/migration-shadow',headers={
+                'Authorization':'Bearer '+owner_token(self.secret,scope='owner:/pipeline/operations-dashboard')})
+            self.assertEqual(wrong_scope.status_code,401)
+            accepted = client.get('/pipeline/migration-shadow',headers={
+                'Authorization':'Bearer '+owner_token(self.secret,scope='owner:/pipeline/migration-shadow')})
+        self.assertEqual(accepted.status_code,200,accepted.get_json())
+        self.assertEqual(accepted.headers.get('Cache-Control'),'no-store')
+        self.assertEqual(accepted.get_json()['pipeline']['tables']['jobs'],1)
+        self.assertNotIn('private payload',accepted.get_data(as_text=True))
+        self.assertNotIn('private-id',accepted.get_data(as_text=True))
+        self.assertEqual(Path(path).stat().st_mtime_ns,before)
+
     def test_ai_confirmation_and_reference_decision_routes_accept_scoped_browser_tokens(self):
         import app as server
         from catalog.extract import OFFER_HEADERS, PRODUCT_HEADERS, MESSAGE_HEADERS
