@@ -5,6 +5,17 @@ Snapshot 4.74. Updated 2026-11-06, Asia/Tehran. The canonical roleplay decisions
 `pipeline-readiness.md` and `pipeline-readiness-evidence.json`.
 The product intake and shelf policy is documented in `products-streamline-integrity.md`.
 
+## 2026-11-06 User-confirmed pack-size quantity steps
+
+This supersedes the inferred quantity defaults described in the historical 2026-11-01
+section below. The customer minimum and cart increment are household/shop-owner by
+extracted pack size: 6 = 1/3, 12 = 3/6, 18 = 4/9, 24 = 4/12, 36 = 8/18, and 48 = 12/24 units.
+Unlisted sizes retain the documented proportional fallback. Explicit per-product
+WooCommerce overrides remain in force. Reprocessing eligible recent posts updates
+extracted pack counts and queues catalog publication; the storefront then recalculates
+the defaults from the published pack size. Reprocessing is not needed just to apply a
+new quantity policy to products whose pack count is already correct.
+
 ## 2026-11-06 WordPress Sheet-conflict decision ledger
 
 Commit `1cc498cd58a59e43e42b37c3740d7205306843f1` is live in WordPress. Its normalized
@@ -342,14 +353,13 @@ the bot-extracted pack count, show both order units, recalculate each product's 
 curve, and report incompatible cart lines after switching. Quantity fixes are provided
 before checkout. The order handoff stores the chosen buyer type and order unit per line.
 
-The user confirmed that pack size should drive the rules and that values should be
-configurable. Current editable per-product defaults are inferred, not separately
-confirmed: shop unit = extracted pack count; household unit = rounded-up half pack;
-household discount cap = half the existing maximum discount; shop cap = the full
-existing maximum; ceiling thresholds = one household unit and four shop units. Review
-these defaults through actual product examples before treating them as final business
-policy. Python and JavaScript syntax checks pass; this workspace has no PHP CLI, so PHP
-lint could not run. No automated tests were run in this release.
+At the time of this 2026-11-01 integration, provisional quantity defaults were inferred:
+shop unit = extracted pack count and household unit = rounded-up half pack. The user
+replaced those quantity defaults on 2026-11-06 with the explicit pack-size table above.
+The household discount cap (half the existing maximum), shop cap (full existing
+maximum), and ceiling thresholds (one household unit and four shop units) remain the
+other current policies recorded here. Python and JavaScript syntax checks passed for
+that release; this workspace then had no PHP CLI and ran no automated tests.
 
 ## WooCommerce product and order integration — deployed 2026-11-01
 

@@ -133,13 +133,16 @@ discount eligibility. Cross-platform tests must account for this input-contract 
 
 ### Minimum quantities
 
-WordPress derives profile-specific order increments from the extracted pack count:
-shop-owner increment = rounded-up one quarter of the pack, and household increment =
-rounded-up half of the shop increment. A 24-unit pack therefore starts at 3 for a
-household and 6 for a shop owner, and each later cart adjustment uses that same step.
-Per-product values can be overridden in the WooCommerce product editor. If changing
-buyer type makes an existing cart quantity invalid, the cart shows the required unit
-and offers a one-click quantity fix before checkout.
+WordPress derives the customer minimum and every later cart increment from the extracted
+pack count. The user-confirmed defaults are household/shop-owner: 6 units = 1/3,
+12 = 3/6, 18 = 4/9, 24 = 4/12, 36 = 8/18, and 48 = 12/24. For other pack sizes,
+the fallback remains shop owner = rounded-up one quarter of the pack and household =
+rounded-up half of that shop-owner increment. Per-product values can be overridden in
+the WooCommerce product editor. Re-extraction can refresh the pack count and the
+subsequent catalog projection recalculates these defaults; it does not overwrite an
+explicit product override. If changing buyer type makes an existing cart quantity
+invalid, the cart shows the required unit and offers a one-click quantity fix before
+checkout.
 
 The supplier-message owner card now displays source-backed supplier and consumer prices.
 Exact reference identities may be assigned automatically only under the existing

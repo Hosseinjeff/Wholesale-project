@@ -358,11 +358,15 @@
       "household": "50% of each product's allowed discount room",
       "shop_owner": "100% of allowed discount room, ending at the permitted supplier-cost margin floor"
     },
-    "pack_24_order_step": {
-      "household": 3,
-      "shop_owner": 6
+    "quantity_order_steps_by_pack_size": {
+      "6": {"household": 1, "shop_owner": 3},
+      "12": {"household": 3, "shop_owner": 6},
+      "18": {"household": 4, "shop_owner": 9},
+      "24": {"household": 4, "shop_owner": 12},
+      "36": {"household": 8, "shop_owner": 18},
+      "48": {"household": 12, "shop_owner": 24}
     },
-    "other_pack_default": "Shop owner receives ceil(pack size / 4); household receives ceil(shop increment / 2); Woo product overrides remain available",
+    "other_pack_default": "For unlisted pack sizes, shop owner receives ceil(pack size / 4) and household receives ceil(shop increment / 2); Woo per-product overrides remain available",
     "buyer_choice": "Compact picker beside the cart; explanation is on demand; selected type is shown on cart lines",
     "wordpress_storage": "Threshold defaults in the molavi_price_settings option; tuna anchor and per-product quantity/discount overrides in WooCommerce product metadata"
   },

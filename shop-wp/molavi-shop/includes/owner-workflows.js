@@ -3070,7 +3070,7 @@
                 const version = String(recentPolicy.policy_version || '');
                 const digest = String(recentPolicy.digest || '');
                 if (!count || !version || !digest) return;
-                const warning = `${count} پست دارای زمان معتبر از ${windowDays} روز اخیر با نسخه فعلی استخراج (${version}) دوباره پردازش می‌شود. خروجی‌های روشنِ کنترل‌شده کالاهای همسان را به‌روزرسانی می‌کنند؛ خروجی نامطمئن و همه نتیجه‌های OCR برای بررسی می‌مانند. تصمیم‌های مالک و پست‌های قدیمی‌تر حفظ می‌شوند. ادامه می‌دهید؟`;
+                const warning = `${count} پست دارای زمان معتبر از ${windowDays} روز اخیر با نسخه فعلی استخراج (${version}) دوباره پردازش می‌شود. نتیجه‌های روشن به کاتالوگ همگام می‌شوند؛ اگر تعداد داخل بسته تغییر کند، گام خانوار و فروشگاه از سیاست فعلی محاسبه می‌شود و تنظیم دستی همان کالا حفظ می‌شود. خروجی نامطمئن و همه نتیجه‌های OCR برای بررسی می‌مانند. تصمیم‌های مالک و پست‌های قدیمی‌تر حفظ می‌شوند. ادامه می‌دهید؟`;
                 if (!window.confirm(warning)) return;
                 const bytes = new Uint8Array(16);
                 if (window.crypto && window.crypto.getRandomValues) window.crypto.getRandomValues(bytes);
@@ -3185,6 +3185,9 @@
                 }
             });
             controls.append(recentPolicyButton, openCasesButton, pendingButton, allButton, dismissButton);
+            if (Number(recentPolicy.eligible_count || 0) > 0) {
+                panel.appendChild(notice('این دکمه پست‌های واجد شرایطِ ۱۴ روز اخیر را با نسخه فعلی استخراج دوباره پردازش می‌کند. اگر تعداد داخل بسته تغییر کند، همگام‌سازی کاتالوگ گام‌های فعلی خانوار و فروشگاه را روی محصول به‌روز می‌کند؛ تنظیم دستی همان محصول حفظ می‌شود. برای اعمال صرفِ سیاست جدید نیازی به بازپردازش نیست.', 'info'));
+            }
             panel.appendChild(controls);
         } catch (error) {
             panel.appendChild(notice(errorText(error.message), 'error'));

@@ -82,8 +82,19 @@ function molavi_product_profile(WC_Product $product): array
         }
     }
     $packSize = max(1, min(999, $packSize > 0 ? $packSize : ($legacyMin > 0 ? $legacyMin : 1)));
-    $defaultShopUnit = max(1, (int) ceil($packSize / 4));
-    $defaultHouseholdUnit = max(1, (int) ceil($defaultShopUnit / 2));
+    // Confirmed per-pack customer minimums/steps. The fallback keeps coverage for
+    // pack sizes that do not have an explicit business-approved row yet.
+    $orderUnitsByPack = [
+        6 => ['household' => 1, 'shop' => 3],
+        12 => ['household' => 3, 'shop' => 6],
+        18 => ['household' => 4, 'shop' => 9],
+        24 => ['household' => 4, 'shop' => 12],
+        36 => ['household' => 8, 'shop' => 18],
+        48 => ['household' => 12, 'shop' => 24],
+    ];
+    $defaultShopUnit = $orderUnitsByPack[$packSize]['shop'] ?? max(1, (int) ceil($packSize / 4));
+    $defaultHouseholdUnit = $orderUnitsByPack[$packSize]['household']
+        ?? max(1, (int) ceil($defaultShopUnit / 2));
     $shopUnit = molavi_profile_value($product, '_molavi_shop_order_unit', $defaultShopUnit);
     $householdUnit = molavi_profile_value($product, '_molavi_household_order_unit', $defaultHouseholdUnit);
     $orderUnitsDefaulted = $householdUnit > $shopUnit;

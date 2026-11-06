@@ -14,6 +14,27 @@ function ref_prepare_owner_workflow_page($page) {
     $_GET['page'] = $page;
     do_action('admin_enqueue_scripts', '');
 }
+$quantity_product = new WC_Product_Simple();
+$quantity_product->set_name('Synthetic quantity policy product');
+$quantity_policy = [
+    [6, 1, 3], [12, 3, 6], [18, 4, 9], [24, 4, 12], [36, 8, 18], [48, 12, 24],
+];
+foreach ($quantity_policy as [$packSize, $householdStep, $shopStep]) {
+    $quantity_product->update_meta_data('_molavi_pack_size', $packSize);
+    $profile = molavi_product_profile($quantity_product);
+    ref_assert($profile['household_unit'] === $householdStep && $profile['shop_unit'] === $shopStep,
+        'pack size ' . $packSize . ' uses the approved household and shop-owner quantity steps');
+}
+$quantity_product->update_meta_data('_molavi_pack_size', 10);
+$profile = molavi_product_profile($quantity_product);
+ref_assert($profile['household_unit'] === 2 && $profile['shop_unit'] === 3,
+    'unlisted pack sizes keep the documented proportional fallback');
+$quantity_product->update_meta_data('_molavi_pack_size', 24);
+$quantity_product->update_meta_data('_molavi_household_order_unit', 5);
+$quantity_product->update_meta_data('_molavi_shop_order_unit', 12);
+$profile = molavi_product_profile($quantity_product);
+ref_assert($profile['household_unit'] === 5 && $profile['shop_unit'] === 12,
+    'an explicit per-product household quantity override remains in force');
 $storefront_title_test_id = wp_insert_post([
     'post_type' => 'product',
     'post_status' => 'publish',

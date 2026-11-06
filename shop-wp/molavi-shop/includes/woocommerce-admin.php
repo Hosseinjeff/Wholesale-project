@@ -160,12 +160,12 @@ add_action('woocommerce_product_data_panels', static function (): void {
                 <input type="checkbox" id="_molavi_tuna_threshold_anchor" name="_molavi_tuna_threshold_anchor" value="1" <?php checked($profile['tuna_threshold_anchor']); ?> />
                 <?php echo esc_html('استفاده از قیمت همین قوطی تن‌ماهی برای محاسبه آستانه تخفیف'); ?></label>
                 <span class="description">اگر چند محصول انتخاب شوند، قیمت میانه آن‌ها مبناست. قیمت مرجع مشتری در این محصول همیشه در دسترس است.</span></p>
-            <p class="form-field"><label for="_molavi_household_order_unit">واحد سفارش خانوار (اختیاری)</label>
+            <p class="form-field"><label for="_molavi_household_order_unit">حداقل و گام سفارش خانوار (عدد محصول، اختیاری)</label>
                 <input type="number" min="1" max="999" step="1" id="_molavi_household_order_unit" name="_molavi_household_order_unit" value="<?php echo esc_attr($profile['order_units_defaulted'] ? '' : (string) $product->get_meta('_molavi_household_order_unit', true)); ?>" placeholder="<?php echo esc_attr((string) $profile['household_unit']); ?>" />
-                <span class="description">خالی بماند تا یک‌هشتم تعداد بسته مبنا باشد؛ بسته ۲۴تایی برای خانوار از ۳ عدد شروع می‌شود.</span></p>
-            <p class="form-field"><label for="_molavi_shop_order_unit">واحد سفارش فروشگاه (اختیاری)</label>
+                <span class="description">پیش‌فرض: بسته‌های ۶/۱۲/۱۸/۲۴/۳۶/۴۸تایی به‌ترتیب ۱/۳/۴/۴/۸/۱۲ عدد؛ برای اندازه‌های دیگر نصف گام فروشگاه، رو به بالا، اعمال می‌شود.</span></p>
+            <p class="form-field"><label for="_molavi_shop_order_unit">حداقل و گام سفارش فروشگاه (عدد محصول، اختیاری)</label>
                 <input type="number" min="1" max="999" step="1" id="_molavi_shop_order_unit" name="_molavi_shop_order_unit" value="<?php echo esc_attr($profile['order_units_defaulted'] ? '' : (string) $product->get_meta('_molavi_shop_order_unit', true)); ?>" placeholder="<?php echo esc_attr((string) $profile['shop_unit']); ?>" />
-                <span class="description">خالی بماند تا یک‌چهارم تعداد بسته مبنا باشد؛ بسته ۲۴تایی برای فروشگاه از ۶ عدد شروع می‌شود.</span></p>
+                <span class="description">پیش‌فرض: بسته‌های ۶/۱۲/۱۸/۲۴/۳۶/۴۸تایی به‌ترتیب ۳/۶/۹/۱۲/۱۸/۲۴ عدد؛ برای اندازه‌های دیگر یک‌چهارم بسته، رو به بالا، اعمال می‌شود.</span></p>
             <p class="form-field"><label for="_molavi_household_discount_cap_percent">سقف خانوار از حداکثر تخفیف کالا ٪</label>
                 <input type="number" min="0" max="100" step="0.1" id="_molavi_household_discount_cap_percent" name="_molavi_household_discount_cap_percent" value="<?php echo esc_attr($product->get_meta('_molavi_household_discount_cap_ratio', true) === '' ? '' : (string) ((float) $product->get_meta('_molavi_household_discount_cap_ratio', true) * 100)); ?>" placeholder="<?php echo esc_attr((string) round($profile['household_cap_ratio'] * 100, 1)); ?>" /></p>
             <p class="form-field"><label for="_molavi_shop_discount_cap_percent">سقف فروشگاه از حداکثر تخفیف کالا ٪</label>

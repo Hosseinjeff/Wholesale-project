@@ -688,14 +688,15 @@ Do not record suggested options, silence, or previously inferred preferences as 
   owner page can open earlier snapshots and distinguish “review due, approval kept
   within 5%” from “update required.”
 - Buyer type is selectable on the shop page and WooCommerce cart. Both profiles use
-  each product's extracted package count. Implementation defaults are **inferred**
-  and remain editable per product in WooCommerce: shop unit = extracted pack size;
-  household unit = rounded-up half pack size; household cap = 50% of the product's
-  existing maximum discount, shop cap = 100%; price ceiling thresholds = one household
-  unit and four shop units. These ratios and thresholds were not separately confirmed
-  by the user. The 4-unit shop threshold reflects their tuna-pack example. The screen
-  warns which cart lines conflict after a profile switch, provides a quantity fix, and
-  offers the other profile when its threshold is the better fit.
+  each product's extracted package count. The initial quantity defaults below were
+  inferred and remain as historical implementation context; on 2026-11-06 the user
+  confirmed the exact pack-size steps recorded in `roleplay-state.json`, superseding
+  those inferred defaults for the listed sizes. Unlisted sizes retain the documented
+  fallback and per-product WooCommerce overrides remain available. The household cap
+  is 50% of the product's existing maximum discount, shop cap is 100%; price ceiling
+  thresholds are one household unit and four shop units. The screen warns which cart
+  lines conflict after a profile switch, provides a quantity fix, and offers the other
+  profile when its threshold is the better fit.
 - Buyer type and the order unit used for each line are carried into the Woo order and
   its server-side OrderLines record. WooCommerce remains authoritative for the order.
 - Status: deployed from `main` at `4f605fa0617ba7e6464cb4f32e5a051b6ce88c61`.

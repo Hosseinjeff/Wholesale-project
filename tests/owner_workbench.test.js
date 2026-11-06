@@ -911,6 +911,10 @@ async function main() {
     'photo-only messages are visible as a distinct source-review queue');
   assert.match(mediaRoot.text,/بازپردازش با قواعد فعلی: 1 پست در 14 روز اخیر/,
     'the extraction panel shows the current-policy replay scope and date window');
+  assert.match(mediaRoot.text,/اگر تعداد داخل بسته تغییر کند، همگام‌سازی کاتالوگ گام‌های فعلی خانوار و فروشگاه را روی محصول به‌روز می‌کند/,
+    'the replay panel explains that a changed extracted pack size refreshes the published customer steps');
+  assert.match(mediaRoot.text,/برای اعمال صرفِ سیاست جدید نیازی به بازپردازش نیست/,
+    'the replay panel explains that quantity policy changes apply without rerunning extraction');
   const replayRecent=walk(mediaRoot).find(element=>element.tagName==='BUTTON'
     && element.textContent.startsWith('بازپردازش و به‌روزرسانی پست‌های اخیر'));
   assert(replayRecent && !replayRecent.disabled,
