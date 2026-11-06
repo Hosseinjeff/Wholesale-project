@@ -499,6 +499,13 @@
             workbenchRefresh.type = 'button';
             workbenchRefresh.addEventListener('click', () => dashboard());
             toolbar.appendChild(workbenchRefresh);
+            const recentReplayUrl = config.pageUrls && config.pageUrls['molavi-ai-confirmations'];
+            if (recentReplayUrl) {
+                const recentReplayLink = node('a', 'بازبینی و بازپردازش پست‌های اخیر', 'button');
+                recentReplayLink.href = recentReplayUrl;
+                recentReplayLink.setAttribute('aria-label', 'بازبینی نسخه استخراج فعلی و بازپردازش پست‌های اخیر');
+                toolbar.appendChild(recentReplayLink);
+            }
             root.appendChild(toolbar);
             workbenchLiveStatus = node('p', 'در حال آماده‌سازی صف رسیدگی…', 'molavi-workbench-live-status');
             workbenchLiveStatus.setAttribute('role', 'status');

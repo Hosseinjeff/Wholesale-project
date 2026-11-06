@@ -228,7 +228,8 @@ async function main() {
   };
   let scrollToCalls = 0;
   const window = {molaviOwnerWorkflow:{page:'molavi-operations',apiUrl:base+'/pipeline/operations-dashboard',
-    token:'scoped-operations',workflowApis,pageUrls:{},reviewStoreUrl:'/admin-ajax.php',reviewStoreNonce:'nonce'},
+    token:'scoped-operations',workflowApis,pageUrls:{'molavi-ai-confirmations':
+      'https://site.test/wp-admin/admin.php?page=molavi-ai-confirmations'},reviewStoreUrl:'/admin-ajax.php',reviewStoreNonce:'nonce'},
     parent:null,location:{href:'https://site.test/wp-admin/admin.php?page=molavi-operations',
       pathname:'/wp-admin/admin.php',search:'?page=molavi-operations'},crypto:webcrypto,history:{replaceState(){}},
     scrollX:0,scrollY:0,scrollTo(x,y){
@@ -388,6 +389,10 @@ async function main() {
     && element.textContent === 'به‌روزرسانی همه صف‌ها');
   assert(refreshButton && refreshButton.className.includes('button-primary'),
     'the unified workbench exposes a prominent refresh-all-queues action');
+  const recentReplayLink = walk(root).find(element => element.tagName === 'A'
+    && element.textContent === 'بازبینی و بازپردازش پست‌های اخیر');
+  assert(recentReplayLink && recentReplayLink.href === 'https://site.test/wp-admin/admin.php?page=molavi-ai-confirmations',
+    'the unified workbench links directly to the recent extraction replay panel');
   pendingOutboxCommands = [{event_id:'decision:sheet_conflict:sheet:retry:attempt',
     review_type:'sheet_conflict',review_id:'sheet:retry',context:{source_revision:'revision-retry',
       product_id:'product-1',field:'Consumer Price',base:50000,server:52000,sheet:53000},
