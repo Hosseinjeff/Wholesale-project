@@ -1,10 +1,9 @@
 # Railway to WordPress workload review
 
 **Date:** 2026-11-06 (Asia/Tehran)
-**Status:** The first WordPress-owned Sheet-conflict ledger is deployed and its native
-tables are verified. The Railway consumer is pushed but not live because its source
-reconnect/deploy was rejected by automatic review. The active Telegram retry queue
-remains on Railway.
+**Status:** The first WordPress-owned Sheet-conflict ledger and Railway consumer are
+live in production. The live outbox connection is verified with zero due commands;
+the active Telegram retry queue remains on Railway.
 
 ## Finding
 
@@ -169,3 +168,11 @@ and Railway conflict state under normal actions, transient outages, duplicate de
 worker restart, and changed-source races. Supplier-price, reference, publication,
 orders and inventory domains remain on their existing paths until their own shadow
 comparisons and reversible migration receipts pass.
+
+The production deployment `fbba4d46-1ca5-4f2d-9af2-ae490cf92f60` is `SUCCESS` from
+commit `d296285620bb86a087a1b0e1bd68c9dff7b77cce`. The web and pipeline worker both
+entered `RUNNING`; the worker logged a successful authenticated WordPress outbox poll
+with zero due commands. `/health` returned HTTP 200 and `healthy`. The REST schema
+probe had already created/verified the WordPress tables and found no pending commands.
+This validates startup and the empty-queue path; an actual conflict delivery and
+transient-outage replay remain to be exercised when a real conflict is available.

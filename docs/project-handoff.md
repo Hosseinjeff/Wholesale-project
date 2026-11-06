@@ -13,17 +13,15 @@ the route returned HTTP 200 with zero due commands. The plugin files read back f
 cPanel byte-for-byte. No Sheet or catalog record changed.
 
 WordPress plugin follow-up `5c22feaf0a8a859abc4a1462941d68cc79c5d31b` is also live. It
-keeps the conflict dashboard working with the current older Railway request schema by
-retrying only its `invalid_body` response without the revision field. The exact revision
-remains stored in WordPress. The stricter backend revision check is still waiting on a
-Railway deployment.
+retains a compatibility retry for an older API schema; current Railway accepts and
+enforces `expected_revision`, so normal requests stay revision-bound.
 
-The same commit is pushed to GitHub `main`, but Railway still runs commit
-`c2b44480afb422176d4ebcc7eaf8e3b181fd51dc`. The Railway worker poller, route-side
-expected-revision check, and receipt writer are not live yet. Automatic review rejected
-the attempted production-wide source reconnect/immediate deployment. Do not treat the
-WP outbox as automatically consumed until a Railway deployment of this commit succeeds
-and logs `WordPress workflow outbox connected`.
+Railway runs main commit `d296285620bb86a087a1b0e1bd68c9dff7b77cce` in deployment
+`fbba4d46-1ca5-4f2d-9af2-ae490cf92f60` (`SUCCESS`). The worker poller and route-side
+expected-revision check are live. Deployment logs confirm `web` and `pipeline-worker`
+are `RUNNING`, and the worker connected to the WordPress outbox with zero due commands.
+The production `/health` endpoint returns HTTP 200 and `healthy`. No live conflict was
+available, so the production check did not submit a Sheet write.
 
 ## 2026-11-05 first recovery-architecture release
 
