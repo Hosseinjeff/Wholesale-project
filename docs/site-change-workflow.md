@@ -1,6 +1,26 @@
 # Site changes and preservation workflow
 
-Updated: 2026-11-06, Asia/Tehran
+Updated: 2026-11-09, Asia/Tehran
+
+## 2026-11-09 Staging storefront cleanup
+
+Plugin revision `555887b4c06475afbc358781949d9a299e887331` was pushed to
+`codex/storefront-ux` and deployed only to the Staging WordPress installation.
+The cPanel uploader read back `includes/storefront-renderer.php` and
+`molavi-shop.php`; the other changed storefront plugin files already matched the
+revision. Production was not changed.
+
+The Staging storefront no longer renders WooCommerce's English “coming soon” block
+above the custom shop. The WooCommerce visibility setting itself was left alone.
+Product cards and the category filter now omit the default “Uncategorized” term,
+including when it comes from product metadata or a duplicate category term.
+
+Live browser checks returned HTTP 200 and showed 35 product cards, no launch banner,
+and no default category labels at desktop and mobile widths. No page-level JavaScript
+errors were observed. The raw Staging response still contains two document shells;
+Chromium normalizes them to one `html`/`head`/`body` DOM and the checked page renders
+normally. PHP CLI was unavailable in the workspace, so a local PHP syntax lint could
+not be run.
 
 ## 2026-11-06 User-confirmed package quantity steps live
 
