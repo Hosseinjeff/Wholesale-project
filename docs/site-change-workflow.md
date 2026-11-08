@@ -22,6 +22,22 @@ Chromium normalizes them to one `html`/`head`/`body` DOM and the checked page re
 normally. PHP CLI was unavailable in the workspace, so a local PHP syntax lint could
 not be run.
 
+Follow-up revision `e0f19936a68eaf599d0ad090eb10a76f48bfee2a` was pushed and deployed
+only to Staging; the cPanel uploader read back `shop.js` and `storefront.css` along
+with the previously changed renderer. It fixes the controls that the first visual
+check missed. On Staging, `shop.js` now waits for the document and storefront root
+before binding catalog, carousel, and mobile basket interactions, and filtered cards
+use an explicit hidden-state CSS rule. The live check passed grid/list
+switching, the Food filter (34 hidden, 1 shown), carousel advance, household/store
+step changes (4→12→4), cart add/clear, and mobile basket open/close. All four cart and
+buyer requests returned HTTP 200. The only browser 404 observed was the missing
+`/favicon.ico`.
+
+The Staging catalog has 35 cards: 28 image sources and 7 WooCommerce placeholders.
+Thirty titles match Production; the two matching placeholders also have no image in
+Production. The other five Staging-only products have no matching Production records
+to copy images from. No product media was changed.
+
 ## 2026-11-06 User-confirmed package quantity steps live
 
 WordPress plugin commit `b4a91259817e7f9ecd17cef93da05365aee22ecf` deployed the
