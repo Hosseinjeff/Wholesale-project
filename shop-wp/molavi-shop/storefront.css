@@ -1537,6 +1537,7 @@ body.molavi-site-page .woocommerce .molavi-public-price { align-items: start; }
 /* Keep product cards the same shape across cart, price, and copy states. */
 .molavi-product-grid { align-items: stretch; grid-auto-rows: 1fr; }
 .molavi-product-card { height: 100%; min-height: 0; }
+.molavi-product-card[hidden] { display: none !important; }
 .molavi-card-photo { aspect-ratio: 1.28 / 1; flex: 0 0 auto; }
 .molavi-card-photo .molavi-deal { max-width: 48%; overflow: hidden; text-overflow: ellipsis; }
 .molavi-card-body {

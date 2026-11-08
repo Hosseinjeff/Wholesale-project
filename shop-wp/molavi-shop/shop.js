@@ -924,12 +924,53 @@
         });
     }
 
-    setupCatalog();
-    setupRecommendations();
-    setupMobileBasket();
-    setupNativeCartAutoUpdate();
-    updateBuyerControls();
-    paint(lastQuote);
+    var pageInteractionsInitialized = false;
+    var storefrontControlsInitialized = false;
+    var storefrontObserver = null;
+
+    function initializeStorefrontControls() {
+        if (storefrontControlsInitialized) return;
+        var root = document.querySelector("[data-molavi-storefront]");
+        if (!root) {
+            if (document.body && document.body.classList.contains("woocommerce-shop") && !storefrontObserver) {
+                storefrontObserver = new MutationObserver(function () {
+                    if (document.querySelector("[data-molavi-storefront]")) {
+                        storefrontObserver.disconnect();
+                        storefrontObserver = null;
+                        initializeStorefrontControls();
+                    }
+                });
+                storefrontObserver.observe(document.documentElement, { childList: true, subtree: true });
+            }
+            return;
+        }
+
+        storefrontControlsInitialized = true;
+        if (storefrontObserver) {
+            storefrontObserver.disconnect();
+            storefrontObserver = null;
+        }
+        setupCatalog();
+        setupRecommendations();
+        setupMobileBasket();
+        updateBuyerControls();
+        paint(lastQuote);
+    }
+
+    function initializePageInteractions() {
+        if (pageInteractionsInitialized) return;
+        pageInteractionsInitialized = true;
+        setupNativeCartAutoUpdate();
+        updateBuyerControls();
+        paint(lastQuote);
+        initializeStorefrontControls();
+    }
+
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", initializePageInteractions, { once: true });
+    } else {
+        initializePageInteractions();
+    }
 
     function applyFragments(fragments) {
         if (!window.jQuery) return;
