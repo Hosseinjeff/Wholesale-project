@@ -78,13 +78,55 @@ function molavi_is_storefront_request(): bool
     return $shopId > 0 && is_page($shopId);
 }
 
+function molavi_customer_page_title(): ?string
+{
+    if (molavi_is_storefront_request()) {
+        return 'فروشگاه';
+    }
+    if (function_exists('is_cart') && is_cart()) {
+        return 'سبد خرید';
+    }
+    if (function_exists('is_checkout') && is_checkout()) {
+        if (function_exists('is_wc_endpoint_url') && is_wc_endpoint_url('order-received')) {
+            return 'ثبت سفارش';
+        }
+        if (function_exists('is_wc_endpoint_url') && is_wc_endpoint_url('order-pay')) {
+            return 'پرداخت سفارش';
+        }
+        return 'تکمیل سفارش';
+    }
+    if (function_exists('is_account_page') && is_account_page()) {
+        $endpoints = [
+            'orders' => 'سفارش‌های من',
+            'view-order' => 'جزئیات سفارش',
+            'edit-address' => 'نشانی‌های من',
+            'edit-account' => 'اطلاعات حساب',
+            'lost-password' => 'بازنشانی گذرواژه',
+        ];
+        if (function_exists('is_wc_endpoint_url')) {
+            foreach ($endpoints as $endpoint => $title) {
+                if (is_wc_endpoint_url($endpoint)) {
+                    return $title;
+                }
+            }
+        }
+        return 'حساب کاربری';
+    }
+    if (function_exists('is_product') && is_product()) {
+        return wp_strip_all_tags(get_the_title());
+    }
+    return null;
+}
+
 add_filter('pre_get_document_title', static function (string $title): string {
-    return !is_admin() && molavi_is_storefront_request() ? 'فروشگاه مولوی‌سل' : $title;
+    $customerTitle = !is_admin() ? molavi_customer_page_title() : null;
+    return $customerTitle !== null ? $customerTitle . ' | مولوی‌سل' : $title;
 }, 999);
 
 add_filter('document_title_parts', static function (array $parts): array {
-    if (!is_admin() && molavi_is_storefront_request()) {
-        return ['title' => 'فروشگاه مولوی‌سل'];
+    $customerTitle = !is_admin() ? molavi_customer_page_title() : null;
+    if ($customerTitle !== null) {
+        return ['title' => $customerTitle, 'site' => 'مولوی‌سل'];
     }
     return $parts;
 }, 999);
@@ -109,6 +151,69 @@ add_filter('template_include', static function (string $template): string {
     }
     return $template;
 }, 99);
+
+/** Retire the untouched WordPress starter content while preserving real shop pages. */
+add_action('template_redirect', static function (): void {
+    $isStarterPage = function_exists('is_page') && is_page('sample-page');
+    $isStarterPost = function_exists('is_singular') && is_singular('post')
+        && (string) get_post_field('post_name', get_queried_object_id()) === 'hello-world';
+    if ($isStarterPage || $isStarterPost) {
+        wp_safe_redirect(function_exists('wc_get_page_permalink') ? wc_get_page_permalink('shop') : home_url('/'), 301);
+        exit;
+    }
+    if (function_exists('is_account_page') && is_account_page()
+        && function_exists('is_wc_endpoint_url') && is_wc_endpoint_url('downloads')
+        && function_exists('wc_get_products')
+        && wc_get_products(['status' => 'publish', 'downloadable' => true, 'limit' => 1, 'return' => 'ids']) === []) {
+        wp_safe_redirect(wc_get_page_permalink('myaccount'), 301);
+        exit;
+    }
+}, 1);
+
+add_filter('woocommerce_account_menu_items', static function (array $items): array {
+    if (function_exists('wc_get_products')
+        && wc_get_products(['status' => 'publish', 'downloadable' => true, 'limit' => 1, 'return' => 'ids']) === []) {
+        unset($items['downloads']);
+    }
+    return $items;
+}, 99);
+
+add_filter('wp_robots', static function (array $robots): array {
+    $customerFlow = (function_exists('is_cart') && is_cart())
+        || (function_exists('is_checkout') && is_checkout())
+        || (function_exists('is_account_page') && is_account_page());
+    if ($customerFlow) {
+        $robots['noindex'] = true;
+    }
+    return $robots;
+});
+
+add_filter('wp_sitemaps_posts_query_args', static function (array $args, string $postType): array {
+    $exclude = [];
+    if ($postType === 'page') {
+        foreach (['cart', 'checkout', 'myaccount'] as $shopPage) {
+            if (function_exists('wc_get_page_id')) {
+                $pageId = (int) wc_get_page_id($shopPage);
+                if ($pageId > 0) {
+                    $exclude[] = $pageId;
+                }
+            }
+        }
+        $starterPage = get_page_by_path('sample-page', OBJECT, 'page');
+        if ($starterPage instanceof WP_Post) {
+            $exclude[] = (int) $starterPage->ID;
+        }
+    } elseif ($postType === 'post') {
+        $starterPost = get_page_by_path('hello-world', OBJECT, 'post');
+        if ($starterPost instanceof WP_Post) {
+            $exclude[] = (int) $starterPost->ID;
+        }
+    }
+    if ($exclude !== []) {
+        $args['post__not_in'] = array_values(array_unique(array_merge((array) ($args['post__not_in'] ?? []), $exclude)));
+    }
+    return $args;
+}, 10, 2);
 
 add_action('wp_enqueue_scripts', static function (): void {
     wp_enqueue_style(
@@ -155,7 +260,6 @@ add_action('wp_enqueue_scripts', static function (): void {
     $quote = molavi_quote();
     wp_localize_script('molavi-shop', 'molaviShop', [
         'qty' => WC_AJAX::get_endpoint('molavi_qty'),
-        'quote' => WC_AJAX::get_endpoint('molavi_quote'),
         'buyer' => WC_AJAX::get_endpoint('molavi_buyer'),
         'nonce' => wp_create_nonce('molavi-qty'),
         'unlock' => (int) $quote['unlock'],
@@ -274,6 +378,9 @@ add_filter('gettext_woocommerce', static function (string $translation, string $
     static $labels = [
         'Your cart is currently empty!' => 'سبد خرید شما خالی است.',
         'Browse store' => 'رفتن به فروشگاه',
+        'Cart' => 'سبد خرید',
+        'Checkout' => 'تکمیل سفارش',
+        'My account' => 'حساب کاربری',
         'Cart totals' => 'مجموع سبد خرید',
         'Subtotal' => 'جمع جزء',
         'Total' => 'مبلغ کل',
@@ -283,6 +390,13 @@ add_filter('gettext_woocommerce', static function (string $translation, string $
         'Password' => 'رمز عبور',
         'Remember me' => 'مرا به خاطر بسپار',
         'Log in' => 'ورود',
+        'Dashboard' => 'پیشخوان حساب',
+        'Orders' => 'سفارش‌های من',
+        'Downloads' => 'بارگیری‌ها',
+        'Addresses' => 'نشانی‌های من',
+        'Account details' => 'اطلاعات حساب',
+        'Log out' => 'خروج از حساب',
+        'Lost password' => 'بازنشانی گذرواژه',
         'Lost your password?' => 'رمز عبور را فراموش کرده‌اید؟',
         'Register' => 'ثبت‌نام',
         'Billing details' => 'اطلاعات صورتحساب',

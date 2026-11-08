@@ -102,6 +102,8 @@ class Basket extends Widget_Base
             }
         }
         $count = count($lines);
+        $quote = function_exists('molavi_quote') ? molavi_quote() : [];
+        $hasInvalidLines = !empty($quote['invalid_lines']);
         echo '<aside class="molavi-basket" data-molavi-basket>';
         echo '<div class="molavi-basket-head"><h2>' . esc_html($title) . '</h2><span data-molavi-basket-count>' . esc_html($count > 0 ? '(' . molavi_digits((string) $count) . ' محصول)' : '') . '</span></div>';
         molavi_render_buyer_profile_selector('cart');
@@ -127,7 +129,8 @@ class Basket extends Widget_Base
         echo '<div class="molavi-basket-save"' . ($saved > 0 ? '' : ' hidden') . ' data-molavi-basket-save><span>' . esc_html($saveLabel) . '</span><b data-molavi-basket-save-amount>' . esc_html(molavi_toman($saved)) . '</b></div>';
         echo '<div class="molavi-basket-total"><span>' . esc_html($totalLabel) . '</span><strong data-molavi-basket-total>' . esc_html(molavi_toman($total)) . '</strong></div>';
         echo '<p class="molavi-quote-note">مبلغ نهایی محصولات هنگام ادامه سفارش از سبد ووکامرس محاسبه می‌شود.</p>';
-        echo '<a class="molavi-checkout" data-molavi-checkout href="' . esc_url(function_exists('wc_get_checkout_url') ? wc_get_checkout_url() : '#') . '"' . ($count > 0 ? '' : ' hidden') . '><span>' . esc_html($button) . '</span></a>';
+        echo '<p class="molavi-checkout-help" data-molavi-checkout-help' . ($hasInvalidLines ? '' : ' hidden') . '>برای ادامه، تعداد کالاهای مشخص‌شده در سبد را اصلاح کنید.</p>';
+        echo '<a class="molavi-checkout' . ($hasInvalidLines ? ' is-invalid' : '') . '" data-molavi-checkout href="' . esc_url($hasInvalidLines ? '#molavi-basket-lines' : (function_exists('wc_get_checkout_url') ? wc_get_checkout_url() : '#')) . '"' . ($count > 0 ? '' : ' hidden') . ($hasInvalidLines ? ' aria-disabled="true"' : '') . '><span data-molavi-checkout-label>' . esc_html($hasInvalidLines ? 'اصلاح تعداد برای ادامه' : $button) . '</span></a>';
         echo '</aside>';
     }
 }

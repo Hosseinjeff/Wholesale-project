@@ -374,6 +374,11 @@ under `shop-wp/molavi-shop/` that changed since that ref.
 python tools/deploy_wordpress_plugin.py --since <last-deployed-commit>
 ```
 
+The default target is the Production WordPress installation. Use
+`--target staging` for the separate Staging WordPress installation; before writing,
+the uploader verifies through cPanel that `staging.molavisale.ir` maps to
+`/home/<cpanel-user>/public_html/staging`.
+
 The script requires a clean working tree and an upstream that points at the same
 commit as `HEAD`. It reads cPanel credentials from the existing
 `MOLAVISALE_CPANEL_URL`, `MOLAVISALE_CPANEL_USERNAME` and

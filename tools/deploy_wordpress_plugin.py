@@ -4,6 +4,8 @@
 The working tree must be clean and its HEAD must equal the current branch's
 Git upstream. Private runtime-config.php and binary assets are never uploaded.
 Before the first write, existing remote files are copied to /tmp for rollback.
+Production is the default target; --target staging verifies the Staging domain's
+cPanel document root before uploading to that separate WordPress installation.
 """
 
 from __future__ import annotations
@@ -64,8 +66,15 @@ def changed_plugin_files(root: Path, since: str) -> list[str]:
     return sorted(set(files))
 
 
-def uapi_request(base_url: str, auth: str, method: str, params: dict[str, str], data: dict[str, str] | None = None) -> dict:
-    url = base_url.rstrip("/") + "/execute/Fileman/" + method + "?" + urllib.parse.urlencode(params)
+def uapi_request(
+    base_url: str,
+    auth: str,
+    method: str,
+    params: dict[str, str],
+    data: dict[str, str] | None = None,
+    module: str = "Fileman",
+) -> dict:
+    url = base_url.rstrip("/") + "/execute/" + module + "/" + method + "?" + urllib.parse.urlencode(params)
     body = urllib.parse.urlencode(data).encode("utf-8") if data is not None else None
     request = urllib.request.Request(
         url,
@@ -95,6 +104,31 @@ def uapi_request(base_url: str, auth: str, method: str, params: dict[str, str], 
             return {"_missing": True}
         raise RuntimeError(f"cPanel UAPI {method} returned a failure")
     return payload
+
+
+def staging_document_root(base_url: str, auth: str, username: str) -> str:
+    expected = f"/home/{username}/public_html/staging"
+    payload = uapi_request(base_url, auth, "domains_data", {"format": "json"}, module="DomainInfo")
+    data = payload.get("data")
+    records: list[tuple[str, str]] = []
+
+    def visit(value) -> None:
+        if isinstance(value, dict):
+            domain = value.get("domain") or value.get("servername")
+            document_root = value.get("documentroot") or value.get("document_root") or value.get("docroot")
+            if isinstance(domain, str) and isinstance(document_root, str):
+                records.append((domain.rstrip(".").lower(), os.path.normpath(document_root)))
+            for nested in value.values():
+                visit(nested)
+        elif isinstance(value, list):
+            for nested in value:
+                visit(nested)
+
+    visit(data)
+    matches = [root for domain, root in records if domain == "staging.molavisale.ir"]
+    if len(matches) != 1 or matches[0] != os.path.normpath(expected):
+        raise RuntimeError("cPanel does not map staging.molavisale.ir to the expected Staging document root")
+    return expected
 
 
 def extract_file_content(payload: dict) -> str | None:
@@ -144,6 +178,8 @@ def remote_location(remote_root: str, tracked_name: str) -> tuple[str, str]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--since", default="HEAD^", help="Git ref before the plugin changes to deploy (default: HEAD^)")
+    parser.add_argument("--target", choices=("production", "staging"), default="production",
+                        help="WordPress installation to update (default: production)")
     args = parser.parse_args()
 
     try:
@@ -157,7 +193,10 @@ def main() -> int:
         if urllib.parse.urlparse(base_url).scheme != "https":
             raise RuntimeError("MOLAVISALE_CPANEL_URL must use HTTPS")
         auth = "Basic " + base64.b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
-        remote_dir = f"/home/{username}/public_html/wp-content/plugins/molavi-shop"
+        document_root = f"/home/{username}/public_html"
+        if args.target == "staging":
+            document_root = staging_document_root(base_url, auth, username)
+        remote_dir = f"{document_root}/wp-content/plugins/molavi-shop"
 
         remote: dict[str, str | None] = {}
         for name in files:
@@ -202,6 +241,7 @@ def main() -> int:
 
         print(json.dumps({
             "revision": revision,
+            "target": args.target,
             "uploaded": uploaded,
             "unchanged": unchanged,
             "host_normalized": host_normalized,

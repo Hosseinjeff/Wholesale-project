@@ -29,10 +29,22 @@ function molavi_render_storefront(): void
     $categories = [];
     foreach ($products as $product) {
         $category = trim((string) $product->get_meta('_molavi_category'));
+        if (in_array(strtolower($category), ['uncategorized', 'دسته‌بندی‌نشده'], true)) {
+            $category = '';
+        }
         if ($category === '') {
             $terms = get_the_terms($product->get_id(), 'product_cat');
             if (is_array($terms) && $terms !== []) {
-                $category = (string) $terms[0]->name;
+                $defaultCategoryId = (int) get_option('default_product_cat', 0);
+                foreach ($terms as $term) {
+                    if (!($term instanceof \WP_Term)
+                        || $term->slug === 'uncategorized'
+                        || ($defaultCategoryId > 0 && (int) $term->term_id === $defaultCategoryId)) {
+                        continue;
+                    }
+                    $category = (string) $term->name;
+                    break;
+                }
             }
         }
         if ($category !== '') {
@@ -71,6 +83,22 @@ function molavi_render_storefront(): void
                         </select>
                     </label>
                 </div>
+                <section class="molavi-recommendation-carousel" data-molavi-recommendations aria-label="پیشنهادهای متناسب با خرید شما">
+                    <div class="molavi-recommendation-head">
+                        <div><p class="molavi-eyebrow">برای شما</p><h2>راهنمای خرید</h2></div>
+                        <div class="molavi-recommendation-controls" role="group" aria-label="پیشنهادها">
+                            <button type="button" data-molavi-recommendation-prev aria-label="پیشنهاد قبلی">‹</button>
+                            <span data-molavi-recommendation-count aria-live="polite">۱ از ۳</span>
+                            <button type="button" data-molavi-recommendation-next aria-label="پیشنهاد بعدی">›</button>
+                        </div>
+                    </div>
+                    <div class="molavi-recommendation-slide" data-molavi-recommendation-slide aria-live="polite">
+                        <strong>قیمت و تعداد متناسب با خریدتان</strong>
+                        <p>نوع خرید و مقدار داخل سبد را می‌توانید هر زمان تغییر دهید.</p>
+                        <button type="button" data-molavi-recommendation-action="buyer">تغییر نوع خرید</button>
+                    </div>
+                    <div class="molavi-recommendation-dots" data-molavi-recommendation-dots role="group" aria-label="انتخاب پیشنهاد"></div>
+                </section>
                 <div class="molavi-product-grid" data-molavi-grid>
                     <?php foreach ($products as $product): ?>
                         <?php molavi_render_storefront_card($product, $quote); ?>
@@ -179,7 +207,7 @@ function molavi_render_storefront_card(\WC_Product $product, array $quote): void
     $created = $product->get_date_created();
     $createdAt = $created ? $created->getTimestamp() : 0;
     ?>
-    <article class="molavi-product-card e-loop-item" data-molavi-card data-product="<?php echo esc_attr((string) $id); ?>" data-name="<?php echo esc_attr($displayName); ?>" data-category="<?php echo esc_attr($category); ?>" data-search="<?php echo esc_attr($search); ?>" data-price="<?php echo esc_attr((string) $unit); ?>" data-created="<?php echo esc_attr((string) $createdAt); ?>" data-household-max="<?php echo esc_attr((string) $householdCurve['max']); ?>" data-shop-max="<?php echo esc_attr((string) $shopCurve['max']); ?>">
+    <article class="molavi-product-card e-loop-item" data-molavi-card data-product="<?php echo esc_attr((string) $id); ?>" data-name="<?php echo esc_attr($displayName); ?>" data-category="<?php echo esc_attr($category); ?>" data-search="<?php echo esc_attr($search); ?>" data-price="<?php echo esc_attr((string) $unit); ?>" data-created="<?php echo esc_attr((string) $createdAt); ?>" data-household-max="<?php echo esc_attr((string) $householdCurve['max']); ?>" data-shop-max="<?php echo esc_attr((string) $shopCurve['max']); ?>" data-has-discount="<?php echo $shelf > $unit ? '1' : '0'; ?>">
         <div class="molavi-card-photo">
             <?php echo wp_kses_post($image); ?>
             <?php if ($max > 0): ?>
@@ -192,8 +220,8 @@ function molavi_render_storefront_card(\WC_Product $product, array $quote): void
         <div class="molavi-card-body">
             <h3><a href="<?php echo esc_url($product->get_permalink()); ?>"><?php echo esc_html($displayName); ?></a></h3>
             <div class="molavi-card-facts">
-                <span class="molavi-order-units" data-molavi-order-units>خانوار <?php echo esc_html(molavi_digits((string) $profile['household_unit'])); ?> · فروشگاه <?php echo esc_html(molavi_digits((string) $profile['shop_unit'])); ?></span>
-                <?php if ($category !== ''): ?><span><?php echo esc_html($category); ?></span><?php endif; ?>
+                <span class="molavi-order-units" data-molavi-order-units data-household-unit="<?php echo esc_attr((string) $profile['household_unit']); ?>" data-shop-unit="<?php echo esc_attr((string) $profile['shop_unit']); ?>" title="خانوار <?php echo esc_attr(molavi_digits((string) $profile['household_unit'])); ?> عدد؛ فروشگاه <?php echo esc_attr(molavi_digits((string) $profile['shop_unit'])); ?> عدد">گام سفارش: <?php echo esc_html(molavi_digits((string) $profile[$buyerType . '_unit'])); ?> عدد</span>
+                <?php if ($category !== ''): ?><span class="molavi-card-category"><?php echo esc_html($category); ?></span><?php endif; ?>
                 <span class="screen-reader-text">حداقل خرید <?php echo esc_html(molavi_digits((string) $min)); ?> عدد</span>
             </div>
             <div class="molavi-card-price" data-molavi-price data-product="<?php echo esc_attr((string) $id); ?>" data-name="<?php echo esc_attr($displayName); ?>" data-min="<?php echo esc_attr((string) $min); ?>" data-household-min="<?php echo esc_attr((string) $profile['household_unit']); ?>" data-shop-min="<?php echo esc_attr((string) $profile['shop_unit']); ?>" data-household-max="<?php echo esc_attr((string) $householdCurve['max']); ?>" data-shop-max="<?php echo esc_attr((string) $shopCurve['max']); ?>" data-discountable="<?php echo $curve['discountable'] ? '1' : '0'; ?>" data-shelf="<?php echo esc_attr((string) $shelf); ?>" data-fixed-price="<?php echo esc_attr((string) ($shelf > 0 ? 0 : $unit)); ?>" data-unit="<?php echo esc_attr((string) $unit); ?>">
@@ -205,8 +233,6 @@ function molavi_render_storefront_card(\WC_Product $product, array $quote): void
                 </div>
             </div>
             <?php molavi_render_storefront_control($product, $qty, $min); ?>
-            <div class="molavi-card-feedback" data-molavi-card-feedback data-product="<?php echo esc_attr((string) $id); ?>" role="status" aria-live="polite" hidden></div>
-            <p class="molavi-card-status" data-molavi-card-status data-product="<?php echo esc_attr((string) $id); ?>" role="status" aria-live="polite" hidden></p>
         </div>
     </article>
     <?php
@@ -216,11 +242,11 @@ function molavi_render_storefront_control(\WC_Product $product, int $qty, int $m
 {
     echo '<div class="molavi-control' . ($qty > 0 ? ' is-in' : '') . '" data-molavi-cart data-product="' . esc_attr((string) $product->get_id()) . '" data-min="' . esc_attr((string) $min) . '" data-qty="' . esc_attr((string) $qty) . '">';
     if ($qty > 0) {
-        echo '<div class="molavi-actions"><div class="molavi-step"><button type="button" data-molavi-step="-' . esc_attr((string) $min) . '" aria-label="کم کردن به اندازه واحد سفارش">−</button><b>' . esc_html(molavi_digits((string) $qty)) . '</b><button type="button" data-molavi-step="' . esc_attr((string) $min) . '" aria-label="افزودن به اندازه واحد سفارش">+</button></div><button type="button" class="molavi-trash" data-molavi-clear aria-label="حذف از سبد">' . molavi_basket_trash_svg() . '</button></div>';
+        echo '<div class="molavi-actions"><div class="molavi-step"><button type="button" data-molavi-step="-' . esc_attr((string) $min) . '" aria-label="کم کردن ' . esc_attr(molavi_digits((string) $min)) . ' عدد">−</button><b>' . esc_html(molavi_digits((string) $qty)) . '</b><button type="button" data-molavi-step="' . esc_attr((string) $min) . '" aria-label="افزودن ' . esc_attr(molavi_digits((string) $min)) . ' عدد">+</button></div><button type="button" class="molavi-trash" data-molavi-clear aria-label="حذف از سبد">' . molavi_basket_trash_svg() . '</button></div>';
     } else {
         $supplier = trim((string) $product->get_meta('_molavi_supplier'));
         $displayName = molavi_storefront_card_product_name($product, $supplier);
-        echo '<button type="button" class="molavi-add" data-molavi-step="1" aria-label="افزودن حداقل ' . esc_attr(molavi_digits((string) $min)) . ' عدد ' . esc_attr($displayName) . ' به سبد"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6h1.6l1.4 8.2a1 1 0 0 0 1 .8h7.8a1 1 0 0 0 1-.8L20 8H8"></path><circle cx="10" cy="19" r="1.2"></circle><circle cx="17" cy="19" r="1.2"></circle></svg></button>';
+        echo '<button type="button" class="molavi-add" data-molavi-step="1" aria-label="افزودن حداقل ' . esc_attr(molavi_digits((string) $min)) . ' عدد ' . esc_attr($displayName) . ' به سبد"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6h1.6l1.4 8.2a1 1 0 0 0 1 .8h7.8a1 1 0 0 0 1-.8L20 8H8"></path><circle cx="10" cy="19" r="1.2"></circle><circle cx="17" cy="19" r="1.2"></circle></svg><span>افزودن</span></button>';
     }
     echo '</div>';
 }
@@ -237,13 +263,13 @@ function molavi_render_storefront_basket(array $quote): void
             <button type="button" class="molavi-close-basket" data-molavi-close-basket aria-label="بستن سبد">×</button>
         </header>
         <?php molavi_render_buyer_profile_selector('basket'); ?>
-        <div class="molavi-basket-lines" data-molavi-basket-lines>
+        <div class="molavi-basket-lines" id="molavi-basket-lines" data-molavi-basket-lines>
             <?php foreach ($qtys as $id => $qty): ?>
                 <?php $row = $map[(string) $id] ?? null; if (!$row || (int) $qty < 1) { continue; } $unit = (int) ($units[(string) $id] ?? molavi_catalog_product_price($row, (int) $qty, molavi_buyer_type(), (float) ($quote['progress'] ?? 0))['price']); $product = wc_get_product((int) $id); $step = max(1, (int) ($row[molavi_buyer_type() . '_unit'] ?? $row['min'])); ?>
                 <article class="molavi-bline" data-product="<?php echo esc_attr((string) $id); ?>" data-min="<?php echo esc_attr((string) $row['min']); ?>" data-qty="<?php echo esc_attr((string) $qty); ?>">
                     <div class="molavi-bline-image"><?php if ($product): ?><?php echo wp_kses_post($product->get_image('woocommerce_thumbnail', ['alt' => (string) $row['name'], 'loading' => 'lazy'])); ?><?php endif; ?></div>
-                    <div class="molavi-bline-copy"><h3><?php echo esc_html((string) $row['name']); ?></h3><p><strong><?php echo esc_html(molavi_toman($unit)); ?></strong> × <?php echo esc_html(molavi_digits((string) $qty)); ?></p><small>گام سفارش: <?php echo esc_html(molavi_digits((string) $step)); ?> عدد</small></div>
-                    <div class="molavi-actions"><div class="molavi-step"><button type="button" data-molavi-step="-<?php echo esc_attr((string) $step); ?>" aria-label="کم کردن به اندازه واحد سفارش">−</button><b><?php echo esc_html(molavi_digits((string) $qty)); ?></b><button type="button" data-molavi-step="<?php echo esc_attr((string) $step); ?>" aria-label="افزودن به اندازه واحد سفارش">+</button></div><button type="button" class="molavi-trash" data-molavi-clear aria-label="حذف از سبد"><?php echo molavi_basket_trash_svg(); ?></button></div>
+                    <div class="molavi-bline-copy"><h3><?php echo esc_html((string) $row['name']); ?></h3><p><strong><?php echo esc_html(molavi_toman($unit)); ?></strong> × <?php echo esc_html(molavi_digits((string) $qty)); ?></p><small class="molavi-order-step">گام سفارش: <?php echo esc_html(molavi_digits((string) $step)); ?> عدد</small></div>
+                    <div class="molavi-actions"><div class="molavi-step"><button type="button" data-molavi-step="-<?php echo esc_attr((string) $step); ?>" aria-label="کم کردن <?php echo esc_attr(molavi_digits((string) $step)); ?> عدد">−</button><b><?php echo esc_html(molavi_digits((string) $qty)); ?></b><button type="button" data-molavi-step="<?php echo esc_attr((string) $step); ?>" aria-label="افزودن <?php echo esc_attr(molavi_digits((string) $step)); ?> عدد">+</button></div><button type="button" class="molavi-trash" data-molavi-clear aria-label="حذف از سبد"><?php echo molavi_basket_trash_svg(); ?></button></div>
                 </article>
             <?php endforeach; ?>
             <?php if ($qtys === []): ?><p class="molavi-basket-empty" data-molavi-empty-basket>سبد خالی است. برای شروع، یک محصول انتخاب کنید.</p><?php endif; ?>
@@ -251,8 +277,7 @@ function molavi_render_storefront_basket(array $quote): void
         <section class="molavi-progress-module" aria-label="پیشرفت تخفیف">
             <div class="molavi-progress-copy"><strong data-molavi-progress-title><?php echo !empty($quote['progress']) && $quote['progress'] >= 1 ? 'به سقف تخفیف این نوع خرید رسیدید' : 'با افزایش مبلغ سبد، تخفیف بیشتر می‌شود'; ?></strong><span data-molavi-remaining><?php echo !empty($quote['remaining']) ? 'مانده تا سقف: ' . esc_html(molavi_toman((int) $quote['remaining'])) : 'سقف تخفیف این نوع خرید فعال است.'; ?></span></div>
             <div class="molavi-progress-track" role="progressbar" aria-label="پیشرفت سبد برای تخفیف" aria-valuemin="0" aria-valuemax="100" aria-valuenow="<?php echo esc_attr((string) round((float) ($quote['progress'] ?? 0) * 100)); ?>" data-molavi-progressbar><span data-molavi-progress-fill style="width:<?php echo esc_attr((string) round((float) ($quote['progress'] ?? 0) * 100)); ?>%"></span></div>
-            <p class="molavi-progress-help">آستانه بر اساس جمع قیمت مرجع کالاهای مشمول تخفیف محاسبه می‌شود؛ هزینه ارسال جداست.</p>
-            <details><summary>جزئیات محاسبه</summary><p>آستانه خانوار ارزش <?php echo esc_html(molavi_digits((string) ($quote['tuna_shell_units'] ?? 24))); ?> قوطی تن‌ماهی (<?php echo esc_html(molavi_toman((int) ($quote['household_unlock'] ?? 5000000))); ?>) است و آستانه فروشگاه <?php echo esc_html(molavi_digits((string) ($quote['shop_unlock_multiplier'] ?? 4))); ?> برابر آن (<?php echo esc_html(molavi_toman((int) ($quote['shop_unlock'] ?? 20000000))); ?>). سقف تخفیف فروشگاه تا کف مجاز قیمت کالا پیش می‌رود؛ خانوار سقف پایین‌تری دارد.</p></details>
+            <details><summary>نحوه محاسبه</summary><p>تخفیف بر اساس جمع قیمت مرجع کالاهای مشمول محاسبه می‌شود. آستانه خانوار <?php echo esc_html(molavi_toman((int) ($quote['household_unlock'] ?? 5000000))); ?> و آستانه فروشگاه <?php echo esc_html(molavi_toman((int) ($quote['shop_unlock'] ?? 20000000))); ?> است. هزینه ارسال جداگانه محاسبه می‌شود.</p></details>
         </section>
         <dl class="molavi-basket-summary">
             <div><dt>جمع قیمت مصرف</dt><dd data-molavi-reference><?php echo esc_html(molavi_toman((int) ($quote['reference_total'] ?? 0))); ?></dd></div>
@@ -260,7 +285,9 @@ function molavi_render_storefront_basket(array $quote): void
             <div class="molavi-summary-total"><dt>جمع محصولات پس از تخفیف</dt><dd data-molavi-subtotal><?php echo esc_html(molavi_toman((int) ($quote['subtotal'] ?? 0))); ?></dd></div>
         </dl>
         <p class="molavi-quote-note">مبلغ نهایی محصولات هنگام ادامه سفارش از سبد ووکامرس محاسبه می‌شود.</p>
-        <a class="molavi-checkout" data-molavi-checkout href="<?php echo esc_url(wc_get_checkout_url()); ?>"<?php echo !empty($quote['count']) ? '' : ' hidden'; ?>>ادامه سفارش</a>
+        <?php $hasInvalidLines = !empty($quote['invalid_lines']); ?>
+        <p class="molavi-checkout-help" data-molavi-checkout-help<?php echo $hasInvalidLines ? '' : ' hidden'; ?>>برای ادامه، تعداد کالاهای مشخص‌شده در سبد را اصلاح کنید.</p>
+        <a class="molavi-checkout<?php echo $hasInvalidLines ? ' is-invalid' : ''; ?>" data-molavi-checkout href="<?php echo esc_url($hasInvalidLines ? '#molavi-basket-lines' : wc_get_checkout_url()); ?>"<?php echo !empty($quote['count']) ? '' : ' hidden'; ?><?php echo $hasInvalidLines ? ' aria-disabled="true"' : ''; ?>><?php echo $hasInvalidLines ? 'اصلاح تعداد برای ادامه' : 'ادامه سفارش'; ?></a>
     </aside>
     <?php
 }
