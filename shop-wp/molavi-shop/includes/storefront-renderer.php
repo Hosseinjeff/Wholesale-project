@@ -8,6 +8,40 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
+function molavi_storefront_is_default_category_label(string $category): bool
+{
+    $category = strtolower(trim(wp_strip_all_tags($category)));
+    $normalized = preg_replace('/[\p{Z}\p{Cf}\s_\-]+/u', '', $category);
+    $normalized = is_string($normalized) ? $normalized : $category;
+    return in_array($normalized, ['uncategorized', 'دستهبندینشده'], true);
+}
+
+function molavi_storefront_product_category(\WC_Product $product): string
+{
+    $category = trim((string) $product->get_meta('_molavi_category'));
+    if ($category !== '' && !molavi_storefront_is_default_category_label($category)) {
+        return $category;
+    }
+
+    $terms = get_the_terms($product->get_id(), 'product_cat');
+    if (!is_array($terms) || $terms === []) {
+        return '';
+    }
+
+    $defaultCategoryId = (int) get_option('default_product_cat', 0);
+    foreach ($terms as $term) {
+        if (!($term instanceof \WP_Term)
+            || $term->slug === 'uncategorized'
+            || molavi_storefront_is_default_category_label((string) $term->name)
+            || ($defaultCategoryId > 0 && (int) $term->term_id === $defaultCategoryId)) {
+            continue;
+        }
+        return trim((string) $term->name);
+    }
+
+    return '';
+}
+
 function molavi_render_storefront(): void
 {
     if (!function_exists('wc_get_products') || !function_exists('WC')) {
@@ -28,25 +62,7 @@ function molavi_render_storefront(): void
     $quote = molavi_quote();
     $categories = [];
     foreach ($products as $product) {
-        $category = trim((string) $product->get_meta('_molavi_category'));
-        if (in_array(strtolower($category), ['uncategorized', 'دسته‌بندی‌نشده'], true)) {
-            $category = '';
-        }
-        if ($category === '') {
-            $terms = get_the_terms($product->get_id(), 'product_cat');
-            if (is_array($terms) && $terms !== []) {
-                $defaultCategoryId = (int) get_option('default_product_cat', 0);
-                foreach ($terms as $term) {
-                    if (!($term instanceof \WP_Term)
-                        || $term->slug === 'uncategorized'
-                        || ($defaultCategoryId > 0 && (int) $term->term_id === $defaultCategoryId)) {
-                        continue;
-                    }
-                    $category = (string) $term->name;
-                    break;
-                }
-            }
-        }
+        $category = molavi_storefront_product_category($product);
         if ($category !== '') {
             $categories[$category] = true;
         }
@@ -189,13 +205,7 @@ function molavi_render_storefront_card(\WC_Product $product, array $quote): void
     $min = molavi_product_min($product);
     $supplier = trim((string) $product->get_meta('_molavi_supplier'));
     $displayName = molavi_storefront_card_product_name($product, $supplier);
-    $category = trim((string) $product->get_meta('_molavi_category'));
-    if ($category === '') {
-        $terms = get_the_terms($id, 'product_cat');
-        if (is_array($terms) && $terms !== []) {
-            $category = (string) $terms[0]->name;
-        }
-    }
+    $category = molavi_storefront_product_category($product);
     if ($supplier !== '') {
         $category = trim(str_ireplace($supplier, ' ', $category), " \t\n\r\0\x0B،,؛;:-");
     }

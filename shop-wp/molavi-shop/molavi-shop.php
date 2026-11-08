@@ -145,6 +145,16 @@ add_filter('body_class', static function (array $classes): array {
     return $classes;
 });
 
+// The copied Staging site retains WooCommerce's launch banner. The custom
+// storefront is available there for review, so do not prepend that banner.
+add_filter('render_block_woocommerce/coming-soon', static function (string $content): string {
+    if (is_admin()) {
+        return $content;
+    }
+    $host = strtolower((string) wp_parse_url(home_url('/'), PHP_URL_HOST));
+    return $host === 'staging.molavisale.ir' ? '' : $content;
+}, 99);
+
 add_filter('template_include', static function (string $template): string {
     if (molavi_is_storefront_request()) {
         return __DIR__ . '/shop-template.php';
