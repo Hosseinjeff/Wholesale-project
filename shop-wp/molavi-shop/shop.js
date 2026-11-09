@@ -174,7 +174,7 @@
         var switchSuggestion = quote && quote.switch_suggestion;
         var storeRoot = document.querySelector("[data-molavi-storefront]");
         var basket = document.querySelector("#molavi-basket-dialog");
-        var cartVisible = basket && (!storeRoot || window.matchMedia("(min-width: 761px)").matches
+        var cartVisible = basket && (!storeRoot || window.matchMedia("(min-width: 901px)").matches
             || basket.classList.contains("is-open"));
         var feedbackNodes = document.querySelectorAll("[data-molavi-buyer-feedback]");
         feedbackNodes.forEach(function (node) {
@@ -380,7 +380,11 @@
                 if (orderUnits && orderUnits.textContent !== unitText) orderUnits.textContent = unitText;
                 if (orderUnits) orderUnits.title = "خانوار " + digits(row.householdUnit) + " عدد؛ فروشگاه " + digits(row.shopUnit) + " عدد";
             }
-            if (amount && amount.textContent !== toman(unit)) amount.textContent = toman(unit);
+            if (amount) {
+                var unitLabel = toman(unit);
+                if (amount.textContent !== unitLabel) amount.textContent = unitLabel;
+                amount.title = unitLabel;
+            }
             node.setAttribute("data-unit", String(unit));
             var card = node.closest("[data-molavi-card]");
             if (card) {
@@ -398,7 +402,10 @@
             var was = node.querySelector(".molavi-was");
             if (was) {
                 was.hidden = !(shelf > unit);
-                if (shelf > unit) was.textContent = toman(shelf);
+                if (shelf > unit) {
+                    was.textContent = toman(shelf);
+                    was.title = toman(shelf);
+                }
             }
         });
         document.querySelectorAll("[data-molavi-profile-deal]").forEach(function (node) {
@@ -533,6 +540,8 @@
         var countNode = document.querySelector("[data-molavi-basket-count]");
         if (countNode) countNode.textContent = kinds > 0 ? "(" + digits(kinds) + " محصول)" : "";
         var checkout = document.querySelector("[data-molavi-checkout]");
+        var mobileBasketTrigger = document.querySelector(".molavi-mobile-basket[data-molavi-open-basket]");
+        if (mobileBasketTrigger) mobileBasketTrigger.hidden = kinds < 1;
         var invalidCount = Array.isArray(quote && quote.invalid_lines) ? quote.invalid_lines.length : 0;
         var checkoutHelp = document.querySelector("[data-molavi-checkout-help]");
         if (checkout) {
@@ -883,7 +892,7 @@
         var dialog = root.querySelector("#molavi-basket-dialog");
         var backdrop = root.querySelector(".molavi-basket-backdrop");
         if (!triggers.length || !dialog || !backdrop) return;
-        var mobileQuery = window.matchMedia("(max-width: 760px)");
+        var mobileQuery = window.matchMedia("(max-width: 900px)");
         var lastTrigger = triggers[0];
         if (mobileQuery.matches) {
             dialog.setAttribute("inert", "");
@@ -959,7 +968,7 @@
             }
         });
         window.addEventListener("resize", function () {
-            if (window.matchMedia("(min-width: 761px)").matches) {
+            if (window.matchMedia("(min-width: 901px)").matches) {
                 if (dialog.classList.contains("is-open")) close();
                 dialog.removeAttribute("inert");
                 dialog.removeAttribute("aria-hidden");
