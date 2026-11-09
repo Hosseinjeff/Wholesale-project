@@ -2172,6 +2172,13 @@ body.molavi-site-page .woocommerce .woocommerce-notices-wrapper { margin-bottom:
     .molavi-product-grid.is-list-view .molavi-control .molavi-trash { flex-basis: 28px; width: 28px; }
 }
 
+@media (min-width: 1200px) {
+    .molavi-product-grid.is-list-view .molavi-card-body {
+        grid-template-columns: 250px 250px 116px;
+        justify-content: space-between;
+    }
+}
+
 /* Mobile list cards use a compact square thumbnail and stacked, aligned details. */
 @media (max-width: 760px) {
     .molavi-card-photo { aspect-ratio: 1.45 / 1; margin: 5px 5px 0; }
