@@ -615,8 +615,16 @@ function molavi_render_buyer_profile_selector(string $context = 'shop'): void
     $label = $compact ? 'نوع خرید' : 'قیمت برای';
     $targets = molavi_unlock_targets(molavi_catalog_map());
     ?>
+    <?php if ($compact): ?>
+    <details class="molavi-buyer-choice-disclosure" data-molavi-buyer-disclosure>
+        <summary>
+            <span><?php echo esc_html($label); ?></span>
+            <strong data-molavi-buyer-current><?php echo $selected === 'shop' ? 'فروشگاه' : 'خانوار'; ?></strong>
+            <span class="molavi-disclosure-action">تغییر</span>
+        </summary>
+    <?php endif; ?>
     <section class="molavi-buyer-choice<?php echo $compact ? ' molavi-buyer-choice-compact' : ''; ?>" data-molavi-buyer-choice aria-label="انتخاب نوع خریدار">
-        <strong class="molavi-buyer-choice-title"><?php echo esc_html($label); ?></strong>
+        <strong class="molavi-buyer-choice-title"><?php echo esc_html($compact ? 'انتخاب کنید' : $label); ?></strong>
         <div class="molavi-buyer-choice-buttons" role="group" aria-label="نوع خریدار">
             <button type="button" data-molavi-buyer="household" aria-pressed="<?php echo $selected === 'household' ? 'true' : 'false'; ?>">خانوار</button>
             <button type="button" data-molavi-buyer="shop" aria-pressed="<?php echo $selected === 'shop' ? 'true' : 'false'; ?>">فروشگاه</button>
@@ -624,11 +632,14 @@ function molavi_render_buyer_profile_selector(string $context = 'shop'): void
         <details class="molavi-buyer-choice-details">
             <summary aria-label="توضیح نوع خرید">راهنمای نوع خرید</summary>
             <p class="molavi-buyer-choice-help" data-molavi-buyer-help><?php echo esc_html(
-                'با انتخاب نوع خرید، قیمت‌های نمایش‌داده‌شده و گام افزایش تعداد هر کالا به‌روز می‌شود. آستانه تخفیف برای خانوار ' . molavi_toman((int) $targets['household']) . ' و برای فروشگاه ' . molavi_toman((int) $targets['shop']) . ' است. واحد سفارش هر کالا کنار نام آن و در سبد دیده می‌شود؛ هزینه ارسال جداگانه محاسبه می‌شود.'
+                'با انتخاب نوع خرید، قیمت‌ها و گام سفارش هر کالا تغییر می‌کند؛ تعداد سبد خودکار تغییر نمی‌کند. اگر تعداد با گام تازه سازگار نباشد، پیش از ادامه آن را خودتان اصلاح کنید. آستانه تخفیف خانوار ' . molavi_toman((int) $targets['household']) . ' و فروشگاه ' . molavi_toman((int) $targets['shop']) . ' است؛ هزینه ارسال جداگانه محاسبه می‌شود.'
             ); ?></p>
         </details>
         <div class="molavi-buyer-feedback" data-molavi-buyer-feedback role="status" aria-live="polite" hidden></div>
     </section>
+    <?php if ($compact): ?>
+    </details>
+    <?php endif; ?>
     <?php
 }
 
@@ -639,62 +650,24 @@ function molavi_normalize_order_quantity(int $quantity, int $step): int
     return min(999 - (999 % $step), max($step, (int) ceil($quantity / $step) * $step));
 }
 
-/** Keep every cart line aligned when the customer changes purchase type. */
-function molavi_normalize_cart_order_units(string $buyerType): array
+function molavi_render_buyer_step_validation_notice(): void
 {
-    if (!function_exists('WC') || !(WC()->cart instanceof WC_Cart)) {
-        return [];
-    }
-    $map = molavi_catalog_map();
-    $changes = [];
-    foreach (WC()->cart->get_cart() as $key => $item) {
-        $id = (string) ($item['product_id'] ?? '');
-        $row = $map[$id] ?? null;
-        $quantity = (int) ($item['quantity'] ?? 0);
-        if (!is_array($row) || $quantity < 1) {
-            continue;
-        }
-        $step = max(1, (int) ($row[$buyerType . '_unit'] ?? 1));
-        $normalized = molavi_normalize_order_quantity($quantity, $step);
-        if ($normalized === $quantity) {
-            continue;
-        }
-        WC()->cart->set_quantity((string) $key, $normalized, false);
-        $changes[] = [
-            'product_id' => $id,
-            'name' => (string) ($row['name'] ?? 'کالا'),
-            'from_qty' => $quantity,
-            'to_qty' => $normalized,
-            'order_unit' => $step,
-        ];
-    }
-    return $changes;
-}
-
-function molavi_render_buyer_step_update_notice(): void
-{
-    if (!function_exists('WC') || !WC()->session) {
+    $invalidLines = molavi_quote()['invalid_lines'] ?? [];
+    if (!is_array($invalidLines) || $invalidLines === []) {
         return;
     }
-    $changes = WC()->session->get('molavi_buyer_step_updates', []);
-    WC()->session->set('molavi_buyer_step_updates', []);
-    if (!is_array($changes) || $changes === []) {
-        return;
-    }
-    $buyerLabel = molavi_buyer_type() === 'shop' ? 'فروشگاهی' : 'خانوار';
-    echo '<section class="molavi-step-update-notice" role="status"><strong>تعداد سفارش با نوع خرید جدید هماهنگ شد.</strong>';
-    echo '<details><summary>چرا تعداد تغییر کرد؟</summary><p>واحد سفارش برای خرید ' . esc_html($buyerLabel)
-        . ' در هر کالا فرق می‌کند. برای هماهنگی با گام جدید، تعداد ناسازگار به مضرب بعدی گرد شد. مقدار قبل و بعد را در فهرست زیر ببینید.</p><ul>';
-    foreach ($changes as $change) {
-        if (!is_array($change)) {
+    echo '<section class="molavi-step-update-notice" role="status"><strong>تعداد سبد تغییر نکرده است.</strong>';
+    echo '<p>برای ادامه سفارش، کالاهای زیر را با گام خرید انتخاب‌شده هماهنگ کنید:</p><ul>';
+    foreach ($invalidLines as $line) {
+        if (!is_array($line)) {
             continue;
         }
-        echo '<li><strong>' . esc_html((string) ($change['name'] ?? 'کالا')) . '</strong>: '
-            . esc_html(molavi_digits((string) (int) ($change['from_qty'] ?? 0))) . ' به '
-            . esc_html(molavi_digits((string) (int) ($change['to_qty'] ?? 0))) . ' عدد؛ هر بار '
-            . esc_html(molavi_digits((string) (int) ($change['order_unit'] ?? 1))) . ' عدد.</li>';
+        echo '<li><strong>' . esc_html((string) ($line['name'] ?? 'کالا')) . '</strong>: '
+            . esc_html(molavi_digits((string) (int) ($line['quantity'] ?? 0))) . ' عدد فعلی؛ گام سفارش '
+            . esc_html(molavi_digits((string) (int) ($line['order_unit'] ?? 1))) . ' عدد است؛ برای ادامه '
+            . esc_html(molavi_digits((string) (int) ($line['needed_quantity'] ?? 0))) . ' عدد انتخاب کنید.</li>';
     }
-    echo '</ul></details></section>';
+    echo '</ul></section>';
 }
 
 function molavi_buyer_profile_ajax(): void
@@ -704,14 +677,8 @@ function molavi_buyer_profile_ajax(): void
     if (!molavi_set_buyer_type($type)) {
         wp_send_json_error(['message' => 'نوع خریدار معتبر نیست.'], 400);
     }
-    $stepAdjustments = molavi_normalize_cart_order_units($type);
-    $nativeCartRequest = isset($_POST['cart_page'])
-        && sanitize_text_field(wp_unslash((string) $_POST['cart_page'])) === '1';
-    if ($nativeCartRequest && function_exists('WC') && WC()->session) {
-        WC()->session->set('molavi_buyer_step_updates', $stepAdjustments);
-    }
     if (WC()->cart instanceof WC_Cart) { WC()->cart->calculate_totals(); }
-    wp_send_json_success(['quote' => molavi_quote(), 'step_adjustments' => $stepAdjustments]);
+    wp_send_json_success(['quote' => molavi_quote()]);
 }
 
 function molavi_toman(int $amount): string
@@ -759,8 +726,6 @@ function molavi_set_cart_qty(int $productId, int $qty): bool
         return false;
     }
     $qty = min(999, max(0, $qty));
-    $min = molavi_product_min($product);
-    $qty = molavi_normalize_order_quantity($qty, $min);
     $cart = WC()->cart;
     $found = '';
     foreach ($cart->get_cart() as $key => $item) {
@@ -838,7 +803,7 @@ add_action('wc_ajax_nopriv_molavi_buyer', 'molavi_buyer_profile_ajax');
 add_action('woocommerce_before_cart', static function (): void {
     molavi_render_buyer_profile_selector('cart');
 }, 5);
-add_action('woocommerce_before_cart', 'molavi_render_buyer_step_update_notice', 6);
+add_action('woocommerce_before_cart', 'molavi_render_buyer_step_validation_notice', 6);
 
 add_action('woocommerce_check_cart_items', static function (): void {
     if (!function_exists('WC') || !WC()->cart) { return; }

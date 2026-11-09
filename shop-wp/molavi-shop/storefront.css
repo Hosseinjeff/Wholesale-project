@@ -1943,6 +1943,95 @@ body.molavi-site-page .woocommerce .woocommerce-notices-wrapper { margin-bottom:
     .molavi-product-grid .molavi-control .molavi-step button { flex-basis: 28px; height: 34px; min-width: 28px; }
     .molavi-product-grid .molavi-control .molavi-trash { flex-basis: 30px; height: 36px; width: 30px; }
 }
+
+/* Keep cart controls compact and let product lines use the available height. */
+.molavi-store-basket > .molavi-buyer-choice-disclosure {
+    border-bottom: 1px solid var(--molavi-line);
+    flex: 0 0 auto;
+    margin: 7px 0 9px;
+    padding-bottom: 8px;
+}
+.molavi-buyer-choice-disclosure > summary,
+.molavi-progress-module > .molavi-progress-summary {
+    align-items: center;
+    cursor: pointer;
+    display: flex;
+    gap: 8px;
+    justify-content: space-between;
+    list-style: none;
+}
+.molavi-buyer-choice-disclosure > summary::-webkit-details-marker,
+.molavi-progress-module > .molavi-progress-summary::-webkit-details-marker { display: none; }
+.molavi-buyer-choice-disclosure > summary > strong { color: var(--molavi-ink); font-size: .8rem; margin-inline-start: auto; }
+.molavi-disclosure-action {
+    background: #F7F4EF;
+    border-radius: 999px;
+    color: var(--molavi-muted);
+    flex: 0 0 auto;
+    font-size: .67rem;
+    padding: 3px 8px;
+}
+.molavi-store-basket .molavi-buyer-choice-disclosure > .molavi-buyer-choice-compact {
+    border: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px 9px;
+    margin: 8px 0 0;
+    padding: 0;
+}
+.molavi-store-basket .molavi-buyer-choice-compact .molavi-buyer-choice-title { font-size: .73rem; }
+.molavi-store-basket .molavi-buyer-choice-compact .molavi-buyer-choice-details { flex: 0 0 auto; }
+.molavi-store-basket .molavi-buyer-choice-compact .molavi-buyer-feedback { flex-basis: 100%; font-size: .75rem; }
+.molavi-store-basket > .molavi-progress-module {
+    flex: 0 0 auto;
+    margin: 6px 0 9px;
+    padding: 8px 10px;
+}
+.molavi-progress-module > .molavi-progress-summary {
+    display: grid;
+    gap: 6px 8px;
+    grid-template-columns: minmax(0, 1fr) auto;
+}
+.molavi-progress-module > .molavi-progress-summary > .molavi-progress-copy {
+    align-items: baseline;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 3px 8px;
+    grid-column: 1;
+    grid-row: 1;
+    justify-content: space-between;
+}
+.molavi-progress-copy strong { font-size: .78rem; }
+.molavi-progress-copy span { font-size: .7rem; }
+.molavi-progress-module > .molavi-progress-summary > .molavi-progress-track {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    height: 6px;
+    margin: 0;
+}
+.molavi-progress-module > .molavi-progress-summary > .molavi-disclosure-action { grid-column: 2; grid-row: 1; }
+.molavi-progress-module > .molavi-progress-details p { font-size: .7rem; line-height: 1.65; margin: 8px 0 1px; }
+.molavi-store-basket .molavi-basket-lines {
+    flex: 1 1 0%;
+    max-height: none;
+    min-height: 180px;
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+.molavi-line-update {
+    background: #FFF6EC;
+    border: 1px solid #F3D8C3;
+    border-radius: 8px;
+    color: var(--molavi-orange-dark);
+    cursor: pointer;
+    font: inherit;
+    font-size: .68rem;
+    font-weight: 700;
+    margin-top: 4px;
+    padding: 3px 8px;
+}
+.molavi-line-update:hover { background: #FFEFDF; }
+.molavi-bline.is-invalid { background: #FFFCF8; }
 @media (prefers-reduced-motion: reduce) {
     .molavi-product-card.is-updating,
     .molavi-bline.is-updating,
@@ -2105,4 +2194,27 @@ body.molavi-site-page .woocommerce .woocommerce-notices-wrapper { margin-bottom:
     .molavi-close-basket { display: inline-flex; align-items: center; justify-content: center; }
     .molavi-basket-lines { max-height: 30vh; }
     body.molavi-basket-open { overflow: hidden; }
+}
+
+/* Keep the expanded drawer's item list as its growing, scrollable region. */
+@media (max-width: 900px) {
+    .molavi-store-basket[data-molavi-basket] {
+        display: flex;
+        flex-direction: column;
+        height: min(92dvh, 820px);
+        max-height: 92dvh;
+        min-height: 0;
+        overflow: hidden;
+    }
+    .molavi-store-basket[data-molavi-basket] .molavi-basket-lines {
+        flex: 1 1 0%;
+        max-height: none;
+        min-height: 110px;
+    }
+}
+@media (max-width: 760px) {
+    .molavi-store-basket[data-molavi-basket] {
+        height: min(88dvh, 760px);
+        max-height: 88dvh;
+    }
 }
