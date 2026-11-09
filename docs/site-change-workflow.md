@@ -11,7 +11,9 @@ The cPanel uploader read back `includes/storefront-renderer.php` and
 revision. Production was not changed.
 
 The Staging storefront no longer renders WooCommerce's English “coming soon” block
-above the custom shop. The WooCommerce visibility setting itself was left alone.
+above the custom shop. At this revision the plugin change only removed that banner;
+the Staging WooCommerce visibility setting was changed separately on 2026-11-09, as
+recorded in the following entry.
 Product cards and the category filter now omit the default “Uncategorized” term,
 including when it comes from product metadata or a duplicate category term.
 
@@ -37,6 +39,43 @@ The Staging catalog has 35 cards: 28 image sources and 7 WooCommerce placeholder
 Thirty titles match Production; the two matching placeholders also have no image in
 Production. The other five Staging-only products have no matching Production records
 to copy images from. No product media was changed.
+
+## 2026-11-09 Staging visibility, cart, and product carousel
+
+Staging's WooCommerce `woocommerce_coming_soon` option was changed from `yes` to
+`no` using a protected, one-time cPanel endpoint. The endpoint self-deleted and its
+removal was verified. Staging cart page ID 7 now uses the `[woocommerce_cart]`
+shortcode so the existing buyer-type and order-step controls run on the cart page;
+the prior page content was saved in the local temporary workspace before the change.
+Production settings and pages were not changed.
+
+Plugin commits `4cb96808a22eb0d82d2972759f06e82f8ea9976e`,
+`fdc76943aa72053012b26ca3da6e6f9519065f19`, and
+`3d9cbb5f75b4760ddc259bc71397133f80a0081e` were pushed to `codex/storefront-ux`
+and deployed only to Staging. The protected uploader verified the deployed plugin
+files. The basket trash-icon helper now loads with the storefront renderer even when
+the Elementor basket widget is not registered, fixing the fatal error on product
+cards for signed-out and signed-in customers with a populated cart. A temporary test
+customer was used for the authenticated check and removed afterward.
+
+The storefront carousel now ranks the five eligible products by the selected buyer
+profile's maximum discount, with the highest first. It updates when the buyer profile
+or cart changes and its add button uses the product's existing order step. A follow-up
+fix reads product cards from the storefront document because the carousel and product
+grid are siblings. Live browser checks verified five carousel dots, next/previous
+navigation, add and clear of a four-unit product step, and desktop and 390px mobile
+layout with no horizontal overflow. The live homepage returned 35 product cards; the
+highest-discount slide was “کنسرو مرغ خوش خوراک” at up to 7.7%. The anonymous My
+Account route rendered its login form without a fatal error. Root, `/shop/`, `/cart/`,
+`/my-account/`, `/checkout/`, `/wp-json/`, and the WooCommerce Store products endpoint
+returned HTTP 200 (empty checkout redirects to cart). The only browser console 404
+observed on the final shop/account smoke check was the missing `/favicon.ico`.
+
+The header mini-cart has separately emitted a background 404 for
+`/cart/undefinedwc/store/v1/cart` when the cart contains products; the custom cart
+display and step controls continued to work. Keep this as a separate theme/header
+follow-up. Seven catalog products still use WooCommerce placeholder images; no media
+was changed. No Production site, data, or service was changed.
 
 ## 2026-11-06 User-confirmed package quantity steps live
 
