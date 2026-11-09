@@ -2228,6 +2228,7 @@ body.molavi-site-page .woocommerce .woocommerce-notices-wrapper { margin-bottom:
         border-top: 1px solid var(--molavi-line);
         grid-column: 1;
         grid-row: 3;
+        justify-self: stretch;
         min-height: 62px;
         padding: 3px 0 0;
     }
@@ -2331,7 +2332,7 @@ body.molavi-site-page .woocommerce .woocommerce-notices-wrapper { margin-bottom:
     }
     .molavi-product-grid.is-list-view .molavi-card-body h3 { grid-column: 1 / -1; grid-row: 1; height: 34px; }
     .molavi-product-grid.is-list-view .molavi-card-facts { grid-column: 1 / -1; grid-row: 2; height: 18px; }
-    .molavi-product-grid.is-list-view .molavi-card-price { align-self: stretch; grid-column: 1; grid-row: 3; min-height: 62px; }
+    .molavi-product-grid.is-list-view .molavi-card-price { align-self: stretch; grid-column: 1; grid-row: 3; justify-self: stretch; min-height: 62px; }
     .molavi-product-grid.is-list-view .molavi-control,
     .molavi-product-grid.is-list-view .molavi-control .molavi-add { height: 34px; min-height: 34px; }
     .molavi-product-grid.is-list-view .molavi-control { grid-column: 2; grid-row: 3; justify-self: stretch; max-width: none; }
