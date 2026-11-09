@@ -27,6 +27,10 @@
     document.addEventListener("click", function (event) {
         var button = event.target.closest("[data-molavi-step], [data-molavi-clear], [data-molavi-set-qty]");
         if (!button) return;
+        if (buyerChanging) {
+            event.preventDefault();
+            return;
+        }
         var host = button.closest("[data-product]");
         if (!host) return;
         event.preventDefault();
@@ -62,7 +66,12 @@
 
     document.addEventListener("click", function (event) {
         var checkout = event.target.closest("[data-molavi-checkout]");
-        if (!checkout || checkout.getAttribute("aria-disabled") !== "true") return;
+        if (!checkout) return;
+        if (buyerChanging) {
+            event.preventDefault();
+            return;
+        }
+        if (checkout.getAttribute("aria-disabled") !== "true") return;
         event.preventDefault();
         var firstInvalid = document.querySelector(".molavi-bline[data-invalid='1']");
         if (firstInvalid) {
@@ -219,9 +228,6 @@
         var previous = buyerType;
         var requestId = ++buyerRequestId;
         buyerChanging = true;
-        buyerType = requested;
-        updateBuyerControls();
-        paint(localQuote());
         showStatus("قیمت و واحد سفارش در حال به‌روزرسانی است…");
         document.querySelectorAll("[data-molavi-buyer]").forEach(function (button) { button.disabled = true; });
         var body = new FormData();
