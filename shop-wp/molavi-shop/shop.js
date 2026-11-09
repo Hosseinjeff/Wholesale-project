@@ -249,6 +249,9 @@
                     return;
                 }
                 paint(payload.data.quote);
+                document.querySelectorAll("[data-molavi-buyer-disclosure]").forEach(function (disclosure) {
+                    disclosure.open = false;
+                });
                 showStatus(payload.data.quote.invalid_lines && payload.data.quote.invalid_lines.length
                     ? "نوع خرید تغییر کرد؛ تعدادهای سبد حفظ شدند. کالاهای مشخص‌شده را پیش از ادامه اصلاح کنید."
                     : "نوع خرید تغییر کرد؛ تعدادهای سبد حفظ شدند.");
