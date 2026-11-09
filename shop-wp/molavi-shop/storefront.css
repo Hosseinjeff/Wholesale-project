@@ -2012,11 +2012,15 @@ body.molavi-site-page .woocommerce .woocommerce-notices-wrapper { margin-bottom:
 .molavi-progress-module > .molavi-progress-summary > .molavi-disclosure-action { grid-column: 2; grid-row: 1; }
 .molavi-progress-module > .molavi-progress-details p { font-size: .7rem; line-height: 1.65; margin: 8px 0 1px; }
 .molavi-store-basket .molavi-basket-lines {
+    background: #FCFBF8;
+    border: 1px solid var(--molavi-line);
+    border-radius: 12px;
     flex: 1 1 0%;
     max-height: none;
     min-height: 180px;
     overflow-x: hidden;
     overflow-y: auto;
+    padding: 0 9px;
 }
 .molavi-line-update {
     background: #FFF6EC;
