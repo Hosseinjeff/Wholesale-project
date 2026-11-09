@@ -773,7 +773,9 @@
             recommendationIndex = 0;
         }
 
-        recommendationProducts = Array.prototype.slice.call(root.querySelectorAll("[data-molavi-card]"))
+        // The carousel and catalog are siblings in the storefront layout, so
+        // cards must be read from the document rather than from the carousel.
+        recommendationProducts = Array.prototype.slice.call(document.querySelectorAll("[data-molavi-card]"))
             .map(function (card) {
                 var price = card.querySelector("[data-molavi-price]");
                 var image = card.querySelector(".molavi-card-photo img");
