@@ -77,6 +77,26 @@ display and step controls continued to work. Keep this as a separate theme/heade
 follow-up. Seven catalog products still use WooCommerce placeholder images; no media
 was changed. No Production site, data, or service was changed.
 
+## 2026-11-09 Staging product-card state review
+
+After the live state review, plugin commit `7e1402918293260a81e1998c5baf3776cfb2c19`
+was pushed to `codex/storefront-ux` and deployed only to Staging. Product links,
+amounts, and reference prices have title tooltips for their full values. Discount
+labels fit in list view, the 761–900px layout gives the catalog and cart separate
+vertical space, and the floating mobile cart control is hidden while the cart is
+empty. The mobile cart drawer follows the same breakpoint as its interaction controls.
+
+Live browser checks covered all 35 cards, grid and list modes, empty and populated
+carts, household quantities 4 and 8, changing to store quantity 12, the step-change
+message and its expandable explanation, and widths from 320px to 1440px including
+the 760/761/900px layout boundaries. A long-title and 12-digit-price stress check
+kept the card dimensions fixed and exposed the complete values through tooltips.
+Across the checked viewport and mode combinations, cards kept a consistent height;
+there was no horizontal overflow, clipped discount label, or clipped price. The
+tested step change remained visible in the cart without changing card height. The cart
+was cleared after the interaction checks; no order was placed. The 7 existing
+placeholder product images remain a catalog-content issue. Production was not changed.
+
 ## 2026-11-06 User-confirmed package quantity steps live
 
 WordPress plugin commit `b4a91259817e7f9ecd17cef93da05365aee22ecf` deployed the
