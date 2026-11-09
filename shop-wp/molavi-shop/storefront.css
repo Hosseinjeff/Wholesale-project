@@ -1663,7 +1663,7 @@ body.molavi-site-page .woocommerce .molavi-public-price { align-items: start; }
 .molavi-product-grid.is-list-view .molavi-card-price { min-height: 88px; }
 .molavi-product-grid.is-list-view .molavi-control { height: 42px; min-height: 42px; }
 
-/* The carousel stays between the filters and catalog, where it can guide without covering products. */
+/* The product carousel promotes the best current discount above the catalog. */
 .molavi-recommendation-carousel {
     background: linear-gradient(110deg, #fff 0%, #fbf7f0 100%);
     border: 1px solid var(--molavi-line);
@@ -1693,21 +1693,65 @@ body.molavi-site-page .woocommerce .molavi-public-price { align-items: start; }
     padding: 0;
     width: 28px;
 }
-.molavi-recommendation-slide { align-self: center; min-width: 0; }
-.molavi-recommendation-slide strong { color: var(--molavi-ink); font-size: .82rem; }
-.molavi-recommendation-slide p { color: var(--molavi-muted); display: inline; font-size: .76rem; line-height: 1.7; margin: 0 8px; }
-.molavi-recommendation-slide button {
-    background: transparent;
-    border: 0;
+.molavi-recommendation-controls[hidden],
+.molavi-recommendation-dots[hidden] { display: none !important; }
+.molavi-recommendation-slide { align-self: stretch; min-width: 0; }
+.molavi-featured-product {
+    align-items: center;
+    background: rgba(255, 255, 255, .82);
+    border: 1px solid var(--molavi-line);
+    border-radius: 12px;
+    display: grid;
+    gap: 12px;
+    grid-template-columns: minmax(76px, 112px) minmax(0, 1fr) auto;
+    min-height: 112px;
+    padding: 9px 11px;
+}
+.molavi-featured-image {
+    align-items: center;
+    background: #f7f5f0;
+    border-radius: 9px;
+    display: flex;
+    height: 92px;
+    justify-content: center;
+    overflow: hidden;
+    width: 100%;
+}
+.molavi-featured-image img { height: 100%; object-fit: contain; width: 100%; }
+.molavi-featured-copy { min-width: 0; }
+.molavi-featured-discount {
+    background: #fff0e7;
+    border-radius: 999px;
     color: var(--molavi-orange-dark);
+    display: inline-flex;
+    font-size: .69rem;
+    font-weight: 800;
+    margin-bottom: 4px;
+    padding: 3px 8px;
+}
+.molavi-featured-copy h3 { font-size: .91rem; line-height: 1.5; margin: 0; }
+.molavi-featured-copy h3 a { color: var(--molavi-ink); text-decoration: none; }
+.molavi-featured-copy h3 a:hover { color: var(--molavi-orange-dark); }
+.molavi-featured-copy p { color: var(--molavi-muted); font-size: .72rem; line-height: 1.6; margin: 2px 0 4px; }
+.molavi-featured-prices { align-items: baseline; display: flex; flex-wrap: wrap; gap: 4px 8px; }
+.molavi-featured-prices s { color: #9c9b96; font-size: .69rem; }
+.molavi-featured-prices strong { color: var(--molavi-ink); font-size: .8rem; }
+.molavi-featured-prices span { color: var(--molavi-muted); font-size: .65rem; }
+.molavi-featured-action {
+    background: var(--molavi-orange);
+    border: 0;
+    border-radius: 9px;
+    color: #fff;
     cursor: pointer;
     font: inherit;
-    font-size: .74rem;
+    font-size: .73rem;
     font-weight: 700;
-    padding: 2px 0;
-    text-decoration: underline;
-    text-underline-offset: 3px;
+    min-height: 38px;
+    padding: 8px 12px;
+    white-space: nowrap;
 }
+.molavi-featured-action:hover { background: var(--molavi-orange-dark); }
+.molavi-featured-empty { color: var(--molavi-muted); font-size: .78rem; margin: 10px 0; }
 .molavi-recommendation-dots { display: flex; gap: 5px; grid-column: 2; justify-content: flex-start; }
 .molavi-recommendation-dots button { background: #d8d5ce; border: 0; border-radius: 999px; cursor: pointer; height: 5px; padding: 0; width: 12px; }
 .molavi-recommendation-dots button[aria-current="true"] { background: var(--molavi-orange); width: 22px; }
@@ -1846,10 +1890,12 @@ body.molavi-site-page .woocommerce .woocommerce-notices-wrapper { margin-bottom:
     .molavi-product-grid .molavi-control .molavi-trash { flex-basis: 32px; height: 38px; width: 32px; }
     .molavi-recommendation-carousel { gap: 7px 10px; grid-template-columns: minmax(0, 1fr); margin-bottom: 10px; padding: 10px 11px; }
     .molavi-recommendation-head h2 { font-size: .82rem; }
-    .molavi-recommendation-slide { min-height: 58px; }
-    .molavi-recommendation-slide strong { font-size: .76rem; }
-    .molavi-recommendation-slide p { display: block; font-size: .71rem; margin: 2px 0; }
-    .molavi-recommendation-slide button { font-size: .71rem; }
+    .molavi-recommendation-slide { min-height: 82px; }
+    .molavi-featured-product { gap: 8px; grid-template-columns: 70px minmax(0, 1fr); min-height: 80px; padding: 8px; }
+    .molavi-featured-image { grid-row: span 2; height: 72px; }
+    .molavi-featured-copy h3 { font-size: .78rem; }
+    .molavi-featured-copy p { font-size: .66rem; }
+    .molavi-featured-action { grid-column: 2; justify-self: start; min-height: 34px; }
     .molavi-recommendation-dots { grid-column: 1; }
     .molavi-store-basket {
         bottom: 0;

@@ -65,6 +65,7 @@ function molavi_render_storefront(): void
         return $product instanceof \WC_Product && $product->is_purchasable() && $product->is_in_stock();
     }));
     $quote = molavi_quote();
+    $featuredProducts = molavi_storefront_featured_products($products, molavi_buyer_type());
     $categories = [];
     foreach ($products as $product) {
         $category = molavi_storefront_product_category($product);
@@ -104,19 +105,21 @@ function molavi_render_storefront(): void
                         </select>
                     </label>
                 </div>
-                <section class="molavi-recommendation-carousel" data-molavi-recommendations aria-label="پیشنهادهای متناسب با خرید شما">
+                <section class="molavi-recommendation-carousel" data-molavi-recommendations aria-label="پیشنهادهای محصول با تخفیف بیشتر">
                     <div class="molavi-recommendation-head">
-                        <div><p class="molavi-eyebrow">برای شما</p><h2>راهنمای خرید</h2></div>
+                        <div><p class="molavi-eyebrow">پیشنهاد محصول</p><h2>محصول با بیشترین تخفیف</h2></div>
                         <div class="molavi-recommendation-controls" role="group" aria-label="پیشنهادها">
                             <button type="button" data-molavi-recommendation-prev aria-label="پیشنهاد قبلی">‹</button>
-                            <span data-molavi-recommendation-count aria-live="polite">۱ از ۳</span>
+                            <span data-molavi-recommendation-count aria-live="polite">۱ از <?php echo esc_html(molavi_digits((string) max(1, count($featuredProducts)))); ?></span>
                             <button type="button" data-molavi-recommendation-next aria-label="پیشنهاد بعدی">›</button>
                         </div>
                     </div>
                     <div class="molavi-recommendation-slide" data-molavi-recommendation-slide aria-live="polite">
-                        <strong>قیمت و تعداد متناسب با خریدتان</strong>
-                        <p>نوع خرید و مقدار داخل سبد را می‌توانید هر زمان تغییر دهید.</p>
-                        <button type="button" data-molavi-recommendation-action="buyer">تغییر نوع خرید</button>
+                        <?php if ($featuredProducts !== []): ?>
+                            <?php molavi_render_featured_storefront_product($featuredProducts[0]['product'], $featuredProducts[0]['discount'], $quote); ?>
+                        <?php else: ?>
+                            <p class="molavi-featured-empty">در حال حاضر کالای تخفیف‌دار موجود نیست.</p>
+                        <?php endif; ?>
                     </div>
                     <div class="molavi-recommendation-dots" data-molavi-recommendation-dots role="group" aria-label="انتخاب پیشنهاد"></div>
                 </section>
@@ -191,6 +194,66 @@ function molavi_storefront_card_product_name(\WC_Product $product, string $suppl
     // can strip the first byte from Arabic-script letters and make invalid UTF-8.
     $name = trim($name, " \t\n\r\0\x0B,:;-");
     return $name !== '' ? $name : ($originalName !== '' ? $originalName : 'کالا');
+}
+
+/** Return the five best currently eligible product discounts for the selected buyer type. */
+function molavi_storefront_featured_products(array $products, string $buyerType): array
+{
+    $featured = [];
+    foreach ($products as $product) {
+        if (!$product instanceof \WC_Product) {
+            continue;
+        }
+        $curve = molavi_curve($product);
+        $profile = molavi_product_profile($product);
+        $discount = (float) molavi_profile_curve($curve, $profile, $buyerType)['max'];
+        if ($discount <= 0) {
+            continue;
+        }
+        $featured[] = ['product' => $product, 'discount' => $discount];
+    }
+    usort($featured, static function (array $left, array $right): int {
+        $rate = $right['discount'] <=> $left['discount'];
+        if ($rate !== 0) {
+            return $rate;
+        }
+        return strcasecmp($left['product']->get_name(), $right['product']->get_name());
+    });
+    return array_slice($featured, 0, 5);
+}
+
+function molavi_render_featured_storefront_product(\WC_Product $product, float $maxDiscount, array $quote): void
+{
+    $id = $product->get_id();
+    $supplier = trim((string) $product->get_meta('_molavi_supplier'));
+    $name = molavi_storefront_card_product_name($product, $supplier);
+    $curve = molavi_curve($product);
+    $shelf = (int) $curve['shelf'];
+    $unit = (int) ($quote['units'][(string) $id] ?? molavi_price_for_product($product)['price']);
+    $qty = molavi_cart_qty($id);
+    $image = $product->get_image('woocommerce_thumbnail', [
+        'alt' => $name,
+        'loading' => 'eager',
+    ]);
+    $url = $product->get_permalink();
+    ?>
+    <article class="molavi-featured-product" data-molavi-featured-product="<?php echo esc_attr((string) $id); ?>">
+        <a class="molavi-featured-image" href="<?php echo esc_url($url); ?>" tabindex="-1" aria-hidden="true"><?php echo wp_kses_post($image); ?></a>
+        <div class="molavi-featured-copy">
+            <span class="molavi-featured-discount">تا <?php echo esc_html(molavi_percent($maxDiscount)); ?> تخفیف</span>
+            <h3><a href="<?php echo esc_url($url); ?>"><?php echo esc_html($name); ?></a></h3>
+            <p>بیشترین تخفیف قابل دریافت در فهرست است؛ نرخ نهایی با نوع خرید و مبلغ سبد محاسبه می‌شود.</p>
+            <div class="molavi-featured-prices">
+                <?php if ($shelf > $unit): ?><s><?php echo esc_html(molavi_toman($shelf)); ?></s><?php endif; ?>
+                <strong><?php echo esc_html(molavi_toman($unit)); ?></strong>
+                <span>قیمت فعلی</span>
+            </div>
+        </div>
+        <button type="button" class="molavi-featured-action" data-molavi-recommendation-product="<?php echo esc_attr((string) $id); ?>">
+            <?php echo esc_html($qty > 0 ? 'افزایش یک گام' : 'افزودن به سبد'); ?>
+        </button>
+    </article>
+    <?php
 }
 
 function molavi_render_storefront_card(\WC_Product $product, array $quote): void

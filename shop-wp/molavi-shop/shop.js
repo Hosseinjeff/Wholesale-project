@@ -14,7 +14,8 @@
     var buyerRequestId = 0;
     var buyerChanging = false;
     var recommendationIndex = 0;
-    var discountOnly = false;
+    var recommendationBuyerType = "";
+    var recommendationProducts = [];
 
     document.addEventListener("click", function (event) {
         var button = event.target.closest("[data-molavi-buyer]");
@@ -643,8 +644,7 @@
                 var id = favoriteButton ? String(favoriteButton.getAttribute("data-molavi-favorite") || "") : "";
                 var show = (!term || text.indexOf(term) !== -1)
                     && (!selectedCategory || category === selectedCategory)
-                    && (!favoritesOnly || favorites.has(id))
-                    && (!discountOnly || card.getAttribute("data-has-discount") === "1");
+                    && (!favoritesOnly || favorites.has(id));
                 card.hidden = !show;
                 if (show) visible += 1;
             });
@@ -680,31 +680,14 @@
             });
         });
         root.addEventListener("click", function (event) {
-            var recommendation = event.target.closest("[data-molavi-recommendation-action]");
-            if (recommendation && root.contains(recommendation)) {
+            var featuredAction = event.target.closest("[data-molavi-recommendation-product]");
+            if (featuredAction && root.contains(featuredAction)) {
                 event.preventDefault();
-                var action = recommendation.getAttribute("data-molavi-recommendation-action");
-                if (action === "discounts") {
-                    discountOnly = !discountOnly;
-                    selectedCategory = "";
-                    if (categorySelect) categorySelect.value = "";
-                    root.querySelectorAll("[data-molavi-category]").forEach(function (item) { item.classList.remove("is-active"); });
-                    applyFilters();
-                    updateRecommendations(localQuote());
-                    if (grid) grid.scrollIntoView({ behavior: "smooth", block: "start" });
-                } else if (action === "buyer") {
-                    var choice = root.querySelector("[data-molavi-buyer-choice]");
-                    if (choice) {
-                        choice.scrollIntoView({ behavior: "smooth", block: "center" });
-                        var selected = choice.querySelector('[data-molavi-buyer="' + cssEscape(buyerType) + '"]');
-                        if (selected) selected.focus({ preventScroll: true });
-                    }
-                } else if (action === "cart") {
-                    var trigger = document.querySelector("[data-molavi-open-basket]");
-                    if (trigger) trigger.click();
-                } else if (action === "browse" && grid) {
-                    grid.scrollIntoView({ behavior: "smooth", block: "start" });
-                }
+                var productId = featuredAction.getAttribute("data-molavi-recommendation-product");
+                var productCard = root.querySelector('[data-molavi-card][data-product="' + cssEscape(productId) + '"]');
+                var cartControl = productCard && productCard.querySelector("[data-molavi-cart]");
+                var addStep = cartControl && cartControl.querySelector("[data-molavi-step]");
+                if (addStep) addStep.click();
                 return;
             }
             var button = event.target.closest("[data-molavi-favorite]");
@@ -762,7 +745,8 @@
         var previous = root.querySelector("[data-molavi-recommendation-prev]");
         var next = root.querySelector("[data-molavi-recommendation-next]");
         function move(amount) {
-            recommendationIndex = (recommendationIndex + amount + 3) % 3;
+            if (recommendationProducts.length < 2) return;
+            recommendationIndex = (recommendationIndex + amount + recommendationProducts.length) % recommendationProducts.length;
             updateRecommendations(localQuote());
         }
         if (previous) previous.addEventListener("click", function () { move(-1); });
@@ -770,59 +754,120 @@
         root.addEventListener("click", function (event) {
             var dot = event.target.closest("[data-molavi-recommendation-dot]");
             if (!dot) return;
-            recommendationIndex = Math.max(0, Math.min(2, Number(dot.getAttribute("data-molavi-recommendation-dot")) || 0));
+            var index = Number(dot.getAttribute("data-molavi-recommendation-dot")) || 0;
+            recommendationIndex = Math.max(0, Math.min(recommendationProducts.length - 1, index));
             updateRecommendations(localQuote());
         });
     }
 
-    function updateRecommendations(quote) {
+    function updateRecommendations() {
         var root = document.querySelector("[data-molavi-recommendations]");
         if (!root) return;
         var slideNode = root.querySelector("[data-molavi-recommendation-slide]");
         var countNode = root.querySelector("[data-molavi-recommendation-count]");
         var dots = root.querySelector("[data-molavi-recommendation-dots]");
+        var controls = root.querySelector(".molavi-recommendation-controls");
         if (!slideNode) return;
-        var buyerLabel = buyerType === "shop" ? "فروشگاه" : "خانوار";
-        var count = Object.keys(quote && quote.qtys || qtys).reduce(function (total, id) {
-            return total + (Number((quote && quote.qtys || qtys)[id]) || 0);
-        }, 0);
-        var discountCount = document.querySelectorAll('[data-molavi-card][data-has-discount="1"]').length;
-        var remaining = Number(quote && quote.remaining) || 0;
-        var slides = [
-            {
-                title: discountOnly ? "نمایش کالاهای دارای تخفیف" : "پیشنهادهای تخفیف‌دار",
-                text: discountCount
-                    ? digits(discountCount) + " کالا با تخفیف فعلی موجود است؛ قیمت هر کالا را در کارت آن ببینید."
-                    : "با انتخاب نوع خرید، قیمت و تخفیف‌های متناسب با سبدتان نمایش داده می‌شود.",
-                action: discountOnly ? "نمایش همه کالاها" : "مشاهده کالاهای تخفیف‌دار",
-                actionType: discountCount ? "discounts" : "buyer"
-            },
-            {
-                title: "گام سفارش برای خرید " + buyerLabel,
-                text: "هر بار افزایش یا کاهش تعداد برای هر کالا مشخص است؛ مقدار آن را کنار نام محصول یا در سبد ببینید.",
-                action: "دیدن واحدهای سفارش",
-                actionType: "browse"
-            },
-            {
-                title: count ? "سبد خرید شما" : "مراحل سفارش",
-                text: count
-                    ? "تا سقف تخفیف خرید " + buyerLabel + " " + toman(remaining) + " مانده است. تعدادها پیش از ادامه سفارش در سبد قابل اصلاح‌اند."
-                    : "محصول را انتخاب کنید، تعداد را با گام سفارش تنظیم کنید و در پایان سبد را بررسی کنید.",
-                action: count ? "مشاهده سبد" : "رفتن به محصولات",
-                actionType: count ? "cart" : "browse"
-            }
-        ];
-        recommendationIndex = Math.max(0, Math.min(slides.length - 1, recommendationIndex));
-        var item = slides[recommendationIndex];
+        if (recommendationBuyerType !== buyerType) {
+            recommendationBuyerType = buyerType;
+            recommendationIndex = 0;
+        }
+
+        recommendationProducts = Array.prototype.slice.call(root.querySelectorAll("[data-molavi-card]"))
+            .map(function (card) {
+                var price = card.querySelector("[data-molavi-price]");
+                var image = card.querySelector(".molavi-card-photo img");
+                var titleLink = card.querySelector(".molavi-card-body h3 a");
+                var maxDiscount = Number(card.getAttribute("data-" + buyerType + "-max")) || 0;
+                if (!price || maxDiscount <= 0) return null;
+                var control = card.querySelector("[data-molavi-cart]");
+                return {
+                    id: String(card.getAttribute("data-product") || ""),
+                    name: card.getAttribute("data-name") || (titleLink ? titleLink.textContent.trim() : "کالا"),
+                    url: titleLink ? titleLink.href : "#molavi-products",
+                    image: image ? (image.currentSrc || image.src || image.getAttribute("data-src") || "") : "",
+                    maxDiscount: maxDiscount,
+                    currentPrice: Number(price.getAttribute("data-unit")) || 0,
+                    referencePrice: Number(price.getAttribute("data-shelf")) || 0,
+                    inCart: Number(control && control.getAttribute("data-qty")) > 0
+                };
+            })
+            .filter(function (item) { return item && item.id; })
+            .sort(function (a, b) {
+                return (b.maxDiscount - a.maxDiscount) || a.name.localeCompare(b.name, "fa");
+            })
+            .slice(0, 5);
+
+        recommendationIndex = recommendationProducts.length
+            ? Math.max(0, Math.min(recommendationProducts.length - 1, recommendationIndex))
+            : 0;
+        if (controls) controls.hidden = recommendationProducts.length < 2;
+        if (dots) dots.hidden = recommendationProducts.length < 2;
+        if (countNode) countNode.textContent = recommendationProducts.length
+            ? digits(recommendationIndex + 1) + " از " + digits(recommendationProducts.length)
+            : "۰ از ۰";
+        if (!recommendationProducts.length) {
+            slideNode.textContent = "در حال حاضر کالای تخفیف‌دار موجود نیست.";
+            if (dots) dots.replaceChildren();
+            return;
+        }
+
+        var item = recommendationProducts[recommendationIndex];
+        var featured = document.createElement("article");
+        featured.className = "molavi-featured-product";
+        var imageLink = document.createElement("a");
+        imageLink.className = "molavi-featured-image";
+        imageLink.href = item.url;
+        imageLink.tabIndex = -1;
+        imageLink.setAttribute("aria-hidden", "true");
+        if (item.image) {
+            var productImage = document.createElement("img");
+            productImage.src = item.image;
+            productImage.alt = item.name;
+            productImage.loading = "eager";
+            productImage.decoding = "async";
+            imageLink.appendChild(productImage);
+        }
+
+        var copy = document.createElement("div");
+        copy.className = "molavi-featured-copy";
+        var badge = document.createElement("span");
+        badge.className = "molavi-featured-discount";
+        badge.textContent = "تا " + percent(item.maxDiscount) + " تخفیف";
+        var title = document.createElement("h3");
+        var titleLink = document.createElement("a");
+        titleLink.href = item.url;
+        titleLink.textContent = item.name;
+        title.appendChild(titleLink);
+        var note = document.createElement("p");
+        note.textContent = "بیشترین تخفیف قابل دریافت در فهرست است؛ قیمت نهایی با نوع خرید و مبلغ سبد محاسبه می‌شود.";
+        var prices = document.createElement("div");
+        prices.className = "molavi-featured-prices";
+        if (item.referencePrice > item.currentPrice) {
+            var reference = document.createElement("s");
+            reference.textContent = toman(item.referencePrice);
+            prices.appendChild(reference);
+        }
+        var current = document.createElement("strong");
+        current.textContent = toman(item.currentPrice);
+        var priceLabel = document.createElement("span");
+        priceLabel.textContent = "قیمت فعلی";
+        prices.append(current, priceLabel);
+        var action = document.createElement("button");
+        action.type = "button";
+        action.className = "molavi-featured-action";
+        action.setAttribute("data-molavi-recommendation-product", item.id);
+        action.setAttribute("aria-label", (item.inCart ? "افزایش یک گام از " : "افزودن ") + item.name + " به سبد");
+        action.textContent = item.inCart ? "افزایش یک گام" : "افزودن به سبد";
+        copy.append(badge, title, note, prices);
+        featured.append(imageLink, copy, action);
+
         slideNode.classList.remove("is-changing");
         void slideNode.offsetWidth;
-        slideNode.innerHTML = "<strong>" + escapeHtml(item.title) + "</strong><p>" + escapeHtml(item.text)
-            + "</p><button type=\"button\" data-molavi-recommendation-action=\"" + escapeHtml(item.actionType) + "\">"
-            + escapeHtml(item.action) + "</button>";
+        slideNode.replaceChildren(featured);
         slideNode.classList.add("is-changing");
-        if (countNode) countNode.textContent = digits(recommendationIndex + 1) + " از " + digits(slides.length);
         if (dots) {
-            dots.innerHTML = slides.map(function (_, index) {
+            dots.innerHTML = recommendationProducts.map(function (_, index) {
                 return '<button type="button" data-molavi-recommendation-dot="' + index + '" aria-label="نمایش پیشنهاد '
                     + digits(index + 1) + '" aria-current="' + (index === recommendationIndex ? 'true' : 'false') + '"></button>';
             }).join("");
