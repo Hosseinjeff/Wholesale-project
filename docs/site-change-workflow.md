@@ -97,6 +97,34 @@ tested step change remained visible in the cart without changing card height. Th
 was cleared after the interaction checks; no order was placed. The 7 existing
 placeholder product images remain a catalog-content issue. Production was not changed.
 
+## 2026-11-09 Staging cart space and explicit step updates
+
+The cart layout request was to make more room for cart items by collapsing the
+customer-type and discount explanation sections. The first implementation also
+changed quantities automatically when the customer type changed; that did not match
+the request. Commits `06d9a85`, `9d98c01`, `95c11da`, and `19ccf0c` correct the flow
+and are deployed to Staging. The customer-type panel and full discount explanation
+are collapsed by default. After a successful buyer-profile change, the type panel
+closes and the cart list remains the main, scrollable area. A compact discount
+progress summary stays visible and can be expanded for details.
+
+Changing buyer type now preserves each cart quantity. If a line does not match the
+selected profile's step, the cart shows the required step and an explicit per-item
+“change to” action. The proceed button remains visible and explains that the cart
+needs correction; it is disabled until the customer applies the required update.
+The buyer controls wait for the profile response before changing the cart state.
+
+Live Staging browser QA at 390×844 added a four-unit household item, increased it to
+eight, and switched to store-owner. The quantity remained eight, the required step
+of twelve and explicit update action appeared, and the proceed button stayed visible
+in its disabled state. Applying the line's update changed it to twelve and enabled
+proceed. A separate three-item cart view showed the collapsed sections and framed,
+scrollable item area. Widths 320, 360, 390, 760, 761, 900, and 1440 had no horizontal
+overflow; at 320px, the short viewport naturally exposes fewer rows before scrolling.
+The test cart was cleared and no order was placed. Browser page errors: none. The
+Staging PHP runtime rendered the updated plugin files and the protected uploader
+verified the deployment. Production was not changed.
+
 ## 2026-11-06 User-confirmed package quantity steps live
 
 WordPress plugin commit `b4a91259817e7f9ecd17cef93da05365aee22ecf` deployed the
