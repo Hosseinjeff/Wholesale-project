@@ -2,6 +2,22 @@
 
 Updated: 2026-11-11, Asia/Tehran
 
+## 2026-11-11 Staging step-help overlay correction
+
+After reviewing the live list view, the trigger-adjacent help bubble was found to
+cover neighboring product details. Plugin commit `4b27ab3187020694413034668efe02cf05587ea3`
+was pushed and deployed only to Staging. The explanation now opens in a centered,
+dimmed overlay, with the panel moved outside the card layout. Opening it does not
+change card dimensions or page width. A tap anywhere, Tab, or Escape closes it;
+Escape returns focus to the help control.
+
+The cPanel uploader verified `shop.js` and `storefront.css` without normalization.
+Live Chromium checks on the actual Staging page covered 320, 390, 600, and 1440px
+widths. The overlay stayed centered, list cards retained their dimensions, and the
+page had no horizontal overflow or JavaScript errors. Tap, Tab, and Escape dismissal
+all worked. Non-GET requests were blocked, so no cart or order was changed.
+Production was not changed.
+
 ## 2026-11-11 Staging list thumbnails and step-help placement
 
 Plugin commit `df18f74bddc941efbfb0093b9da5f90731a9d1d6` was pushed to
