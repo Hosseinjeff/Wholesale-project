@@ -118,6 +118,23 @@ mocked endpoints confirmed that quantity 4 stays at 4 after switching to a 12-un
 step, then changes to 12 only after the explicit action. No Staging cart or order was
 changed. Production was not changed.
 
+## 2026-11-11 Staging list-view balance correction
+
+Plugin commits `625dc99`, `aee4841`, and `acadc13` were pushed and deployed only to
+Staging. The list layout now keeps the photo, discount and sale price, product name,
+and order controls in distinct aligned areas. On tablet widths, the price stays in a
+compact column; on phones, price, name, and controls stack beside the thumbnail. The
+cart control and order-step text share a compact row. Long prices wrap when needed,
+and narrow price rows stay inside their cards.
+
+The protected uploader verified the Staging read-back. The live homepage returned
+HTTP 200 with 30 product cards. Chromium rendered the actual Staging page at widths
+320–1440px, including 48 items in cart, an invalid 8-to-12 step adjustment, and a
+12-digit sale price. These cart states were simulated in the browser DOM; no cart
+controls were clicked, and no Staging order or Production data was changed. Across
+the checked widths, there was no page or card overflow, card-section overlap, price
+clipping, or element outside its card. Production was not changed.
+
 ## 2026-11-10 Staging product-card balance correction
 
 Plugin commit `c619e8f263ea3110721e09a60874be1ef9f0c6bd` was pushed and deployed only
