@@ -1019,6 +1019,125 @@
         });
     }
 
+    function setupCardStepHelp() {
+        var selector = ".molavi-card-step-help";
+        var activeHelp = null;
+        var nextHelpId = 0;
+
+        function parts(details) {
+            if (!details) return null;
+            var summary = details.querySelector(":scope > summary");
+            var panel = details.querySelector(".molavi-card-step-popover");
+            if (summary && panel) {
+                if (!panel.id) {
+                    do {
+                        nextHelpId += 1;
+                        panel.id = "molavi-step-help-" + nextHelpId;
+                    } while (document.getElementById(panel.id) !== panel);
+                }
+                summary.setAttribute("aria-controls", panel.id);
+                if (!summary.hasAttribute("aria-expanded")) {
+                    summary.setAttribute("aria-expanded", details.open ? "true" : "false");
+                }
+            }
+            return summary && panel ? { summary: summary, panel: panel } : null;
+        }
+
+        function closeHelp(details, restoreFocus) {
+            details = details || activeHelp;
+            if (!details) return;
+            var nodes = parts(details);
+            details.open = false;
+            if (nodes) {
+                nodes.summary.setAttribute("aria-expanded", "false");
+                nodes.panel.removeAttribute("data-molavi-positioned");
+                nodes.panel.style.left = "";
+                nodes.panel.style.right = "";
+                nodes.panel.style.top = "";
+            }
+            if (activeHelp === details) activeHelp = null;
+            if (restoreFocus && nodes) nodes.summary.focus();
+        }
+
+        function positionHelp(details) {
+            var nodes = parts(details);
+            if (!nodes || !details.open) return;
+            var panel = nodes.panel;
+            var summaryRect = nodes.summary.getBoundingClientRect();
+            var panelRect = panel.getBoundingClientRect();
+            var margin = 12;
+            var maxLeft = Math.max(margin, window.innerWidth - panelRect.width - margin);
+            var left = Math.max(margin, Math.min(summaryRect.right - panelRect.width, maxLeft));
+            var top = summaryRect.bottom + 8;
+
+            if (top + panelRect.height > window.innerHeight - margin) {
+                var above = summaryRect.top - panelRect.height - 8;
+                top = above >= margin
+                    ? above
+                    : Math.max(margin, window.innerHeight - panelRect.height - margin);
+            }
+            top = Math.max(margin, Math.min(top, Math.max(margin, window.innerHeight - panelRect.height - margin)));
+            panel.style.left = Math.round(left) + "px";
+            panel.style.right = "auto";
+            panel.style.top = Math.round(top) + "px";
+            panel.setAttribute("data-molavi-positioned", "true");
+            nodes.summary.setAttribute("aria-expanded", "true");
+        }
+
+        function openHelp(details) {
+            if (activeHelp && activeHelp !== details) closeHelp(activeHelp);
+            activeHelp = details;
+            parts(details);
+            window.requestAnimationFrame(function () {
+                if (activeHelp === details && details.open) positionHelp(details);
+            });
+        }
+
+        Array.prototype.forEach.call(document.querySelectorAll(selector), function (details) {
+            parts(details);
+        });
+
+        document.addEventListener("pointerdown", function (event) {
+            if (!activeHelp) return;
+            var target = event.target && event.target.nodeType === 1 ? event.target : event.target.parentElement;
+            var clickedSummary = target && target.closest
+                ? target.closest(".molavi-card-step-help > summary") : null;
+            if (!clickedSummary || clickedSummary.parentElement !== activeHelp) closeHelp(activeHelp);
+        }, true);
+
+        document.addEventListener("click", function (event) {
+            var target = event.target && event.target.nodeType === 1 ? event.target : event.target.parentElement;
+            var summary = target && target.closest
+                ? target.closest(".molavi-card-step-help > summary") : null;
+            if (!summary) {
+                if (activeHelp) closeHelp(activeHelp);
+                return;
+            }
+            var details = summary.parentElement;
+            window.requestAnimationFrame(function () {
+                if (details.open) openHelp(details);
+                else closeHelp(details);
+            });
+        }, true);
+
+        document.addEventListener("keydown", function (event) {
+            if (!activeHelp) return;
+            if (event.key === "Escape") {
+                event.preventDefault();
+                closeHelp(activeHelp, true);
+            } else if (event.key === "Tab") {
+                closeHelp(activeHelp);
+            }
+        }, true);
+
+        window.addEventListener("resize", function () {
+            if (activeHelp) positionHelp(activeHelp);
+        }, { passive: true });
+        window.addEventListener("scroll", function () {
+            if (activeHelp) closeHelp(activeHelp);
+        }, { capture: true, passive: true });
+    }
+
     var pageInteractionsInitialized = false;
     var storefrontControlsInitialized = false;
     var storefrontObserver = null;
@@ -1055,6 +1174,7 @@
     function initializePageInteractions() {
         if (pageInteractionsInitialized) return;
         pageInteractionsInitialized = true;
+        setupCardStepHelp();
         setupNativeCartAutoUpdate();
         updateBuyerControls();
         paint(lastQuote);
