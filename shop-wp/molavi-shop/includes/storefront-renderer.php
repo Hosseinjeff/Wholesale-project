@@ -271,6 +271,7 @@ function molavi_render_storefront_card(\WC_Product $product, array $quote): void
     $rate = $shelf > $unit ? ($shelf - $unit) / $shelf : 0.0;
     $qty = molavi_cart_qty($id);
     $min = molavi_product_min($product);
+    $invalidStep = $qty > 0 && ($qty < $min || $qty % $min !== 0);
     $supplier = trim((string) $product->get_meta('_molavi_supplier'));
     $displayName = molavi_storefront_card_product_name($product, $supplier);
     $category = molavi_storefront_product_category($product);
@@ -289,7 +290,7 @@ function molavi_render_storefront_card(\WC_Product $product, array $quote): void
         <div class="molavi-card-photo">
             <?php echo wp_kses_post($image); ?>
             <?php if ($max > 0): ?>
-                <span class="molavi-deal" data-molavi-profile-deal data-product="<?php echo esc_attr((string) $id); ?>" aria-label="حداکثر <?php echo esc_attr(molavi_percent($max)); ?> تخفیف">تا <?php echo esc_html(molavi_percent($max)); ?> تخفیف</span>
+                <span class="molavi-deal" data-molavi-profile-deal data-product="<?php echo esc_attr((string) $id); ?>" data-short="تا <?php echo esc_attr(molavi_percent($max)); ?>" data-short-compact="<?php echo esc_attr(molavi_percent($max)); ?>" aria-label="حداکثر <?php echo esc_attr(molavi_percent($max)); ?> تخفیف"><span class="molavi-deal-copy">تا <?php echo esc_html(molavi_percent($max)); ?> تخفیف</span></span>
             <?php else: ?>
                 <span class="molavi-deal molavi-deal-fixed" data-molavi-profile-deal data-product="<?php echo esc_attr((string) $id); ?>">قیمت ثابت</span>
             <?php endif; ?>
@@ -298,8 +299,15 @@ function molavi_render_storefront_card(\WC_Product $product, array $quote): void
         <div class="molavi-card-body">
             <h3><a href="<?php echo esc_url($product->get_permalink()); ?>" title="<?php echo esc_attr($displayName); ?>"><?php echo esc_html($displayName); ?></a></h3>
             <div class="molavi-card-facts">
-                <span class="molavi-order-units" data-molavi-order-units data-household-unit="<?php echo esc_attr((string) $profile['household_unit']); ?>" data-shop-unit="<?php echo esc_attr((string) $profile['shop_unit']); ?>" title="خانوار <?php echo esc_attr(molavi_digits((string) $profile['household_unit'])); ?> عدد؛ فروشگاه <?php echo esc_attr(molavi_digits((string) $profile['shop_unit'])); ?> عدد">گام سفارش: <?php echo esc_html(molavi_digits((string) $profile[$buyerType . '_unit'])); ?> عدد</span>
-                <?php if ($category !== ''): ?><span class="molavi-card-category"><?php echo esc_html($category); ?></span><?php endif; ?>
+                <span class="molavi-order-units" data-molavi-order-units<?php echo $invalidStep ? ' hidden' : ''; ?> data-household-unit="<?php echo esc_attr((string) $profile['household_unit']); ?>" data-shop-unit="<?php echo esc_attr((string) $profile['shop_unit']); ?>" title="خانوار <?php echo esc_attr(molavi_digits((string) $profile['household_unit'])); ?> عدد؛ فروشگاه <?php echo esc_attr(molavi_digits((string) $profile['shop_unit'])); ?> عدد">گام سفارش: <?php echo esc_html(molavi_digits((string) $profile[$buyerType . '_unit'])); ?> عدد</span>
+                <?php if ($category !== ''): ?><span class="molavi-card-category"<?php echo $invalidStep ? ' hidden' : ''; ?>><?php echo esc_html($category); ?></span><?php endif; ?>
+                <details class="molavi-card-step-help">
+                    <summary aria-label="توضیح گام سفارش" title="توضیح درباره گام سفارش">؟</summary>
+                    <div class="molavi-card-step-popover">گام سفارش تعداد هر بار افزودن یا کم‌کردن کالا را مشخص می‌کند. با تغییر نوع خرید، تعداد فعلی حفظ می‌شود؛ برای هماهنگ‌کردنش «اصلاح تعداد» را انتخاب کنید.</div>
+                </details>
+                <div class="molavi-card-step-warning" data-molavi-card-step-warning<?php echo $invalidStep ? '' : ' hidden'; ?> role="status" aria-live="polite">
+                    <span data-molavi-card-step-warning-text><?php echo $invalidStep ? esc_html('تعداد ' . molavi_digits((string) $qty) . ' · گام ' . molavi_digits((string) $min)) : ''; ?></span>
+                </div>
                 <span class="screen-reader-text">حداقل خرید <?php echo esc_html(molavi_digits((string) $min)); ?> عدد</span>
             </div>
             <div class="molavi-card-price" data-molavi-price data-product="<?php echo esc_attr((string) $id); ?>" data-name="<?php echo esc_attr($displayName); ?>" data-min="<?php echo esc_attr((string) $min); ?>" data-household-min="<?php echo esc_attr((string) $profile['household_unit']); ?>" data-shop-min="<?php echo esc_attr((string) $profile['shop_unit']); ?>" data-household-max="<?php echo esc_attr((string) $householdCurve['max']); ?>" data-shop-max="<?php echo esc_attr((string) $shopCurve['max']); ?>" data-discountable="<?php echo $curve['discountable'] ? '1' : '0'; ?>" data-shelf="<?php echo esc_attr((string) $shelf); ?>" data-fixed-price="<?php echo esc_attr((string) ($shelf > 0 ? 0 : $unit)); ?>" data-unit="<?php echo esc_attr((string) $unit); ?>">
@@ -319,7 +327,13 @@ function molavi_render_storefront_card(\WC_Product $product, array $quote): void
 function molavi_render_storefront_control(\WC_Product $product, int $qty, int $min): void
 {
     echo '<div class="molavi-control' . ($qty > 0 ? ' is-in' : '') . '" data-molavi-cart data-product="' . esc_attr((string) $product->get_id()) . '" data-min="' . esc_attr((string) $min) . '" data-qty="' . esc_attr((string) $qty) . '">';
-    if ($qty > 0) {
+    if ($qty > 0 && ($qty < $min || $qty % $min !== 0)) {
+        $next = max($min, (int) ceil($qty / $min) * $min);
+        if ($next > 999) {
+            $next = max($min, intdiv(999, $min) * $min);
+        }
+        echo '<button type="button" class="molavi-card-adjust" data-molavi-set-qty="' . esc_attr((string) $next) . '" aria-label="اصلاح تعداد از ' . esc_attr(molavi_digits((string) $qty)) . ' به ' . esc_attr(molavi_digits((string) $next)) . '"><span class="molavi-card-adjust-label" data-compact-label="اصلاح">اصلاح تعداد</span><span class="molavi-count-shift" aria-hidden="true"><b>' . esc_html(molavi_digits((string) $qty)) . '</b><i>→</i><b>' . esc_html(molavi_digits((string) $next)) . '</b></span></button>';
+    } elseif ($qty > 0) {
         echo '<div class="molavi-actions"><div class="molavi-step"><button type="button" data-molavi-step="-' . esc_attr((string) $min) . '" aria-label="کم کردن ' . esc_attr(molavi_digits((string) $min)) . ' عدد">−</button><b>' . esc_html(molavi_digits((string) $qty)) . '</b><button type="button" data-molavi-step="' . esc_attr((string) $min) . '" aria-label="افزودن ' . esc_attr(molavi_digits((string) $min)) . ' عدد">+</button></div><button type="button" class="molavi-trash" data-molavi-clear aria-label="حذف از سبد">' . molavi_basket_trash_svg() . '</button></div>';
     } else {
         $supplier = trim((string) $product->get_meta('_molavi_supplier'));

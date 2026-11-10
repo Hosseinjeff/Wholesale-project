@@ -384,14 +384,28 @@
             var maximum = buyerType === "shop" ? row.shopMax : row.householdMax;
             var prefix = node.getAttribute("data-prefix") || "تا";
             node.classList.toggle("molavi-deal-fixed", maximum <= 0);
-            node.textContent = maximum > 0
+            var dealText = maximum > 0
                 ? (prefix === "تا" ? "تا " + percent(maximum) + " تخفیف" : percent(maximum) + " " + prefix)
                 : "قیمت ثابت";
+            var shortDeal = maximum > 0 ? "تا " + percent(maximum) : "قیمت ثابت";
+            node.setAttribute("data-short", shortDeal);
+            node.setAttribute("data-short-compact", maximum > 0 ? percent(maximum) : "قیمت ثابت");
+            var dealCopy = node.querySelector(".molavi-deal-copy");
+            if (!dealCopy) {
+                node.replaceChildren();
+                dealCopy = document.createElement("span");
+                dealCopy.className = "molavi-deal-copy";
+                node.appendChild(dealCopy);
+            }
+            dealCopy.textContent = dealText;
             node.setAttribute("aria-label", maximum > 0 ? "حداکثر " + percent(maximum) + " تخفیف" : "قیمت ثابت");
         });
         document.querySelectorAll(".e-loop-item [data-molavi-cart]").forEach(function (node) {
             var id = node.getAttribute("data-product");
-            updateCardControl(node, Number(counts[id] || 0), rowOf(id));
+            var row = rowOf(id);
+            var qty = Number(counts[id] || 0);
+            updateCardFacts(node.closest("[data-molavi-card]"), qty, row);
+            updateCardControl(node, qty, row);
         });
         paintBasket(units, counts, quote);
         showBuyerFeedback(quote);
@@ -407,13 +421,45 @@
         });
     }
 
+    function updateCardFacts(card, qty, row) {
+        if (!card || !row) return;
+        var step = Math.max(1, Number(row.min) || 1);
+        var invalid = qty > 0 && (qty < step || qty % step !== 0);
+        var orderUnits = card.querySelector("[data-molavi-order-units]");
+        var category = card.querySelector(".molavi-card-category");
+        var warning = card.querySelector("[data-molavi-card-step-warning]");
+        var warningText = card.querySelector("[data-molavi-card-step-warning-text]");
+        if (orderUnits) {
+            orderUnits.textContent = "گام سفارش: " + digits(step) + " عدد";
+            orderUnits.title = "خانوار " + digits(row.householdUnit) + " عدد؛ فروشگاه " + digits(row.shopUnit) + " عدد";
+            orderUnits.hidden = invalid;
+        }
+        if (category) category.hidden = invalid;
+        if (warning) warning.hidden = !invalid;
+        if (warningText) warningText.textContent = invalid
+            ? "تعداد " + digits(qty) + " · گام " + digits(step)
+            : "";
+    }
+
+    function cardAdjustment(qty, row) {
+        var step = Math.max(1, Number(row && row.min) || 1);
+        var next = Math.max(step, Math.ceil(qty / step) * step);
+        if (next > 999) next = Math.max(step, Math.floor(999 / step) * step);
+        var label = "اصلاح تعداد از " + digits(qty) + " به " + digits(next);
+        return '<button type="button" class="molavi-card-adjust" data-molavi-set-qty="' + next
+            + '" aria-label="' + escapeHtml(label) + '"><span class="molavi-card-adjust-label" data-compact-label="اصلاح">اصلاح تعداد</span>'
+            + '<span class="molavi-count-shift" aria-hidden="true"><b>' + digits(qty) + '</b><i>→</i><b>' + digits(next)
+            + '</b></span></button>';
+    }
+
     function updateCardControl(node, qty, row) {
         var min = Math.max(1, Number(row && row.min) || Number(node.getAttribute("data-min")) || 1);
         var inCart = node.classList.contains("is-in");
+        var invalid = qty > 0 && (qty < min || qty % min !== 0);
         node.setAttribute("data-min", String(min));
         node.setAttribute("data-qty", String(qty));
 
-        if (qty > 0 && inCart) {
+        if (qty > 0 && inCart && !invalid) {
             var count = node.querySelector(".molavi-step b");
             var buttons = node.querySelectorAll(".molavi-step button[data-molavi-step]");
             if (count && count.textContent !== digits(qty)) count.textContent = digits(qty);
@@ -437,20 +483,29 @@
                 buttons[0].setAttribute("aria-label", minusLabel);
                 buttons[1].setAttribute("aria-label", plusLabel);
                 buttons[1].disabled = disablePlus;
+                return;
             }
-            return;
         }
         if (qty < 1 && !inCart) return;
+        if (invalid) {
+            var currentAdjustment = node.querySelector(".molavi-card-adjust");
+            var expectedAdjustment = String(Math.max(min, Math.ceil(qty / min) * min));
+            if (Number(expectedAdjustment) > 999) expectedAdjustment = String(Math.max(min, Math.floor(999 / min) * min));
+            if (currentAdjustment && currentAdjustment.getAttribute("data-molavi-set-qty") === expectedAdjustment) return;
+        }
 
         var active = node.contains(document.activeElement) ? document.activeElement : null;
         var activeAction = active && active.hasAttribute("data-molavi-clear") ? "clear"
+            : active && active.hasAttribute("data-molavi-set-qty") ? "adjust"
             : active && Number(active.getAttribute("data-molavi-step")) < 0 ? "minus" : "plus";
         node.classList.toggle("is-in", qty > 0);
-        node.innerHTML = qty > 0 ? stepper(qty, row) : addButton(row);
+        node.innerHTML = qty > 0 ? (invalid ? cardAdjustment(qty, row) : stepper(qty, row)) : addButton(row);
 
         if (active) {
             var replacement = qty < 1 ? node.querySelector(".molavi-add")
                 : activeAction === "clear" ? node.querySelector("[data-molavi-clear]")
+                : activeAction === "adjust" ? Array.prototype.slice.call(node.querySelectorAll(".molavi-step button[data-molavi-step]"))
+                    .find(function (button) { return Number(button.getAttribute("data-molavi-step")) > 0; })
                 : activeAction === "minus" ? node.querySelector('.molavi-step button[data-molavi-step^="-"]')
                 : Array.prototype.slice.call(node.querySelectorAll(".molavi-step button[data-molavi-step]"))
                     .find(function (button) { return Number(button.getAttribute("data-molavi-step")) > 0; });
