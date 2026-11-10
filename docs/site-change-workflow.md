@@ -139,6 +139,22 @@ popover outside the viewport. Product photos were replaced with SVG placeholders
 these local layout captures. No Staging cart or order was changed. Production was not
 changed.
 
+## 2026-11-10 Staging price label and discount placement
+
+Plugin commit `8cf239837b71aed8111fd6bdcb61569a767425e2` was pushed and deployed
+only to Staging. Product cards now show the reference-price value without the
+`قیمت مصرف` label, and place the current discount before the sale price. The price
+row direction and spacing were adjusted to fit the discount and amount at narrow
+card widths.
+
+The protected uploader verified the Staging read-back. The live homepage returned
+HTTP 200 with 30 product cards and no PHP fatal error. Each card's HTML was checked
+for the removed label and discount-before-sale ordering; the served `storefront.css`
+matched the committed file. Chromium layout checks used the live Staging HTML and
+served styles at 320–1440px in grid and list modes, with local layout-only cart and
+long-text states. Product photos used SVG placeholders in those captures. No Staging
+cart or order was changed. Production was not changed.
+
 ## 2026-11-09 Staging cart space and explicit step updates
 
 The cart layout request was to make more room for cart items by collapsing the
