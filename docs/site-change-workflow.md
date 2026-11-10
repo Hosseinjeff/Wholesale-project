@@ -97,6 +97,27 @@ tested step change remained visible in the cart without changing card height. Th
 was cleared after the interaction checks; no order was placed. The 7 existing
 placeholder product images remain a catalog-content issue. Production was not changed.
 
+## 2026-11-10 Staging product-card implementation
+
+Commits `32a851007e16779bba433af489e1534504d9fb24` and
+`266558ba31a371e119422c58ea9ffb256522b007` were pushed to `codex/storefront-ux`
+and deployed only to Staging. Prices lead the information below each image. List
+cards keep the order-step message and cart action on one row. A buyer-type change
+preserves the chosen quantity; when the new step makes it invalid, an explicit
+quantity-adjustment button replaces the stepper and remove button. The optional step
+explanation opens within narrow screens.
+
+The cPanel uploader verified the Staging read-back. The live storefront returned
+HTTP 200 with 30 product cards and no PHP fatal error; the served `shop.css`,
+`storefront.css`, and `shop.js` match the pushed files. Responsive grid/list layouts
+were rendered from the live Staging HTML and CSS at 320–1440px, with the step
+explanation checked at 320, 390, and 760px. Chromium could not navigate directly to
+Staging because its proxy certificate was not trusted, so the live HTML/assets were
+rendered locally after HTTPS retrieval. A separate Chromium interaction check with
+mocked endpoints confirmed that quantity 4 stays at 4 after switching to a 12-unit
+step, then changes to 12 only after the explicit action. No Staging cart or order was
+changed. Production was not changed.
+
 ## 2026-11-09 Staging cart space and explicit step updates
 
 The cart layout request was to make more room for cart items by collapsing the
