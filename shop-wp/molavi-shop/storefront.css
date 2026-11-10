@@ -2675,3 +2675,142 @@ body.molavi-site-page .woocommerce .woocommerce-notices-wrapper { margin-bottom:
     .molavi-product-grid:not(.is-list-view) .molavi-amount { font-size: .66rem; }
     .molavi-product-grid:not(.is-list-view) .molavi-rate-label { font-size: .48rem; padding: 2px 3px; }
 }
+
+/* Keep list-view prices grouped beside the photo and the remaining details together. */
+.molavi-product-grid.is-list-view .molavi-product-card {
+    grid-template-areas: "photo price title" "photo price bottom";
+    grid-template-columns: clamp(104px, 11vw, 126px) minmax(196px, 230px) minmax(0, 1fr);
+    grid-template-rows: minmax(44px, auto) minmax(42px, auto);
+    min-height: 134px;
+}
+.molavi-product-grid.is-list-view .molavi-card-body { display: contents; }
+.molavi-product-grid.is-list-view .molavi-card-photo {
+    align-self: center;
+    aspect-ratio: 1 / 1;
+    grid-area: photo;
+    height: auto;
+    margin: 8px;
+    min-height: 0;
+}
+.molavi-product-grid.is-list-view .molavi-card-price {
+    align-self: center;
+    border: 0;
+    border-inline-end: 1px solid var(--molavi-line);
+    grid-area: price;
+    margin: 0;
+    min-height: 74px;
+    padding: 0 12px;
+}
+.molavi-product-grid.is-list-view .molavi-current-price {
+    align-items: center;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 7px;
+    justify-content: flex-start;
+}
+.molavi-product-grid.is-list-view .molavi-rate-label { flex: 0 1 auto; max-width: 46%; }
+.molavi-product-grid.is-list-view .molavi-amount { flex: 0 1 auto; font-size: .9rem; max-width: 100%; }
+.molavi-product-grid.is-list-view .molavi-card-body h3 {
+    align-self: center;
+    grid-area: title;
+    height: 2.6em;
+    margin: 0 14px;
+    min-height: 0;
+}
+.molavi-product-grid.is-list-view .molavi-card-bottom {
+    align-items: center;
+    display: flex;
+    gap: 10px;
+    grid-area: bottom;
+    justify-content: flex-start;
+    min-width: 0;
+    padding-inline: 12px;
+}
+.molavi-product-grid.is-list-view .molavi-card-facts { flex: 0 1 auto; max-width: calc(100% - 154px); }
+.molavi-product-grid.is-list-view .molavi-control { flex: 0 0 142px; width: 142px; }
+
+@media (min-width: 761px) {
+    .molavi-product-grid.is-list-view .molavi-product-card { margin-inline: auto; width: min(100%, 720px); }
+}
+
+@media (max-width: 760px) {
+    .molavi-product-grid.is-list-view .molavi-product-card {
+        grid-template-areas: "photo price" "photo title" "photo bottom";
+        grid-template-columns: clamp(78px, 22vw, 96px) minmax(0, 1fr);
+        grid-template-rows: minmax(34px, auto) minmax(34px, auto) minmax(40px, auto);
+        min-height: 126px;
+        width: auto;
+    }
+    .molavi-product-grid.is-list-view .molavi-card-photo { margin: 6px; }
+    .molavi-product-grid.is-list-view .molavi-card-price {
+        align-self: center;
+        border: 0;
+        grid-area: price;
+        justify-self: start;
+        margin: 0 10px;
+        max-width: min(100%, 260px);
+        min-height: 0;
+        padding: 0;
+    }
+    .molavi-product-grid.is-list-view .molavi-current-price { gap: 5px; justify-content: flex-start; }
+    .molavi-product-grid.is-list-view .molavi-amount { font-size: clamp(.66rem, 2vw, .78rem); }
+    .molavi-product-grid.is-list-view .molavi-rate-label { font-size: .55rem; max-width: 46%; padding: 2px 4px; }
+    .molavi-product-grid.is-list-view .molavi-card-body h3 {
+        font-size: .76rem;
+        grid-area: title;
+        height: 2.6em;
+        margin: 0 10px;
+    }
+    .molavi-product-grid.is-list-view .molavi-card-bottom { grid-area: bottom; gap: 6px; padding-inline: 7px; }
+    .molavi-product-grid.is-list-view .molavi-card-facts { max-width: calc(100% - 122px); }
+    .molavi-product-grid.is-list-view .molavi-control { flex-basis: 116px; width: 116px; }
+    .molavi-product-grid.is-list-view .molavi-card-price .molavi-reference-label { font-size: .56rem; }
+}
+
+@media (max-width: 360px) {
+    .molavi-product-grid.is-list-view .molavi-product-card { grid-template-columns: 74px minmax(0, 1fr); }
+    .molavi-product-grid.is-list-view .molavi-control { flex-basis: 108px; width: 108px; }
+    .molavi-product-grid.is-list-view .molavi-card-facts { gap: 3px; max-width: calc(100% - 114px); }
+    .molavi-product-grid.is-list-view .molavi-card-category { display: none; }
+    .molavi-product-grid.is-list-view .molavi-order-units { font-size: .56rem; }
+}
+
+@media (min-width: 521px) and (max-width: 760px) {
+    .molavi-product-grid.is-list-view .molavi-product-card {
+        grid-template-areas: "photo price title" "photo price bottom";
+        grid-template-columns: clamp(78px, 14vw, 96px) minmax(170px, 196px) minmax(0, 1fr);
+        grid-template-rows: minmax(40px, auto) minmax(40px, auto);
+        margin-inline: auto;
+        min-height: 132px;
+        width: min(100%, 640px);
+    }
+    .molavi-product-grid.is-list-view .molavi-card-photo { margin: 6px; }
+    .molavi-product-grid.is-list-view .molavi-card-price {
+        align-self: center;
+        border: 0;
+        border-inline-end: 1px solid var(--molavi-line);
+        grid-area: price;
+        justify-self: stretch;
+        margin: 0;
+        max-width: none;
+        min-height: 64px;
+        padding: 0 8px;
+        width: auto;
+    }
+    .molavi-product-grid.is-list-view .molavi-current-price { gap: 5px; justify-content: flex-start; }
+    .molavi-product-grid.is-list-view .molavi-amount { font-size: .72rem; }
+    .molavi-product-grid.is-list-view .molavi-rate-label { font-size: .54rem; max-width: 48%; padding: 2px 4px; }
+    .molavi-product-grid.is-list-view .molavi-card-body h3 {
+        font-size: clamp(.72rem, .95vw, .8rem);
+        grid-area: title;
+        height: 2.6em;
+        margin: 0 10px;
+    }
+    .molavi-product-grid.is-list-view .molavi-card-bottom { grid-area: bottom; gap: 5px; padding-inline: 6px; }
+    .molavi-product-grid.is-list-view .molavi-card-facts { gap: 4px; max-width: calc(100% - 108px); }
+    .molavi-product-grid.is-list-view .molavi-control { flex: 0 0 102px; width: 102px; }
+    .molavi-product-grid.is-list-view .molavi-control .molavi-step button { flex-basis: 22px; min-width: 22px; }
+    .molavi-product-grid.is-list-view .molavi-control .molavi-trash { flex-basis: 23px; width: 23px; }
+    .molavi-product-grid.is-list-view .molavi-control .molavi-card-adjust { font-size: .57rem; gap: 3px; padding-inline: 4px; }
+    .molavi-product-grid.is-list-view .molavi-count-shift { font-size: .55rem; gap: 2px; padding: 3px; }
+}
