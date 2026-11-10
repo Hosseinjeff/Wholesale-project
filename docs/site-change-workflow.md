@@ -118,6 +118,27 @@ mocked endpoints confirmed that quantity 4 stays at 4 after switching to a 12-un
 step, then changes to 12 only after the explicit action. No Staging cart or order was
 changed. Production was not changed.
 
+## 2026-11-10 Staging product-card balance correction
+
+Plugin commit `c619e8f263ea3110721e09a60874be1ef9f0c6bd` was pushed and deployed only
+to Staging. The current unit price now leads the text below each image; the discount
+and consumer-reference price share a compact row beneath it. In grid cards that row
+stacks cleanly on narrow screens. List cards keep the order-step message beside the
+cart control, including the explicit quantity-adjust action when a buyer-type change
+makes the current quantity invalid. The fixed-price badge has a compact label in small
+list thumbnails.
+
+The protected uploader read back `includes/storefront-renderer.php`, `shop.js`, and
+`storefront.css`. The Staging homepage returned HTTP 200 with 30 cards and no PHP
+fatal error. Served `shop.css`, `storefront.css`, and `shop.js` matched the committed
+files. Chromium rendered the actual Staging HTML and served styles locally at widths
+320–1440px in grid and list modes. Layout-only states covered an empty cart, quantities
+4, 12, and 48, an invalid 8-to-12 step, a long title, and a 12-digit price. There was
+no horizontal overflow, card-section overlap, clipped price/control, or step-help
+popover outside the viewport. Product photos were replaced with SVG placeholders for
+these local layout captures. No Staging cart or order was changed. Production was not
+changed.
+
 ## 2026-11-09 Staging cart space and explicit step updates
 
 The cart layout request was to make more room for cart items by collapsing the
