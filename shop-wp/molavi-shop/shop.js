@@ -387,9 +387,9 @@
             var dealText = maximum > 0
                 ? (prefix === "تا" ? "تا " + percent(maximum) + " تخفیف" : percent(maximum) + " " + prefix)
                 : "قیمت ثابت";
-            var shortDeal = maximum > 0 ? "تا " + percent(maximum) : "قیمت ثابت";
+            var shortDeal = maximum > 0 ? "تا " + percent(maximum) : "ثابت";
             node.setAttribute("data-short", shortDeal);
-            node.setAttribute("data-short-compact", maximum > 0 ? percent(maximum) : "قیمت ثابت");
+            node.setAttribute("data-short-compact", maximum > 0 ? percent(maximum) : "ثابت");
             var dealCopy = node.querySelector(".molavi-deal-copy");
             if (!dealCopy) {
                 node.replaceChildren();
