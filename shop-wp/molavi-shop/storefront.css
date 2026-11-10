@@ -2679,19 +2679,20 @@ body.molavi-site-page .woocommerce .woocommerce-notices-wrapper { margin-bottom:
 /* Keep the list image edge-to-edge and align the action row across the card. */
 .molavi-product-grid.is-list-view .molavi-product-card {
     grid-template-areas: "photo price title" "photo bottom bottom";
-    grid-template-columns: clamp(104px, 11vw, 126px) minmax(196px, 230px) minmax(0, 1fr);
+    grid-template-columns: clamp(112px, 11vw, 128px) minmax(196px, 230px) minmax(0, 1fr);
     grid-template-rows: minmax(44px, auto) minmax(42px, auto);
     min-height: 134px;
 }
 .molavi-product-grid.is-list-view .molavi-card-body { display: contents; }
 .molavi-product-grid.is-list-view .molavi-card-photo {
-    align-self: stretch;
-    aspect-ratio: auto;
-    border-radius: 0 14px 14px 0;
+    align-self: center;
+    aspect-ratio: 1 / 1;
+    border-radius: 9px;
     grid-area: photo;
     height: auto;
     margin: 0;
     min-height: 0;
+    width: 100%;
 }
 .molavi-product-grid.is-list-view .molavi-card-photo img { padding: 0; }
 .molavi-product-grid.is-list-view .molavi-card-price {
@@ -2738,12 +2739,12 @@ body.molavi-site-page .woocommerce .woocommerce-notices-wrapper { margin-bottom:
 @media (max-width: 760px) {
     .molavi-product-grid.is-list-view .molavi-product-card {
         grid-template-areas: "photo price" "photo title" "photo bottom";
-        grid-template-columns: clamp(78px, 22vw, 96px) minmax(0, 1fr);
+        grid-template-columns: clamp(92px, 26vw, 112px) minmax(0, 1fr);
         grid-template-rows: minmax(34px, auto) minmax(34px, auto) minmax(40px, auto);
         min-height: 126px;
         width: auto;
     }
-    .molavi-product-grid.is-list-view .molavi-card-photo { border-radius: 0 14px 14px 0; margin: 0; }
+    .molavi-product-grid.is-list-view .molavi-card-photo { border-radius: 9px; margin: 0; }
     .molavi-product-grid.is-list-view .molavi-card-price {
         align-self: center;
         border: 0;
@@ -2771,7 +2772,8 @@ body.molavi-site-page .woocommerce .woocommerce-notices-wrapper { margin-bottom:
 }
 
 @media (max-width: 360px) {
-    .molavi-product-grid.is-list-view .molavi-product-card { grid-template-columns: 74px minmax(0, 1fr); }
+    .molavi-product-grid.is-list-view .molavi-product-card { grid-template-columns: clamp(92px, 26vw, 100px) minmax(0, 1fr); }
+    .molavi-product-grid.is-list-view .molavi-card-bottom { gap: 3px; padding-inline: 6px; }
     .molavi-product-grid.is-list-view .molavi-control { flex-basis: 108px; width: 108px; }
     .molavi-product-grid.is-list-view .molavi-card-facts { gap: 3px; max-width: calc(100% - 114px); }
     .molavi-product-grid.is-list-view .molavi-card-category { display: none; }
@@ -2781,13 +2783,13 @@ body.molavi-site-page .woocommerce .woocommerce-notices-wrapper { margin-bottom:
 @media (min-width: 521px) and (max-width: 760px) {
     .molavi-product-grid.is-list-view .molavi-product-card {
         grid-template-areas: "photo price title" "photo bottom bottom";
-        grid-template-columns: clamp(78px, 14vw, 96px) minmax(170px, 196px) minmax(0, 1fr);
+        grid-template-columns: clamp(112px, 18vw, 128px) minmax(170px, 196px) minmax(0, 1fr);
         grid-template-rows: minmax(40px, auto) minmax(40px, auto);
         margin-inline: auto;
         min-height: 132px;
         width: min(100%, 640px);
     }
-    .molavi-product-grid.is-list-view .molavi-card-photo { border-radius: 0 14px 14px 0; margin: 0; }
+    .molavi-product-grid.is-list-view .molavi-card-photo { border-radius: 9px; margin: 0; }
     .molavi-product-grid.is-list-view .molavi-card-price {
         align-self: center;
         border: 0;
