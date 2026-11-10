@@ -472,8 +472,9 @@ $workflow_js=file_get_contents('/plugin/includes/owner-workflows.js');
 ref_assert(strpos($workflow_js,'original_message')!==false && strpos($workflow_js,'expected_decision_id')!==false,
     'browser review UI displays source messages and submits optimistic decision revisions');
 ref_assert(strpos($workflow_js,'molavi-admin-tabs')===false && strpos($workflow_js,'createElement(\'iframe\')')===false
-    && strpos($workflow_js,'کارت یکپارچه کالاها')!==false,
-    'owner dashboard uses centralized product cards instead of tabbed embedded pages');
+    && strpos($workflow_js,'const renderProduct = product =>')!==false
+    && strpos($workflow_js,'const renderQueue = () =>')!==false,
+    'owner dashboard renders product review cards without embedded pages');
 ref_assert(strpos($workflow_js,'context:ai_confirmation:')!==false
     && strpos($workflow_js,'decision_history:Array.isArray(context.decision_history)')!==false
     && strpos($workflow_js,"'pending', context, decision")!==false
@@ -635,6 +636,29 @@ ref_assert((int)$priced_product->get_regular_price()===85000
     && (int)$priced_product->get_sale_price()===$expected_curve['ceiling'], 'public Woo prices use the customer price band, not supplier cost');
 ref_assert((int)$priced_product->get_meta('_molavi_supplier_cost_toman')===37500
     && molavi_curve($priced_product)['sale']===37500, 'private supplier cost remains the input to cart pricing');
+$sync_row=['id'=>'ddee11223344','name'=>'Synthetic idempotent sync item','status'=>'sell','sale'=>32000,'shelf'=>45000,
+    'min'=>1,'pack_size'=>6,'supplier'=>'Synthetic Supplier','supplier_availability'=>'instock',
+    'source_record_id'=>'sync-row-1'];
+$sync_product_id=molavi_upsert_product(0,molavi_clean_product($sync_row));
+$sync_save_count=0;
+$sync_save_hook=static function($saved_id) use (&$sync_save_count,$sync_product_id) {
+    if ((int)$saved_id===$sync_product_id) { $sync_save_count++; }
+};
+add_action('woocommerce_update_product',$sync_save_hook,10,1);
+set_transient('molavi_catalog_v5',['sentinel'=>'preserved'],HOUR_IN_SECONDS);
+$unchanged_sync=molavi_apply_catalog(['products'=>[$sync_row]]);
+ref_assert(($unchanged_sync['ok']??false) && ($unchanged_sync['created']??-1)===0
+    && ($unchanged_sync['updated']??-1)===0 && ($unchanged_sync['unchanged']??-1)===1,
+    'an unchanged catalog row is reported without a product update');
+ref_assert($sync_save_count===0 && get_transient('molavi_catalog_v5')===['sentinel'=>'preserved'],
+    'an unchanged catalog row skips WooCommerce saves and catalog-cache invalidation');
+$changed_sync_row=$sync_row;
+$changed_sync_row['sale']=33000;
+$changed_sync=molavi_apply_catalog(['products'=>[$changed_sync_row]]);
+remove_action('woocommerce_update_product',$sync_save_hook,10);
+ref_assert(($changed_sync['updated']??-1)===1 && ($changed_sync['unchanged']??-1)===0
+    && $sync_save_count===1 && get_transient('molavi_catalog_v5')===false,
+    'a changed catalog row is saved and invalidates the catalog cache');
 $renamed_product=new WC_Product_Simple();$renamed_product->set_name('Old supplier name');$renamed_product->set_status('publish');
 $renamed_product->set_regular_price('1200');$renamed_product->set_price('1200');$renamed_product->save();
 update_post_meta($renamed_product->get_id(),'_molavi_source_id','old-source-key');
@@ -744,7 +768,9 @@ $http_mode='queue';ref_prepare_owner_workflow_page('molavi-supplier-prices');
 ob_start();molavi_supplier_prices_screen();$price_html=ob_get_clean();
 ref_assert(strpos($price_html,'id="molavi-owner-workflow"')!==false, 'supplier freshness mounts the scoped owner UI');
 ref_assert(strpos($price_html,MOLAVI_REFERENCE_BRIDGE_TOKEN)===false, 'supplier price page never exposes the bridge secret');
-ref_assert(strpos($workflow_js,'expected_revision: offer.source_revision')!==false, 'supplier verification is bound to the source revision and note');
+ref_assert(strpos($workflow_js,'expected_revision: sourceRevision')!==false
+    && strpos($workflow_js,'receipt.source_revision !== sourceRevision')!==false,
+    'supplier verification is bound to the source revision and note');
 $price_request=molavi_supplier_prices_request('POST',['product_id'=>'price-1','expected_revision'=>'revision-1','note'=>'checked']);
 ref_assert(!is_wp_error($price_request) && $price_request['source_revision']==='revision-1', 'manual price verification requires matching server receipt');
 $http_mode='queue';ref_prepare_owner_workflow_page('molavi-sheet-conflicts');
@@ -869,10 +895,10 @@ $http_mode='queue';ref_prepare_owner_workflow_page('molavi-operations');
 ob_start();molavi_operations_dashboard_screen();$operations_html=ob_get_clean();
 ref_assert(strpos($operations_html,'id="molavi-owner-workflow"')!==false, 'pipeline hub mounts its live status panel');
 ref_assert(strpos($operations_html,'page=molavi-ai-confirmations')!==false && strpos($operations_html,'page=molavi-paid-orders')!==false, 'pipeline hub keeps all workflow destinations reachable');
-ref_assert(strpos($workflow_js,'کارت یکپارچه کالاها')!==false
+ref_assert(strpos($workflow_js,'const renderProduct = product =>')!==false
     && strpos($workflow_js,'product.supplierPrices.forEach')!==false
     && strpos($workflow_js,'product.conflicts.forEach')!==false
-    && strpos($workflow_js,'به‌روزرسانی وضعیت')!==false,
+    && strpos($workflow_js,'به‌روزرسانی همه صف‌ها')!==false,
     'pipeline hub consolidates product facts, conflicts, and refresh controls in one card');
 $workflow_api_php=file_get_contents('/plugin/includes/owner-browser-api.php');
 ref_assert(strpos($workflow_api_php,'workflowApis')!==false
@@ -880,7 +906,7 @@ ref_assert(strpos($workflow_api_php,'workflowApis')!==false
     && strpos($workflow_api_php,'owner:/reference/item-reviews')!==false
     && strpos($workflow_api_php,'owner:/pipeline/sheet-conflicts')!==false,
     'dashboard exposes only short-lived route-scoped capabilities for its product data sources');
-ref_assert(strpos($workflow_js,'Promise.all([...keys.map(key => load(key))')!==false
+ref_assert(strpos($workflow_js,'Promise.all(allKeys.map(key => {')!==false
     && strpos($workflow_js,'molavi-source-health')!==false,
     'dashboard loads product data sources independently and identifies unavailable sources');
 wp_set_current_user($other);
