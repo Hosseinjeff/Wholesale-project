@@ -1,6 +1,24 @@
 # Site changes and preservation workflow
 
-Updated: 2026-11-09, Asia/Tehran
+Updated: 2026-11-11, Asia/Tehran
+
+## 2026-11-11 Staging list thumbnails and step-help placement
+
+Plugin commit `df18f74bddc941efbfb0093b9da5f90731a9d1d6` was pushed to
+`codex/storefront-ux` and deployed only to Staging. List-view thumbnails now fill
+the card's right edge from top to bottom while preserving the full product image.
+The cart action sits at the card's lower-left, with the order-step facts on the same
+row. The step explanation now floats within the viewport without changing card or
+page layout; a page tap, Tab, or Escape closes it, and Escape restores focus.
+
+The cPanel uploader read back `shop.js` and `storefront.css` without normalization.
+The live Staging homepage returned HTTP 200 with 30 product cards, and the served
+assets include the deployed changes. Chromium exercised the site's list-view button
+at 320, 390, 521, 600, 761, and 1440px. Thumbnails met the right card edge, cart
+controls stayed at the lower-left without overlapping the step facts, and the page
+had no horizontal overflow. The help panel stayed within the viewport at the top
+and bottom of the page; outside taps, Tab, and Escape closed it. The browser blocked
+non-GET requests, and no cart or order was changed. Production was not changed.
 
 ## 2026-11-09 Staging storefront cleanup
 
