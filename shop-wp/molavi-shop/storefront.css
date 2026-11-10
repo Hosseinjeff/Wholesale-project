@@ -2751,6 +2751,7 @@ body.molavi-site-page .woocommerce .woocommerce-notices-wrapper { margin-bottom:
         max-width: min(100%, 260px);
         min-height: 0;
         padding: 0;
+        width: 100%;
     }
     .molavi-product-grid.is-list-view .molavi-current-price { gap: 5px; justify-content: flex-start; }
     .molavi-product-grid.is-list-view .molavi-amount { font-size: clamp(.66rem, 2vw, .78rem); }
