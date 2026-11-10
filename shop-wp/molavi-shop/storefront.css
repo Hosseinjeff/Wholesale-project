@@ -2818,25 +2818,39 @@ body.molavi-site-page .woocommerce .woocommerce-notices-wrapper { margin-bottom:
     .molavi-product-grid.is-list-view .molavi-count-shift { font-size: .55rem; gap: 2px; padding: 3px; }
 }
 
-/* The explanation floats above the page so cards and viewport edges cannot clip it. */
-.molavi-card-step-popover {
-    bottom: auto;
+/* Step help opens in a clear overlay rather than covering neighboring cards. */
+.molavi-card-step-overlay {
+    align-items: center;
+    background: rgba(28, 37, 35, .32);
     box-sizing: border-box;
-    left: 0;
-    max-height: min(60vh, 320px);
+    display: grid;
+    inset: 0;
+    justify-items: center;
+    padding: 16px;
+    position: fixed;
+    z-index: 1200;
+}
+.molavi-card-step-overlay .molavi-card-step-popover {
+    background: #fff;
+    border: 1px solid var(--molavi-line);
+    border-radius: 12px;
+    box-shadow: 0 18px 48px rgba(36, 50, 57, .22);
+    box-sizing: border-box;
+    color: var(--molavi-ink);
+    display: block;
+    font-size: .82rem;
+    font-weight: 400;
+    left: auto;
+    line-height: 1.75;
+    margin: 0;
+    max-height: min(70vh, 360px);
     overflow-y: auto;
     overscroll-behavior: contain;
-    position: fixed;
-    right: auto;
-    top: 0;
-    visibility: hidden;
-    width: min(300px, calc(100vw - 24px));
-    z-index: 1100;
-}
-.molavi-card-step-help[open] .molavi-card-step-popover { display: block; visibility: hidden; }
-.molavi-card-step-help[open] .molavi-card-step-popover[data-molavi-positioned="true"] { visibility: visible; }
-.molavi-product-grid .molavi-product-card:has(.molavi-card-step-help[open]) {
-    overflow: visible;
+    padding: 14px 16px;
     position: relative;
-    z-index: 60;
+    right: auto;
+    top: auto;
+    visibility: visible;
+    width: min(360px, 100%);
+    z-index: auto;
 }

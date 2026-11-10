@@ -1022,6 +1022,10 @@
     function setupCardStepHelp() {
         var selector = ".molavi-card-step-help";
         var activeHelp = null;
+        var activeNodes = null;
+        var activeOverlay = null;
+        var activePlaceholder = null;
+        var activeDialogAttributes = null;
         var nextHelpId = 0;
 
         function parts(details) {
@@ -1046,50 +1050,68 @@
         function closeHelp(details, restoreFocus) {
             details = details || activeHelp;
             if (!details) return;
-            var nodes = parts(details);
+            var isActive = activeHelp === details;
+            var nodes = isActive && activeNodes ? activeNodes : parts(details);
+
+            if (isActive && nodes) {
+                if (activePlaceholder && activePlaceholder.parentNode) {
+                    var parent = activePlaceholder.parentNode;
+                    parent.insertBefore(nodes.panel, activePlaceholder);
+                    parent.removeChild(activePlaceholder);
+                } else if (!nodes.panel.parentNode) {
+                    details.appendChild(nodes.panel);
+                }
+                if (activeOverlay && activeOverlay.parentNode) {
+                    activeOverlay.parentNode.removeChild(activeOverlay);
+                }
+                nodes.panel.removeAttribute("data-molavi-positioned");
+                ["role", "aria-modal", "aria-label", "tabindex"].forEach(function (name) {
+                    var value = activeDialogAttributes && activeDialogAttributes[name];
+                    if (value === null || value === undefined) nodes.panel.removeAttribute(name);
+                    else nodes.panel.setAttribute(name, value);
+                });
+                activeNodes = null;
+                activeOverlay = null;
+                activePlaceholder = null;
+                activeDialogAttributes = null;
+            }
+
             details.open = false;
             if (nodes) {
                 nodes.summary.setAttribute("aria-expanded", "false");
-                nodes.panel.removeAttribute("data-molavi-positioned");
-                nodes.panel.style.left = "";
-                nodes.panel.style.right = "";
-                nodes.panel.style.top = "";
             }
-            if (activeHelp === details) activeHelp = null;
+            if (isActive) activeHelp = null;
             if (restoreFocus && nodes) nodes.summary.focus();
-        }
-
-        function positionHelp(details) {
-            var nodes = parts(details);
-            if (!nodes || !details.open) return;
-            var panel = nodes.panel;
-            var summaryRect = nodes.summary.getBoundingClientRect();
-            var panelRect = panel.getBoundingClientRect();
-            var margin = 12;
-            var maxLeft = Math.max(margin, window.innerWidth - panelRect.width - margin);
-            var left = Math.max(margin, Math.min(summaryRect.right - panelRect.width, maxLeft));
-            var top = summaryRect.bottom + 8;
-
-            if (top + panelRect.height > window.innerHeight - margin) {
-                var above = summaryRect.top - panelRect.height - 8;
-                top = above >= margin
-                    ? above
-                    : Math.max(margin, window.innerHeight - panelRect.height - margin);
-            }
-            top = Math.max(margin, Math.min(top, Math.max(margin, window.innerHeight - panelRect.height - margin)));
-            panel.style.left = Math.round(left) + "px";
-            panel.style.right = "auto";
-            panel.style.top = Math.round(top) + "px";
-            panel.setAttribute("data-molavi-positioned", "true");
-            nodes.summary.setAttribute("aria-expanded", "true");
         }
 
         function openHelp(details) {
             if (activeHelp && activeHelp !== details) closeHelp(activeHelp);
+            var nodes = parts(details);
+            if (!nodes || !document.body) return;
+
             activeHelp = details;
-            parts(details);
+            activeNodes = nodes;
+            activePlaceholder = document.createComment("molavi-step-help-panel");
+            nodes.panel.parentNode.insertBefore(activePlaceholder, nodes.panel);
+
+            activeDialogAttributes = {
+                role: nodes.panel.getAttribute("role"),
+                "aria-modal": nodes.panel.getAttribute("aria-modal"),
+                "aria-label": nodes.panel.getAttribute("aria-label"),
+                tabindex: nodes.panel.getAttribute("tabindex")
+            };
+            activeOverlay = document.createElement("div");
+            activeOverlay.className = "molavi-card-step-overlay";
+            nodes.panel.setAttribute("role", "dialog");
+            nodes.panel.setAttribute("aria-modal", "true");
+            nodes.panel.setAttribute("aria-label", "راهنمای گام سفارش");
+            nodes.panel.setAttribute("tabindex", "-1");
+            activeOverlay.appendChild(nodes.panel);
+            document.body.appendChild(activeOverlay);
+            nodes.summary.setAttribute("aria-expanded", "true");
+
             window.requestAnimationFrame(function () {
-                if (activeHelp === details && details.open) positionHelp(details);
+                if (activeHelp === details && details.open) nodes.panel.focus();
             });
         }
 
@@ -1126,16 +1148,9 @@
                 event.preventDefault();
                 closeHelp(activeHelp, true);
             } else if (event.key === "Tab") {
-                closeHelp(activeHelp);
+                closeHelp(activeHelp, true);
             }
         }, true);
-
-        window.addEventListener("resize", function () {
-            if (activeHelp) positionHelp(activeHelp);
-        }, { passive: true });
-        window.addEventListener("scroll", function () {
-            if (activeHelp) closeHelp(activeHelp);
-        }, { capture: true, passive: true });
     }
 
     var pageInteractionsInitialized = false;
