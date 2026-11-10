@@ -2526,10 +2526,11 @@ body.molavi-site-page .woocommerce .woocommerce-notices-wrapper { margin-bottom:
     line-height: 1.7;
     padding: 9px 11px;
     position: absolute;
+    left: auto;
     right: 0;
     top: calc(100% + 5px);
     white-space: normal;
-    width: min(250px, 72vw);
+    width: min(250px, calc(54vw - 8px));
     z-index: 30;
 }
 .molavi-card-step-help[open] .molavi-card-step-popover { display: block; }
