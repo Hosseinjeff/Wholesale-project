@@ -4,6 +4,7 @@ Flask app for Railway/Render deployment with Telegram webhooks.
 """
 
 from flask import Flask, Response, request, jsonify
+import atexit
 import base64
 import hashlib
 import hmac
@@ -47,7 +48,7 @@ app = Flask(__name__)
 WEB_APP_URL = os.getenv('GOOGLE_WEB_APP_URL')
 BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 BALE_BOT_TOKEN = os.getenv('BALE_BOT_TOKEN')
-APP_VERSION = "2026-11-06-policy-versioned-intake-replay"
+APP_VERSION = "2026-11-10-inline-pipeline-worker"
 setup_logger(logging.INFO, log_file=None)
 logger = logging.getLogger(__name__)
 
@@ -451,6 +452,55 @@ def _drain_reextraction_run(queue, run_id):
 
 
 batch_manager = None
+
+_pipeline_worker_lock = threading.Lock()
+_pipeline_worker_thread = None
+_pipeline_worker_stop = None
+
+
+def _pipeline_worker_loop(stop_event):
+    """Run durable background work in this Gunicorn process."""
+    from tools.run_pipeline_handoffs import run_worker
+
+    while not stop_event.is_set():
+        try:
+            run_worker(stop_event)
+            if stop_event.is_set():
+                return
+            logger.error("Pipeline worker exited unexpectedly; restarting shortly")
+        except Exception:
+            logger.exception("Pipeline worker exited unexpectedly; restarting shortly")
+        stop_event.wait(5)
+
+
+def _start_pipeline_worker():
+    """Start one durable worker after Railway begins serving requests."""
+    global _pipeline_worker_thread, _pipeline_worker_stop
+    if (not os.getenv("RAILWAY_ENVIRONMENT") or not os.getenv("PIPELINE_DB_PATH")
+            or os.getenv("PIPELINE_HANDOFF_WORKER") == "1"):
+        return
+    with _pipeline_worker_lock:
+        if _pipeline_worker_thread is not None and _pipeline_worker_thread.is_alive():
+            return
+        _pipeline_worker_stop = threading.Event()
+        _pipeline_worker_thread = threading.Thread(
+            target=_pipeline_worker_loop,
+            args=(_pipeline_worker_stop,),
+            name="pipeline-worker",
+            daemon=True,
+        )
+        _pipeline_worker_thread.start()
+
+
+def _stop_pipeline_worker():
+    if _pipeline_worker_stop is not None:
+        _pipeline_worker_stop.set()
+    if (_pipeline_worker_thread is not None
+            and _pipeline_worker_thread is not threading.current_thread()):
+        _pipeline_worker_thread.join(timeout=5)
+
+
+atexit.register(_stop_pipeline_worker)
 
 # This is source-ingestion completion, not product approval or publication. A
 # photo-only source is safely staged when it enters its separate owner-review queue.
@@ -898,6 +948,7 @@ def handle_inbound_update(update_json, channel):
 
 @app.before_request
 def register_webhook_when_serving():
+    _start_pipeline_worker()
     ensure_telegram_webhook()
 
 

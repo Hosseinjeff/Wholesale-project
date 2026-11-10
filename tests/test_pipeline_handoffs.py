@@ -227,6 +227,84 @@ class HandoffTests(unittest.TestCase):
         self.assertEqual(self.queue.receive(source),self.queue.receive(forwarded_again))
 
 
+class InlinePipelineWorkerTests(unittest.TestCase):
+    def setUp(self):
+        import app
+        self.app = app
+        self.app._stop_pipeline_worker()
+        with self.app._pipeline_worker_lock:
+            self.app._pipeline_worker_thread = None
+            self.app._pipeline_worker_stop = None
+        self.addCleanup(self.reset_worker_state)
+
+    def reset_worker_state(self):
+        self.app._stop_pipeline_worker()
+        with self.app._pipeline_worker_lock:
+            self.app._pipeline_worker_thread = None
+            self.app._pipeline_worker_stop = None
+
+    def test_worker_starts_once_on_railway_and_stops_cleanly(self):
+        import threading
+
+        started = threading.Event()
+
+        def wait_for_stop(stop_event):
+            started.set()
+            stop_event.wait()
+
+        with patch.dict(os.environ, {
+            'RAILWAY_ENVIRONMENT': 'production',
+            'PIPELINE_DB_PATH': '/tmp/pipeline-worker-test.sqlite',
+            'PIPELINE_HANDOFF_WORKER': '',
+        }):
+            with patch('tools.run_pipeline_handoffs.run_worker', side_effect=wait_for_stop) as worker:
+                self.app._start_pipeline_worker()
+                self.assertTrue(started.wait(2))
+                worker_thread = self.app._pipeline_worker_thread
+                self.app._start_pipeline_worker()
+                self.assertIs(self.app._pipeline_worker_thread, worker_thread)
+                self.assertEqual(worker.call_count, 1)
+                self.app._stop_pipeline_worker()
+                self.assertFalse(worker_thread.is_alive())
+
+    def test_worker_is_not_started_without_railway_storage_or_when_separate_worker_is_set(self):
+        for environment in (
+            {'RAILWAY_ENVIRONMENT': '', 'PIPELINE_DB_PATH': '/tmp/pipeline.sqlite', 'PIPELINE_HANDOFF_WORKER': ''},
+            {'RAILWAY_ENVIRONMENT': 'production', 'PIPELINE_DB_PATH': '', 'PIPELINE_HANDOFF_WORKER': ''},
+            {'RAILWAY_ENVIRONMENT': 'production', 'PIPELINE_DB_PATH': '/tmp/pipeline.sqlite', 'PIPELINE_HANDOFF_WORKER': '1'},
+        ):
+            with self.subTest(environment=environment), patch.dict(os.environ, environment):
+                with patch('tools.run_pipeline_handoffs.run_worker') as worker:
+                    self.app._start_pipeline_worker()
+                    self.assertIsNone(self.app._pipeline_worker_thread)
+                    worker.assert_not_called()
+
+    def test_worker_once_marks_itself_stopped_and_closes_its_session(self):
+        from unittest.mock import Mock
+        from tools import run_pipeline_handoffs as worker
+
+        queue = Mock()
+        queue.cancel_unroutable_notice_jobs.return_value = 0
+        queue.wake_publication_waiters_if_unblocked.return_value = 0
+        session = Mock()
+        with patch.object(worker, 'handoff_queue', return_value=queue), \
+                patch.object(worker, 'USE_SHEETS', False), \
+                patch.object(worker, 'compact_pipeline_payloads', return_value=(30, {
+                    'jobs_compacted': 0, 'inbox_compacted': 0
+                })), \
+                patch.object(worker, '_notice_chat_allowlists', return_value={'telegram': set(), 'bale': set()}), \
+                patch.object(worker.requests, 'Session', return_value=session), \
+                patch.dict(os.environ, {
+                    'REFERENCE_STORE_PATH': '', 'REFERENCE_OWNER_IDS': '',
+                    'SHOP_SITE_URL': '', 'REFERENCE_BRIDGE_TOKEN': '',
+                }):
+            worker.run_worker(once=True)
+
+        queue.start_worker.assert_called_once()
+        self.assertEqual(queue.set_worker_state.call_args_list[-1].args[1], 'stopped')
+        session.close.assert_called_once()
+
+
 class OrderRouteTests(unittest.TestCase):
     def test_paid_order_snapshot_and_product_identity_are_mirrored(self):
         store=MemoryStore()
