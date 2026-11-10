@@ -2404,7 +2404,7 @@ body.molavi-site-page .woocommerce .woocommerce-notices-wrapper { margin-bottom:
     white-space: nowrap;
 }
 .molavi-product-grid:not(.is-list-view) .molavi-card-category { flex: 1 1 auto; min-width: 0; }
-.molavi-product-grid .molavi-current-price { align-items: center; display: flex; flex-wrap: nowrap; justify-content: flex-start; margin: 0; min-height: 20px; min-width: 0; width: 100%; }
+.molavi-product-grid .molavi-current-price { align-items: center; display: flex; flex-direction: row; flex-wrap: nowrap; gap: 5px; justify-content: flex-start; margin: 0; min-height: 20px; min-width: 0; width: 100%; }
 .molavi-product-grid .molavi-price-meta { align-items: center; display: flex; flex-wrap: nowrap; gap: 5px; justify-content: flex-start; max-width: 100%; min-height: 17px; min-width: 0; overflow: hidden; white-space: nowrap; width: 100%; }
 
 
@@ -2412,7 +2412,7 @@ body.molavi-site-page .woocommerce .woocommerce-notices-wrapper { margin-bottom:
 .molavi-product-grid .molavi-rate-label,
 .molavi-product-grid .molavi-fixed-label { background: #fff1e7; border-radius: 999px; color: #a95332; flex: 0 1 auto; font-size: .59rem; font-weight: 800; line-height: 1.2; margin: 0; max-width: 48%; min-width: 0; overflow: hidden; padding: 2px 6px; text-overflow: ellipsis; white-space: nowrap; }
 .molavi-product-grid .molavi-rate-label[hidden] { display: none !important; }
-.molavi-product-grid .molavi-reference-label { color: #7d8881; flex: 0 1 auto; font-size: .62rem; gap: 3px; line-height: 1.2; margin: 0; max-width: calc(100% - 48px); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.molavi-product-grid .molavi-reference-label { color: #7d8881; flex: 0 1 auto; font-size: .62rem; gap: 3px; line-height: 1.2; margin: 0; max-width: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .molavi-product-grid .molavi-reference-label .molavi-was { color: #9ca69f; }
 .molavi-product-grid .molavi-control {
     align-self: stretch;
@@ -2667,10 +2667,11 @@ body.molavi-site-page .woocommerce .woocommerce-notices-wrapper { margin-bottom:
     .molavi-product-grid:not(.is-list-view) .molavi-card-step-popover { right: 0; width: min(250px, calc(50vw - 8px)); }
 }
 @media (max-width: 420px) {
-    .molavi-product-grid:not(.is-list-view) .molavi-card-body { grid-template-rows: minmax(60px, auto) 2.65em 24px 36px; }
-    .molavi-product-grid:not(.is-list-view) .molavi-price-meta { align-content: center; align-items: flex-start; flex-direction: column; gap: 1px; justify-content: center; min-height: 30px; }
-    .molavi-product-grid:not(.is-list-view) .molavi-price-meta .molavi-rate-label,
-    .molavi-product-grid:not(.is-list-view) .molavi-price-meta .molavi-fixed-label,
-    .molavi-product-grid:not(.is-list-view) .molavi-price-meta .molavi-reference-label { flex: 0 1 auto; max-width: 100%; width: max-content; }
+    .molavi-product-grid:not(.is-list-view) .molavi-card-body { grid-template-rows: minmax(46px, auto) 2.65em 24px 36px; }
+    .molavi-product-grid:not(.is-list-view) .molavi-current-price { gap: 3px; }
     .molavi-product-grid:not(.is-list-view) .molavi-price-meta .molavi-reference-label { font-size: .55rem; }
+}
+@media (max-width: 360px) {
+    .molavi-product-grid:not(.is-list-view) .molavi-amount { font-size: .66rem; }
+    .molavi-product-grid:not(.is-list-view) .molavi-rate-label { font-size: .48rem; padding: 2px 3px; }
 }
