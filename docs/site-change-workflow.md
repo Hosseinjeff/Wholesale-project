@@ -2,6 +2,23 @@
 
 Updated: 2026-11-11, Asia/Tehran
 
+## 2026-11-11 Staging list thumbnail proportions and category audit
+
+Plugin commit `874b9e7d6b60aa87b935203f0e9112794e9667e6` was pushed and deployed
+only to Staging. List-view thumbnails now use a centered square frame, similar to the
+special-offer image, while staying flush to the card's right edge. The product image
+remains contained without cropping.
+
+Live Chromium checks covered all 30 visible cards at widths 320, 390, 520, 521,
+600, 760, 761, 1024, and 1440px. Thumbnail frames stayed square; the help control
+did not overlap the cart; and no card content or page overflowed.
+
+The Staging category filter is above the catalog, but currently offers only “All
+categories.” The WooCommerce Store API returned 35 products with no assigned
+categories, and the taxonomy contains only “Uncategorized,” which the storefront
+hides. No category or product records were changed; category labels need an owner
+mapping before they can be populated. Production was not changed.
+
 ## 2026-11-11 Staging step-help overlay correction
 
 After reviewing the live list view, the trigger-adjacent help bubble was found to
