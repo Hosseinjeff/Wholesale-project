@@ -656,6 +656,7 @@
     function setupStickyControls(root) {
         var controls = root.querySelector("[data-molavi-store-controls]");
         if (!controls) return;
+        var header = document.querySelector(".molavi-site-header");
         var expandedBuyer = controls.querySelector(".molavi-buyer-expanded");
         var compactBuyer = controls.querySelector(".molavi-buyer-compact");
         var compactTrigger = compactBuyer ? compactBuyer.querySelector("summary") : null;
@@ -663,7 +664,10 @@
 
         function update() {
             frame = 0;
-            var shouldCompact = window.scrollY > 0 && controls.getBoundingClientRect().top <= 1;
+            var headerBottom = header ? Math.max(0, header.getBoundingClientRect().bottom) : 0;
+            controls.style.setProperty("--molavi-header-offset", headerBottom + "px");
+            var shouldCompact = window.scrollY > 0
+                && controls.getBoundingClientRect().top <= headerBottom + 1;
             var isCompact = controls.classList.contains("is-compact");
             if (shouldCompact === isCompact) return;
 
