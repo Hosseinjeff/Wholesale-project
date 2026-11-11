@@ -2867,7 +2867,7 @@ body.molavi-site-page .woocommerce .woocommerce-notices-wrapper { margin-bottom:
     isolation: isolate;
     top: var(--molavi-header-offset, 0px);
     transition: padding .18s ease;
-    z-index: 40;
+    z-index: 90;
 }
 .molavi-product-area .molavi-buyer-choice {
     align-items: center;
@@ -3260,6 +3260,249 @@ body.molavi-site-page .woocommerce .woocommerce-notices-wrapper { margin-bottom:
     .molavi-store-controls.is-compact .molavi-product-toolbar .molavi-toolbar-menu > summary { min-width: 29px; width: 29px; }
     .molavi-store-controls.is-compact .molavi-buyer-compact > summary { gap: 3px; min-width: 65px; padding-inline: 4px; }
     .molavi-store-controls.is-compact .molavi-product-toolbar .molavi-view-toggle button { width: 25px; }
+}
+
+/* Keep the expanded buyer row balanced, then fold it into one clear sticky row. */
+.molavi-product-area .molavi-buyer-expanded {
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+}
+.molavi-buyer-copy,
+.molavi-buyer-switch-group {
+    align-items: center;
+    display: inline-flex;
+    gap: 8px;
+    min-width: 0;
+}
+.molavi-buyer-copy { flex: 1 1 auto; }
+.molavi-buyer-switch-group { flex: 0 0 auto; }
+.molavi-buyer-note {
+    color: var(--molavi-muted);
+    flex: 1 1 auto;
+    font-size: .68rem;
+    line-height: 1.6;
+    min-width: 0;
+    text-align: center;
+}
+.molavi-product-area .molavi-buyer-help-trigger {
+    border-radius: 50%;
+    color: var(--molavi-muted);
+    height: 29px;
+    min-width: 29px;
+    padding: 0;
+    width: 29px;
+}
+.molavi-product-area .molavi-buyer-help-trigger svg { height: 15px; width: 15px; }
+.molavi-store-controls.is-compact .molavi-buyer-compact {
+    align-items: center;
+    background: #fff;
+    border: 1px solid #e8e6e0;
+    border-radius: 9px;
+    color: #294f42;
+    cursor: pointer;
+    display: inline-flex;
+    flex: 0 0 auto;
+    font-size: .68rem;
+    font-weight: 700;
+    gap: 5px;
+    height: 33px;
+    justify-content: center;
+    min-width: 75px;
+    padding: 4px 7px;
+    position: static;
+    white-space: nowrap;
+}
+.molavi-buyer-compact svg {
+    fill: none;
+    height: 15px;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.7;
+    width: 15px;
+}
+.molavi-buyer-compact .molavi-buyer-chevron { color: #7d888b; height: 11px; width: 11px; }
+.molavi-store-controls.is-compact .molavi-buyer-compact:hover,
+.molavi-store-controls.is-compact .molavi-buyer-compact[aria-expanded="true"] {
+    background: #fff8f2;
+    border-color: #ead9cb;
+    color: var(--molavi-orange-dark);
+}
+.molavi-store-controls.is-compact .molavi-buyer-compact:focus-visible,
+.molavi-control-panel-close:focus-visible,
+.molavi-control-option:focus-visible {
+    outline: 2px solid #789184;
+    outline-offset: 2px;
+}
+.molavi-control-panels { position: static; }
+.molavi-control-panel[hidden] { display: none !important; }
+.molavi-control-panel {
+    animation: molavi-control-panel-in .14s ease-out both;
+    background: #fff;
+    border: 1px solid var(--molavi-line);
+    border-radius: 13px;
+    box-shadow: 0 14px 34px rgba(36, 50, 57, .16);
+    box-sizing: border-box;
+    direction: rtl;
+    max-height: min(70vh, 460px);
+    max-width: calc(100vw - 24px);
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 10px;
+    position: fixed;
+    width: min(330px, calc(100vw - 24px));
+    z-index: 1200;
+}
+@keyframes molavi-control-panel-in {
+    from { opacity: 0; transform: translateY(-4px) scale(.99); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.molavi-control-panel-heading {
+    align-items: center;
+    display: flex;
+    gap: 12px;
+    justify-content: space-between;
+    margin-bottom: 7px;
+    min-height: 28px;
+}
+.molavi-control-panel-heading strong { color: var(--molavi-ink); font-size: .78rem; }
+.molavi-control-panel-close {
+    align-items: center;
+    background: #f5f4f0;
+    border: 0;
+    border-radius: 8px;
+    color: var(--molavi-muted);
+    cursor: pointer;
+    display: grid;
+    flex: 0 0 28px;
+    height: 28px;
+    justify-items: center;
+    padding: 0;
+    width: 28px;
+}
+.molavi-control-panel-close svg {
+    fill: none;
+    height: 15px;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-width: 1.8;
+    width: 15px;
+}
+.molavi-control-option {
+    align-items: center;
+    background: transparent;
+    border: 0;
+    border-radius: 9px;
+    color: #536267;
+    cursor: pointer;
+    display: flex;
+    font-size: .74rem;
+    gap: 12px;
+    justify-content: space-between;
+    min-height: 38px;
+    padding: 7px 9px;
+    text-align: right;
+    width: 100%;
+}
+.molavi-control-option:hover { background: #f7f6f2; }
+.molavi-control-option[aria-pressed="true"] {
+    background: #fff3eb;
+    color: var(--molavi-orange-dark);
+    font-weight: 700;
+}
+.molavi-control-option > span:first-child { align-items: center; display: inline-flex; gap: 7px; }
+.molavi-control-option > span:first-child svg {
+    fill: none;
+    height: 16px;
+    stroke: #819093;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.7;
+    width: 16px;
+}
+.molavi-control-check {
+    align-items: center;
+    border: 1px solid #d9d8d2;
+    border-radius: 50%;
+    color: transparent;
+    display: inline-flex;
+    flex: 0 0 17px;
+    font-size: .62rem;
+    height: 17px;
+    justify-content: center;
+    width: 17px;
+}
+.molavi-control-option[aria-pressed="true"] .molavi-control-check {
+    background: var(--molavi-orange);
+    border-color: var(--molavi-orange);
+    color: #fff;
+}
+.molavi-control-panel-note {
+    color: var(--molavi-muted);
+    font-size: .7rem;
+    line-height: 1.75;
+    margin: 8px 2px 2px;
+}
+.molavi-store-controls.is-compact.is-search-open .molavi-product-toolbar > * { visibility: hidden; }
+.molavi-store-controls:not(.is-compact).is-search-open .molavi-buyer-expanded > * { visibility: hidden; }
+.molavi-toolbar-search {
+    box-sizing: border-box;
+    height: 40px;
+    inset-inline: 7px;
+    padding: 3px 6px 3px 8px;
+    top: 6px;
+    z-index: 100;
+}
+.molavi-toolbar-search:focus-within {
+    border-color: #a8b5ab;
+    box-shadow: 0 0 0 2px rgba(41, 79, 66, .08), 0 3px 10px rgba(36, 50, 57, .08);
+}
+.molavi-toolbar-search-icon {
+    fill: none;
+    flex: 0 0 16px;
+    height: 16px;
+    stroke: #718084;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.7;
+    width: 16px;
+}
+body.molavi-site-page .molavi-toolbar-search input:not([type="checkbox"]):not([type="radio"]) {
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    height: 32px;
+    min-height: 0;
+    outline: 0;
+    padding: 0;
+}
+body.molavi-site-page .molavi-toolbar-search input:focus-visible {
+    box-shadow: none;
+    outline: 0;
+    outline-offset: 0;
+}
+.molavi-toolbar-search-close {
+    flex-basis: 28px;
+    height: 28px;
+    width: 28px;
+}
+.molavi-store-controls.is-compact .molavi-toolbar-search {
+    height: 38px;
+    inset-inline: 4px;
+    top: 4px;
+}
+@media (max-width: 760px) {
+    .molavi-buyer-note { display: none; }
+    .molavi-buyer-copy { flex: 0 0 auto; }
+    .molavi-store-controls.is-compact .molavi-buyer-compact { min-width: 69px; }
+}
+@media (max-width: 360px) {
+    .molavi-store-controls.is-compact .molavi-product-toolbar .molavi-toolbar-icon { min-width: 29px; width: 29px; }
+    .molavi-store-controls.is-compact .molavi-buyer-compact { gap: 3px; min-width: 65px; padding-inline: 4px; }
+    .molavi-control-panel { padding: 9px; }
 }
 @media (prefers-reduced-motion: reduce) {
     .molavi-store-controls,

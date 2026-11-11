@@ -89,49 +89,21 @@ function molavi_render_storefront(): void
                 <?php molavi_render_buyer_profile_selector('shop'); ?>
                 <div class="molavi-product-toolbar" id="molavi-products">
                     <div class="molavi-toolbar-actions">
-                    <details class="molavi-buyer-compact" data-molavi-buyer-disclosure>
-                        <summary aria-label="تغییر نوع خرید">
+                    <button class="molavi-buyer-compact" type="button" data-molavi-open-panel="buyer" aria-label="تغییر نوع خرید" aria-haspopup="dialog" aria-expanded="false" aria-controls="molavi-buyer-panel" title="نوع خرید">
                             <svg class="molavi-buyer-house-icon" data-molavi-buyer-icon-house viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-6v-7h-4v7H4a1 1 0 0 1-1-1V10Z"></path></svg>
                             <svg class="molavi-buyer-store-icon" data-molavi-buyer-icon-store viewBox="0 0 24 24" aria-hidden="true" hidden><path d="M4 10v10h16V10M3 10l2-6h14l2 6"></path><path d="M3 10a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0M9 20v-6h6v6"></path></svg>
                             <span data-molavi-buyer-current><?php echo $buyerType === 'shop' ? 'فروشگاه' : 'خانوار'; ?></span>
                             <svg class="molavi-buyer-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
-                        </summary>
-                        <div class="molavi-buyer-compact-options" role="group" aria-label="نوع خرید">
-                            <button type="button" data-molavi-buyer="household" aria-pressed="<?php echo $buyerType === 'household' ? 'true' : 'false'; ?>">خانوار</button>
-                            <button type="button" data-molavi-buyer="shop" aria-pressed="<?php echo $buyerType === 'shop' ? 'true' : 'false'; ?>">فروشگاه</button>
-                        </div>
-                    </details>
-                    <details class="molavi-buyer-compact-help">
-                        <summary aria-label="راهنمای نوع خرید" title="راهنمای نوع خرید">
-                            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v5m0-8h.01"></path></svg>
-                        </summary>
-                        <p data-molavi-buyer-help>نوع خرید قیمت و گام سفارش را تنظیم می‌کند؛ تعداد سبد خودکار تغییر نمی‌کند.</p>
-                    </details>
+                    </button>
                     <button class="molavi-toolbar-icon molavi-toolbar-search-trigger molavi-compact-search-trigger" type="button" data-molavi-search-toggle aria-label="جست‌وجوی محصولات" aria-expanded="false" aria-controls="molavi-toolbar-search" title="جست‌وجو">
                         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"></circle><path d="m16 16 4.5 4.5"></path></svg>
                     </button>
-                    <details class="molavi-toolbar-menu molavi-category-menu" data-molavi-toolbar-menu data-molavi-menu-kind="category">
-                        <summary class="molavi-toolbar-icon" aria-label="فیلتر دسته‌بندی محصولات" aria-expanded="false" title="دسته‌بندی">
-                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16l-6.2 7.1V18l-3.6 2v-7.9L4 5Z"></path></svg>
-                        </summary>
-                        <div class="molavi-toolbar-popover" role="group" aria-label="فیلتر دسته‌بندی محصولات">
-                            <button type="button" class="molavi-toolbar-option" data-molavi-category-option="" aria-pressed="true">همه دسته‌بندی‌ها</button>
-                            <?php foreach ($categories as $category): ?>
-                                <button type="button" class="molavi-toolbar-option" data-molavi-category-option="<?php echo esc_attr($category); ?>" aria-pressed="false"><?php echo esc_html($category); ?></button>
-                            <?php endforeach; ?>
-                        </div>
-                    </details>
-                    <details class="molavi-toolbar-menu molavi-sort-menu" data-molavi-toolbar-menu data-molavi-menu-kind="sort">
-                        <summary class="molavi-toolbar-icon" aria-label="مرتب‌سازی محصولات" aria-expanded="false" title="مرتب‌سازی">
-                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4v15m0 0-4-4m4 4 4-4M16 20V5m0 0 4 4m-4-4-4 4"></path></svg>
-                        </summary>
-                        <div class="molavi-toolbar-popover" role="group" aria-label="مرتب‌سازی محصولات">
-                            <button type="button" class="molavi-toolbar-option" data-molavi-sort-option="newest" aria-pressed="true">جدیدترین</button>
-                            <button type="button" class="molavi-toolbar-option" data-molavi-sort-option="cheap" aria-pressed="false">قیمت: کم به زیاد</button>
-                            <button type="button" class="molavi-toolbar-option" data-molavi-sort-option="dear" aria-pressed="false">قیمت: زیاد به کم</button>
-                            <button type="button" class="molavi-toolbar-option" data-molavi-sort-option="name" aria-pressed="false">نام کالا</button>
-                        </div>
-                    </details>
+                    <button class="molavi-toolbar-icon molavi-category-trigger" type="button" data-molavi-open-panel="category" aria-label="فیلتر دسته‌بندی محصولات" aria-haspopup="dialog" aria-expanded="false" aria-controls="molavi-category-panel" title="دسته‌بندی">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16l-6.2 7.1V18l-3.6 2v-7.9L4 5Z"></path></svg>
+                    </button>
+                    <button class="molavi-toolbar-icon molavi-sort-trigger" type="button" data-molavi-open-panel="sort" aria-label="مرتب‌سازی محصولات" aria-haspopup="dialog" aria-expanded="false" aria-controls="molavi-sort-panel" title="مرتب‌سازی">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4v15m0 0-4-4m4 4 4-4M16 20V5m0 0 4 4m-4-4-4 4"></path></svg>
+                    </button>
                     </div>
                     <div class="molavi-toolbar-meta">
                     <span class="molavi-result-count" data-molavi-result-count aria-live="polite"><?php echo esc_html(molavi_digits((string) count($products))); ?> کالا</span>
@@ -143,11 +115,41 @@ function molavi_render_storefront(): void
                 </div>
                 <form class="molavi-toolbar-search" id="molavi-toolbar-search" data-molavi-toolbar-search data-molavi-search-form role="search" action="<?php echo esc_url($shopUrl); ?>" method="get" hidden>
                     <label class="screen-reader-text" for="molavi-toolbar-search-input">جست‌وجوی محصولات</label>
+                    <svg class="molavi-toolbar-search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"></circle><path d="m16 16 4.5 4.5"></path></svg>
                     <input id="molavi-toolbar-search-input" type="search" name="molavi_q" data-molavi-search value="<?php echo esc_attr($searchQuery); ?>" placeholder="نام کالا را جست‌وجو کنید" autocomplete="off">
                     <button type="button" class="molavi-toolbar-search-close" data-molavi-search-close aria-label="بستن جست‌وجو" title="بستن جست‌وجو">
                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"></path></svg>
                     </button>
                 </form>
+                </div>
+                <div class="molavi-control-panels" data-molavi-control-panels>
+                    <div class="molavi-control-panel" id="molavi-category-panel" data-molavi-control-panel="category" role="dialog" aria-modal="false" aria-labelledby="molavi-category-panel-title" hidden>
+                        <div class="molavi-control-panel-heading"><strong id="molavi-category-panel-title">دسته‌بندی محصولات</strong><button type="button" class="molavi-control-panel-close" data-molavi-panel-close aria-label="بستن"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"></path></svg></button></div>
+                        <button type="button" class="molavi-control-option" data-molavi-control-option data-molavi-category-option="" aria-pressed="true"><span>همه دسته‌بندی‌ها</span><span class="molavi-control-check" aria-hidden="true">✓</span></button>
+                        <?php foreach ($categories as $category): ?>
+                            <button type="button" class="molavi-control-option" data-molavi-control-option data-molavi-category-option="<?php echo esc_attr($category); ?>" aria-pressed="false"><span><?php echo esc_html($category); ?></span><span class="molavi-control-check" aria-hidden="true">✓</span></button>
+                        <?php endforeach; ?>
+                        <?php if ($categories === []): ?>
+                            <p class="molavi-control-panel-note">دسته‌بندی دیگری برای فیلتر فعلاً ثبت نشده است.</p>
+                        <?php endif; ?>
+                    </div>
+                    <div class="molavi-control-panel" id="molavi-sort-panel" data-molavi-control-panel="sort" role="dialog" aria-modal="false" aria-labelledby="molavi-sort-panel-title" hidden>
+                        <div class="molavi-control-panel-heading"><strong id="molavi-sort-panel-title">مرتب‌سازی</strong><button type="button" class="molavi-control-panel-close" data-molavi-panel-close aria-label="بستن"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"></path></svg></button></div>
+                        <button type="button" class="molavi-control-option" data-molavi-control-option data-molavi-sort-option="newest" aria-pressed="true"><span>جدیدترین</span><span class="molavi-control-check" aria-hidden="true">✓</span></button>
+                        <button type="button" class="molavi-control-option" data-molavi-control-option data-molavi-sort-option="cheap" aria-pressed="false"><span>قیمت: کم به زیاد</span><span class="molavi-control-check" aria-hidden="true">✓</span></button>
+                        <button type="button" class="molavi-control-option" data-molavi-control-option data-molavi-sort-option="dear" aria-pressed="false"><span>قیمت: زیاد به کم</span><span class="molavi-control-check" aria-hidden="true">✓</span></button>
+                        <button type="button" class="molavi-control-option" data-molavi-control-option data-molavi-sort-option="name" aria-pressed="false"><span>نام کالا</span><span class="molavi-control-check" aria-hidden="true">✓</span></button>
+                    </div>
+                    <div class="molavi-control-panel" id="molavi-buyer-panel" data-molavi-control-panel="buyer" role="dialog" aria-modal="false" aria-labelledby="molavi-buyer-panel-title" hidden>
+                        <div class="molavi-control-panel-heading"><strong id="molavi-buyer-panel-title">نوع خرید</strong><button type="button" class="molavi-control-panel-close" data-molavi-panel-close aria-label="بستن"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"></path></svg></button></div>
+                        <button type="button" class="molavi-control-option" data-molavi-control-option data-molavi-buyer="household" aria-pressed="<?php echo $buyerType === 'household' ? 'true' : 'false'; ?>"><span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-6v-7h-4v7H4a1 1 0 0 1-1-1V10Z"></path></svg> خانوار</span><span class="molavi-control-check" aria-hidden="true">✓</span></button>
+                        <button type="button" class="molavi-control-option" data-molavi-control-option data-molavi-buyer="shop" aria-pressed="<?php echo $buyerType === 'shop' ? 'true' : 'false'; ?>"><span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v10h16V10M3 10l2-6h14l2 6"></path><path d="M3 10a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0M9 20v-6h6v6"></path></svg> فروشگاه</span><span class="molavi-control-check" aria-hidden="true">✓</span></button>
+                        <p class="molavi-control-panel-note">قیمت و گام سفارش با نوع خرید انتخابی هماهنگ می‌شود. تعداد سبد خودکار تغییر نمی‌کند.</p>
+                    </div>
+                    <div class="molavi-control-panel" id="molavi-help-panel" data-molavi-control-panel="help" role="dialog" aria-modal="false" aria-labelledby="molavi-help-panel-title" aria-describedby="molavi-help-panel-note" tabindex="-1" hidden>
+                        <div class="molavi-control-panel-heading"><strong id="molavi-help-panel-title">راهنمای نوع خرید</strong><button type="button" class="molavi-control-panel-close" data-molavi-panel-close aria-label="بستن"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"></path></svg></button></div>
+                        <p class="molavi-control-panel-note" id="molavi-help-panel-note" data-molavi-buyer-help>قیمت‌ها و گام سفارش با نوع خرید هماهنگ می‌شوند. تعداد سبد خودکار تغییر نمی‌کند.</p>
+                    </div>
                 </div>
                 <section class="molavi-recommendation-carousel" data-molavi-recommendations aria-label="پیشنهادهای محصول با تخفیف بیشتر">
                     <div class="molavi-recommendation-head">

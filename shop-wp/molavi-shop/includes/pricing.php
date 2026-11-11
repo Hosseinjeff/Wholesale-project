@@ -640,20 +640,21 @@ function molavi_render_buyer_profile_selector(string $context = 'shop'): void
             <div class="molavi-buyer-feedback" data-molavi-buyer-feedback role="status" aria-live="polite" hidden></div>
         <?php else: ?>
             <div class="molavi-buyer-expanded">
-                <button class="molavi-toolbar-icon molavi-buyer-search-trigger" type="button" data-molavi-search-toggle aria-label="جست‌وجوی محصولات" aria-expanded="false" aria-controls="molavi-toolbar-search" title="جست‌وجو">
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"></circle><path d="m16 16 4.5 4.5"></path></svg>
-                </button>
-                <div class="molavi-buyer-choice-buttons" role="group" aria-label="نوع خرید">
-                    <button type="button" data-molavi-buyer="household" aria-pressed="<?php echo $selected === 'household' ? 'true' : 'false'; ?>">خانوار</button>
-                    <button type="button" data-molavi-buyer="shop" aria-pressed="<?php echo $selected === 'shop' ? 'true' : 'false'; ?>">فروشگاه</button>
+                <div class="molavi-buyer-copy">
+                    <button class="molavi-toolbar-icon molavi-buyer-search-trigger" type="button" data-molavi-search-toggle aria-label="جست‌وجوی محصولات" aria-expanded="false" aria-controls="molavi-toolbar-search" title="جست‌وجو">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"></circle><path d="m16 16 4.5 4.5"></path></svg>
+                    </button>
+                    <span class="molavi-buyer-note" data-molavi-buyer-note>قیمت و گام سفارش <?php echo $selected === 'shop' ? 'فروشگاه' : 'خانوار'; ?> نمایش داده می‌شود.</span>
                 </div>
-                <details class="molavi-buyer-choice-details">
-                    <summary aria-label="راهنمای نوع خرید" title="راهنمای نوع خرید">
+                <div class="molavi-buyer-switch-group">
+                    <div class="molavi-buyer-choice-buttons" role="group" aria-label="نوع خرید">
+                        <button type="button" data-molavi-buyer="household" aria-pressed="<?php echo $selected === 'household' ? 'true' : 'false'; ?>">خانوار</button>
+                        <button type="button" data-molavi-buyer="shop" aria-pressed="<?php echo $selected === 'shop' ? 'true' : 'false'; ?>">فروشگاه</button>
+                    </div>
+                    <button class="molavi-toolbar-icon molavi-buyer-help-trigger" type="button" data-molavi-open-panel="help" aria-label="راهنمای نوع خرید" aria-haspopup="dialog" aria-expanded="false" aria-controls="molavi-help-panel" title="راهنمای نوع خرید">
                         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v5m0-8h.01"></path></svg>
-                        <span class="screen-reader-text">راهنمای نوع خرید</span>
-                    </summary>
-                    <p class="molavi-buyer-choice-help" data-molavi-buyer-help><?php echo esc_html($buyerHelp); ?></p>
-                </details>
+                    </button>
+                </div>
                 <div class="molavi-buyer-feedback" data-molavi-buyer-feedback role="status" aria-live="polite" hidden></div>
             </div>
         <?php endif; ?>
