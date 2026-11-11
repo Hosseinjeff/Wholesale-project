@@ -2185,7 +2185,7 @@ def reference_snapshots_browser_cors(response):
     allowed_origins = {
         value.strip().rstrip('/')
         for value in (os.getenv('REFERENCE_BROWSER_ORIGINS')
-                      or 'https://www.molavisale.ir,https://molavisale.ir').split(',')
+                      or 'https://www.molavisale.ir,https://molavisale.ir,https://staging.molavisale.ir').split(',')
         if value.strip()
     }
     if origin and origin in allowed_origins:
