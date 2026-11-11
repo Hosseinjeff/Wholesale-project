@@ -1,6 +1,49 @@
 # Site changes and preservation workflow
 
-Updated: 2026-11-06, Asia/Tehran
+Updated: 2026-11-11, Asia/Tehran
+
+## 2026-11-11 Staging owner-workflow fetch incident — transport fixes deployed, page check pending
+
+The user reports `Failed to fetch` in WordPress owner workflows, including the
+`بازبینی و بازپردازش پست‌های اخیر` tab. The change history below is in Git and has
+already been deployed as follows:
+
+- `ff540da` routes owner-workflow browser API calls through the same-origin WordPress
+  `admin-ajax.php` action `molavi_owner_workflow_proxy`. WordPress checks the owner
+  capability and nonce, allowlists backend paths, then calls Railway with the protected
+  bridge token. Browser calls use same-origin credentials. This avoids making the
+  browser depend on a direct cross-origin Railway fetch.
+- The corresponding four proxy assets were deployed to the staging WordPress document
+  root (`public_html/staging`) with `tools/deploy_wordpress_plugin.py --site staging
+  --since 090e7fd` and read back successfully. The served scripts showed the relative
+  AJAX proxy configuration and same-origin mode, without a direct staging Railway URL.
+- `7e7b045` adds `https://staging.molavisale.ir` to the backend browser-origin default.
+  `REFERENCE_BROWSER_ORIGINS` was set on both Railway environments to the production,
+  `www`, and staging WordPress origins. Deployments
+  `555811f2-767a-49bf-b579-9843dd8d3704` (production) and
+  `f7245f2a-b642-45e1-abbd-d371b688edc3` (staging) succeeded. Staging-origin CORS
+  preflights passed for all 13 workflow endpoints on both services.
+- `5478c6d` records staging as the default WordPress development/deploy target;
+  `302a77c` adds separate production and staging document roots to the deployer.
+
+These checks confirm deployment and transport configuration, but do not establish that
+the authenticated admin tab now works. The current session's authenticated-page check
+was blocked: its runtime did not contain the staging-specific variables named by the
+user (`MOLAVISTAGE_ADMIN_USERNAME`, `MOLAVISTAGE_ADMIN_PASSWORD`). The only admin pair
+visible to that runtime used the different `MOLAVISALE_ADMIN_*` names. Do not retry that
+pair; previous attempts did not establish a WordPress session. The anonymous staging
+admin request redirected to `wp-login.php?reauth=1`, and the browser credential vault
+had no saved staging sign-in. An anonymous `admin-ajax.php` POST returned `400`/`0`,
+which is expected without an authenticated WordPress session.
+
+No live approve, dismiss, reprocess, retry, or other owner action was submitted. No
+product, order, Sheet, or customer data was changed during these checks. Once a fresh
+task runtime has the staging-specific variables (or a user-authorized browser profile
+has a saved staging sign-in), inspect the page and its Network responses read-only.
+Correlate any `admin-ajax.php` request with Railway logs before making another code
+change. Keep further development and deployment on staging unless the user explicitly
+names production. Detailed next steps and failure-code mapping are in
+[`session-handoff-staging-owner-fetch.md`](session-handoff-staging-owner-fetch.md).
 
 ## 2026-11-06 User-confirmed package quantity steps live
 

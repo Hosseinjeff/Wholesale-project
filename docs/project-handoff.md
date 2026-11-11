@@ -5,6 +5,18 @@ Snapshot 4.74. Updated 2026-11-06, Asia/Tehran. The canonical roleplay decisions
 `pipeline-readiness.md` and `pipeline-readiness-evidence.json`.
 The product intake and shelf policy is documented in `products-streamline-integrity.md`.
 
+## Current incident — staging owner-workflow fetch error (2026-11-11)
+
+The current user-facing issue is `Failed to fetch` in the WordPress owner workflow,
+including the recent-post review/reprocessing tab. Continue from
+[`session-handoff-staging-owner-fetch.md`](session-handoff-staging-owner-fetch.md).
+The WordPress-to-Railway proxy and staging-origin CORS changes are deployed and their
+transport checks passed. The authenticated staging page has not yet been inspected:
+the current task runtime did not receive the staging-specific admin variables
+`MOLAVISTAGE_ADMIN_USERNAME` and `MOLAVISTAGE_ADMIN_PASSWORD`, and the staging URL
+redirected to WordPress login. No owner workflow action has been submitted during this
+incident. Keep follow-up work on staging unless the user explicitly names production.
+
 ## 2026-11-06 User-confirmed pack-size quantity steps
 
 This supersedes the inferred quantity defaults described in the historical 2026-11-01

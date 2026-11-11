@@ -1,5 +1,14 @@
 # Whole-flow handoff implementation record — 2026-10-26 onward (Asia/Tehran)
 
+## Current staging owner-workflow fetch incident
+
+The active `Failed to fetch` report on the WordPress owner workflow is tracked in
+[`docs/session-handoff-staging-owner-fetch.md`](session-handoff-staging-owner-fetch.md).
+The backend proxy/CORS changes are deployed; an authenticated staging-page check is
+still outstanding because the staging-specific administrator variables were not
+available to the previous task runtime. Do not treat the old 2026 pipeline audit below
+as current evidence for this browser error.
+
 ## November 2 audit response — receipt reconciliation and review safeguards
 
 ### Dashboard review rollout status — 2026-11-02

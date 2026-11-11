@@ -1,5 +1,11 @@
 # MolaviSale continuity
 
+For the active staging owner-workflow `Failed to fetch` investigation, begin with
+[`docs/session-handoff-staging-owner-fetch.md`](docs/session-handoff-staging-owner-fetch.md).
+It records the current deployment state, the authentication blocker, and the safe
+read-only checks for the next session. The broader project history remains in
+[`docs/project-handoff.md`](docs/project-handoff.md).
+
 For the business workflow and migration audit, start with `docs/project-handoff.md`.
 The user-provided GAS export is preserved in `legacy-gas/recovered-2026-10-25/`;
 `legacy-gas/README.md` explains its authority and limits. The root
