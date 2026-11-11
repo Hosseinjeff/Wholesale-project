@@ -1037,6 +1037,18 @@
             applyFilters();
         }
 
+        function currentSearchTrigger() {
+            if (activeSearchToggle && activeSearchToggle.getClientRects().length) return activeSearchToggle;
+            return searchToggles.filter(function (toggle) { return toggle.getClientRects().length > 0; })[0] || null;
+        }
+
+        function nextControlAfterSearch() {
+            if (storeControls.classList.contains("is-compact")) {
+                return storeControls.querySelector(".molavi-category-trigger");
+            }
+            return storeControls.querySelector('.molavi-buyer-expanded .molavi-buyer-choice-buttons [data-molavi-buyer="household"]');
+        }
+
         searches.forEach(function (input) {
             input.addEventListener("input", function () { updateSearch(input); });
             if (input.form) {
@@ -1061,10 +1073,7 @@
                 searchInput.value = query;
                 window.requestAnimationFrame(function () { searchInput.focus({ preventScroll: true }); });
             } else if (restoreFocus) {
-                var returnTo = activeSearchToggle;
-                if (!returnTo || !returnTo.getClientRects().length) {
-                    returnTo = searchToggles.filter(function (toggle) { return toggle.getClientRects().length > 0; })[0];
-                }
+                var returnTo = currentSearchTrigger();
                 if (returnTo) returnTo.focus({ preventScroll: true });
             }
             if (!open) activeSearchToggle = null;
@@ -1086,6 +1095,24 @@
                 if (event.key === "Escape" && !toolbarSearch.hidden) {
                     event.preventDefault();
                     setToolbarSearchOpen(false, true);
+                    return;
+                }
+                if (event.key === "Tab" && !toolbarSearch.hidden) {
+                    if (event.shiftKey && document.activeElement === searchInput) {
+                        var returnTo = currentSearchTrigger();
+                        if (returnTo) {
+                            event.preventDefault();
+                            setToolbarSearchOpen(false, false);
+                            returnTo.focus({ preventScroll: true });
+                        }
+                    } else if (!event.shiftKey && document.activeElement === searchClose) {
+                        var nextControl = nextControlAfterSearch();
+                        if (nextControl && nextControl.getClientRects().length && !nextControl.disabled) {
+                            event.preventDefault();
+                            setToolbarSearchOpen(false, false);
+                            nextControl.focus({ preventScroll: true });
+                        }
+                    }
                 }
             });
             toolbarSearch.addEventListener("focusout", function () {
