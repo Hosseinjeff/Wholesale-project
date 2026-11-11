@@ -2,6 +2,32 @@
 
 Updated: 2026-11-11, Asia/Tehran
 
+## 2026-11-11 Staging sticky header keyboard review
+
+Plugin commits `5e0121f8da7cf82122d351f923780bf89c224420`,
+`65d6aaf1183e973d588d9d7dc7a2dd60de27415e`, and
+`25d351dfda1716ab01f7fb64ef894064730ccb04` were pushed to `codex/storefront-ux`
+and deployed only to the separate Staging WordPress installation. The final
+Staging deployment read-back verified `storefront-renderer.php`, `storefront.css`,
+and `shop.js`.
+
+The compact sticky bar now keeps the buyer switch and its help control separate.
+Keyboard focus transfers between the expanded and compact versions of the buyer,
+help, and search controls as the page scrolls. Tab from an open buyer/help/category/
+sort panel advances to the next toolbar control; Shift+Tab from the panel close
+button and Escape return focus to the trigger. Search Tab and Shift+Tab also close
+the overlay and move or return focus within the toolbar without collapsing it.
+
+Live Chromium checks on `https://staging.molavisale.ir/` returned HTTP 200 with 30
+product cards and no page JavaScript errors. At 320, 360, 390, 430, 760, 761, 1024,
+and 1440px, expanded and sticky states had no horizontal overflow, overlapping
+controls, or site-header collision. The observed Tab order matched visible controls
+in both modes. Menu, search, Escape, Shift+Tab, panel option traversal, and focus
+handoffs were checked at 320 and 390px. Search overlays stayed within their rows;
+category, sort, buyer, and help panels remained inside the viewport. These checks
+only opened and closed controls; no product, cart, or order data changed. Production
+was not changed.
+
 ## 2026-11-11 Staging storefront control popovers
 
 Plugin commit `0a8bae3314fa3f42be2ba2b3daaa0996f3eae8a0` was pushed and deployed
