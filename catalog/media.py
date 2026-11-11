@@ -8,6 +8,8 @@ service for the bytes without exposing the bot token.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import re
 from typing import Any
@@ -93,6 +95,96 @@ def share_album_images(messages: list[Any]) -> None:
         message["has_media"] = True
         if not message.get("media_type"):
             message["media_type"] = "photo"
+
+
+def album_media_bundle(messages: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Build a stable, bounded source bundle for every image in one Telegram album."""
+    rows = [dict(message) for message in messages if isinstance(message, dict)]
+    if not rows:
+        return None
+    group_id = str(rows[0].get("media_group_id") or "").strip()
+    channel = str(rows[0].get("channel_username") or "").strip()
+    if not group_id or any(str(row.get("media_group_id") or "").strip() != group_id
+                           or str(row.get("channel_username") or "").strip() != channel
+                           for row in rows):
+        return None
+
+    def order(row):
+        message_id = str(row.get("message_id") or "")
+        try:
+            numeric_id = int(message_id)
+        except (TypeError, ValueError, OverflowError):
+            numeric_id = None
+        return (0 if numeric_id is not None else 1,
+                numeric_id if numeric_id is not None else str(row.get("timestamp") or ""),
+                str(row.get("batch_id") or ""))
+
+    ordered = sorted(rows, key=order)
+    unique_rows = []
+    seen_messages = set()
+    for row in ordered:
+        message_id = str(row.get("message_id") or "")
+        if message_id and message_id not in seen_messages:
+            seen_messages.add(message_id)
+            unique_rows.append(row)
+    if not unique_rows:
+        return None
+
+    images = []
+    seen_images = set()
+    identity_rows = []
+    missing_image_count = 0
+    for row in unique_rows:
+        file_id = safe_file_id(row.get("image_file_id"))
+        unique_id = str(row.get("image_file_unique_id") or "").strip()
+        if not file_id:
+            missing_image_count += 1
+        image_identity = unique_id or file_id
+        content = str(row.get("content") or "")
+        identity_rows.append([
+            str(row.get("message_id") or ''), str(row.get("batch_id") or ''),
+            str(row.get("timestamp") or ''), hashlib.sha256(content.encode()).hexdigest(),
+            image_identity,
+        ])
+        if not file_id or image_identity in seen_images:
+            continue
+        seen_images.add(image_identity)
+        images.append({'file_id':file_id, 'unique_id':unique_id or file_id})
+
+    captions = []
+    seen_captions = set()
+    for row in unique_rows:
+        caption = str(row.get("content") or "").strip()
+        if caption and caption not in seen_captions:
+            seen_captions.add(caption)
+            captions.append(caption)
+    canonical = next((row for row in unique_rows if str(row.get("content") or "").strip()),
+                     unique_rows[0])
+    media_identity = 'album:' + hashlib.sha256(json.dumps(
+        [group_id, channel, identity_rows], ensure_ascii=False, separators=(',', ':')).encode()).hexdigest()
+    return {
+        'message_id':str(canonical.get('message_id') or ''),
+        'batch_id':str(canonical.get('batch_id') or ''),
+        'channel_username':channel,
+        'channel':str(canonical.get('channel') or ''),
+        'timestamp':str(canonical.get('timestamp') or ''),
+        'source_post_url':str(canonical.get('source_post_url') or ''),
+        'content':'\n'.join(captions),
+        'media_type':'photo_album',
+        'media_group_id':group_id,
+        'media_identity':media_identity,
+        'message_ids':[str(row.get('message_id') or '') for row in unique_rows],
+        'group_members':[{
+            'message_id':str(row.get('message_id') or ''),
+            'batch_id':str(row.get('batch_id') or ''),
+            'channel':str(row.get('channel') or ''),
+            'channel_username':str(row.get('channel_username') or ''),
+        } for row in unique_rows],
+        'image_file_ids':[item['file_id'] for item in images],
+        'image_file_unique_ids':[item['unique_id'] for item in images],
+        'image_count':len(images),
+        'missing_image_count':missing_image_count,
+    }
 
 
 def fetch_telegram_image(file_id: Any, *, bot_token=None, session=None, max_bytes=8_000_000):

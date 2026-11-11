@@ -584,6 +584,7 @@
 
     let workbenchQueue = '';
     let workbenchStage = '';
+    const workbenchFilters = {search:'', channelKeys:null, state:'all', catalogStatus:'all', from:'', to:'', includeUndated:false};
     let workbenchView = window.location.hash === '#reextract' ? 'reextract' : 'tasks';
     let workbenchIndex = 0;
     let workbenchSelectedKey = '';
@@ -594,6 +595,7 @@
     let workbenchLiveStatus = null;
     let workbenchData = null;
     let workbenchErrors = {};
+    let workbenchProductCardSequence = 0;
 
     function workbenchNameKey(name) {
         return String(name || '').normalize('NFKC').toLocaleLowerCase()
@@ -672,24 +674,157 @@
 
     function workbenchNextStep(product, queue = workbenchQueue) {
         const key = workbenchActionForQueue(product, queue);
-        if (key === 'source_integrity') return 'اقدام بعدی: پیوند پیشنهاد منبع را بازیابی کنید؛ تا آن زمان کالا روی سایت متوقف می‌ماند.';
+        if (key === 'source_integrity') return 'پیوند پیشنهاد منبع را بازیابی کنید؛ تا آن زمان کالا روی سایت متوقف می‌ماند.';
         if (key === 'ai') {
             const cases = Array.isArray(product.ai) ? product.ai : [];
-            if (cases.some(item => item.publication_held)) return 'اقدام بعدی: جزئیات و اقدام دستهٔ متوقف‌شده را باز کنید؛ تصمیم این استخراج تا رفع همان توقف قفل است.';
+            if (cases.some(item => item.publication_held)) return 'جزئیات و اقدام دستهٔ متوقف‌شده را باز کنید؛ تصمیم این استخراج تا رفع همان توقف قفل است.';
             if (cases.some(item => !normalizedAiInteger(item.sale_price || item.detected_price || item.package_price))) {
-                return 'اقدام بعدی: قیمت فروش در پیام ثبت نشده؛ مبلغ را حدس نزنید و این مورد را تا رسیدن قیمت باز بگذارید.';
+                return 'قیمت فروش در پیام ثبت نشده؛ مبلغ را حدس نزنید و این مورد را تا رسیدن قیمت باز بگذارید.';
             }
-            if (cases.some(item => item.source_current_check_required || item.historical_reextract)) return 'اقدام بعدی: زمان منبع به آستانهٔ ۱۴ روز رسیده یا قابل اتکا نیست؛ قیمت و موجودی را از منبع فعلی بررسی کنید.';
-            if (cases.some(item => !item.reference_assignment && item.reference_snapshot_id)) return 'اقدام بعدی: مرجع و مبنای قیمت واحد/بسته را انتخاب کنید؛ سپس مبلغ و موجودی را با پیام بسنجید.';
-            if (cases.some(item => !item.reference_snapshot_id)) return 'اقدام بعدی: فهرست مرجع فعال نیست؛ ابتدا فهرست مرجع کالاها را به‌روزرسانی کنید.';
-            return 'اقدام بعدی: قیمت و موجودی را با پیام اصلی بسنجید و مشخصات درست را تأیید کنید.';
+            if (cases.some(item => item.source_current_check_required || item.historical_reextract)) return 'زمان منبع به آستانهٔ ۱۴ روز رسیده یا قابل اتکا نیست؛ قیمت و موجودی را از منبع فعلی بررسی کنید.';
+            if (cases.some(item => !item.reference_assignment && item.reference_snapshot_id)) return 'مرجع و مبنای قیمت واحد/بسته را انتخاب کنید؛ سپس مبلغ و موجودی را با پیام بسنجید.';
+            if (cases.some(item => !item.reference_snapshot_id)) return 'فهرست مرجع فعال نیست؛ ابتدا فهرست مرجع کالاها را به‌روزرسانی کنید.';
+            return 'قیمت و موجودی را با پیام اصلی بسنجید و مشخصات درست را تأیید کنید.';
         }
-        if (key === 'references') return 'اقدام بعدی: مرجع درست و مبنای قیمت را انتخاب کنید.';
-        if (key === 'conflicts') return 'اقدام بعدی: مقدار سرور را نگه دارید؛ فقط اگر خودتان شیت را دستی تغییر داده‌اید، اصلاح شیت را به فروشگاه بفرستید.';
-        if (key === 'supplier_prices') return 'اقدام بعدی: منبع پیام را باز کنید و تازگی قیمت را تأیید کنید.';
-        if (key === 'holds') return 'اقدام بعدی: جزئیات پیام‌های همان دسته را باز کنید و یک‌بار اقدام بازیابی را اجرا کنید.';
-        if (key === 'status') return 'اقدام بعدی: وضعیت انتشار کالا را در جزئیات فنی بررسی کنید.';
+        if (key === 'references') return 'مرجع درست و مبنای قیمت را انتخاب کنید.';
+        if (key === 'conflicts') return 'مقدار سرور را نگه دارید؛ فقط اگر خودتان شیت را دستی تغییر داده‌اید، اصلاح شیت را به فروشگاه بفرستید.';
+        if (key === 'supplier_prices') return 'منبع پیام را باز کنید و تازگی قیمت را تأیید کنید.';
+        if (key === 'holds') return 'جزئیات پیام‌های همان دسته را باز کنید و یک‌بار اقدام بازیابی را اجرا کنید.';
+        if (key === 'status') return 'وضعیت انتشار کالا را در جزئیات فنی بررسی کنید.';
         return 'برای این کالا اقدام بازی ثبت نشده است.';
+    }
+
+    function workbenchTaskMeta(product, key) {
+        const status = product.status || {};
+        const issueCounts = {
+            source_integrity:Array.isArray(status.source_integrity_issues) ? status.source_integrity_issues.length : 0,
+            ai:Array.isArray(product.ai) ? product.ai.length : 0,
+            references:Array.isArray(product.references) ? product.references.length : 0,
+            conflicts:Array.isArray(product.conflicts) ? product.conflicts.length : 0,
+            supplier_prices:workbenchPendingSupplierPrices(product),
+            holds:Array.isArray(product.holds) ? product.holds.length : 0,
+            status:status.update_needed ? 1 : 0
+        };
+        const count = issueCounts[key] || 0;
+        const number = new Intl.NumberFormat('fa-IR').format(count);
+        const labels = {
+            source_integrity:'پیوند منبع', ai:'استخراج محصول', references:'تطبیق مرجع',
+            supplier_prices:'قیمت تأمین‌کننده', conflicts:'تعارض همگام‌سازی',
+            holds:'توقف انتشار', status:'وضعیت کالا', next:'کار مرتبط'
+        };
+        const titles = {
+            source_integrity:'بازیابی پیوند پیشنهاد منبع',
+            ai:`بازبینی ${number} مورد استخراج‌شده`,
+            references:`تطبیق ${number} مورد با مرجع`,
+            supplier_prices:`بررسی تازگی ${number} قیمت`,
+            conflicts:`رسیدگی به ${number} تعارض همگام‌سازی`,
+            holds:`بررسی ${number} توقف انتشار`,
+            status:'بررسی وضعیت و انتشار کالا',
+            next:'کار باز دیگری ثبت نشده است'
+        };
+        const stage = workbenchStageModel.find(item => item.queues.includes(key));
+        return {
+            label:labels[key] || labels.next,
+            stage:stage ? stage.label : 'سایر موارد',
+            stageKey:stage ? stage.key : 'other',
+            title:titles[key] || titles.next,
+            countLabel:count ? `${number} مورد باز` : 'در انتظار بررسی'
+        };
+    }
+
+    function workbenchTaskKeysForProduct(product, queue) {
+        if (queue === 'next') return workbenchStageModel.flatMap(stage => stage.queues)
+            .filter((key, index, keys) => keys.indexOf(key) === index && workbenchQueueMatches(product, key));
+        const stage = workbenchStageModel.find(item => queue === `stage_${item.key}`);
+        if (stage) return stage.queues.filter(key => workbenchQueueMatches(product, key));
+        return workbenchQueueMatches(product, queue) ? [queue] : [];
+    }
+
+    function workbenchTaskDates(product, queue) {
+        const status = product.status || {};
+        const values = [];
+        const add = (...items) => items.forEach(value => {
+            const raw = String(value || '').trim();
+            if (raw) values.push(raw);
+        });
+        workbenchTaskKeysForProduct(product, queue).forEach(key => {
+            if (key === 'source_integrity') add(status.source_timestamp, status.updated_at, status.changed_at);
+            if (key === 'ai') product.ai.forEach(item => add(item.source_updated_at, item.source_update_at,
+                item.message_timestamp, item.source_timestamp, item.source_created_at));
+            if (key === 'references') product.references.forEach(item => add(item.source_timestamp,
+                item.message_timestamp, item.timestamp, item.created_at, item.updated_at));
+            if (key === 'supplier_prices') product.supplierPrices.forEach(item => add(item.source_timestamp));
+            if (key === 'conflicts') product.conflicts.forEach(item => add(item.created_at, item.updated_at));
+            if (key === 'holds') product.holds.forEach(item => add(item.created_at,
+                item.context && item.context.created_at));
+            if (key === 'status') add(status.source_timestamp, status.updated_at,
+                status.last_updated_at, status.changed_at, status.last_changed_at);
+        });
+        return [...new Set(values)];
+    }
+
+    function workbenchTehranBoundary(day, end = false) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(String(day || ''))) return NaN;
+        return Date.parse(`${day}T${end ? '23:59:59.999' : '00:00:00.000'}+03:30`);
+    }
+
+    function workbenchMatchesState(product, selectedState) {
+        if (!selectedState || selectedState === 'all') return true;
+        const status = product.status || {};
+        const sourceIssues = Array.isArray(status.source_integrity_issues) && status.source_integrity_issues.length > 0;
+        const staleAi = product.ai.some(item => item.source_current_check_required || item.historical_reextract);
+        const stalePrices = product.supplierPrices.some(item => item.acknowledged !== true
+            && ['warning','blocked','needs_review'].includes(item.state));
+        const missingReference = product.references.length > 0 || product.ai.some(item =>
+            !item.reference_snapshot_id || !item.reference_assignment);
+        if (selectedState === 'blocked') return product.holds.length > 0 || sourceIssues
+            || product.ai.some(item => item.publication_held)
+            || product.supplierPrices.some(item => item.state === 'blocked' && item.acknowledged !== true);
+        if (selectedState === 'owner_review') return product.ai.length > 0;
+        if (selectedState === 'source_link') return sourceIssues;
+        if (selectedState === 'stale_source') return staleAi || stalePrices;
+        if (selectedState === 'reference') return missingReference;
+        if (selectedState === 'conflict') return product.conflicts.length > 0;
+        if (selectedState === 'publication_hold') return product.holds.length > 0;
+        if (selectedState === 'catalog_update') return Boolean(status.update_needed);
+        return true;
+    }
+
+    function workbenchMatchesFilters(product, queue) {
+        const search = workbenchNameKey(workbenchFilters.search);
+        if (search && !workbenchNameKey([product.name, product.product_id, product.channel].join(' ')).includes(search)) {
+            return false;
+        }
+        if (workbenchFilters.channelKeys instanceof Set) {
+            const channelKey = workbenchNameKey(product.channel) || '__unassigned__';
+            if (!workbenchFilters.channelKeys.has(channelKey)) return false;
+        }
+        if (!workbenchMatchesState(product, workbenchFilters.state)) return false;
+        if (workbenchFilters.catalogStatus === '__no_record__' && product.status) return false;
+        if (workbenchFilters.catalogStatus === '__blank__'
+            && (!product.status || String(product.status.status || '').trim())) return false;
+        if (workbenchFilters.catalogStatus !== 'all'
+            && !['__no_record__','__blank__'].includes(workbenchFilters.catalogStatus)
+            && (!product.status || String(product.status.status || '').trim() !== workbenchFilters.catalogStatus)) return false;
+        if (workbenchFilters.from || workbenchFilters.to) {
+            const start = workbenchFilters.from ? workbenchTehranBoundary(workbenchFilters.from) : -Infinity;
+            const end = workbenchFilters.to ? workbenchTehranBoundary(workbenchFilters.to, true) : Infinity;
+            if (start > end) return false;
+            const parsedDates = workbenchTaskDates(product, queue).map(sourceTimestampMillis);
+            const dates = parsedDates.filter(Number.isFinite);
+            const hasUndated = parsedDates.length === 0 || dates.length < parsedDates.length;
+            if (!dates.some(value => value >= start && value <= end)
+                && !(workbenchFilters.includeUndated && hasUndated)) return false;
+        }
+        return true;
+    }
+
+    function workbenchActiveFilterCount() {
+        return Number(Boolean(String(workbenchFilters.search || '').trim()))
+            + Number(workbenchFilters.channelKeys instanceof Set)
+            + Number(workbenchFilters.state !== 'all')
+            + Number(workbenchFilters.catalogStatus !== 'all')
+            + Number(Boolean(workbenchFilters.from || workbenchFilters.to));
     }
 
     function workbenchPriority(product) {
@@ -956,24 +1091,59 @@
 
         const renderProduct = product => {
             const primaryKey = workbenchActionForQueue(product, workbenchQueue);
+            const taskMeta = workbenchTaskMeta(product, primaryKey);
             const card = node('article', null, 'card molavi-review-card molavi-product-card');
+            const primaryContent = node('div', null, 'molavi-product-primary-actions');
             const secondaryContent = node('div', null, 'molavi-secondary-product-checks');
+            const relatedTaskKeys = new Set();
+            const primaryTaskTargetId = `molavi-product-action-${++workbenchProductCardSequence}`;
+            let primaryTargetAssigned = false;
             const secondaryChecks = document.createElement('details');
             secondaryChecks.className = 'molavi-secondary-product-details';
-            secondaryChecks.appendChild(node('summary', 'سایر موارد همین کالا'));
+            const secondarySummary = node('summary', 'موارد مرتبط همین کالا');
+            secondaryChecks.appendChild(secondarySummary);
+            const taskSummary = node('section', null, 'molavi-product-task-summary');
+            taskSummary.dataset.taskStage = taskMeta.stageKey;
+            taskSummary.dataset.taskType = primaryKey;
+            const taskCopy = node('div', null, 'molavi-product-task-copy');
+            taskCopy.appendChild(node('p', `${taskMeta.stage} · ${taskMeta.label}`, 'molavi-product-task-kicker'));
+            const taskTitle = node('h3', taskMeta.title);
+            taskCopy.append(taskTitle, node('p', workbenchNextStep(product), 'molavi-product-next-step'));
+            const taskActions = node('div', null, 'molavi-product-task-actions');
+            const taskCount = node('span', taskMeta.countLabel, 'molavi-product-task-count');
+            taskActions.appendChild(taskCount);
+            const actionJump = ownerWorkflowAnchor(primaryTaskTargetId, 'رفتن به گزینه‌های اقدام');
+            actionJump.hidden = true;
+            taskActions.appendChild(actionJump);
+            taskSummary.append(taskCopy, taskActions);
             const addWorkflowSection = (section, key) => {
-                if (key === primaryKey) card.appendChild(section);
-                else secondaryContent.appendChild(section);
+                section.dataset.taskType = key;
+                if (key === primaryKey) {
+                    section.classList.add('molavi-product-primary-action');
+                    if (!primaryTargetAssigned) {
+                        section.id = primaryTaskTargetId;
+                        primaryTargetAssigned = true;
+                        actionJump.hidden = false;
+                    }
+                    primaryContent.appendChild(section);
+                } else {
+                    section.classList.add('molavi-product-related-action');
+                    relatedTaskKeys.add(key);
+                    secondaryContent.appendChild(section);
+                }
             };
             if (product.holds.length) card.classList.add('is-held');
             if (product.conflicts.length) card.classList.add('has-conflict');
             const header = node('div', null, 'molavi-product-card-heading');
             header.appendChild(node('h2', product.name));
-            const state = attention(product) ? 'نیازمند اقدام' : 'وضعیت ثبت‌شده';
+            const state = product.holds.length ? 'انتشار متوقف'
+                : product.conflicts.length ? 'تعارض همگام‌سازی'
+                    : attention(product) ? 'نیازمند اقدام' : 'وضعیت ثبت‌شده';
+            appendStatusPill(header, 'کار اصلی', taskMeta.label, attention(product) ? 'warning' : '');
             const statePill = appendStatusPill(header, 'وضعیت', state, attention(product) ? 'warning' : 'success');
             card.appendChild(header);
-            const nextStep = node('p', workbenchNextStep(product), 'molavi-product-next-step');
-            card.appendChild(nextStep);
+            card.appendChild(taskSummary);
+            const nextStep = taskCopy.querySelector('.molavi-product-next-step');
             const status = product.status || {};
             const identityFacts = [];
             if (product.channel) identityFacts.push(['تأمین‌کننده', product.channel]);
@@ -1091,7 +1261,19 @@
                             supplierPricePill.textContent = 'قیمت تأمین‌کننده: تأیید شد · انتشار در صف';
                             supplierPricePill.className = 'molavi-status-pill is-success';
                         }
-                        nextStep.textContent = workbenchNextStep(product);
+                        const remainingPrices = workbenchPendingSupplierPrices(product);
+                        if (remainingPrices) {
+                            const updatedTask = workbenchTaskMeta(product, 'supplier_prices');
+                            taskTitle.textContent = updatedTask.title;
+                            taskCount.textContent = updatedTask.countLabel;
+                            nextStep.textContent = workbenchNextStep(product, 'supplier_prices');
+                        } else {
+                            taskSummary.classList.add('is-complete');
+                            taskTitle.textContent = 'بررسی قیمت تکمیل شد';
+                            taskCount.textContent = 'تأیید ثبت شد';
+                            nextStep.textContent = 'منبع بررسی شد و انتشار دوباره در صف قرار گرفت.';
+                            actionJump.hidden = true;
+                        }
                         const remaining = refreshQueueCounts();
                         const message = `بررسی قیمت ثبت شد و انتشار دوباره در صف قرار گرفت.${warning}`
                             + (workbenchQueue === 'supplier_prices' && remaining === 0
@@ -1252,7 +1434,12 @@
                     `آخرین بررسی قیمت تأمین‌کننده: ${formatSourceTimestamp(status.supplier_price_verified_at) || 'ثبت شده'}`));
                 addWorkflowSection(details, 'status');
             }
+            if (primaryContent.childNodes.length) card.appendChild(primaryContent);
             if (secondaryContent.childNodes.length) {
+                const sectionCount = new Intl.NumberFormat('fa-IR').format(secondaryContent.childElementCount);
+                const relatedLabels = [...relatedTaskKeys].map(key => workbenchTaskMeta(product, key).label);
+                secondarySummary.textContent = `موارد مرتبط همین کالا (${sectionCount})`
+                    + (relatedLabels.length ? ` · ${relatedLabels.join('، ')}` : '');
                 secondaryChecks.appendChild(secondaryContent);
                 card.appendChild(secondaryChecks);
             }
@@ -1277,6 +1464,33 @@
             queueDefinitions.push({key:`stage_${stage.key}`,label:`همه کارهای این مرحله`,matches,
                 count:products.filter(matches).length});
         });
+        const openChannelCounts = new Map();
+        openProducts.forEach(product => {
+            const label = String(product.channel || '').trim();
+            const key = workbenchNameKey(label) || '__unassigned__';
+            const current = openChannelCounts.get(key) || {key,label:label || 'منبع ثبت‌نشده',count:0};
+            current.count += 1;
+            openChannelCounts.set(key, current);
+        });
+        const channelOptions = [...openChannelCounts.values()].sort((a,b) => a.label.localeCompare(b.label, 'fa'));
+        const catalogStateCounts = new Map();
+        openProducts.forEach(product => {
+            const value = product.status ? String(product.status.status || '').trim() || '__blank__' : '__no_record__';
+            catalogStateCounts.set(value, (catalogStateCounts.get(value) || 0) + 1);
+        });
+        const catalogStatusChoices = [['all', 'همه وضعیت‌های فهرست فعلی']];
+        if (catalogStateCounts.has('__no_record__')) catalogStatusChoices.push(['__no_record__',
+            `بدون رکورد در فهرست فعلی · ${catalogStateCounts.get('__no_record__').toLocaleString('fa-IR')}`]);
+        if (catalogStateCounts.has('__blank__')) catalogStatusChoices.push(['__blank__',
+            `وضعیت ثبت‌نشده · ${catalogStateCounts.get('__blank__').toLocaleString('fa-IR')}`]);
+        [...catalogStateCounts.entries()].filter(([state]) => !['__no_record__','__blank__'].includes(state))
+            .sort(([a],[b]) => readableWorkflowStatus(a).localeCompare(readableWorkflowStatus(b), 'fa'))
+            .forEach(([state,count]) => catalogStatusChoices.push([state,
+                `${readableWorkflowStatus(state)} · ${count.toLocaleString('fa-IR')}`]));
+        if (workbenchFilters.channelKeys instanceof Set) {
+            workbenchFilters.channelKeys = new Set([...workbenchFilters.channelKeys]
+                .filter(key => openChannelCounts.has(key)));
+        }
         let currentQueue = queueDefinitions.find(queue=>queue.key===workbenchQueue);
         if (!currentQueue || (workbenchQueue !== 'next' && currentQueue.count === 0)) {
             const firstStage = workbenchStageModel.find(stage => stage.queues.some(key =>
@@ -1349,11 +1563,180 @@
         const queueNavigation = node('div', null, 'molavi-workbench-queues');
         queueNavigation.setAttribute('role', 'group');
         queueNavigation.setAttribute('aria-label', 'انتخاب صف همین مرحله');
+        const taskSearchRow = node('div', null, 'molavi-workbench-search-row');
+        const taskSearchField = field('جست‌وجوی نام کالا، شناسه یا کانال', 'workbench_search',
+            workbenchFilters.search, 'search');
+        const taskSearchInput = taskSearchField.querySelector('input');
+        taskSearchInput.autocomplete = 'off';
+        taskSearchInput.addEventListener('input', () => {
+            workbenchFilters.search = taskSearchInput.value;
+            updateFilterPresentation();
+            renderQueue();
+        });
+        taskSearchRow.appendChild(taskSearchField);
+        const taskFilterDetails = document.createElement('details');
+        taskFilterDetails.className = 'molavi-workbench-filter-panel';
+        const taskFilterSummary = node('summary', 'فیلترهای دقیق');
+        taskFilterDetails.appendChild(taskFilterSummary);
+        const taskFilterBody = node('div', null, 'molavi-workbench-filter-body');
+        const taskFilterGrid = node('div', null, 'molavi-workbench-filter-grid');
+        const taskStateField = field('وضعیت کاری', 'workbench_state', workbenchFilters.state, 'select', {choices:[
+            ['all','همه وضعیت‌ها'],['blocked','مسدود یا متوقف'],['owner_review','در انتظار بازبینی استخراج'],
+            ['source_link','پیوند منبع ناقص'],['stale_source','قیمت یا منبع نیازمند بررسی تازه'],
+            ['reference','تطبیق مرجع لازم است'],['conflict','تعارض همگام‌سازی'],
+            ['publication_hold','توقف انتشار'],['catalog_update','به‌روزرسانی کاتالوگ']
+        ]});
+        const taskStateSelect = taskStateField.querySelector('select');
+        taskStateSelect.addEventListener('change', () => {
+            workbenchFilters.state = taskStateSelect.value;
+            updateFilterPresentation();
+            renderQueue();
+        });
+        const taskCatalogStatusField = field('وضعیت در فهرست فعلی کالاها', 'workbench_catalog_status',
+            workbenchFilters.catalogStatus, 'select', {choices:catalogStatusChoices});
+        const taskCatalogStatusSelect = taskCatalogStatusField.querySelector('select');
+        taskCatalogStatusSelect.addEventListener('change', () => {
+            workbenchFilters.catalogStatus = taskCatalogStatusSelect.value;
+            updateFilterPresentation();
+            renderQueue();
+        });
+        const taskDateFromField = field('از تاریخ تهران', 'workbench_date_from', workbenchFilters.from, 'date');
+        const taskDateToField = field('تا تاریخ تهران', 'workbench_date_to', workbenchFilters.to, 'date');
+        const taskDateFrom = taskDateFromField.querySelector('input');
+        const taskDateTo = taskDateToField.querySelector('input');
+        const includeUndated = document.createElement('input');
+        const onTaskDateChange = () => {
+            workbenchFilters.from = taskDateFrom.value;
+            workbenchFilters.to = taskDateTo.value;
+            if (!workbenchFilters.from && !workbenchFilters.to) {
+                workbenchFilters.includeUndated = false;
+                includeUndated.checked = false;
+            }
+            includeUndated.disabled = !workbenchFilters.from && !workbenchFilters.to;
+            updateFilterPresentation();
+            renderQueue();
+        };
+        taskDateFrom.addEventListener('change', onTaskDateChange);
+        taskDateTo.addEventListener('change', onTaskDateChange);
+        taskFilterGrid.append(taskStateField, taskCatalogStatusField, taskDateFromField, taskDateToField);
+        taskFilterBody.appendChild(taskFilterGrid);
+        taskFilterBody.appendChild(node('small', 'بازهٔ تاریخ بر اساس زمان ثبت‌شدهٔ پیام یا رویداد و با روزهای تقویمی تهران اعمال می‌شود.'));
+        const includeUndatedLabel = node('label', null, 'molavi-workbench-include-undated');
+        includeUndated.type = 'checkbox';
+        includeUndated.checked = workbenchFilters.includeUndated;
+        includeUndated.disabled = !workbenchFilters.from && !workbenchFilters.to;
+        includeUndated.addEventListener('change', () => {
+            workbenchFilters.includeUndated = includeUndated.checked;
+            updateFilterPresentation();
+            renderQueue();
+        });
+        includeUndatedLabel.append(includeUndated, node('span', 'همراه با مواردی که تاریخشان ثبت نشده'));
+        taskFilterBody.appendChild(includeUndatedLabel);
+        const channelFieldset = document.createElement('fieldset');
+        channelFieldset.className = 'molavi-workbench-channel-filter';
+        channelFieldset.appendChild(node('legend', 'منبع و کانال'));
+        const channelFilterDetails = document.createElement('details');
+        const channelFilterSummary = node('summary', 'همه کانال‌ها');
+        channelFilterDetails.appendChild(channelFilterSummary);
+        const channelSearchLabel = node('label', 'جست‌وجوی کانال');
+        const channelSearchInput = document.createElement('input');
+        channelSearchInput.type = 'search';
+        channelSearchInput.autocomplete = 'off';
+        channelSearchLabel.appendChild(channelSearchInput);
+        channelFilterDetails.appendChild(channelSearchLabel);
+        const channelActions = node('div', null, 'molavi-workbench-channel-actions');
+        const chooseAllChannels = node('button', 'همه');
+        const clearChannels = node('button', 'هیچ‌کدام');
+        [chooseAllChannels, clearChannels].forEach(button => {
+            button.type = 'button';
+            button.className = 'button button-link';
+        });
+        channelActions.append(chooseAllChannels, clearChannels);
+        channelFilterDetails.appendChild(channelActions);
+        const channelList = node('div', null, 'molavi-workbench-channel-list');
+        const channelCheckboxes = [];
+        channelOptions.forEach(option => {
+            const label = node('label', null, 'molavi-workbench-channel-option');
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.value = option.key;
+            checkbox.checked = !(workbenchFilters.channelKeys instanceof Set)
+                || workbenchFilters.channelKeys.has(option.key);
+            checkbox.addEventListener('change', () => {
+                const selected = new Set(channelCheckboxes.filter(item => item.checkbox.checked)
+                    .map(item => item.option.key));
+                workbenchFilters.channelKeys = selected.size === channelOptions.length ? null : selected;
+                updateFilterPresentation();
+                renderQueue();
+            });
+            label.append(checkbox, node('span', `${option.label} · ${option.count.toLocaleString('fa-IR')}`));
+            channelCheckboxes.push({option,checkbox,label});
+            channelList.appendChild(label);
+        });
+        channelSearchInput.addEventListener('input', () => {
+            const query = workbenchNameKey(channelSearchInput.value);
+            channelCheckboxes.forEach(item => { item.label.hidden = Boolean(query)
+                && !workbenchNameKey(item.option.label).includes(query); });
+        });
+        chooseAllChannels.addEventListener('click', () => {
+            workbenchFilters.channelKeys = null;
+            channelCheckboxes.forEach(item => { item.checkbox.checked = true; });
+            updateFilterPresentation();
+            renderQueue();
+        });
+        clearChannels.addEventListener('click', () => {
+            workbenchFilters.channelKeys = new Set();
+            channelCheckboxes.forEach(item => { item.checkbox.checked = false; });
+            updateFilterPresentation();
+            renderQueue();
+        });
+        channelFilterDetails.appendChild(channelList);
+        channelFieldset.appendChild(channelFilterDetails);
+        taskFilterBody.appendChild(channelFieldset);
+        taskFilterDetails.appendChild(taskFilterBody);
+        const filterResultRow = node('div', null, 'molavi-workbench-filter-result');
+        const filterResult = node('p', '', 'molavi-workbench-filter-result-text');
+        filterResult.setAttribute('role', 'status');
+        filterResult.setAttribute('aria-live', 'polite');
+        const clearTaskFilters = node('button', 'پاک‌کردن فیلترها', 'button button-secondary');
+        clearTaskFilters.type = 'button';
+        clearTaskFilters.hidden = true;
+        clearTaskFilters.addEventListener('click', () => {
+            workbenchFilters.search = '';
+            workbenchFilters.channelKeys = null;
+            workbenchFilters.state = 'all';
+            workbenchFilters.catalogStatus = 'all';
+            workbenchFilters.from = '';
+            workbenchFilters.to = '';
+            workbenchFilters.includeUndated = false;
+            taskSearchInput.value = '';
+            taskStateSelect.value = 'all';
+            taskCatalogStatusSelect.value = 'all';
+            taskDateFrom.value = '';
+            taskDateTo.value = '';
+            includeUndated.checked = false;
+            includeUndated.disabled = true;
+            channelSearchInput.value = '';
+            channelCheckboxes.forEach(item => { item.checkbox.checked = true; item.label.hidden = false; });
+            updateFilterPresentation();
+            renderQueue();
+        });
+        filterResultRow.append(filterResult, clearTaskFilters);
+        const updateFilterPresentation = () => {
+            const active = workbenchActiveFilterCount();
+            const activeLabel = active ? ` · ${new Intl.NumberFormat('fa-IR').format(active)} فیلتر فعال` : '';
+            taskFilterSummary.textContent = `فیلترهای دقیق: کانال، وضعیت کار و فهرست، تاریخ${activeLabel}`;
+            clearTaskFilters.hidden = active === 0 && !workbenchFilters.includeUndated;
+            if (workbenchFilters.channelKeys instanceof Set) {
+                channelFilterSummary.textContent = `${new Intl.NumberFormat('fa-IR').format(workbenchFilters.channelKeys.size)} کانال انتخاب‌شده`;
+            } else channelFilterSummary.textContent = `همه کانال‌های دارای کار باز (${channelOptions.length})`;
+        };
+        updateFilterPresentation();
         const queueContent = node('div', null, 'molavi-workbench-queue-content');
         const sourceGroup = node('section', null, 'molavi-workbench-source-group');
         sourceGroup.setAttribute('aria-label', 'انتخاب پیام‌ها برای بازاستخراج');
         reextractView.appendChild(sourceGroup);
-        taskView.append(queueNavigation, queueContent);
+        taskView.append(queueNavigation, taskSearchRow, taskFilterDetails, filterResultRow, queueContent);
         board.append(overview, stageGrid, tabs, taskView, reextractView, storeView);
 
         refreshQueueCounts = () => {
@@ -1411,7 +1794,15 @@
         renderView();
         const renderQueue = () => {
             const queue=queueDefinitions.find(item=>item.key===workbenchQueue) || queueDefinitions[0];
-            const shownProducts=products.filter(queue.matches);
+            const queueProducts=products.filter(queue.matches);
+            const shownProducts=queueProducts.filter(product => workbenchMatchesFilters(product, queue.key));
+            const reversedDateRange = workbenchFilters.from && workbenchFilters.to
+                && workbenchFilters.from > workbenchFilters.to;
+            filterResult.textContent = reversedDateRange
+                ? 'تاریخ شروع باید پیش از تاریخ پایان باشد.'
+                : `نمایش ${shownProducts.length.toLocaleString('fa-IR')} از ${queueProducts.length.toLocaleString('fa-IR')} کالا در این صف`
+                    + (workbenchActiveFilterCount() ? ' · فیلترها با هم ترکیب می‌شوند.' : '');
+            clearTaskFilters.hidden = workbenchActiveFilterCount() === 0 && !workbenchFilters.includeUndated;
             queueContent.replaceChildren();
             if (!products.length) {
                 queueContent.appendChild(notice(unavailable.length
@@ -1420,9 +1811,16 @@
                 return;
             }
             if (!shownProducts.length) {
-                queueContent.appendChild(notice(unavailable.length
-                    ? 'این صف خالی است؛ منابعی که دریافت نشدند را در وضعیت اتصال بررسی کنید.'
-                    : 'همه کارهای این صف انجام شده‌اند.',unavailable.length?'warning':'success'));
+                const hasActiveFilters = workbenchActiveFilterCount() > 0 || workbenchFilters.includeUndated;
+                queueContent.appendChild(notice(reversedDateRange
+                    ? 'بازه تاریخ معتبر نیست؛ تاریخ‌ها را اصلاح یا فیلترها را پاک کنید.'
+                    : queueProducts.length && hasActiveFilters
+                        ? 'با ترکیب فعلی فیلترها موردی پیدا نشد؛ یک فیلتر را بردارید یا همه را پاک کنید.'
+                        : unavailable.length
+                            ? 'این صف خالی است؛ منابعی که دریافت نشدند را در وضعیت اتصال بررسی کنید.'
+                            : 'همه کارهای این صف انجام شده‌اند.',
+                    reversedDateRange || (queueProducts.length && hasActiveFilters) ? 'info'
+                        : unavailable.length ? 'warning' : 'success'));
                 return;
             }
             if (workbenchSelectedKey) {
@@ -2996,7 +3394,7 @@
     async function advancedReextractionTools(panel) {
         panel.className = 'card molavi-reextract-panel';
         panel.appendChild(node('h2', 'ابزارهای ویژهٔ استخراج'));
-        panel.appendChild(node('p', 'OCR تصویر و بازپردازش نسخهٔ فعلی سیاست، از انتخاب عادی پیام‌ها جدا هستند.'));
+        panel.appendChild(node('p', 'آلبوم‌ها در انتخاب عادی با OCR همهٔ عکس‌هایشان با هم پردازش می‌شوند. این کارت‌ها مسیر بررسی جداگانهٔ رسانه‌ها هستند؛ بازپردازش با سیاست فعلی هم جداست.'));
         try {
             const preview = await reextractionRequest('GET', undefined, reextractionUrl('preview'));
             const counts = preview.counts || {};
@@ -3004,16 +3402,16 @@
             const recentPolicy = preview.recent_policy || {};
             const supportsAiOnly = typeof preview.ai_configured === 'boolean';
             const aiConfigured = supportsAiOnly && preview.ai_configured;
-            panel.appendChild(node('p', `در صف بررسی: ${counts.pending || 0} پیام · همه پیام‌های متنی آماده: ${counts.all_available || 0}`));
+            panel.appendChild(node('p', `در صف بازبینی مالک: ${counts.pending || 0} پست · همهٔ پست‌های قابل‌بازاستخراج: ${counts.all_available || 0}`));
             panel.appendChild(node('p', `کارت‌های باز استخراج: ${openCases.case_count || 0} · پیام‌های اصلی یکتا: ${openCases.message_count || 0} · قبلاً بازاستخراج‌شده: ${counts.already_reprocessed || 0}`));
-            panel.appendChild(node('p', `بازپردازش با قواعد فعلی: ${recentPolicy.eligible_count || 0} پست در ${recentPolicy.window_days || 14} روز اخیر · شامل ${recentPolicy.media_ocr_count || 0} پست تصویری که خروجی OCR آن‌ها به بررسی مالک می‌رود · نسخه استخراج ${recentPolicy.policy_version || 'نامشخص'}. تصمیم‌های مالک و نتیجه‌های همین نسخه حفظ می‌شوند.`));
-            panel.appendChild(node('p', `عکس‌های نیازمند بررسی: ${counts.media_review || 0} · عکس بدون فایل قابل‌خواندن: ${counts.media_without_file || 0} · رسانهٔ پشتیبانی‌نشده برای OCR: ${counts.unsupported_media || 0} · خروجی بدون نامزد محصول: ${counts.no_product_candidates || 0} · تصمیم‌های مالک حفظ‌شده: ${counts.owner_decisions_preserved || 0} · ردشده توسط مالک: ${counts.dismissed_by_owner || 0} · قبلاً در صف بررسی بازاستخراج‌شده: ${counts.already_staged || 0}`));
+            panel.appendChild(node('p', `بازپردازش با قواعد فعلی: ${recentPolicy.eligible_count || 0} پست در ${recentPolicy.window_days || 14} روز اخیر · شامل ${recentPolicy.media_ocr_count || 0} پست تصویری و ${recentPolicy.media_ocr_image_count || 0} تصویر برای OCR؛ خروجی فقط به بررسی مالک می‌رود · نسخه استخراج ${recentPolicy.policy_version || 'نامشخص'}. تصمیم‌های مالک و نتیجه‌های همین نسخه حفظ می‌شوند.`));
+            panel.appendChild(node('p', `گروه‌های رسانه‌ای نیازمند OCR: ${counts.media_review || 0} · تصویر بدون فایل قابل‌خواندن: ${counts.media_without_file || 0} · رسانهٔ پشتیبانی‌نشده برای OCR: ${counts.unsupported_media || 0} · خروجی بدون نامزد محصول: ${counts.no_product_candidates || 0} · تصمیم‌های مالک حفظ‌شده: ${counts.owner_decisions_preserved || 0} · ردشده توسط مالک: ${counts.dismissed_by_owner || 0} · قبلاً در صف بررسی بازاستخراج‌شده: ${counts.already_staged || 0}`));
             const policyPosts = Array.isArray(recentPolicy.source_posts) ? recentPolicy.source_posts : [];
             if (policyPosts.length) {
                 const sourceList = document.createElement('details');
                 sourceList.appendChild(node('summary', `نمونه پست‌های آماده (${policyPosts.length} از ${recentPolicy.eligible_count || policyPosts.length})`));
                 for (const item of policyPosts) {
-                    const row = node('p', `${item.channel || 'منبع نامشخص'} · پیام ${item.message_id || '—'} · ${item.timestamp || 'زمان نامشخص'}${item.media_ocr ? ' · نیازمند OCR' : ''}`);
+                    const row = node('p', `${item.channel || 'منبع نامشخص'} · پیام ${item.message_id || '—'} · ${item.timestamp || 'زمان نامشخص'}${item.media_ocr ? ` · OCR ${item.image_count || 1} تصویر` : ''}`);
                     const link = safeSourceLink(item.source_post_url);
                     if (link) row.appendChild(link);
                     sourceList.appendChild(row);
@@ -3027,16 +3425,26 @@
             if (mediaItems.length) {
                 const mediaSection = node('section', null, 'molavi-media-review');
                 let mediaTotal = Number(preview.media_review_total || counts.media_review || mediaItems.length);
-                const mediaHeading = node('h3', `رسانه‌های بدون متن (${mediaTotal})`);
+                let mediaImageTotal = Number(counts.media_review_images || 0);
+                const missingImageTotal = Number(counts.media_review_missing_images || 0);
+                const mediaHeading = node('h3', `گروه‌های رسانه‌ای نیازمند OCR (${mediaTotal} گروه/پیام · ${mediaImageTotal} تصویر)`);
                 mediaSection.appendChild(mediaHeading);
-                mediaSection.appendChild(node('p', 'این پیام متن محصول نداشته یا استخراج متن آن نامزد کالا پیدا نکرده است. عکس و متن همراه پیام را ببینید؛ تصمیم «کالا نیست» فقط همین پیام را می‌بندد.'));
+                mediaSection.appendChild(node('p', `هر گروه آلبوم یک‌جا بررسی می‌شود و OCR همه عکس‌های آن را می‌خواند. نتیجه فقط برای بازبینی مالک ثبت می‌شود. ${missingImageTotal ? `${missingImageTotal} پیام آلبوم فایل تصویر کامل ندارد و تا دریافت همه عکس‌ها OCR نمی‌شود. ` : ''}اگر گروهی کالا نیست، تصمیم آن کل همان گروه را کنار می‌گذارد.`));
                 const mediaGrid = node('div', null, 'molavi-media-review-grid');
                 function renderMedia(items) {
                     for (const item of items) {
+                        const imageFileIds = Array.isArray(item.image_file_ids) && item.image_file_ids.length
+                            ? item.image_file_ids.map(value => String(value || '').trim()).filter(Boolean)
+                            : (item.image_file_id ? [String(item.image_file_id)] : []);
+                        const imageCount = Number(item.image_count || imageFileIds.length || 0);
+                        const missingImageCount = Number(item.missing_image_count || 0);
+                        const messageCount = Array.isArray(item.message_ids) && item.message_ids.length
+                            ? item.message_ids.length : 1;
+                        const isAlbum = Boolean(item.grouped || item.media_group_id || imageCount > 1);
                         const card = node('article', null, 'molavi-media-review-card');
                         const details = node('div', null, 'molavi-media-review-details');
-                        details.appendChild(node('strong', `${item.channel || item.channel_username || 'منبع نامشخص'} · پیام ${item.message_id || '—'}`));
-                        details.appendChild(node('span', `${item.timestamp || 'زمان ثبت نشده'} · ${item.media_type || 'رسانه'}`));
+                        details.appendChild(node('strong', `${item.channel || item.channel_username || 'منبع نامشخص'} · ${isAlbum ? `آلبوم ${imageCount || imageFileIds.length} تصویر` : `پیام ${item.message_id || '—'}`}`));
+                        details.appendChild(node('span', `${item.timestamp || 'زمان ثبت نشده'} · ${messageCount} پیام · ${imageCount || imageFileIds.length} تصویر`));
                         const sourceLink = safeSourceLink(item.source_post_url);
                         if (sourceLink) details.appendChild(sourceLink);
                         if (item.content) {
@@ -3045,24 +3453,34 @@
                             caption.appendChild(node('pre',String(item.content).slice(0,3000)));
                             details.appendChild(caption);
                         }
-                        if (item.image_file_id) {
-                            const image = node('img');
-                            image.src = new URL('/media/file/' + encodeURIComponent(String(item.image_file_id)), config.apiUrl).toString();
-                            image.alt = 'تصویر پیام تأمین‌کننده'; image.loading = 'lazy'; image.decoding = 'async';
-                            image.referrerPolicy = 'no-referrer';
-                            image.onerror = () => {
-                                image.remove();
-                                details.insertBefore(notice('فایل تصویر از تلگرام در دسترس نیست؛ اگر پست باز می‌شود، آن را از همان منبع بررسی کنید.','warning'),details.firstChild);
-                            };
-                            card.appendChild(image);
+                        if (imageFileIds.length) {
+                            const imageList = node('div', null, 'molavi-media-review-images');
+                            imageFileIds.forEach((fileId,index) => {
+                                const image = node('img');
+                                image.src = new URL('/media/file/' + encodeURIComponent(fileId), config.apiUrl).toString();
+                                image.alt = `تصویر ${index + 1} از ${imageFileIds.length} پیام تأمین‌کننده`;
+                                image.loading = 'lazy'; image.decoding = 'async';
+                                image.referrerPolicy = 'no-referrer';
+                                image.onerror = () => {
+                                    image.remove();
+                                    imageList.insertBefore(notice(`تصویر ${index + 1} از منبع در دسترس نیست؛ اگر پست باز می‌شود، آن را در همان منبع بررسی کنید.`, 'warning'),imageList.firstChild);
+                                };
+                                imageList.appendChild(image);
+                            });
+                            card.appendChild(imageList);
                         } else {
                             card.appendChild(notice('برای این پیام فایل پیش‌نمایش ذخیره نشده است.','warning'));
                         }
-                        if (item.image_file_id) {
-                            const ocr = node('button','بازخوانی OCR و استخراج','button button-primary');
-                            ocr.type='button'; ocr.disabled=!aiConfigured;
+                        if (missingImageCount) {
+                            card.appendChild(notice(`${missingImageCount} پیام از آلبوم فایل تصویر ندارد؛ OCR متوقف است تا همهٔ عکس‌های منبع در دسترس باشند.`, 'warning'));
+                        }
+                        if (imageFileIds.length) {
+                            const ocr = node('button',imageFileIds.length > 1
+                                ? 'بازخوانی OCR همه تصاویر و استخراج' : 'بازخوانی OCR تصویر و استخراج','button button-primary');
+                            ocr.type='button'; ocr.disabled=!aiConfigured || missingImageCount > 0;
                             ocr.addEventListener('click',async()=>{
-                                if (!window.confirm('متن قابل‌مشاهده تصویر با هوش مصنوعی خوانده می‌شود و هر پیشنهاد استخراج‌شده فقط برای بررسی نمایش داده می‌شود؛ هیچ کالا یا قیمتی خودکار تأیید نمی‌شود. ادامه می‌دهید؟')) return;
+                                const confirmation = `متن قابل‌مشاهده ${imageFileIds.length} تصویر این ${isAlbum ? 'آلبوم' : 'پیام'} خوانده می‌شود. پیشنهادهای حاصل فقط برای بررسی مالک نمایش داده می‌شوند و هیچ کالا یا قیمتی خودکار تأیید نمی‌شود. ادامه می‌دهید؟`;
+                                if (!window.confirm(confirmation)) return;
                                 const bytes=new Uint8Array(16);
                                 if (window.crypto && window.crypto.getRandomValues) window.crypto.getRandomValues(bytes);
                                 else for (let index=0;index<bytes.length;index++) bytes[index]=Math.floor(Math.random()*256);
@@ -3071,7 +3489,9 @@
                                     message_id:item.message_id,batch_id:item.batch_id,
                                     channel:item.channel || item.channel_username,timestamp:item.timestamp,
                                     source_post_url:item.source_post_url,media_type:item.media_type,
-                                    image_file_unique_id:item.image_file_unique_id};
+                                    image_file_unique_id:item.image_file_unique_id,
+                                    image_count:imageFileIds.length,message_count:messageCount,
+                                    grouped:isAlbum};
                                 const eventId='media-ocr:'+runId;
                                 const decision={action:'retry_media_ocr',run_id:runId};
                                 ocr.disabled=true;
@@ -3081,10 +3501,12 @@
                                     const receipt=await reextractionRequest('POST',{action:'start_media_reextraction',
                                         message_key:item.message_key,run_id:runId});
                                     if (receipt.run_id!==runId || receipt.queued!==1
-                                        || receipt.message_key!==item.message_key) throw new Error('invalid_receipt');
+                                        || receipt.message_key!==item.message_key
+                                        || receipt.image_count!==imageFileIds.length
+                                        || receipt.message_count!==messageCount) throw new Error('invalid_receipt');
                                     await persistOwnerReviews([reviewRecord(eventId,'ai_media_review',
                                         item.message_key,'accepted',storedReviewContext('ai_media_review',auditContext),decision,receipt)]);
-                                    const progress=notice('OCR تصویر در صف پردازش قرار گرفت…','info');
+                                    const progress=notice(`OCR برای ${imageFileIds.length} تصویر در صف پردازش قرار گرفت…`,'info');
                                     progress.classList.add('molavi-reextract-progress');
                                     mediaSection.appendChild(progress);
                                     showReextractionProgress(panel,runId,auditContext);
@@ -3099,16 +3521,18 @@
                             });
                             details.appendChild(ocr);
                         }
-                        const dismiss = node('button', 'این پیام کالا نیست', 'button button-secondary');
+                        const dismiss = node('button', isAlbum ? 'این آلبوم کالا نیست' : 'این پیام کالا نیست', 'button button-secondary');
                         dismiss.type = 'button';
                         dismiss.addEventListener('click', async () => {
-                            if (!window.confirm('این تصمیم فقط همین پیام و تصویر را از صف بررسی کنار می‌گذارد. ادامه می‌دهید؟')) return;
+                            if (!window.confirm(`این تصمیم ${isAlbum ? 'همه پیام‌ها و تصاویر همین آلبوم' : 'همین پیام و تصویر'} را از صف بررسی کنار می‌گذارد. ادامه می‌دهید؟`)) return;
                             dismiss.disabled = true;
                             const eventId = `media-review:${item.message_key}`;
                             const context = {message_id:item.message_id,batch_id:item.batch_id,
                                 channel:item.channel || item.channel_username,timestamp:item.timestamp,
                                 source_post_url:item.source_post_url,media_type:item.media_type,
-                                image_file_unique_id:item.image_file_unique_id};
+                                image_file_unique_id:item.image_file_unique_id,
+                                image_count:imageFileIds.length,message_count:messageCount,
+                                grouped:isAlbum};
                             const decision = {choice:'not_product'};
                             try {
                                 await persistOwnerReviews([reviewRecord(eventId,'ai_media_review',item.message_key,
@@ -3119,7 +3543,8 @@
                                     'accepted',context,decision,receipt)]);
                                 card.remove();
                                 mediaTotal=Math.max(0,mediaTotal-1);
-                                mediaHeading.textContent=`رسانه‌های بدون متن (${mediaTotal})`;
+                                mediaImageTotal=Math.max(0,mediaImageTotal-imageFileIds.length);
+                                mediaHeading.textContent=`گروه‌های رسانه‌ای نیازمند OCR (${mediaTotal} گروه/پیام · ${mediaImageTotal} تصویر)`;
                                 mediaSection.insertBefore(notice('تصمیم ثبت شد؛ سابقه آن در وردپرس ذخیره شد.','success'),mediaGrid);
                             } catch (error) {
                                 try { await persistOwnerReviews([reviewRecord(eventId,'ai_media_review',item.message_key,
@@ -3339,8 +3764,8 @@
             scopeFieldset.appendChild(node('legend', 'دامنهٔ پیام‌ها'));
             const scopeInputs = new Map();
             const scopeOptions = [
-                {key:'all',label:'همهٔ پیام‌های قابل‌بازاستخراج',hint:'ورودی‌های متنی آماده؛ پیام‌های فقط تصویری در مسیر جداگانهٔ OCR هستند.',count:counts.all || 0},
-                {key:'pending',label:'منتظر بررسی مالک',hint:'پیام‌هایی که استخراج آن‌ها هنوز در صف بررسی است.',count:counts.pending || 0},
+                {key:'all',label:'همهٔ پست‌های قابل‌بازاستخراج',hint:'همهٔ متن‌ها و آلبوم‌های واجد شرایط؛ OCR همهٔ عکس‌های آلبوم در همان اجرا انجام می‌شود. کارت‌های رسانه مسیر بررسی جداگانه را هم فراهم می‌کنند.',count:counts.all || 0},
+                {key:'pending',label:'پست‌های منتظر بررسی مالک',hint:'استخراج‌هایی که هنوز در صف بررسی مالک هستند؛ هر آلبوم یک پست محسوب می‌شود.',count:counts.pending || 0},
                 {key:'linked',label:'پیوندشده به محصول کاتالوگ',hint:'شناسهٔ پیشنهاد منبع به یک محصول در کاتالوگ فعلی وصل است.',count:counts.linked || 0}
             ];
             scopeOptions.forEach((option,index) => {
@@ -3403,7 +3828,7 @@
 
             const previewHeading = node('p', 'پیش‌نمایش انتخاب', 'molavi-reextract-eyebrow');
             const selectedCount = node('strong', '۰', 'molavi-reextract-count');
-            const selectedLabel = node('span', 'پیام واجد شرایط');
+            const selectedLabel = node('span', 'پست واجد شرایط');
             const countLine = node('div', null, 'molavi-reextract-count-line');
             countLine.append(selectedCount, selectedLabel);
             const filterSummary = node('p', '', 'molavi-reextract-filter-summary');
@@ -3471,7 +3896,7 @@
                 const active = data.active_run;
                 const canStart = data.ai_configured === true && count > 0 && !active;
                 runButton.disabled = !canStart;
-                runButton.textContent = active ? 'یک بازاستخراج در حال اجراست' : `بازاستخراج ${formatter.format(count)} پیام`;
+                runButton.textContent = active ? 'یک بازاستخراج در حال اجراست' : `بازاستخراج ${formatter.format(count)} پست`;
                 if (data.ai_configured !== true) previewStatus.textContent = 'مدل استخراج فعلی روی سرویس تنظیم نشده است؛ شروع کار غیرفعال است.';
                 else if (active) previewStatus.textContent = 'یک بازاستخراج دیگر در صف یا در حال اجراست؛ اجرای هم‌زمان ممکن نیست.';
                 else previewStatus.textContent = 'شمارش از سرویس تازه شده و پیش از شروع دوباره کنترل می‌شود.';
@@ -3536,7 +3961,7 @@
                 const dateToValue = dateTo.value;
                 const digest = String(selection.digest || '');
                 const groupSummary = (selection.groups || []).map(group => `${group.label}: ${group.count}`).join('، ');
-                const confirmation = `بازاستخراج ${count} پیام با مدل فعلی شروع می‌شود. دامنه: ${scopeOptions.find(item => item.key === scope)?.label || scope}. گروه‌ها: ${groupSummary || 'بدون مورد'}. تصمیم‌های نهایی مالک حفظ می‌شوند. ادامه می‌دهید؟`;
+                const confirmation = `بازاستخراج ${count} پست با مدل فعلی شروع می‌شود. دامنه: ${scopeOptions.find(item => item.key === scope)?.label || scope}. گروه‌ها: ${groupSummary || 'بدون مورد'}. آلبوم‌ها یک‌جا پردازش می‌شوند و خروجی OCR به بررسی مالک می‌رود. تصمیم‌های نهایی مالک حفظ می‌شوند. ادامه می‌دهید؟`;
                 if (!window.confirm(confirmation)) return;
                 if (!/^[a-f0-9]{64}$/.test(digest)) {
                     previewStatus.textContent = 'پیش‌نمایش معتبر نیست؛ دوباره تازه کنید.';

@@ -37,7 +37,7 @@ from catalog.extract import (
     peel_title_pack,
     quality_check,
 )
-from catalog.media import share_album_images
+from catalog.media import album_media_bundle, share_album_images
 from catalog.gemini import GeminiError, extract_message_products
 from catalog.sheet_reconcile import field_values_equal, reconcile_field, stable_conflict_id
 from catalog.pricing import (
@@ -726,20 +726,31 @@ def _write_ai_message_status(store, message, status, case_ids):
     required=('ID','Batch ID','AI Status','AI Review Case IDs','AI Processed At')
     if any(header not in headers for header in required):
         return False
-    message_id=str(message.get('id') or '')
-    batch_id=str(message.get('batch_id') or '')
-    channel=str(message.get('channel') or '')
+    targets=[message]
+    if isinstance(message.get('group_members'),list):
+        targets.extend(item for item in message['group_members'] if isinstance(item,dict))
+    target_markers=set()
+    for target in targets:
+        target_markers.add((str(target.get('id') or target.get('message_id') or ''),
+            str(target.get('batch_id') or ''),str(target.get('channel') or ''),
+            str(target.get('channel_username') or '')))
+    target_markers.discard(('','','',''))
+    if not target_markers:
+        return False
     id_idx=headers.index('ID');batch_idx=headers.index('Batch ID')
     channel_idx=headers.index('Channel') if 'Channel' in headers else None
+    username_idx=headers.index('Channel Username') if 'Channel Username' in headers else None
     rows_found=[]
     for row_index,row in enumerate(rows[1:],2):
-        if str(row[id_idx] if id_idx<len(row) else '')!=message_id:
-            continue
-        if batch_id and str(row[batch_idx] if batch_idx<len(row) else '')!=batch_id:
-            continue
-        if channel_idx is not None and channel and str(row[channel_idx] if channel_idx<len(row) else '')!=channel:
-            continue
-        rows_found.append(row_index)
+        row_id=str(row[id_idx] if id_idx<len(row) else '')
+        row_batch=str(row[batch_idx] if batch_idx<len(row) else '')
+        row_channel=str(row[channel_idx] if channel_idx is not None and channel_idx<len(row) else '')
+        row_username=str(row[username_idx] if username_idx is not None and username_idx<len(row) else '')
+        if any(target_id==row_id and (not target_batch or target_batch==row_batch)
+               and (channel_idx is None or not target_channel or target_channel==row_channel)
+               and (username_idx is None or not target_username or target_username==row_username)
+               for target_id,target_batch,target_channel,target_username in target_markers):
+            rows_found.append(row_index)
     values={'AI Status':status,'AI Review Case IDs':json.dumps(case_ids,ensure_ascii=False),
             'AI Processed At':_now()}
     writer=getattr(store,'write_cells',None)
@@ -949,6 +960,8 @@ def reextract_saved_message(store, payload: dict[str, Any], *, write_lock=None,
         raise ValueError('invalid_re-extraction_actor')
     reextraction_scope=str(payload.get('reextraction_scope') or '')
     policy_version=str(payload.get('policy_version') or '')
+    source_group_members=[]
+    media_image_file_ids=[]
     if reextraction_scope=='recent_policy':
         from catalog.gemini import extraction_policy_version
         if (not re.fullmatch(r'[a-z0-9][a-z0-9._-]{0,63}',policy_version)
@@ -1013,38 +1026,98 @@ def reextract_saved_message(store, payload: dict[str, Any], *, write_lock=None,
         channel_username=source_username
         timestamp=source_timestamp
         source_key=computed_source_key
+        media_image_file_ids=[str(source.get('Image File ID') or '').strip()] if source.get('Image File ID') else []
     else:
         rows=_read_sheet_if_present(store,'MessageData')
         _,messages=_records(rows)
-        matches=[]
-        for item in messages:
-            if str(item.get('ID') or '')!=message_id:
-                continue
-            if str(item.get('Batch ID') or '')!=batch_id:
-                continue
-            if str(item.get('Channel Username') or '')!=channel_username:
-                continue
-            if str(item.get('Timestamp') or '')!=timestamp:
-                continue
-            if hashlib.sha256(str(item.get('Content') or '').encode()).hexdigest()!=expected_hash:
-                continue
-            matches.append(item)
-        if len(matches)!=1:
-            return {'ok':True,'message_id':message_id,'status':'source_changed',
-                    'products_found':0,'offers_written':0,'open_cases_remaining':0}
-        source=matches[0]
-        media_identity=(str(source.get('Image File Unique ID') or '').strip()
-            or str(source.get('Image File ID') or '').strip())
-        saved_media_review=str(payload.get('reextraction_scope') or '')=='media_review'
-        identity=reextraction_message_key({'message_id':message_id,'batch_id':batch_id,
-            'channel_username':channel_username,'timestamp':timestamp,
-            'content':source.get('Content') or '',
-            'media_identity':media_identity if saved_media_review or not str(source.get('Content') or '').strip() else ''})
-        if identity!=message_key:
-            raise ValueError('invalid_re-extraction_identity')
-        source_key=reextraction_source_key(
-            source_url=source.get('URL'),channel=channel_username,message_id=message_id,
-            timestamp=timestamp,content=source.get('Content'))
+        media_group_id=str(payload.get('media_group_id') or '').strip()
+        grouped_media=bool(media_group_id and isinstance(payload.get('group_members'),list)
+            and isinstance(payload.get('image_file_ids'),list))
+        if grouped_media:
+            group_rows=[item for item in messages
+                if str(item.get('Channel Username') or '').strip()==channel_username
+                and str(item.get('Media Group ID') or '').strip()==media_group_id]
+            bundle=album_media_bundle([{
+                'message_id':item.get('ID'),'batch_id':item.get('Batch ID'),
+                'channel_username':item.get('Channel Username'),'channel':item.get('Channel'),
+                'timestamp':item.get('Timestamp'),'source_post_url':item.get('URL'),
+                'content':item.get('Content'),'media_group_id':item.get('Media Group ID'),
+                'image_file_id':item.get('Image File ID'),
+                'image_file_unique_id':item.get('Image File Unique ID'),
+                'media_type':item.get('Media Type'),
+            } for item in group_rows])
+            if not bundle:
+                return {'ok':True,'message_id':message_id,'status':'source_changed',
+                        'products_found':0,'offers_written':0,'open_cases_remaining':0}
+            if int(bundle.get('missing_image_count') or 0)>0:
+                return {'ok':True,'message_id':message_id,'status':'media_unavailable',
+                        'products_found':0,'offers_written':0,'open_cases_remaining':0}
+            canonical=next((item for item in group_rows
+                if str(item.get('ID') or '')==bundle['message_id']
+                and str(item.get('Batch ID') or '')==bundle['batch_id']),None)
+            actual_members={(str(item.get('message_id') or ''),str(item.get('batch_id') or ''))
+                for item in bundle.get('group_members') or []}
+            expected_members={(str(item.get('message_id') or ''),str(item.get('batch_id') or ''))
+                for item in payload.get('group_members') or [] if isinstance(item,dict)}
+            actual_file_ids=list(bundle.get('image_file_ids') or [])
+            expected_file_ids=[str(value or '').strip() for value in payload.get('image_file_ids') or []]
+            actual_unique_ids=list(bundle.get('image_file_unique_ids') or [])
+            expected_unique_ids=[str(value or '').strip() for value in payload.get('image_file_unique_ids') or []]
+            if (not canonical or not expected_members or actual_members!=expected_members
+                    or actual_file_ids!=expected_file_ids or actual_unique_ids!=expected_unique_ids
+                    or bundle['message_id']!=message_id or bundle['batch_id']!=batch_id
+                    or bundle['timestamp']!=timestamp
+                    or hashlib.sha256(bundle['content'].encode()).hexdigest()!=expected_hash):
+                return {'ok':True,'message_id':message_id,'status':'source_changed',
+                        'products_found':0,'offers_written':0,'open_cases_remaining':0}
+            identity=reextraction_message_key({'message_id':bundle['message_id'],
+                'batch_id':bundle['batch_id'],'channel_username':bundle['channel_username'],
+                'timestamp':bundle['timestamp'],'content':bundle['content'],
+                'media_identity':bundle['media_identity']})
+            if identity!=message_key:
+                return {'ok':True,'message_id':message_id,'status':'source_changed',
+                        'products_found':0,'offers_written':0,'open_cases_remaining':0}
+            source=dict(canonical)
+            source.update({'Content':bundle['content'],'Image File ID':bundle['image_file_ids'][0]
+                if bundle['image_file_ids'] else '',
+                'Image File Unique ID':bundle['image_file_unique_ids'][0]
+                if bundle['image_file_unique_ids'] else ''})
+            source_group_members=list(bundle.get('group_members') or [])
+            media_image_file_ids=actual_file_ids
+            source_key=reextraction_source_key(source_url=bundle.get('source_post_url'),
+                channel=channel_username,message_id=bundle['message_id'],
+                timestamp=bundle['timestamp'],content=bundle['content'])
+        else:
+            matches=[]
+            for item in messages:
+                if str(item.get('ID') or '')!=message_id:
+                    continue
+                if str(item.get('Batch ID') or '')!=batch_id:
+                    continue
+                if str(item.get('Channel Username') or '')!=channel_username:
+                    continue
+                if str(item.get('Timestamp') or '')!=timestamp:
+                    continue
+                if hashlib.sha256(str(item.get('Content') or '').encode()).hexdigest()!=expected_hash:
+                    continue
+                matches.append(item)
+            if len(matches)!=1:
+                return {'ok':True,'message_id':message_id,'status':'source_changed',
+                        'products_found':0,'offers_written':0,'open_cases_remaining':0}
+            source=matches[0]
+            media_identity=(str(source.get('Image File Unique ID') or '').strip()
+                or str(source.get('Image File ID') or '').strip())
+            saved_media_review=str(payload.get('reextraction_scope') or '')=='media_review'
+            identity=reextraction_message_key({'message_id':message_id,'batch_id':batch_id,
+                'channel_username':channel_username,'timestamp':timestamp,
+                'content':source.get('Content') or '',
+                'media_identity':media_identity if saved_media_review or not str(source.get('Content') or '').strip() else ''})
+            if identity!=message_key:
+                raise ValueError('invalid_re-extraction_identity')
+            media_image_file_ids=[str(source.get('Image File ID') or '').strip()] if source.get('Image File ID') else []
+            source_key=reextraction_source_key(
+                source_url=source.get('URL'),channel=channel_username,message_id=message_id,
+                timestamp=timestamp,content=source.get('Content'))
 
     if not str(source.get('Source Timestamp Basis') or '').strip():
         source=dict(source)
@@ -1057,21 +1130,35 @@ def reextract_saved_message(store, payload: dict[str, Any], *, write_lock=None,
     content=source_content
     media_ocr_text=''
     media_ocr=(str(payload.get('reextraction_scope') or '')=='media_review'
-        or (reextraction_scope=='recent_policy' and payload.get('media_ocr') is True))
+        or payload.get('media_ocr') is True)
     if media_ocr or not content.strip():
-        image_file_id=str(source.get('Image File ID') or '').strip()
-        if not image_file_id:
+        if not media_image_file_ids:
             return {'ok':True,'message_id':message_id,'status':'no_text','products_found':0,
                     'offers_written':0,'open_cases_remaining':0}
+        if len(media_image_file_ids)>10:
+            return {'ok':True,'message_id':message_id,'status':'media_unsupported','products_found':0,
+                    'offers_written':0,'open_cases_remaining':0}
         from catalog.media import fetch_telegram_image
-        from catalog.gemini import extract_text_from_image
+        from catalog.gemini import extract_text_from_image, extract_text_from_images
         try:
-            image_bytes,mime_type=fetch_telegram_image(image_file_id)
+            fetched_images=[]
+            total_image_bytes=0
+            for image_file_id in media_image_file_ids:
+                image_bytes,mime_type=fetch_telegram_image(image_file_id)
+                total_image_bytes+=len(image_bytes)
+                if total_image_bytes>12_000_000:
+                    return {'ok':True,'message_id':message_id,'status':'media_unsupported',
+                            'products_found':0,'offers_written':0,'open_cases_remaining':0}
+                fetched_images.append((image_bytes,mime_type))
         except ValueError as exc:
             status='media_unsupported' if str(exc)=='telegram_media_unsupported' else 'media_unavailable'
             return {'ok':True,'message_id':message_id,'status':status,'products_found':0,
                     'offers_written':0,'open_cases_remaining':0}
-        media_ocr_text=extract_text_from_image(image_bytes,mime_type,caption=source_content)
+        if len(fetched_images)>1:
+            media_ocr_text=extract_text_from_images(fetched_images,caption=source_content)
+        else:
+            image_bytes,mime_type=fetched_images[0]
+            media_ocr_text=extract_text_from_image(image_bytes,mime_type,caption=source_content)
         if not media_ocr_text.strip() and not source_content.strip():
             return {'ok':True,'message_id':message_id,'status':'ocr_empty','products_found':0,
                     'offers_written':0,'open_cases_remaining':0}
@@ -1151,7 +1238,9 @@ def reextract_saved_message(store, payload: dict[str, Any], *, write_lock=None,
         from catalog.sync import _write_ai_message_status
         _write_ai_message_status(store,{'id':source_message_id if source_offer_id else message_id,
             'batch_id':source_batch_id if source_offer_id else batch_id,
-            'channel':source_channel if source_offer_id else str(source.get('Channel') or '')},
+            'channel':source_channel if source_offer_id else str(source.get('Channel') or ''),
+            'channel_username':source_username if source_offer_id else channel_username,
+            'group_members':source_group_members},
             'needs_confirmation' if source_cases else 'ai_processed',
             [case['case_id'] for case in source_cases])
     except Exception:

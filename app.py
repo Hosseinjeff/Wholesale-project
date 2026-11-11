@@ -2427,6 +2427,7 @@ def ai_confirmations_route():
                         'window_days':recent_inventory['window_days'],
                         'eligible_count':recent_inventory['eligible_count'],
                         'media_ocr_count':recent_inventory['media_ocr_count'],
+                        'media_ocr_image_count':recent_inventory['media_ocr_image_count'],
                         'digest':recent_inventory['digest'],
                         'unknown_or_future_timestamp_count':recent_inventory['unknown_or_future_timestamp_count'],
                         'outside_window_count':recent_inventory['outside_window_count'],
@@ -2436,6 +2437,7 @@ def ai_confirmations_route():
                             'timestamp':item.get('timestamp') or '',
                             'source_post_url':item.get('source_post_url') or '',
                             'media_ocr':bool(item.get('media_ocr')),
+                            'image_count':int(item.get('image_count') or 0),
                         } for item in recent_posts[:12]],
                     },
                     'pending_digest':pending_digest,
@@ -2601,7 +2603,9 @@ def ai_confirmations_route():
             threading.Thread(target=_drain_reextraction_run,args=(queue,run_id),
                 name='owner-media-reextract',daemon=True).start()
             response=jsonify({'ok':True,'run_id':run_id,'queued':queued,
-                'message_key':message_key,'scope':'media_review'})
+                'message_key':message_key,'scope':'media_review',
+                'image_count':int(item.get('image_count') or 0),
+                'message_count':len(item.get('message_ids') or [item.get('message_id')])})
             response.headers['Cache-Control']='no-store'
             return response,202
         if isinstance(body,dict) and body.get('action')=='dismiss_media_message':
@@ -2627,7 +2631,9 @@ def ai_confirmations_route():
                 decision=ledger.dismiss_message(item,actor_id=actor)
                 from catalog.sync import _write_ai_message_status
                 _write_ai_message_status(store,{'id':item['message_id'],'batch_id':item['batch_id'],
-                    'channel':item['channel']},'owner_rejected',[])
+                    'channel':item['channel'],'channel_username':item.get('channel_username') or '',
+                    'group_members':item.get('group_members') or []},
+                    'owner_rejected',[])
             response=jsonify({'ok':True,'decision_id':decision['message_key'],
                 'choice':'not_product','message_id':item['message_id']})
             response.headers['Cache-Control']='no-store'
@@ -2787,6 +2793,10 @@ def ai_confirmations_route():
                             'channel_username':message['channel_username'],'message_key':message_key,
                             'content_sha256':content_sha256,'timestamp':message['timestamp'],
                             'reextraction_scope':body['scope'],
+                            'media_ocr':bool(message.get('media_ocr')),
+                            **({key:message[key] for key in ('media_group_id','group_members',
+                                'image_file_ids','image_file_unique_ids','image_count','message_ids')
+                                if key in message}),
                             **({'reextraction_digest':selection['digest']} if selection else {})})
                     queued=queue.enqueue_reextraction(run_id,actor,items)
             except JobConflict as exc:
@@ -2840,6 +2850,9 @@ def ai_confirmations_route():
                             'timestamp':message['timestamp'],'source_key':message['source_key'],
                             'reextraction_scope':'recent_policy','policy_version':current_policy_version,
                             'media_ocr':bool(message.get('media_ocr')),
+                            **({key:message[key] for key in ('media_group_id','group_members',
+                                'image_file_ids','image_file_unique_ids','image_count','message_ids')
+                                if key in message}),
                             'reextraction_digest':current_inventory['digest'],
                         })
                     queued=queue.enqueue_reextraction(run_id,actor,items)

@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
+from catalog.media import album_media_bundle
 from catalog.stock import normalize_stock_status
 
 _OCR_MEDIA_TYPES = frozenset({'image','photo','document','image_document','document_image'})
@@ -702,6 +703,42 @@ def reextraction_inventory(store, ledger=None, *, policy_version=None):
     reprocessed_sources={key for key,value in (ledger.source_reextractions().items() if ledger else [])
                          if (value.get('policy_version')==policy_version if policy_version is not None
                              else value.get('outcome')=='products')}
+    album_rows={}
+    blocked_album_keys=set()
+    blocked_album_member_keys=set()
+    for message in messages:
+        message_id=str(message.get('ID') or '').strip()
+        batch_id=str(message.get('Batch ID') or '').strip()
+        channel=str(message.get('Channel Username') or '').strip()
+        media_group_id=str(message.get('Media Group ID') or '').strip()
+        if not message_id or not media_group_id:
+            continue
+        album_key=(channel,media_group_id)
+        album_rows.setdefault(album_key,[]).append({
+            'message_id':message_id,'batch_id':batch_id,'channel_username':channel,
+            'channel':str(message.get('Channel') or ''),
+            'timestamp':str(message.get('Timestamp') or ''),
+            'source_post_url':str(message.get('URL') or ''),
+            'content':str(message.get('Content') or ''),
+            'media_group_id':media_group_id,
+            'image_file_id':str(message.get('Image File ID') or '').strip(),
+            'image_file_unique_id':str(message.get('Image File Unique ID') or '').strip(),
+            'media_type':str(message.get('Media Type') or 'image').strip(),
+        })
+        marker=(message_id,channel)
+        ai_status=str(message.get('AI Status') or '').strip().lower()
+        file_id=str(message.get('Image File ID') or '').strip()
+        image_unique=str(message.get('Image File Unique ID') or '').strip() or file_id
+        has_media=(str(message.get('Has Media') or '').strip().lower() in {'true','1','yes'} or bool(file_id))
+        media_candidate=has_media and (not str(message.get('Content') or '').strip()
+            or ai_status in {'no_product_candidate','not_product'})
+        legacy_key=reextraction_message_key({
+            'message_id':message_id,'batch_id':batch_id,'channel_username':channel,
+            'timestamp':str(message.get('Timestamp') or ''),'content':str(message.get('Content') or ''),
+            'media_identity':image_unique if media_candidate else '',
+        })
+        if ai_status=='owner_rejected' or marker in owner_decisions or legacy_key in dismissed_keys:
+            blocked_album_keys.add(album_key)
     for message in messages:
         message_id=str(message.get('ID') or '').strip()
         batch_id=str(message.get('Batch ID') or '').strip()
@@ -724,13 +761,14 @@ def reextraction_inventory(store, ledger=None, *, policy_version=None):
         marker=(message_id,channel)
         ai_status=str(message.get('AI Status') or '').strip().lower()
         media_no_product=ai_status in {'no_product_candidate','not_product'}
-        media_candidate=has_media and (not content.strip() or media_no_product)
+        media_candidate=has_media and (media_no_product or (not content.strip()
+            and ai_status in {'','pending_ai','needs_media_review'}))
         media_review_needed=media_candidate and media_type.lower() in _OCR_MEDIA_TYPES
         unsupported_media_needed=media_candidate and not media_review_needed
         source_key=reextraction_source_key(
             source_url=message.get('URL'),channel=channel,message_id=message_id,
             timestamp=str(message.get('Timestamp') or ''),content=content)
-        if source_key in reprocessed_sources:
+        if source_key in reprocessed_sources and not media_group_id:
             already_reprocessed+=1
             continue
         message_key=reextraction_message_key({
@@ -773,6 +811,12 @@ def reextraction_inventory(store, ledger=None, *, policy_version=None):
                 'media_type':media_type,
                 'media_group_id':media_group_id,
                 'image_file_id':image_file_id,'image_file_unique_id':image_unique_id,
+                'image_file_ids':[image_file_id] if image_file_id else [],
+                'image_file_unique_ids':[image_unique_id] if image_file_id else [],
+                'image_count':1 if image_file_id else 0,
+                'message_ids':[message_id],
+                'group_members':[{'message_id':message_id,'batch_id':batch_id,
+                    'channel':str(message.get('Channel') or ''),'channel_username':channel}],
                 'media_identity':media_identity,
                 'message_key':message_key,
             })
@@ -783,6 +827,7 @@ def reextraction_inventory(store, ledger=None, *, policy_version=None):
             'message_id':message_id,'batch_id':batch_id,'channel_username':channel,
             'channel':str(message.get('Channel') or ''),'timestamp':str(message.get('Timestamp') or ''),
             'content':content,'source_post_url':str(message.get('URL') or ''),
+            'media_group_id':media_group_id,
             'ai_status':'no_product_candidate' if ai_status=='not_product' else ai_status,
             'message_key':message_key,'source_key':source_key,
             'catalog_product_ids':sorted(linked_products_by_source.get(source_key, set())),
@@ -793,14 +838,92 @@ def reextraction_inventory(store, ledger=None, *, policy_version=None):
         if item['ai_status'] in {'','pending_ai','needs_confirmation','needs_review','pending',
                                  'not_product','no_product_candidate'}:
             pending.append(item)
+    media_review_candidates=media_review
+    media_review=[item for item in media_review_candidates if not item.get('media_group_id')]
+    def message_marker(item):
+        return (str(item.get('channel_username') or ''),str(item.get('message_id') or ''))
+    candidate_message_markers={message_marker(item) for item in candidates}
+    pending_message_markers={message_marker(item) for item in pending}
+    media_review_album_keys={(str(item.get('channel_username') or ''),str(item.get('media_group_id') or ''))
+        for item in media_review_candidates if str(item.get('media_group_id') or '').strip()}
+    media_albums=[]
+    media_album_message_keys=set()
+    for album_key,rows in album_rows.items():
+        bundle=album_media_bundle(rows)
+        if not bundle or not bundle.get('image_count'):
+            continue
+        group_members=bundle.get('group_members') or []
+        member_markers={message_marker(item) for item in group_members
+            if str(item.get('message_id') or '')}
+        media_album_message_keys.update(member_markers)
+        candidates=[candidate for candidate in candidates
+            if message_marker(candidate) not in member_markers]
+        pending=[candidate for candidate in pending
+            if message_marker(candidate) not in member_markers]
+        media_review=[candidate for candidate in media_review
+            if message_marker(candidate) not in member_markers]
+        blocked=(album_key in blocked_album_keys or any(
+            (str(item.get('message_id') or ''),str(item.get('channel_username') or '')) in owner_decisions
+            or (policy_version is None and
+                (str(item.get('message_id') or ''),str(item.get('channel_username') or '')) in staged)
+            for item in group_members))
+        message_key=reextraction_message_key({
+            'message_id':bundle['message_id'],'batch_id':bundle['batch_id'],
+            'channel_username':bundle['channel_username'],'timestamp':bundle['timestamp'],
+            'content':bundle['content'],'media_identity':bundle['media_identity'],
+        })
+        source_key=reextraction_source_key(source_url=bundle['source_post_url'],
+            channel=bundle['channel_username'],message_id=bundle['message_id'],
+            timestamp=bundle['timestamp'],content=bundle['content'])
+        album_product_ids=set(linked_products_by_source.get(source_key,set()))
+        for row in rows:
+            member_source_key=reextraction_source_key(source_url=row.get('source_post_url'),
+                channel=row.get('channel_username'),message_id=row.get('message_id'),
+                timestamp=row.get('timestamp'),content=row.get('content'))
+            album_product_ids.update(linked_products_by_source.get(member_source_key,set()))
+        if message_key in dismissed_keys:
+            blocked=True
+        if blocked:
+            blocked_album_member_keys.update(member_markers)
+            continue
+        if source_key in reprocessed_sources:
+            already_reprocessed+=1
+            continue
+        first_image=bundle['image_file_ids'][0] if bundle['image_file_ids'] else ''
+        first_unique=bundle['image_file_unique_ids'][0] if bundle['image_file_unique_ids'] else ''
+        item={**bundle,'image_file_id':first_image,'image_file_unique_id':first_unique,
+            'message_key':message_key,'source_key':source_key,'grouped':True,
+            'media_ocr':True,'catalog_product_ids':sorted(album_product_ids)}
+        # Album rows represent one supplier post for every replay scope. Keep all
+        # captions and all photos together instead of exposing per-photo rows.
+        in_media_review=album_key in media_review_album_keys
+        has_candidate=any(marker in candidate_message_markers for marker in member_markers)
+        has_pending=any(marker in pending_message_markers for marker in member_markers)
+        if item['missing_image_count']:
+            media_review.append(item)
+            continue
+        media_albums.append(item)
+        if in_media_review:
+            media_review.append(item)
+        if has_candidate or in_media_review:
+            item['ai_status']='pending_ai' if has_pending or in_media_review else ''
+            candidates.append(item)
+            if has_pending or in_media_review:
+                pending.append(item)
     return {
         'all_messages':candidates,
         'pending_messages':pending,
         'catalog_linking_available':catalog_linking_available,
         'media_review_messages':media_review,
+        'media_albums':media_albums,
+        'media_album_message_keys':sorted(media_album_message_keys),
+        'blocked_media_album_message_keys':sorted(blocked_album_member_keys),
         'counts':{
             'all_available':len(candidates),'pending':len(pending),'without_text':no_content,
             'media_review':len(media_review),
+            'media_review_images':sum(int(item.get('image_count') or 0) for item in media_review),
+            'media_review_missing_images':sum(int(item.get('missing_image_count') or 0)
+                for item in media_review),
             'media_without_file':media_without_file,'unsupported_media':unsupported_media,
             'owner_decisions_preserved':excluded_owner,'not_product_preserved':explicitly_rejected,
             'no_product_candidates':no_product_candidates,
@@ -952,9 +1075,17 @@ def recent_policy_reextraction_inventory(store, ledger=None, *, policy_version=N
     eligible=[]
     unknown_or_future=0
     outside_window=0
-    candidates=[*inventory['all_messages'],
-        *({**item,'media_ocr':True} for item in inventory['media_review_messages']
-          if str(item.get('image_file_id') or '').strip())]
+    album_member_keys={tuple(item) for item in inventory.get('media_album_message_keys') or []}
+    album_member_keys.update(tuple(item)
+        for item in inventory.get('blocked_media_album_message_keys') or [])
+    ordinary_messages=[item for item in inventory['all_messages']
+        if (str(item.get('channel_username') or ''),str(item.get('message_id') or ''))
+            not in album_member_keys]
+    single_media=[{**item,'media_ocr':True} for item in inventory['media_review_messages']
+        if not item.get('media_group_id') and str(item.get('image_file_id') or '').strip()]
+    album_media=[{**item,'media_ocr':True} for item in inventory.get('media_albums',[])
+        if item.get('image_file_ids')]
+    candidates=[*ordinary_messages,*single_media,*album_media]
     for item in candidates:
         stamp=source_datetime(item.get('timestamp'))
         if stamp is None or stamp>current:
@@ -982,6 +1113,8 @@ def recent_policy_reextraction_inventory(store, ledger=None, *, policy_version=N
         'messages':eligible,
         'eligible_count':len(eligible),
         'media_ocr_count':sum(1 for item in eligible if item.get('media_ocr')),
+        'media_ocr_image_count':sum(int(item.get('image_count') or 1) for item in eligible
+            if item.get('media_ocr')),
         'unknown_or_future_timestamp_count':unknown_or_future,
         'outside_window_count':outside_window,
     }
