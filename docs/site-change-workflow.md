@@ -4,14 +4,18 @@ Updated: 2026-11-11, Asia/Tehran
 
 ## 2026-11-11 Staging list thumbnail inset refinement
 
-Plugin commit `f6eefcada7c2abb14b0a895dda7f26b330e811a2` was pushed and deployed
-only to Staging. List-view thumbnails now have an 8px inset on each side of their
-square frame, with the full image preserved using `object-fit: contain`.
+Plugin commits `f6eefcada7c2abb14b0a895dda7f26b330e811a2` and
+`4e70ae44818c27bab55ae2c08f2049a8e925f5be` were pushed and deployed only to
+Staging. List-view thumbnails use a square frame with an 8px CSS inset and keep the
+full image visible using `object-fit: contain`. Responsive columns were tuned so
+the measured gaps from the thumbnail to the card's top, right, and bottom edges are
+about 9px: at 320–390px widths they are 10.5–11px top/bottom and 9px right; from
+521–1440px they are 9px on all three edges.
 
-The uploader verified the updated `storefront.css`. The live Staging page returned
-HTTP 200 with 30 cards. Chromium checks at 320, 390, 521, 600, 760, 761, and
-1440px showed the square thumbnails inset from the card edge, with no card overlap
-or horizontal page overflow. The existing category audit below remains accurate:
+The uploader verified the updated `storefront.css`. The fetched Staging page returned
+HTTP 200 with 30 cards. Chromium checks at 320, 360, 390, 521, 600, 760, 761, 1024,
+and 1440px showed the square thumbnails inset from the card edge, with no card
+overlap or horizontal page overflow. The existing category audit below remains accurate:
 Staging has only the “All categories” filter because no products have assigned
 categories. No product/category data was changed. Production was not changed.
 
