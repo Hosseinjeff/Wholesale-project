@@ -664,6 +664,8 @@
         var header = document.querySelector(".molavi-site-header");
         var expandedBuyer = controls.querySelector(".molavi-buyer-expanded");
         var compactBuyer = controls.querySelector(".molavi-buyer-compact");
+        var expandedHelp = controls.querySelector(".molavi-buyer-help-trigger");
+        var compactHelp = controls.querySelector(".molavi-compact-help-trigger");
         var toolbar = controls.querySelector(".molavi-product-toolbar");
         var panelTriggers = Array.prototype.slice.call(controls.querySelectorAll("[data-molavi-open-panel]"));
         var panels = Array.prototype.slice.call(root.querySelectorAll("[data-molavi-control-panel]"));
@@ -685,7 +687,11 @@
 
         function focusTargetFor(name, fallback) {
             var compact = controls.classList.contains("is-compact");
-            if (name === "buyer" || (name === "help" && compact)) {
+            if (name === "help") {
+                var helpTarget = compact ? compactHelp : expandedHelp;
+                if (canFocus(helpTarget)) return helpTarget;
+            }
+            if (name === "buyer") {
                 if (compactBuyer && canFocus(compactBuyer)) return compactBuyer;
                 return expandedBuyer && expandedBuyer.querySelector('[data-molavi-buyer][aria-pressed="true"]');
             }
@@ -726,7 +732,7 @@
             toolbarSearch.style.left = (toolbarRect.left - controlsRect.left) + "px";
             toolbarSearch.style.right = "auto";
             toolbarSearch.style.width = toolbarRect.width + "px";
-            toolbarSearch.style.top = (toolbarRect.top - controlsRect.top) + "px";
+            toolbarSearch.style.top = (toolbarRect.top - controlsRect.top + Math.max(0, (toolbarRect.height - 38) / 2)) + "px";
         }
 
         function closePanel(restoreFocus) {
@@ -813,13 +819,20 @@
             var focused = document.activeElement;
             var focusInExpanded = expandedBuyer && expandedBuyer.contains(focused);
             var focusInCompactBuyer = compactBuyer && compactBuyer === focused;
+            var focusInCompactHelp = compactHelp && compactHelp === focused;
             var nextFocus = null;
             if (shouldCompact && focusInExpanded) {
-                nextFocus = focused.closest("[data-molavi-search-toggle]")
-                    ? controls.querySelector(".molavi-compact-search-trigger")
-                    : compactBuyer;
+                if (focused.closest("[data-molavi-search-toggle]")) {
+                    nextFocus = controls.querySelector(".molavi-compact-search-trigger");
+                } else if (focused === expandedHelp) {
+                    nextFocus = compactHelp;
+                } else {
+                    nextFocus = compactBuyer;
+                }
             } else if (!shouldCompact && focusInCompactBuyer && expandedBuyer) {
                 nextFocus = expandedBuyer.querySelector('[data-molavi-buyer][aria-pressed="true"]');
+            } else if (!shouldCompact && focusInCompactHelp) {
+                nextFocus = expandedHelp;
             } else if (focused.matches && focused.matches("[data-molavi-search-toggle]")) {
                 nextFocus = shouldCompact
                     ? controls.querySelector(".molavi-compact-search-trigger")

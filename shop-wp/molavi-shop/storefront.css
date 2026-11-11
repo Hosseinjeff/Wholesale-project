@@ -3134,6 +3134,7 @@ body.molavi-site-page .woocommerce .woocommerce-notices-wrapper { margin-bottom:
     width: fit-content;
 }
 .molavi-store-controls.is-compact .molavi-buyer-compact { display: block; flex: 0 0 auto; position: relative; }
+.molavi-compact-help-trigger { display: none; }
 .molavi-buyer-compact > summary {
     align-items: center;
     background: #fff;
@@ -3216,6 +3217,7 @@ body.molavi-site-page .woocommerce .woocommerce-notices-wrapper { margin-bottom:
 .molavi-store-controls.is-compact .molavi-toolbar-meta { gap: 4px; }
 .molavi-store-controls.is-compact .molavi-compact-search-trigger,
 .molavi-store-controls.is-compact .molavi-buyer-compact-help { display: inline-flex; }
+.molavi-store-controls.is-compact .molavi-compact-help-trigger { display: inline-flex; flex: 0 0 auto; }
 .molavi-store-controls.is-compact .molavi-toolbar-icon { height: 33px; min-width: 32px; padding: 0; width: 32px; }
 .molavi-store-controls.is-compact .molavi-product-toolbar .molavi-toolbar-menu > summary {
     flex: 0 0 32px;
@@ -3330,6 +3332,7 @@ body.molavi-site-page .woocommerce .woocommerce-notices-wrapper { margin-bottom:
     color: var(--molavi-orange-dark);
 }
 .molavi-store-controls.is-compact .molavi-buyer-compact:focus-visible,
+.molavi-store-controls.is-compact .molavi-compact-help-trigger:focus-visible,
 .molavi-control-panel-close:focus-visible,
 .molavi-control-option:focus-visible {
     outline: 2px solid #789184;
