@@ -2,7 +2,7 @@
 
 Updated: 2026-11-11, Asia/Tehran
 
-## 2026-11-11 Staging owner-workflow fetch incident — transport fixes deployed, page check pending
+## 2026-11-11 Staging owner-workflow fetch incident — transport fix and authenticated page check
 
 The user reports `Failed to fetch` in WordPress owner workflows, including the
 `بازبینی و بازپردازش پست‌های اخیر` tab. The change history below is in Git and has
@@ -26,24 +26,25 @@ already been deployed as follows:
 - `5478c6d` records staging as the default WordPress development/deploy target;
   `302a77c` adds separate production and staging document roots to the deployer.
 
-These checks confirm deployment and transport configuration, but do not establish that
-the authenticated admin tab now works. The current session's authenticated-page check
-was blocked: its runtime did not contain the staging-specific variables named by the
-user (`MOLAVISTAGE_ADMIN_USERNAME`, `MOLAVISTAGE_ADMIN_PASSWORD`). The only admin pair
-visible to that runtime used the different `MOLAVISALE_ADMIN_*` names. Do not retry that
-pair; previous attempts did not establish a WordPress session. The anonymous staging
-admin request redirected to `wp-login.php?reauth=1`, and the browser credential vault
-had no saved staging sign-in. An anonymous `admin-ajax.php` POST returned `400`/`0`,
-which is expected without an authenticated WordPress session.
+The current runtime has the staging-specific username and password variables; their
+values were not printed. A single staging sign-in succeeded. The authenticated owner
+dashboard and AI-confirmation page both returned HTTP 200, mounted the owner workflow,
+and did not show the reported Persian message or `Failed to fetch`. The first browser
+capture saw 20 `admin-ajax.php` POSTs return HTTP 200, but did not preserve enough
+sanitized metadata to map all requests to their backend paths. This does not verify
+every workflow route end to end.
 
-No live approve, dismiss, reprocess, retry, or other owner action was submitted. No
-product, order, Sheet, or customer data was changed during these checks. Once a fresh
-task runtime has the staging-specific variables (or a user-authorized browser profile
-has a saved staging sign-in), inspect the page and its Network responses read-only.
-Correlate any `admin-ajax.php` request with Railway logs before making another code
-change. Keep further development and deployment on staging unless the user explicitly
-names production. Detailed next steps and failure-code mapping are in
+**Caution:** loading the dashboard calls `drainWordPressWorkflowOutbox()` automatically.
+That path can claim and deliver previously queued supplier-price or Sheet decisions.
+No decision, retry, reprocess, dismiss, or reconcile control was clicked, but the first
+page check did not block this automatic path; whether a queued command was pending or
+delivered is unknown. Do not claim that all records remained untouched based on that
+check. Before any further browser verification, block the outbox claim, review-store
+writes, and every owner-proxy backend `POST`; allow only staged-host navigation and
+owner-proxy `GET`s. The detailed guard and sanitized evidence checklist are in
 [`session-handoff-staging-owner-fetch.md`](session-handoff-staging-owner-fetch.md).
+Keep further development and deployment on staging unless the user explicitly names
+production.
 
 ## 2026-11-06 User-confirmed package quantity steps live
 

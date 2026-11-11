@@ -2356,7 +2356,7 @@ def ai_confirmations_route():
     from catalog.ai_confirmations import (
         AIConfirmationLedger, ConfirmationConflict, apply_decision, find_case,
         case_reextraction_inventory, recent_policy_reextraction_inventory,
-        reextraction_inventory, reextraction_message_key,
+        reextraction_inventory, reextraction_message_key, reextraction_selection,
         review_cases, validate_choice,
     )
     from catalog.gemini import ai_extraction_configured, extraction_policy_version
@@ -2375,6 +2375,23 @@ def ai_confirmations_route():
             reextract_action=request.args.get('reextract') or ''
             if reextract_action=='preview':
                 inventory=reextraction_inventory(store,ledger)
+                raw_channels=request.args.get('channels')
+                if raw_channels is None:
+                    selected_channels=request.args.getlist('channel')
+                else:
+                    try:
+                        selected_channels=json.loads(raw_channels)
+                    except (TypeError, ValueError):
+                        return jsonify({'ok':False,'error':'invalid_reextraction_filter'}),400
+                try:
+                    selection=reextraction_selection(inventory,
+                        scope=request.args.get('scope') or 'all',
+                        channels=selected_channels,
+                        date_from=request.args.get('date_from') or '',
+                        date_to=request.args.get('date_to') or '',
+                        group_by=request.args.get('group_by') or 'channel')
+                except ValueError:
+                    return jsonify({'ok':False,'error':'invalid_reextraction_filter'}),400
                 recent_inventory=recent_policy_reextraction_inventory(store,ledger)
                 open_case_inventory=case_reextraction_inventory(store,ledger)
                 pending_digest=hashlib.sha256(json.dumps(
@@ -2422,6 +2439,14 @@ def ai_confirmations_route():
                         } for item in recent_posts[:12]],
                     },
                     'pending_digest':pending_digest,
+                    'catalog_linking_available':inventory.get('catalog_linking_available') is True,
+                    'selection_counts':{
+                        'all':len(inventory['all_messages']),
+                        'pending':len(inventory['pending_messages']),
+                        'linked':sum(1 for item in inventory['all_messages']
+                            if item.get('catalog_product_ids')),
+                    },
+                    'selection':{key:value for key,value in selection.items() if key!='messages'},
                     'media_review_digest':media_digest,
                     'media_review_messages':media_page,
                     'media_review_total':len(media_items),
@@ -2715,22 +2740,43 @@ def ai_confirmations_route():
             response.headers['Cache-Control']='no-store'
             return response
         if isinstance(body,dict) and body.get('action')=='start_reextraction':
-            if set(body)!={'action','scope','expected_count'} or body.get('scope') not in {'pending','all'}:
+            legacy_keys={'action','scope','expected_count'}
+            filtered_keys={'action','scope','expected_count','channels','date_from','date_to','expected_digest','run_id'}
+            legacy_request=set(body)==legacy_keys and body.get('scope') in {'pending','all'}
+            filtered_request=set(body)==filtered_keys and body.get('scope') in {'all','pending','linked'}
+            if not (legacy_request or filtered_request):
                 return jsonify({'ok':False,'error':'invalid_reextraction_request'}),400
             if not ai_extraction_configured():
                 return jsonify({'ok':False,'error':'ai_extraction_unconfigured'}),409
             expected_count=body.get('expected_count')
             if isinstance(expected_count,bool) or not isinstance(expected_count,int) or expected_count<1:
                 return jsonify({'ok':False,'error':'invalid_reextraction_count'}),400
-            run_id=uuid.uuid4().hex
+            if filtered_request and (not isinstance(body.get('expected_digest'),str)
+                    or not re.fullmatch(r'[a-f0-9]{64}',body['expected_digest'])):
+                return jsonify({'ok':False,'error':'invalid_reextraction_request'}),400
+            if filtered_request and (not isinstance(body.get('run_id'),str)
+                    or not re.fullmatch(r'[a-f0-9]{32}',body['run_id'])):
+                return jsonify({'ok':False,'error':'invalid_reextraction_request'}),400
+            run_id=body['run_id'] if filtered_request else uuid.uuid4().hex
             try:
                 with queue.publication_lock():
                     inventory=reextraction_inventory(store,ledger)
-                    selected=(inventory['pending_messages'] if body['scope']=='pending'
-                              else inventory['all_messages'])
-                    if len(selected)!=expected_count:
+                    selection=None
+                    if filtered_request:
+                        try:
+                            selection=reextraction_selection(inventory,scope=body['scope'],
+                                channels=body.get('channels'),date_from=body.get('date_from'),
+                                date_to=body.get('date_to'))
+                        except ValueError:
+                            return jsonify({'ok':False,'error':'invalid_reextraction_filter'}),400
+                        selected=selection['messages']
+                    else:
+                        selected=(inventory['pending_messages'] if body['scope']=='pending'
+                                  else inventory['all_messages'])
+                    if len(selected)!=expected_count or (selection and selection['digest']!=body['expected_digest']):
                         return jsonify({'ok':False,'error':'reextraction_preview_changed',
-                            'current_count':len(selected)}),409
+                            'current_count':len(selected),
+                            'current_digest':selection['digest'] if selection else ''}),409
                     if not selected:
                         return jsonify({'ok':False,'error':'no_reextraction_messages'}),409
                     items=[]
@@ -2740,7 +2786,8 @@ def ai_confirmations_route():
                         items.append({'message_id':message['message_id'],'batch_id':message['batch_id'],
                             'channel_username':message['channel_username'],'message_key':message_key,
                             'content_sha256':content_sha256,'timestamp':message['timestamp'],
-                            'reextraction_scope':body['scope']})
+                            'reextraction_scope':body['scope'],
+                            **({'reextraction_digest':selection['digest']} if selection else {})})
                     queued=queue.enqueue_reextraction(run_id,actor,items)
             except JobConflict as exc:
                 if str(exc).startswith('re-extraction run already active:'):

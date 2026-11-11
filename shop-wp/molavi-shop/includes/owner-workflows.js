@@ -261,6 +261,7 @@
             backlog_reconcile_unavailable: 'تطبیق خطاهای قدیمی موقتاً انجام نشد؛ صف را تازه کنید و دوباره بررسی کنید.',
             reextraction_active: 'یک بازاستخراج دیگر هنوز در صف یا در حال اجراست؛ ابتدا وضعیت همان اجرا را پیگیری کنید.',
             reextraction_preview_changed: 'فهرست پیام‌ها تغییر کرده است؛ تعداد تازه را بررسی و دوباره شروع کنید.',
+            invalid_reextraction_filter: 'ترکیب دامنه، کانال یا تاریخ معتبر نیست؛ محدودیت‌ها را اصلاح کنید.',
             no_reextraction_messages: 'پیامی برای بازاستخراج در این گروه پیدا نشد.',
             invalid_dismissal_request: 'درخواست رد گروهی معتبر نیست؛ صفحه را تازه کنید.',
             dismiss_failed: 'رد کردن همه موارد انجام نشد؛ صفحه را تازه کنید و موارد باقی‌مانده را بررسی کنید.',
@@ -369,7 +370,11 @@
                 message_count:Math.max(0, Math.min(10000, Number(context.message_count) || 0)),
                 digest:String(context.digest || '').slice(0, 64),
                 policy_version:String(context.policy_version || '').slice(0, 64),
-                window_days:Math.max(0, Math.min(365, Number(context.window_days) || 0))
+                window_days:Math.max(0, Math.min(365, Number(context.window_days) || 0)),
+                channels:Array.isArray(context.channels)
+                    ? context.channels.slice(0, 30).map(value => String(value || '').slice(0, 200)) : [],
+                date_from:String(context.date_from || '').slice(0, 10),
+                date_to:String(context.date_to || '').slice(0, 10)
             };
         }
         if (type === 'ai_confirmation' && context && typeof context === 'object') {
@@ -578,6 +583,8 @@
     }
 
     let workbenchQueue = '';
+    let workbenchStage = '';
+    let workbenchView = window.location.hash === '#reextract' ? 'reextract' : 'tasks';
     let workbenchIndex = 0;
     let workbenchSelectedKey = '';
     let workbenchLoadId = 0;
@@ -635,8 +642,36 @@
         return 'next';
     }
 
+    const workbenchStageModel = [
+        {key:'intake',label:'ورودی و استخراج',hint:'پیام‌ها و بررسی مالک',queues:['ai']},
+        {key:'identity',label:'هویت محصول',hint:'پیوند منبع و تطبیق مرجع',queues:['source_integrity','references']},
+        {key:'price',label:'قیمت و مدرک',hint:'تازگی قیمت تأمین‌کننده',queues:['supplier_prices']},
+        {key:'publish',label:'انتشار و همگام‌سازی',hint:'توقف و تعارض کاتالوگ',queues:['conflicts','holds','status']}
+    ];
+
+    function workbenchQueueMatches(product, key) {
+        if (key === 'source_integrity') return Boolean(product.status
+            && Array.isArray(product.status.source_integrity_issues)
+            && product.status.source_integrity_issues.length);
+        if (key === 'ai') return product.ai.length > 0;
+        if (key === 'references') return product.references.length > 0;
+        if (key === 'conflicts') return product.conflicts.length > 0;
+        if (key === 'supplier_prices') return workbenchPendingSupplierPrices(product) > 0;
+        if (key === 'holds') return product.holds.length > 0;
+        if (key === 'status') return Boolean(product.status && product.status.update_needed);
+        return false;
+    }
+
+    function workbenchActionForQueue(product, queue = workbenchQueue) {
+        if (queue === 'next') return workbenchActionKey(product);
+        const stage = workbenchStageModel.find(item => queue === `stage_${item.key}`);
+        if (stage) return stage.queues.find(key => workbenchQueueMatches(product, key))
+            || workbenchActionKey(product);
+        return queue;
+    }
+
     function workbenchNextStep(product, queue = workbenchQueue) {
-        const key = queue === 'next' ? workbenchActionKey(product) : queue;
+        const key = workbenchActionForQueue(product, queue);
         if (key === 'source_integrity') return 'اقدام بعدی: پیوند پیشنهاد منبع را بازیابی کنید؛ تا آن زمان کالا روی سایت متوقف می‌ماند.';
         if (key === 'ai') {
             const cases = Array.isArray(product.ai) ? product.ai : [];
@@ -671,19 +706,12 @@
 
     async function dashboard(message = '', messageKind = 'info', refreshKeys = null) {
         if (!workbenchMounted) {
-            shell('بررسی کالاها', 'یک کالا در هر نوبت؛ صف را بر اساس نوع کار انتخاب کنید و همان‌جا انجام دهید.');
+            shell('میز کار مولوی‌سل', 'کارها را بر اساس مرحله دنبال کنید؛ هر کارت یک گام بعدی روشن دارد.');
             const toolbar = node('div', null, 'molavi-workbench-toolbar');
             workbenchRefresh = node('button', 'به‌روزرسانی همه صف‌ها', 'button button-primary');
             workbenchRefresh.type = 'button';
             workbenchRefresh.addEventListener('click', () => dashboard());
             toolbar.appendChild(workbenchRefresh);
-            const recentReplayUrl = config.pageUrls && config.pageUrls['molavi-ai-confirmations'];
-            if (recentReplayUrl) {
-                const recentReplayLink = node('a', 'بازبینی و بازپردازش پست‌های اخیر', 'button');
-                recentReplayLink.href = recentReplayUrl;
-                recentReplayLink.setAttribute('aria-label', 'بازبینی نسخه استخراج فعلی و بازپردازش پست‌های اخیر');
-                toolbar.appendChild(recentReplayLink);
-            }
             root.appendChild(toolbar);
             workbenchLiveStatus = node('p', 'در حال آماده‌سازی صف رسیدگی…', 'molavi-workbench-live-status');
             workbenchLiveStatus.setAttribute('role', 'status');
@@ -753,6 +781,7 @@
         const operations = data.operations;
         const unavailable = Object.values(workbenchErrors).filter(Boolean);
         board.replaceChildren();
+        const overview = node('div', null, 'molavi-workbench-overview');
         workbenchRefresh.disabled = false;
         workbenchRefresh.textContent = 'به‌روزرسانی همه صف‌ها';
         if (!message) {
@@ -907,9 +936,9 @@
             || workbenchPriority(a)-workbenchPriority(b) || a.name.localeCompare(b.name,'fa'));
         const openProducts = products.filter(attention);
         const summary = node('section', null, 'card molavi-workbench-summary');
-        summary.appendChild(node('h2', 'صف رسیدگی'));
+        summary.appendChild(node('h2', 'نمای کلی کارها'));
         summary.appendChild(node('p', openProducts.length
-            ? 'فقط کارت فعلی باز است. برای محدودکردن کار، صف موردنظر را انتخاب کنید.'
+            ? `${new Intl.NumberFormat('fa-IR').format(openProducts.length)} کالا دست‌کم یک گام باز دارد. مرحله را انتخاب کنید تا فقط همان کارها دیده شوند.`
             : 'فعلاً موردی برای رسیدگی وجود ندارد.', 'molavi-workbench-summary-copy'));
         if (data.product_status) {
             const snapshots = Array.isArray(data.product_status.snapshots) ? data.product_status.snapshots : [];
@@ -917,16 +946,16 @@
             const stamp = latestSnapshot && latestSnapshot.captured_at || data.product_status.generated_at || '';
             if (stamp) summary.appendChild(node('small', `آخرین ثبت وضعیت: ${stamp}`));
         }
-        board.appendChild(summary);
+        overview.appendChild(summary);
         if (unavailable.length) {
             const failedSources = node('details', null, 'molavi-source-health');
             failedSources.appendChild(node('summary', `${unavailable.length} منبع وضعیت در دسترس نیست`));
             unavailable.forEach(text => failedSources.appendChild(node('p', text)));
-            board.appendChild(failedSources);
+            overview.appendChild(failedSources);
         }
 
         const renderProduct = product => {
-            const primaryKey = workbenchQueue === 'next' ? workbenchActionKey(product) : workbenchQueue;
+            const primaryKey = workbenchActionForQueue(product, workbenchQueue);
             const card = node('article', null, 'card molavi-review-card molavi-product-card');
             const secondaryContent = node('div', null, 'molavi-secondary-product-checks');
             const secondaryChecks = document.createElement('details');
@@ -1240,16 +1269,93 @@
             {key:'holds',label:'توقف انتشار',matches:product=>product.holds.length>0},
             {key:'status',label:'وضعیت کالا',matches:product=>Boolean(product.status && product.status.update_needed)}
         ].map(queue=>({...queue,count:products.filter(queue.matches).length}));
-        const currentQueue = queueDefinitions.find(queue=>queue.key===workbenchQueue);
-        if (!currentQueue) {
-            workbenchQueue = queueDefinitions.slice(1).find(queue=>queue.count>0)?.key || 'next';
+        workbenchStageModel.forEach(stage => {
+            const matches = product => stage.queues.some(key => {
+                const queue = queueDefinitions.find(item => item.key === key);
+                return Boolean(queue && queue.matches(product));
+            });
+            queueDefinitions.push({key:`stage_${stage.key}`,label:`همه کارهای این مرحله`,matches,
+                count:products.filter(matches).length});
+        });
+        let currentQueue = queueDefinitions.find(queue=>queue.key===workbenchQueue);
+        if (!currentQueue || (workbenchQueue !== 'next' && currentQueue.count === 0)) {
+            const firstStage = workbenchStageModel.find(stage => stage.queues.some(key =>
+                (queueDefinitions.find(queue => queue.key === key)?.count || 0) > 0));
+            workbenchStage = firstStage ? firstStage.key : '';
+            workbenchQueue = firstStage ? `stage_${firstStage.key}` : 'next';
             workbenchSelectedKey = '';
             workbenchIndex = 0;
         }
+        const activeStageForQueue = queue => workbenchStageModel.find(stage =>
+            queue === `stage_${stage.key}` || stage.queues.includes(queue));
+        if (workbenchQueue === 'next') workbenchStage = '';
+        else workbenchStage = activeStageForQueue(workbenchQueue)?.key || workbenchStage;
+
+        const stageGrid = node('div', null, 'molavi-workbench-stages');
+        stageGrid.setAttribute('aria-label', 'مراحل کار');
+        const stageButtons = new Map();
+        const queueButtons = new Map();
+        workbenchStageModel.forEach((stage, index) => {
+            const stageQueue = queueDefinitions.find(queue => queue.key === `stage_${stage.key}`);
+            const button = node('button', null, 'molavi-workbench-stage');
+            button.type = 'button';
+            button.setAttribute('aria-pressed', String(workbenchStage === stage.key));
+            button.append(node('span', `۰${index + 1}`, 'molavi-stage-index'),
+                node('strong', stage.label),
+                node('span', stage.hint, 'molavi-stage-hint'),
+                node('b', (stageQueue?.count || 0).toLocaleString('fa-IR'), 'molavi-stage-count'));
+            button.addEventListener('click', () => {
+                workbenchStage = stage.key;
+                workbenchQueue = `stage_${stage.key}`;
+                workbenchView = 'tasks';
+                workbenchIndex = 0;
+                workbenchSelectedKey = '';
+                workbenchLiveStatus.className = 'molavi-workbench-live-status';
+                workbenchLiveStatus.textContent = `مرحله «${stage.label}»؛ ${new Intl.NumberFormat('fa-IR').format(stageQueue?.count || 0)} کالا برای رسیدگی.`;
+                stageButtons.forEach((item, key) => item.setAttribute('aria-pressed', String(key === workbenchStage)));
+                renderQueueNavigation();
+                renderView();
+                renderQueue();
+            });
+            stageButtons.set(stage.key, button);
+            stageGrid.appendChild(button);
+        });
+        const tabs = node('nav', null, 'molavi-workbench-tabs');
+        tabs.setAttribute('aria-label', 'نمایش میز کار');
+        const taskView = node('section', null, 'molavi-workbench-view');
+        const reextractView = node('section', null, 'molavi-workbench-view');
+        const storeView = node('section', null, 'molavi-workbench-view');
+        const viewPanels = new Map([['tasks',taskView],['reextract',reextractView],['store',storeView]]);
+        const viewButtons = new Map();
+        const renderView = () => {
+            viewPanels.forEach((panel, key) => { panel.hidden = key !== workbenchView; });
+            viewButtons.forEach((button, key) => {
+                const selected = key === workbenchView;
+                button.classList.toggle('is-active', selected);
+                button.setAttribute('aria-pressed', String(selected));
+            });
+        };
+        [['tasks','کارهای این مرحله'],['reextract','بازاستخراج پیام‌ها'],['store','عملیات فروشگاه']].forEach(([key,label]) => {
+            const button = node('button', label, 'molavi-workbench-tab');
+            button.type = 'button';
+            button.setAttribute('aria-pressed', String(key === workbenchView));
+            button.addEventListener('click', () => {
+                workbenchView = key;
+                renderView();
+            });
+            viewButtons.set(key, button);
+            tabs.appendChild(button);
+        });
         const queueNavigation = node('div', null, 'molavi-workbench-queues');
         queueNavigation.setAttribute('role', 'group');
-        queueNavigation.setAttribute('aria-label', 'انتخاب نوع کار');
-        const queueButtons = new Map();
+        queueNavigation.setAttribute('aria-label', 'انتخاب صف همین مرحله');
+        const queueContent = node('div', null, 'molavi-workbench-queue-content');
+        const sourceGroup = node('section', null, 'molavi-workbench-source-group');
+        sourceGroup.setAttribute('aria-label', 'انتخاب پیام‌ها برای بازاستخراج');
+        reextractView.appendChild(sourceGroup);
+        taskView.append(queueNavigation, queueContent);
+        board.append(overview, stageGrid, tabs, taskView, reextractView, storeView);
+
         refreshQueueCounts = () => {
             queueDefinitions.forEach(queue => {
                 queue.count = products.filter(queue.matches).length;
@@ -1258,29 +1364,51 @@
                 button.textContent = `${queue.label} · ${queue.count.toLocaleString('fa-IR')}`;
                 button.disabled = queue.count === 0;
             });
+            workbenchStageModel.forEach(stage => {
+                const button = stageButtons.get(stage.key);
+                const queue = queueDefinitions.find(item => item.key === `stage_${stage.key}`);
+                if (!button || !queue) return;
+                button.querySelector('.molavi-stage-count').textContent = queue.count.toLocaleString('fa-IR');
+                button.disabled = queue.count === 0;
+            });
             return queueDefinitions.find(queue => queue.key === 'supplier_prices')?.count || 0;
         };
-        queueDefinitions.filter(queue=>queue.key==='next'||queue.count>0||queue.key===workbenchQueue).forEach(queue=>{
-            const button=node('button',`${queue.label} · ${queue.count.toLocaleString('fa-IR')}`,
-                'button button-secondary molavi-workbench-queue');
-            button.type='button';
-            button.disabled=queue.count===0;
-            button.setAttribute('aria-pressed',queue.key===workbenchQueue?'true':'false');
-            button.addEventListener('click',()=>{
-                if (button.disabled || workbenchQueue===queue.key) return;
-                workbenchQueue=queue.key;
-                workbenchIndex=0;
-                workbenchSelectedKey='';
-                workbenchLiveStatus.className='molavi-workbench-live-status';
-                workbenchLiveStatus.textContent=`صف «${queue.label}»؛ ${queue.count.toLocaleString('fa-IR')} کالا برای رسیدگی.`;
-                queueButtons.forEach((item,key)=>item.setAttribute('aria-pressed',key===workbenchQueue?'true':'false'));
-                renderQueue();
+        function renderQueueNavigation() {
+            queueNavigation.replaceChildren();
+            queueButtons.clear();
+            const activeStage = workbenchStageModel.find(stage => stage.key === workbenchStage);
+            const choices = [queueDefinitions.find(queue => queue.key === 'next')];
+            if (activeStage) {
+                choices.push(queueDefinitions.find(queue => queue.key === `stage_${activeStage.key}`));
+                activeStage.queues.forEach(key => choices.push(queueDefinitions.find(queue => queue.key === key)));
+            }
+            choices.filter(Boolean).forEach(queue => {
+                const button = node('button', `${queue.label} · ${queue.count.toLocaleString('fa-IR')}`,
+                    'button button-secondary molavi-workbench-queue');
+                button.type = 'button';
+                button.disabled = queue.count === 0;
+                button.setAttribute('aria-pressed', String(queue.key === workbenchQueue));
+                button.addEventListener('click', () => {
+                    if (button.disabled || workbenchQueue === queue.key) return;
+                    workbenchQueue = queue.key;
+                    workbenchStage = queue.key === 'next' ? '' : (activeStageForQueue(queue.key)?.key || '');
+                    workbenchView = 'tasks';
+                    workbenchIndex = 0;
+                    workbenchSelectedKey = '';
+                    workbenchLiveStatus.className = 'molavi-workbench-live-status';
+                    workbenchLiveStatus.textContent = `صف «${queue.label}»؛ ${queue.count.toLocaleString('fa-IR')} کالا برای رسیدگی.`;
+                    stageButtons.forEach((item, key) => item.setAttribute('aria-pressed', String(key === workbenchStage)));
+                    queueButtons.forEach((item, key) => item.setAttribute('aria-pressed', String(key === workbenchQueue)));
+                    if (queue.key === 'next') renderQueueNavigation();
+                    renderView();
+                    renderQueue();
+                });
+                queueButtons.set(queue.key, button);
+                queueNavigation.appendChild(button);
             });
-            queueButtons.set(queue.key,button);
-            queueNavigation.appendChild(button);
-        });
-        const queueContent = node('div', null, 'molavi-workbench-queue-content');
-        board.append(queueNavigation,queueContent);
+        }
+        renderQueueNavigation();
+        renderView();
         const renderQueue = () => {
             const queue=queueDefinitions.find(item=>item.key===workbenchQueue) || queueDefinitions[0];
             const shownProducts=products.filter(queue.matches);
@@ -1417,7 +1545,7 @@
                 card.appendChild(batchActions);
                 batchGroup.appendChild(card);
             }
-            board.appendChild(batchGroup);
+            taskView.appendChild(batchGroup);
         }
 
         const globalTasks = document.createElement('details');
@@ -1441,7 +1569,7 @@
             const link = node('a',text,'button button-secondary'); link.href = url; link.target = '_top'; globalLinks.appendChild(link);
         });
         globalTasks.appendChild(globalLinks);
-        board.appendChild(globalTasks);
+        storeView.appendChild(globalTasks);
 
         const technical = document.createElement('details');
         technical.className = 'card molavi-technical-details';
@@ -1717,7 +1845,8 @@
             });
             technical.append(reportButton,report);
         }
-        board.appendChild(technical);
+        storeView.appendChild(technical);
+        reextractionPanel(sourceGroup);
     }
 
     function intValue(form, name) {
@@ -2758,13 +2887,21 @@
     function reextractionUrl(action, runId = '') {
         const params = new URLSearchParams({ reextract: action });
         if (runId) params.set('run_id', runId);
-        return config.apiUrl + '?' + params.toString();
+        const url = config.workflowApis && config.workflowApis.ai_confirmations
+            && config.workflowApis.ai_confirmations.url || config.apiUrl;
+        return url + '?' + params.toString();
+    }
+
+    function reextractionRequest(method = 'GET', payload = undefined, url = '') {
+        const apiKey = config.workflowApis && config.workflowApis.ai_confirmations
+            ? 'ai_confirmations' : '';
+        return request(method,payload,url || reextractionUrl('preview'),apiKey);
     }
 
     async function showReextractionProgress(panel, runId, auditContext = {}) {
         if (!root.contains(panel)) return;
         try {
-            const status = await request('GET', undefined, reextractionUrl('run', runId));
+            const status = await reextractionRequest('GET', undefined, reextractionUrl('run', runId));
             const counts = status.counts || {};
             const finished = Number(status.completed || 0);
             const total = Number(status.total || 0);
@@ -2829,7 +2966,11 @@
                         box.appendChild(notice('نتیجه پردازش انجام شد اما ثبت گزارش آن در پایگاه داده وردپرس ناموفق بود.', 'error'));
                     }
                 }
-                setTimeout(() => aiConfirmations(counts.failed ? 'بازاستخراج تمام شد؛ بخشی از پیام‌ها ناموفق ماند.' : 'بازاستخراج تمام شد؛ موردهای نامطمئن باقی‌مانده برای بررسی نمایش داده می‌شوند.', counts.failed ? 'warning' : 'success'), 1200);
+                const refreshWorkflow = config.page === 'molavi-operations' ? dashboard : aiConfirmations;
+                setTimeout(() => refreshWorkflow(counts.failed
+                    ? 'بازاستخراج تمام شد؛ بخشی از پیام‌ها ناموفق ماند.'
+                    : 'بازاستخراج تمام شد؛ موردهای نامطمئن باقی‌مانده برای بررسی نمایش داده می‌شوند.',
+                    counts.failed ? 'warning' : 'success'), 1200);
                 return;
             }
             const cancel = node('button', 'توقف پیام‌های باقی‌مانده', 'button');
@@ -2838,7 +2979,7 @@
                 if (!window.confirm('پیام‌های در صف لغو می‌شوند؛ پیام در حال اجرا ممکن است کامل شود. ادامه می‌دهید؟')) return;
                 cancel.disabled = true;
                 try {
-                    const receipt=await request('POST',{action:'cancel_reextraction',run_id:runId});
+                    const receipt=await reextractionRequest('POST',{action:'cancel_reextraction',run_id:runId});
                     box.appendChild(node('p', `لغو شد: ${receipt.cancelled || 0} پیام در صف · ${receipt.running || 0} پیام در حال اجرا`));
                 } catch (error) {
                     box.appendChild(notice(errorText(error.message),'error'));
@@ -2852,12 +2993,12 @@
         }
     }
 
-    async function reextractionPanel(panel) {
+    async function advancedReextractionTools(panel) {
         panel.className = 'card molavi-reextract-panel';
-        panel.appendChild(node('h2', 'بازاستخراج پیام‌های ذخیره‌شده'));
-        panel.appendChild(node('p', 'پیام اصلی هر کارت دوباره استخراج می‌شود. نتیجه‌های روشن پس از کنترل کیفیت ثبت می‌شوند؛ موارد نامطمئن برای بررسی می‌مانند و قیمت‌های قدیمی‌تر از ۱۴ روز بدون تأیید منبع فعلی وارد محصول جاری نمی‌شوند.'));
+        panel.appendChild(node('h2', 'ابزارهای ویژهٔ استخراج'));
+        panel.appendChild(node('p', 'OCR تصویر و بازپردازش نسخهٔ فعلی سیاست، از انتخاب عادی پیام‌ها جدا هستند.'));
         try {
-            const preview = await request('GET', undefined, reextractionUrl('preview'));
+            const preview = await reextractionRequest('GET', undefined, reextractionUrl('preview'));
             const counts = preview.counts || {};
             const openCases = preview.open_cases || {};
             const recentPolicy = preview.recent_policy || {};
@@ -2937,7 +3078,7 @@
                                 try {
                                     await persistOwnerReviews([reviewRecord(eventId,'ai_media_review',
                                         item.message_key,'pending',storedReviewContext('ai_media_review',auditContext),decision,{})]);
-                                    const receipt=await request('POST',{action:'start_media_reextraction',
+                                    const receipt=await reextractionRequest('POST',{action:'start_media_reextraction',
                                         message_key:item.message_key,run_id:runId});
                                     if (receipt.run_id!==runId || receipt.queued!==1
                                         || receipt.message_key!==item.message_key) throw new Error('invalid_receipt');
@@ -2972,7 +3113,7 @@
                             try {
                                 await persistOwnerReviews([reviewRecord(eventId,'ai_media_review',item.message_key,
                                     'pending',context,decision,{})]);
-                                const receipt = await request('POST',{action:'dismiss_media_message',message_key:item.message_key});
+                                const receipt = await reextractionRequest('POST',{action:'dismiss_media_message',message_key:item.message_key});
                                 if (receipt.decision_id !== item.message_key || receipt.choice !== 'not_product') throw new Error('invalid_receipt');
                                 await persistOwnerReviews([reviewRecord(eventId,'ai_media_review',item.message_key,
                                     'accepted',context,decision,receipt)]);
@@ -3003,7 +3144,7 @@
                         try {
                             const nextUrl = reextractionUrl('preview') + '&media_after='
                                 + encodeURIComponent(String(preview.media_review_next_after));
-                            const nextPage = await request('GET',undefined,nextUrl);
+                            const nextPage = await reextractionRequest('GET',undefined,nextUrl);
                             renderMedia(Array.isArray(nextPage.media_review_messages)
                                 ? nextPage.media_review_messages : []);
                             preview.media_review_next_after = nextPage.media_review_next_after;
@@ -3046,36 +3187,14 @@
             const controls = node('div', null, 'molavi-reextract-actions');
             const recentPolicyButton = node('button', `بازپردازش و به‌روزرسانی پست‌های اخیر (${recentPolicy.eligible_count || 0})`, 'button button-primary');
             const openCasesButton = node('button', `بازاستخراج همه کارت‌های باز (${openCases.case_count || 0} کارت · ${openCases.message_count || 0} پیام)`, 'button button-primary');
-            const pendingButton = node('button', `بازاستخراج پیام‌های در صف بررسی (${counts.pending || 0})`, 'button button-primary');
-            const allButton = node('button', `بازاستخراج همه پیام‌های ذخیره‌شده (${counts.all_available || 0})`, 'button');
             const dismissButton = node('button', `ردّ گروهی پیام‌های منتظر (${counts.pending || 0})`, 'button');
-            recentPolicyButton.type = 'button'; openCasesButton.type = 'button'; pendingButton.type = 'button'; allButton.type = 'button'; dismissButton.type = 'button';
+            recentPolicyButton.type = 'button'; openCasesButton.type = 'button'; dismissButton.type = 'button';
             recentPolicyButton.disabled = !aiConfigured || !(recentPolicy.eligible_count > 0)
                 || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(recentPolicy.policy_version || '')
                 || !/^[a-f0-9]{64}$/.test(recentPolicy.digest || '');
             openCasesButton.disabled = !aiConfigured || !(openCases.case_count > 0)
                 || Number(openCases.unmatched_case_count || 0) > 0;
-            pendingButton.disabled = !aiConfigured || !(counts.pending > 0);
-            allButton.disabled = !aiConfigured || !(counts.all_available > 0);
             dismissButton.disabled = !supportsAiOnly || !(counts.pending > 0);
-            async function start(button, scope, count) {
-                const label = scope === 'all' ? 'همه پیام‌های متنی ذخیره‌شده و فاقد تصمیم نهایی مالک' : 'پیام‌هایی که هنوز در صف بررسی یا پردازش هستند';
-                const warning = `قرار است ${count} پیام از ${label} با قواعد فعلی دوباره پردازش شوند. نتیجه‌های روشن پس از کنترل کیفیت ثبت می‌شوند و موارد نامطمئن در بررسی می‌مانند. ادامه می‌دهید؟`;
-                if (!window.confirm(warning)) return;
-                pendingButton.disabled = true; allButton.disabled = true;
-                try {
-                    const receipt = await request('POST', {action: 'start_reextraction', scope, expected_count: count});
-                    if (!/^[a-f0-9]{32}$/.test(receipt.run_id || '') || receipt.queued !== count) throw new Error('invalid_receipt');
-                    const progress = notice('در صف بازاستخراج قرار گرفت…', 'info');
-                    progress.classList.add('molavi-reextract-progress');
-                    controls.replaceWith(progress);
-                    showReextractionProgress(panel, receipt.run_id);
-                } catch (error) {
-                    panel.appendChild(notice(errorText(error.message), 'error'));
-                    pendingButton.disabled = !(counts.pending > 0);
-                    allButton.disabled = !(counts.all_available > 0);
-                }
-            }
             recentPolicyButton.addEventListener('click', async () => {
                 const count = Number(recentPolicy.eligible_count || 0);
                 const windowDays = Number(recentPolicy.window_days || 14);
@@ -3104,7 +3223,7 @@
                 }
                 let receipt;
                 try {
-                    receipt = await request('POST',{action:'start_recent_policy_reextraction',
+                    receipt = await reextractionRequest('POST',{action:'start_recent_policy_reextraction',
                         run_id:runId,expected_count:count,expected_digest:digest,
                         policy_version:version});
                     if (receipt.run_id!==runId || receipt.queued!==count
@@ -3151,7 +3270,7 @@
                 }
                 let receipt;
                 try {
-                    receipt = await request('POST', {action:'start_open_case_reextraction',
+                    receipt = await reextractionRequest('POST', {action:'start_open_case_reextraction',
                         run_id:runId, expected_case_count:caseCount,
                         expected_message_count:messageCount, expected_digest:auditContext.digest});
                     if (receipt.run_id !== runId || receipt.queued !== messageCount
@@ -3178,14 +3297,12 @@
                 controls.replaceWith(progress);
                 showReextractionProgress(panel, runId, auditContext);
             });
-            pendingButton.addEventListener('click', () => start(pendingButton, 'pending', counts.pending));
-            allButton.addEventListener('click', () => start(allButton, 'all', counts.all_available));
             dismissButton.addEventListener('click', async () => {
                 const count = Number(counts.pending || 0);
                 if (!count || !window.confirm(`قرار است همه ${count} پیامِ در صف از بازاستخراج کنار گذاشته شوند. متن اصلی پیام‌ها حذف نمی‌شود و یادداشت اجباری نیست. ادامه می‌دهید؟`)) return;
                 dismissButton.disabled = true;
                 try {
-                    const receipt = await request('POST', {
+                    const receipt = await reextractionRequest('POST', {
                         action: 'dismiss_pending_messages', expected_count: count,
                         expected_digest: preview.pending_digest, note: ''
                     });
@@ -3196,13 +3313,290 @@
                     dismissButton.disabled = !(counts.pending > 0);
                 }
             });
-            controls.append(recentPolicyButton, openCasesButton, pendingButton, allButton, dismissButton);
+            controls.append(recentPolicyButton, openCasesButton, dismissButton);
             if (Number(recentPolicy.eligible_count || 0) > 0) {
                 panel.appendChild(notice('این دکمه پست‌های واجد شرایطِ ۱۴ روز اخیر را با نسخه فعلی استخراج دوباره پردازش می‌کند. اگر تعداد داخل بسته تغییر کند، همگام‌سازی کاتالوگ گام‌های فعلی خانوار و فروشگاه را روی محصول به‌روز می‌کند؛ تنظیم دستی همان محصول حفظ می‌شود. برای اعمال صرفِ سیاست جدید نیازی به بازپردازش نیست.', 'info'));
             }
             panel.appendChild(controls);
         } catch (error) {
             panel.appendChild(notice(errorText(error.message), 'error'));
+        }
+    }
+
+    async function reextractionPanel(panel) {
+        panel.className = 'card molavi-reextract-workspace';
+        panel.appendChild(node('h2', 'انتخاب پیام‌ها برای بازاستخراج'));
+        panel.appendChild(node('p', 'همان مدل استخراج فعلی روی پیام‌های منبع اجرا می‌شود. دامنه، کانال و بازهٔ تاریخ با هم ترکیب می‌شوند؛ نتیجهٔ تازه از کنترل کیفیت موجود عبور می‌کند.'));
+        try {
+            const initial = await reextractionRequest('GET', undefined, reextractionUrl('preview'));
+            const counts = initial.selection_counts || {};
+            const linkAvailable = initial.catalog_linking_available === true;
+            const filtersCard = node('section', null, 'molavi-reextract-filters');
+            const selectionCard = node('section', null, 'molavi-reextract-selection');
+            const layout = node('div', null, 'molavi-reextract-layout');
+            const scopeFieldset = document.createElement('fieldset');
+            scopeFieldset.className = 'molavi-reextract-scope';
+            scopeFieldset.appendChild(node('legend', 'دامنهٔ پیام‌ها'));
+            const scopeInputs = new Map();
+            const scopeOptions = [
+                {key:'all',label:'همهٔ پیام‌های قابل‌بازاستخراج',hint:'ورودی‌های متنی آماده؛ پیام‌های فقط تصویری در مسیر جداگانهٔ OCR هستند.',count:counts.all || 0},
+                {key:'pending',label:'منتظر بررسی مالک',hint:'پیام‌هایی که استخراج آن‌ها هنوز در صف بررسی است.',count:counts.pending || 0},
+                {key:'linked',label:'پیوندشده به محصول کاتالوگ',hint:'شناسهٔ پیشنهاد منبع به یک محصول در کاتالوگ فعلی وصل است.',count:counts.linked || 0}
+            ];
+            scopeOptions.forEach((option,index) => {
+                const label = node('label', null, 'molavi-reextract-scope-option');
+                const input = document.createElement('input');
+                input.type = 'radio'; input.name = 'molavi-reextract-scope'; input.value = option.key;
+                input.checked = index === 0;
+                input.disabled = option.key === 'linked' && !linkAvailable;
+                const copy = node('span', null, 'molavi-reextract-scope-copy');
+                copy.append(node('strong', option.label), node('small', option.hint));
+                label.append(input, copy, node('b', Number(option.count).toLocaleString('fa-IR')));
+                scopeFieldset.appendChild(label);
+                scopeInputs.set(option.key,input);
+            });
+            filtersCard.appendChild(scopeFieldset);
+            if (!linkAvailable) filtersCard.appendChild(notice('پیوند پیام به کاتالوگ در این اتصال در دسترس نیست؛ این دامنه غیرفعال است.', 'warning'));
+
+            const dateControls = node('div', null, 'molavi-reextract-date-controls');
+            const dateFromLabel = node('label', 'از تاریخ پیام', 'molavi-reextract-control');
+            const dateFrom = document.createElement('input'); dateFrom.type = 'date';
+            dateFromLabel.appendChild(dateFrom);
+            const dateToLabel = node('label', 'تا تاریخ پیام', 'molavi-reextract-control');
+            const dateTo = document.createElement('input'); dateTo.type = 'date';
+            dateToLabel.appendChild(dateTo);
+            dateControls.append(dateFromLabel,dateToLabel);
+            filtersCard.appendChild(dateControls);
+
+            const channelFieldset = document.createElement('fieldset');
+            channelFieldset.className = 'molavi-reextract-channels';
+            channelFieldset.appendChild(node('legend', 'کانال منبع · چندانتخابی'));
+            const channelSearchLabel = node('label', 'جست‌وجوی کانال', 'molavi-reextract-channel-search');
+            const channelSearch = document.createElement('input');
+            channelSearch.type = 'search'; channelSearch.autocomplete = 'off';
+            channelSearch.placeholder = 'نام یا شناسهٔ کانال';
+            channelSearchLabel.appendChild(channelSearch);
+            channelFieldset.appendChild(channelSearchLabel);
+            const channelList = node('div', null, 'molavi-reextract-channel-list');
+            const channelInputs = [];
+            const channelEntries = [];
+            const channels = initial.selection && Array.isArray(initial.selection.source_channels)
+                ? initial.selection.source_channels : [];
+            if (!channels.length) channelList.appendChild(node('p', 'کانال واجد شرایطی ثبت نشده است.', 'description'));
+            channels.forEach(channel => {
+                const value = String(channel.value || '').trim();
+                if (!value) return;
+                const label = node('label', null, 'molavi-reextract-channel');
+                const input = document.createElement('input'); input.type = 'checkbox'; input.value = value;
+                channelInputs.push(input);
+                channelEntries.push({input,label,search:value.toLocaleLowerCase()});
+                label.append(input, node('span', value), node('b', Number(channel.count || 0).toLocaleString('fa-IR')));
+                channelList.appendChild(label);
+            });
+            channelFieldset.appendChild(channelList);
+            filtersCard.appendChild(channelFieldset);
+            const channelLimit = node('p', 'در هر انتخاب می‌توان حداکثر ۳۰ کانال را ترکیب کرد.', 'description');
+            filtersCard.appendChild(channelLimit);
+            const clearFilters = node('button', 'پاک‌کردن کانال و تاریخ', 'button button-secondary');
+            clearFilters.type = 'button';
+            filtersCard.appendChild(clearFilters);
+
+            const previewHeading = node('p', 'پیش‌نمایش انتخاب', 'molavi-reextract-eyebrow');
+            const selectedCount = node('strong', '۰', 'molavi-reextract-count');
+            const selectedLabel = node('span', 'پیام واجد شرایط');
+            const countLine = node('div', null, 'molavi-reextract-count-line');
+            countLine.append(selectedCount, selectedLabel);
+            const filterSummary = node('p', '', 'molavi-reextract-filter-summary');
+            const groupControls = node('label', 'گروه‌بندی نتیجه', 'molavi-reextract-group-control');
+            const groupBy = document.createElement('select');
+            groupBy.append(new Option('کانال منبع','channel'),new Option('روز پیام','date'));
+            groupControls.appendChild(groupBy);
+            const groupsList = document.createElement('ul'); groupsList.className = 'molavi-reextract-groups';
+            const previewStatus = node('p', '', 'molavi-reextract-preview-status');
+            previewStatus.setAttribute('role','status');
+            previewStatus.setAttribute('aria-live','polite');
+            const runButton = node('button', 'اجرای بازاستخراج', 'button button-primary');
+            runButton.type = 'button';
+            const refreshButton = node('button', 'تازه‌کردن پیش‌نمایش', 'button button-secondary');
+            refreshButton.type = 'button';
+            const actionRow = node('div', null, 'molavi-reextract-run-actions');
+            actionRow.append(runButton,refreshButton);
+            const safeRules = node('p', 'تصمیم‌های نهایی یا ردّ مالک، پیام‌های کنارگذاشته‌شده و موارد در حال اجرا از انتخاب عادی خارج می‌مانند. بازه بر اساس تاریخ پیام منبع و به‌وقت تهران محاسبه می‌شود.', 'molavi-reextract-safety-note');
+            selectionCard.append(previewHeading,countLine,filterSummary,groupControls,groupsList,previewStatus,actionRow,safeRules);
+            layout.append(filtersCard,selectionCard);
+            panel.appendChild(layout);
+            const activeRunBox = node('div', null, 'molavi-reextract-active-run');
+            panel.appendChild(activeRunBox);
+
+            let currentPreview = initial;
+            let selectionVersion = 0;
+            let progressRunId = '';
+            const formatter = new Intl.NumberFormat('fa-IR');
+            const selectedScope = () => [...scopeInputs.entries()].find(([,input]) => input.checked)?.[0] || 'all';
+            const selectedChannels = () => channelInputs.filter(input => input.checked).map(input => input.value);
+            channelSearch.addEventListener('input',() => {
+                const query = channelSearch.value.trim().toLocaleLowerCase();
+                channelEntries.forEach(({label,search}) => { label.hidden = query !== '' && !search.includes(query); });
+            });
+            const previewUrl = () => {
+                const url = new URL(reextractionUrl('preview'), window.location.href);
+                url.searchParams.set('scope', selectedScope());
+                url.searchParams.set('group_by', groupBy.value);
+                url.searchParams.set('channels',JSON.stringify(selectedChannels()));
+                if (dateFrom.value) url.searchParams.set('date_from',dateFrom.value);
+                if (dateTo.value) url.searchParams.set('date_to',dateTo.value);
+                return url.toString();
+            };
+            const drawSelection = data => {
+                currentPreview = data;
+                const selection = data.selection || {};
+                const count = Number(selection.count || 0);
+                selectedCount.textContent = formatter.format(count);
+                const scopeName = scopeOptions.find(option => option.key === selection.scope)?.label || 'همهٔ ورودی‌های واجد شرایط';
+                const channelNames = selectedChannels();
+                const dateRange = dateFrom.value || dateTo.value
+                    ? `${dateFrom.value ? `از ${dateFrom.value}` : 'از ابتدای سابقه'} · ${dateTo.value ? `تا ${dateTo.value}` : 'به بعد'}`
+                    : 'همهٔ تاریخ‌ها';
+                filterSummary.textContent = `${scopeName} · ${channelNames.length ? channelNames.join('، ') : 'همهٔ کانال‌ها'} · ${dateRange}`;
+                groupsList.replaceChildren();
+                (Array.isArray(selection.groups) ? selection.groups : []).forEach(group => {
+                    const row = document.createElement('li');
+                    const label = selection.group_by === 'date' && group.key
+                        ? new Intl.DateTimeFormat('fa-IR').format(new Date(`${group.key}T12:00:00`))
+                        : String(group.label || 'منبع نامشخص');
+                    row.append(node('span',label),node('b',formatter.format(Number(group.count || 0))));
+                    groupsList.appendChild(row);
+                });
+                if (!groupsList.childElementCount) groupsList.appendChild(node('li','موردی با این ترکیب پیدا نشد.'));
+                const active = data.active_run;
+                const canStart = data.ai_configured === true && count > 0 && !active;
+                runButton.disabled = !canStart;
+                runButton.textContent = active ? 'یک بازاستخراج در حال اجراست' : `بازاستخراج ${formatter.format(count)} پیام`;
+                if (data.ai_configured !== true) previewStatus.textContent = 'مدل استخراج فعلی روی سرویس تنظیم نشده است؛ شروع کار غیرفعال است.';
+                else if (active) previewStatus.textContent = 'یک بازاستخراج دیگر در صف یا در حال اجراست؛ اجرای هم‌زمان ممکن نیست.';
+                else previewStatus.textContent = 'شمارش از سرویس تازه شده و پیش از شروع دوباره کنترل می‌شود.';
+                if (active && active.run_id && progressRunId !== active.run_id) {
+                    progressRunId = active.run_id;
+                    const audit = {run_id:active.run_id,scope:active.scope || 'all',
+                        message_count:Number(active.total || count),digest:String(active.digest || '')};
+                    const progress = notice('در حال دریافت وضعیت بازاستخراج…','info');
+                    progress.classList.add('molavi-reextract-progress');
+                    activeRunBox.replaceChildren(progress);
+                    showReextractionProgress(panel,active.run_id,audit);
+                }
+            };
+            const updatePreview = async () => {
+                const version = ++selectionVersion;
+                runButton.disabled = true;
+                refreshButton.disabled = true;
+                previewStatus.textContent = 'در حال تازه‌کردن شمارش از سرویس…';
+                try {
+                    const data = await reextractionRequest('GET',undefined,previewUrl());
+                    if (version !== selectionVersion) return;
+                    drawSelection(data);
+                } catch (error) {
+                    if (version !== selectionVersion) return;
+                    currentPreview = null;
+                    groupsList.replaceChildren();
+                    selectedCount.textContent = '—';
+                    filterSummary.textContent = 'پیش‌نمایش در دسترس نیست.';
+                    previewStatus.textContent = errorText(error.message);
+                    runButton.disabled = true;
+                } finally {
+                    if (version === selectionVersion) refreshButton.disabled = false;
+                }
+            };
+            scopeInputs.forEach(input => input.addEventListener('change',updatePreview));
+            channelInputs.forEach(input => input.addEventListener('change',() => {
+                if (selectedChannels().length > 30) {
+                    input.checked = false;
+                    previewStatus.textContent = 'حداکثر ۳۰ کانال را هم‌زمان انتخاب کنید.';
+                    return;
+                }
+                updatePreview();
+            }));
+            dateFrom.addEventListener('change',updatePreview);
+            dateTo.addEventListener('change',updatePreview);
+            groupBy.addEventListener('change',updatePreview);
+            clearFilters.addEventListener('click',() => {
+                channelInputs.forEach(input => { input.checked = false; });
+                dateFrom.value = ''; dateTo.value = '';
+                updatePreview();
+            });
+            refreshButton.addEventListener('click',updatePreview);
+            drawSelection(initial);
+
+            runButton.addEventListener('click',async() => {
+                const selection = currentPreview && currentPreview.selection;
+                const count = Number(selection && selection.count || 0);
+                if (!selection || count < 1 || currentPreview.active_run || currentPreview.ai_configured !== true) return;
+                const scope = selectedScope();
+                const channels = selectedChannels();
+                const dateFromValue = dateFrom.value;
+                const dateToValue = dateTo.value;
+                const digest = String(selection.digest || '');
+                const groupSummary = (selection.groups || []).map(group => `${group.label}: ${group.count}`).join('، ');
+                const confirmation = `بازاستخراج ${count} پیام با مدل فعلی شروع می‌شود. دامنه: ${scopeOptions.find(item => item.key === scope)?.label || scope}. گروه‌ها: ${groupSummary || 'بدون مورد'}. تصمیم‌های نهایی مالک حفظ می‌شوند. ادامه می‌دهید؟`;
+                if (!window.confirm(confirmation)) return;
+                if (!/^[a-f0-9]{64}$/.test(digest)) {
+                    previewStatus.textContent = 'پیش‌نمایش معتبر نیست؛ دوباره تازه کنید.';
+                    return;
+                }
+                const bytes = new Uint8Array(16);
+                if (window.crypto && window.crypto.getRandomValues) window.crypto.getRandomValues(bytes);
+                else for (let index=0; index<bytes.length; index++) bytes[index]=Math.floor(Math.random()*256);
+                const runId = Array.from(bytes,value=>value.toString(16).padStart(2,'0')).join('');
+                const auditContext = {run_id:runId,scope,message_count:count,digest,
+                    channels,date_from:dateFromValue,date_to:dateToValue};
+                const eventId = 'reextraction-run:' + runId;
+                const decision = {action:'reextract_saved_messages',scope,channels,
+                    date_from:dateFromValue,date_to:dateToValue};
+                runButton.disabled = true;
+                refreshButton.disabled = true;
+                try {
+                    await persistOwnerReviews([reviewRecord(eventId,'ai_reextraction',runId,'pending',
+                        storedReviewContext('ai_reextraction',auditContext),decision,{})]);
+                    const receipt = await reextractionRequest('POST',{action:'start_reextraction',scope,
+                        expected_count:count,channels,date_from:dateFromValue,date_to:dateToValue,
+                        expected_digest:digest,run_id:runId});
+                    if (receipt.run_id !== runId || receipt.queued !== count || receipt.scope !== scope) {
+                        throw new Error('invalid_receipt');
+                    }
+                    let auditWarning = false;
+                    try { await persistOwnerReviews([reviewRecord(eventId,'ai_reextraction',runId,
+                        'accepted',storedReviewContext('ai_reextraction',auditContext),decision,receipt)]); }
+                    catch (_error) { auditWarning = true; }
+                    const progress = notice('بازاستخراج در صف پردازش قرار گرفت…','info');
+                    progress.classList.add('molavi-reextract-progress');
+                    if (auditWarning) progress.appendChild(node('p','اجرا در صف است، اما ذخیرهٔ رسید اولیه در وردپرس ناموفق بود.','notice'));
+                    activeRunBox.replaceChildren(progress);
+                    showReextractionProgress(panel,runId,auditContext);
+                } catch (error) {
+                    try { await persistOwnerReviews([reviewRecord(eventId,'ai_reextraction',runId,
+                        error.remoteRejected?'failed':'pending',storedReviewContext('ai_reextraction',auditContext),
+                        decision,{error:String(error.message || 'request_failed')})]); } catch (_auditError) { }
+                    previewStatus.textContent = errorText(error.message);
+                    runButton.disabled = false;
+                    refreshButton.disabled = false;
+                    if (error.message === 'reextraction_preview_changed') updatePreview();
+                }
+            });
+
+            const advancedDetails = document.createElement('details');
+            advancedDetails.className = 'molavi-advanced-reextract';
+            advancedDetails.appendChild(node('summary','مسیرهای ویژهٔ استخراج'));
+            advancedDetails.appendChild(node('p','OCR تصویر، بازپردازش نسخهٔ فعلی سیاست و رسیدگی به کارت‌های باز مسیرهای جداگانه دارند.'));
+            const advancedBody = node('div',null,'molavi-advanced-reextract-body');
+            advancedDetails.appendChild(advancedBody);
+            let advancedLoaded = false;
+            advancedDetails.addEventListener('toggle',() => {
+                if (!advancedDetails.open || advancedLoaded) return;
+                advancedLoaded = true;
+                advancedReextractionTools(advancedBody);
+            });
+            panel.appendChild(advancedDetails);
+        } catch (error) {
+            panel.appendChild(notice(errorText(error.message),'error'));
         }
     }
 

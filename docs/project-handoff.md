@@ -1,6 +1,6 @@
 # MolaviSale — whole-workflow handoff
 
-Snapshot 4.74. Updated 2026-11-06, Asia/Tehran. The canonical roleplay decisions are in
+Snapshot 4.75. Updated 2026-11-11, Asia/Tehran. The canonical roleplay decisions are in
 `roleplay-state.json`; current live evidence and release gates are in
 `pipeline-readiness.md` and `pipeline-readiness-evidence.json`.
 The product intake and shelf policy is documented in `products-streamline-integrity.md`.
@@ -10,12 +10,17 @@ The product intake and shelf policy is documented in `products-streamline-integr
 The current user-facing issue is `Failed to fetch` in the WordPress owner workflow,
 including the recent-post review/reprocessing tab. Continue from
 [`session-handoff-staging-owner-fetch.md`](session-handoff-staging-owner-fetch.md).
-The WordPress-to-Railway proxy and staging-origin CORS changes are deployed and their
-transport checks passed. The authenticated staging page has not yet been inspected:
-the current task runtime did not receive the staging-specific admin variables
-`MOLAVISTAGE_ADMIN_USERNAME` and `MOLAVISTAGE_ADMIN_PASSWORD`, and the staging URL
-redirected to WordPress login. No owner workflow action has been submitted during this
-incident. Keep follow-up work on staging unless the user explicitly names production.
+The WordPress-to-Railway proxy and staging-origin CORS changes are deployed. A staging
+sign-in succeeded in the current runtime; both the owner dashboard and AI-confirmation
+page returned HTTP 200 and showed neither the reported Persian error nor `Failed to
+fetch`. The first capture saw 20 `admin-ajax.php` POSTs return HTTP 200 but did not map
+each request to its backend route, so this is not a complete endpoint-by-endpoint
+verification. The dashboard also drains queued owner decisions on page load; the first
+inspection did not block this behavior, and whether a queued command was delivered is
+unknown. Further browser checks must block outbox claims, review-store writes, and all
+owner-proxy POSTs. Keep follow-up work on staging unless the user explicitly names
+production. See [`site-change-workflow.md`](site-change-workflow.md) and
+[`session-handoff-staging-owner-fetch.md`](session-handoff-staging-owner-fetch.md).
 
 ## 2026-11-06 User-confirmed pack-size quantity steps
 

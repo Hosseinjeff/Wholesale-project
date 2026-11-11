@@ -12,6 +12,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
+from zoneinfo import ZoneInfo
 from catalog.stock import normalize_stock_status
 
 _OCR_MEDIA_TYPES = frozenset({'image','photo','document','image_document','document_image'})
@@ -650,6 +651,29 @@ def reextraction_inventory(store, ledger=None, *, policy_version=None):
     from catalog.sync import _records
     _, messages = _records(store.read('MessageData'))
     _, offers = _records(store.read('Offers'))
+    catalog_linking_available = True
+    try:
+        _, catalog_products = _records(store.read('Products'))
+    except Exception:
+        catalog_products = []
+        catalog_linking_available = False
+    catalog_product_ids = {str(item.get('Product ID') or '').strip()
+                            for item in catalog_products
+                            if str(item.get('Product ID') or '').strip()}
+    linked_products_by_source = {}
+    if catalog_linking_available and catalog_product_ids:
+        for offer in offers:
+            product_id = str(offer.get('Product ID') or '').strip()
+            if product_id not in catalog_product_ids:
+                continue
+            source_key = reextraction_source_key(
+                source_url=offer.get('Source Post URL'),
+                channel=offer.get('Channel Username'),
+                message_id=offer.get('Message ID'),
+                timestamp=offer.get('Message Timestamp'),
+                content=offer.get('Original Message'),
+            )
+            linked_products_by_source.setdefault(source_key, set()).add(product_id)
     owner_decisions=set()
     staged=set()
     dismissed_keys=ledger.dismissed_message_keys() if ledger else set()
@@ -760,7 +784,8 @@ def reextraction_inventory(store, ledger=None, *, policy_version=None):
             'channel':str(message.get('Channel') or ''),'timestamp':str(message.get('Timestamp') or ''),
             'content':content,'source_post_url':str(message.get('URL') or ''),
             'ai_status':'no_product_candidate' if ai_status=='not_product' else ai_status,
-            'message_key':message_key,
+            'message_key':message_key,'source_key':source_key,
+            'catalog_product_ids':sorted(linked_products_by_source.get(source_key, set())),
         }
         candidates.append(item)
         if item['ai_status']=='no_product_candidate':
@@ -771,6 +796,7 @@ def reextraction_inventory(store, ledger=None, *, policy_version=None):
     return {
         'all_messages':candidates,
         'pending_messages':pending,
+        'catalog_linking_available':catalog_linking_available,
         'media_review_messages':media_review,
         'counts':{
             'all_available':len(candidates),'pending':len(pending),'without_text':no_content,
@@ -781,6 +807,132 @@ def reextraction_inventory(store, ledger=None, *, policy_version=None):
             'already_staged':already_staged,'already_reprocessed':already_reprocessed,
             'dismissed_by_owner':dismissed_by_owner,
         },
+    }
+
+
+def reextraction_selection(inventory, *, scope='all', channels=None,
+                           date_from='', date_to='', group_by='channel'):
+    """Filter ordinary eligible messages and return an immutable selection preview."""
+    from catalog.supplier_freshness import source_datetime
+
+    if scope not in {'all', 'pending', 'linked'}:
+        raise ValueError('invalid re-extraction scope')
+    if group_by not in {'channel', 'date'}:
+        raise ValueError('invalid re-extraction grouping')
+    if channels is None:
+        raw_channels = []
+    elif isinstance(channels, (list, tuple, set)):
+        raw_channels = channels
+    else:
+        raise ValueError('invalid re-extraction channel filter')
+    if len(raw_channels) > 30 or any(not isinstance(value, str) or len(value) > 200
+                                     for value in raw_channels):
+        raise ValueError('invalid re-extraction channel filter')
+
+    def channel_key(value):
+        return str(value or '').strip().lstrip('@').casefold()
+
+    channel_labels = {}
+    for item in inventory.get('all_messages') or []:
+        value = str(item.get('channel_username') or '').strip()
+        key = channel_key(value)
+        if not key:
+            continue
+        channel_labels.setdefault(key, value)
+    selected_channel_keys = {channel_key(value) for value in raw_channels if channel_key(value)}
+    if not selected_channel_keys.issubset(channel_labels):
+        raise ValueError('unknown re-extraction channel')
+
+    def parse_day(value):
+        value = str(value or '').strip()
+        if not value:
+            return None
+        if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', value):
+            raise ValueError('invalid re-extraction date')
+        try:
+            return datetime.strptime(value, '%Y-%m-%d').date()
+        except ValueError as exc:
+            raise ValueError('invalid re-extraction date') from exc
+
+    first_day = parse_day(date_from)
+    last_day = parse_day(date_to)
+    if first_day and last_day and first_day > last_day:
+        raise ValueError('invalid re-extraction date range')
+
+    all_messages = list(inventory.get('all_messages') or [])
+    if scope == 'pending':
+        pending_keys = {str(item.get('message_key') or '')
+                        for item in inventory.get('pending_messages') or []}
+        base = [item for item in all_messages
+                if str(item.get('message_key') or '') in pending_keys]
+    elif scope == 'linked':
+        base = [item for item in all_messages if item.get('catalog_product_ids')]
+    else:
+        base = all_messages
+
+    selected = []
+    date_by_key = {}
+    tehran = ZoneInfo('Asia/Tehran')
+    for item in base:
+        channel = channel_key(item.get('channel_username'))
+        if selected_channel_keys and channel not in selected_channel_keys:
+            continue
+        source_time = source_datetime(item.get('timestamp'))
+        source_day = source_time.astimezone(tehran).date() if source_time else None
+        if first_day or last_day:
+            if source_day is None or (first_day and source_day < first_day) \
+                    or (last_day and source_day > last_day):
+                continue
+        selected.append(item)
+        date_by_key[str(item.get('message_key') or '')] = source_day
+
+    channels_key_order = sorted(selected_channel_keys)
+    digest_payload = {
+        'scope': scope,
+        'channels': channels_key_order,
+        'date_from': str(date_from or ''),
+        'date_to': str(date_to or ''),
+        'message_keys': sorted(str(item.get('message_key') or '') for item in selected),
+    }
+    digest = hashlib.sha256(_stable(digest_payload)).hexdigest()
+    groups = {}
+    for item in selected:
+        if group_by == 'date':
+            source_day = date_by_key.get(str(item.get('message_key') or ''))
+            key = source_day.isoformat() if source_day else ''
+            label = key or 'زمان ثبت نشده'
+        else:
+            raw_channel = str(item.get('channel_username') or '').strip()
+            key = channel_key(raw_channel)
+            label = raw_channel or str(item.get('channel') or 'منبع نامشخص')
+        group = groups.setdefault(key, {'key': key, 'label': label, 'count': 0})
+        group['count'] += 1
+    if group_by == 'date':
+        ordered_groups = sorted((item for item in groups.values() if item['key']),
+                                key=lambda item: item['key'], reverse=True)
+        ordered_groups.extend(item for item in groups.values() if not item['key'])
+    else:
+        ordered_groups = sorted(groups.values(), key=lambda item: (item['key'] == '', item['key']))
+    source_channels = {}
+    for item in all_messages:
+        value = str(item.get('channel_username') or '').strip()
+        key = channel_key(value)
+        if not key:
+            continue
+        channel = source_channels.setdefault(key, {'value': channel_labels[key], 'count': 0})
+        channel['count'] += 1
+    ordered_channels = sorted(source_channels.values(), key=lambda item: channel_key(item['value']))
+    return {
+        'scope': scope,
+        'count': len(selected),
+        'digest': digest,
+        'channels': channels_key_order,
+        'date_from': str(date_from or ''),
+        'date_to': str(date_to or ''),
+        'group_by': group_by,
+        'groups': ordered_groups,
+        'source_channels': ordered_channels,
+        'messages': selected,
     }
 
 

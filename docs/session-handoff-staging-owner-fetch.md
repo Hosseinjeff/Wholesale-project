@@ -60,26 +60,33 @@ pass. They **do not** establish that the authenticated owner page works end to e
 The CORS config is still relevant to any remaining direct browser API routes, but the
 owner workflow's intended API path is WordPress `admin-ajax.php`.
 
-## Current authentication blocker
+## Current staging session and first page check
 
-After the user supplied the staging-specific variable names, the previous session
-checked both the process environment and the current managed-environment bindings.
-Neither `MOLAVISTAGE_ADMIN_USERNAME` nor `MOLAVISTAGE_ADMIN_PASSWORD` was present or
-bound. The only admin variables visible were the different `MOLAVISALE_ADMIN_*` pair.
-That pair was tried earlier and did not establish a WordPress session; do not retry it
-or assume it is the staging account. Avoid more guesses to prevent a login lockout.
+The current managed runtime has both `MOLAVISTAGE_ADMIN_USERNAME` and
+`MOLAVISTAGE_ADMIN_PASSWORD` bound. Their values were checked only for presence and
+were never printed. One staging WordPress sign-in succeeded.
 
-The anonymous request to the staging admin URL ended at
-`wp-login.php?redirect_to=...&reauth=1`. The TinyFish default browser profile had no
-recorded staging sign-in, and its vault run reported no saved staging credentials.
-Therefore the last live check did not reach the page JavaScript or any owner workflow
-request. The login page itself showed no `Failed to fetch` error. An anonymous POST to
-`admin-ajax.php` returned HTTP 400 with body `0`, which is expected without an
-authenticated WordPress session because this proxy is registered for logged-in users.
+The authenticated owner-workbench and AI-confirmation pages both returned HTTP 200,
+mounted the owner workflow, and did not show the reported Persian error or `Failed to
+fetch`. The first browser capture saw 20 WordPress `admin-ajax.php` POSTs return HTTP
+200, but it did not retain enough sanitized request metadata to map each one to its
+backend path. This is evidence that the visible error did not reproduce on those two
+loads, not an end-to-end confirmation for every workflow endpoint.
 
-The user stated the staging variables were added after the session started. In the
-current runtime they were not hot-loaded: the current environment status was fresh but
-did not list either name. A new session must check again before attempting sign-in.
+**Read-only verification warning:** the existing `dashboard()` function calls
+`drainWordPressWorkflowOutbox()` during page load. That function can claim previously
+queued supplier-price or Sheet decisions and submit them to Railway. No decision,
+retry, reprocess, dismiss, or reconcile control was clicked during the first check, but
+the automatic outbox path was not blocked then. Whether a due command was pending or
+delivered was not established; do not assert that records were untouched based on that
+page load.
+
+For any further browser inspection, allow only WordPress owner-proxy requests whose
+inner method is `GET`. Block `molavi_owner_review_outbox_pending`, all
+`molavi_owner_review_store` writes, and every owner-proxy `POST`; block navigation to
+hosts other than `staging.molavisale.ir`. Log only path, method, HTTP status, browser
+failure category, and a sanitized error code. Never print cookies, nonces, auth
+headers, credentials, page business data, or response bodies.
 
 ## Next-session checklist
 
@@ -87,22 +94,15 @@ did not list either name. A new session must check again before attempting sign-
    the user explicitly names production. The deployment tool defaults to staging; pass
    `--site staging` explicitly for any plugin deployment.
 2. **Check variable names only.** Confirm that the fresh runtime exposes both
-   `MOLAVISTAGE_ADMIN_USERNAME` and `MOLAVISTAGE_ADMIN_PASSWORD`. Do not print their
-   contents. If either is missing, do not fall back to the general `MOLAVISALE_ADMIN_*`
-   pair. Tell the user the attached runtime did not receive the staging variables and
-   use a secure browser-profile sign-in only if that path is available/authorized.
-3. **Sign in once with the staging pair.** Use the normal staging WordPress login and
-   preserve cookies for the page check. If authentication is rejected, stop and report
-   the visible non-secret error; do not repeatedly retry.
-4. **Load the reported page read-only.** Inspect the initial page load and select the
-   relevant tab/panel, but do not press buttons that confirm, dismiss, reprocess,
-   retry, reconcile, approve, or mutate records. No product, Sheet, order, or queue data
-   should change during diagnosis.
-5. **Capture only request metadata.** In browser Network/console, record the failed
-   request URL/path, method, status, browser-level failure reason, and a sanitized JSON
-   `error` code. Do not copy cookies, nonces, auth headers, response business data, or
-   credential values into output.
-6. **Correlate the browser request with Railway and WordPress logs.** Check whether an
+   staging-specific names. Do not print their contents or fall back to the different
+   `MOLAVISALE_ADMIN_*` pair. The sign-in already succeeded once in the current runtime.
+3. **Guard page loads before inspection.** Block the outbox claim/delivery path, all
+   review-store writes, and all owner-proxy backend `POST`s before opening any owner page.
+   No page load should submit a decision, queue run, retry, or reconciliation.
+4. **Capture only request metadata.** Record the backend route path, method, status,
+   browser-level failure reason, and sanitized JSON `error` code. Do not copy cookies,
+   nonces, auth headers, response business data, or credential values into output.
+5. **Correlate the browser request with Railway and WordPress logs.** Check whether an
    `admin-ajax.php` request with action `molavi_owner_workflow_proxy` reached WordPress,
    and whether the matching backend route reached Railway. Check staging cPanel/PHP
    errors if the WordPress proxy itself returns a gateway error.
