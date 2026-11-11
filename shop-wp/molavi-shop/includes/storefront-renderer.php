@@ -146,9 +146,26 @@ function molavi_render_storefront(): void
                         <button type="button" class="molavi-control-option" data-molavi-control-option data-molavi-buyer="shop" aria-pressed="<?php echo $buyerType === 'shop' ? 'true' : 'false'; ?>"><span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v10h16V10M3 10l2-6h14l2 6"></path><path d="M3 10a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0M9 20v-6h6v6"></path></svg> فروشگاه</span><span class="molavi-control-check" aria-hidden="true">✓</span></button>
                         <p class="molavi-control-panel-note" id="molavi-buyer-panel-note">انتخاب «خانوار» یا «فروشگاه» قیمت و گام سفارش کالاها را به‌روز می‌کند. تعداد سبد خودکار تغییر نمی‌کند؛ اگر تعداد با گام تازه سازگار نباشد، پیش از ادامه می‌توانید آن را اصلاح کنید.</p>
                     </div>
-                    <div class="molavi-control-panel" id="molavi-help-panel" data-molavi-control-panel="help" role="dialog" aria-modal="false" aria-labelledby="molavi-help-panel-title" aria-describedby="molavi-help-panel-note" tabindex="-1" hidden>
-                        <div class="molavi-control-panel-heading"><strong id="molavi-help-panel-title">راهنمای نوع خرید</strong><button type="button" class="molavi-control-panel-close" data-molavi-panel-close aria-label="بستن"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"></path></svg></button></div>
-                        <p class="molavi-control-panel-note" id="molavi-help-panel-note" data-molavi-buyer-help>انتخاب «خانوار» یا «فروشگاه» قیمت و گام سفارش کالاها را به‌روز می‌کند. تعداد سبد خودکار تغییر نمی‌کند؛ اگر تعداد با گام تازه سازگار نباشد، پیش از ادامه می‌توانید آن را اصلاح کنید.</p>
+                    <div class="molavi-control-panel" id="molavi-help-panel" data-molavi-control-panel="help" role="dialog" aria-modal="false" aria-labelledby="molavi-help-panel-title" aria-describedby="molavi-help-panel-guide" tabindex="-1" hidden>
+                        <div class="molavi-control-panel-heading"><strong id="molavi-help-panel-title">راهنمای خرید</strong><button type="button" class="molavi-control-panel-close" data-molavi-panel-close aria-label="بستن"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"></path></svg></button></div>
+                        <div class="molavi-guide" id="molavi-help-panel-guide">
+                            <section class="molavi-guide-section">
+                                <h4>نوع خرید</h4>
+                                <p>«خانوار» برای مصرف خانه است و «فروشگاه» برای مغازه؛ با تغییر نوع خرید، قیمت و گام سفارش همه کالاها به‌روز می‌شود.</p>
+                            </section>
+                            <section class="molavi-guide-section">
+                                <h4>گام سفارش</h4>
+                                <p>تعداد هر کالا فقط به‌اندازه گام آن کم و زیاد می‌شود؛ گام هر کالا روی کارت آن نوشته شده است. با تغییر نوع خرید، تعداد سبد عوض نمی‌شود؛ اگر با گام تازه جور نبود، «اصلاح تعداد» را بزنید.</p>
+                            </section>
+                            <section class="molavi-guide-section">
+                                <h4>تخفیف و ارسال</h4>
+                                <p>هرچه سبد بزرگ‌تر شود، تخفیف بیشتر می‌شود؛ تا سقف <?php echo esc_html(molavi_toman((int) ($quote['household_unlock'] ?? 5000000))); ?> برای خانوار و <?php echo esc_html(molavi_toman((int) ($quote['shop_unlock'] ?? 20000000))); ?> برای فروشگاه. هزینه ارسال ۲۵۰٬۰۰۰ تومان است و سفارش‌های بالای ۵٬۰۰۰٬۰۰۰ تومان ارسال رایگان دارند.</p>
+                            </section>
+                            <section class="molavi-guide-section">
+                                <h4>ثبت سفارش</h4>
+                                <p>مبلغ سفارش کامل، پیش از خرید از تأمین‌کننده پرداخت می‌شود؛ کالاها یکجا بسته‌بندی و در تهران تحویل داده می‌شوند.</p>
+                            </section>
+                        </div>
                     </div>
                 </div>
                 <section class="molavi-recommendation-carousel" data-molavi-recommendations aria-label="پیشنهادهای محصول با تخفیف بیشتر">
@@ -358,10 +375,6 @@ function molavi_render_storefront_card(\WC_Product $product, array $quote): void
                 <div class="molavi-card-facts">
                     <span class="molavi-order-units" data-molavi-order-units<?php echo $invalidStep ? ' hidden' : ''; ?> data-household-unit="<?php echo esc_attr((string) $profile['household_unit']); ?>" data-shop-unit="<?php echo esc_attr((string) $profile['shop_unit']); ?>" title="خانوار <?php echo esc_attr(molavi_digits((string) $profile['household_unit'])); ?> عدد؛ فروشگاه <?php echo esc_attr(molavi_digits((string) $profile['shop_unit'])); ?> عدد">گام سفارش: <?php echo esc_html(molavi_digits((string) $profile[$buyerType . '_unit'])); ?> عدد</span>
                     <?php if ($category !== ''): ?><span class="molavi-card-category"<?php echo $invalidStep ? ' hidden' : ''; ?>><?php echo esc_html($category); ?></span><?php endif; ?>
-                    <details class="molavi-card-step-help">
-                        <summary aria-label="توضیح گام سفارش" title="توضیح درباره گام سفارش">؟</summary>
-                        <div class="molavi-card-step-popover">گام سفارش تعداد هر بار افزودن یا کم‌کردن کالا را مشخص می‌کند. با تغییر نوع خرید، تعداد فعلی حفظ می‌شود؛ برای هماهنگ‌کردنش «اصلاح تعداد» را انتخاب کنید.</div>
-                    </details>
                     <div class="molavi-card-step-warning" data-molavi-card-step-warning<?php echo $invalidStep ? '' : ' hidden'; ?> role="status" aria-live="polite">
                         <span data-molavi-card-step-warning-text><?php echo $invalidStep ? esc_html('تعداد ' . molavi_digits((string) $qty) . ' · گام ' . molavi_digits((string) $min)) : ''; ?></span>
                     </div>

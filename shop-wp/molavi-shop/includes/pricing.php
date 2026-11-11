@@ -648,7 +648,7 @@ function molavi_render_buyer_profile_selector(string $context = 'shop'): void
                         <button type="button" data-molavi-buyer="household" aria-pressed="<?php echo $selected === 'household' ? 'true' : 'false'; ?>">خانوار</button>
                         <button type="button" data-molavi-buyer="shop" aria-pressed="<?php echo $selected === 'shop' ? 'true' : 'false'; ?>">فروشگاه</button>
                     </div>
-                    <button class="molavi-toolbar-icon molavi-buyer-help-trigger" type="button" data-molavi-open-panel="help" aria-label="راهنمای نوع خرید" aria-haspopup="dialog" aria-expanded="false" aria-controls="molavi-help-panel" title="راهنمای نوع خرید">
+                    <button class="molavi-toolbar-icon molavi-buyer-help-trigger" type="button" data-molavi-open-panel="help" aria-label="راهنمای خرید" aria-haspopup="dialog" aria-expanded="false" aria-controls="molavi-help-panel" title="راهنمای خرید">
                         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v5m0-8h.01"></path></svg>
                     </button>
                 </div>
