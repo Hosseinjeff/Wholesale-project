@@ -123,7 +123,7 @@ function molavi_render_storefront(): void
                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16l-6.2 7.1V18l-3.6 2v-7.9L4 5Z"></path></svg>
                         <span class="molavi-toolbar-label">دسته‌بندی</span>
                         <select data-molavi-category-select aria-label="فیلتر دسته‌بندی محصولات">
-                            <option value="">همه دسته‌بندی‌ها</option>
+                            <option value="">همه</option>
                             <?php foreach ($categories as $category): ?>
                                 <option value="<?php echo esc_attr($category); ?>"><?php echo esc_html($category); ?></option>
                             <?php endforeach; ?>
