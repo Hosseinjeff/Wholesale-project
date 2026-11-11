@@ -2,6 +2,26 @@
 
 Updated: 2026-11-11, Asia/Tehran
 
+## 2026-11-11 Staging storefront control popovers
+
+Plugin commit `0a8bae3314fa3f42be2ba2b3daaa0996f3eae8a0` was pushed and deployed
+only to Staging from base `75f1ef41ab97003b1a27d1a661e80e27af715af9`. The uploader
+verified read-back of `storefront-renderer.php`, `shop.js`, and `storefront.css`.
+Category and sort are now icon-only controls with anchored choice popovers. The
+category handle uses a funnel SVG; the selected sort or filter is marked in its
+menu and exposed in the control's accessible label. Menus close on selection,
+Escape, focus moving out of a menu, or an outside click.
+
+The live Staging shop returned HTTP 200 with 30 cards and no browser errors. The
+category menu stayed within the viewport at 320 and 390px; sorting by price reordered
+the cards in ascending order. Search still filtered to one matching card, overlaid
+the buyer row, and left the second toolbar row visible. The sticky bar remained
+clickable below the header. Checks at 320, 360, 390, 430, 760, and 1440px found no
+horizontal overflow. The 390px list view retained approximately 11px top/bottom and
+9px right thumbnail inset. No product, cart, or category data changed. Production
+was not changed. Use this deployed plugin commit as the next deployment's `--since`
+value.
+
 ## 2026-11-11 Staging storefront controls refinement
 
 Plugin commit `75f1ef41ab97003b1a27d1a661e80e27af715af9` was pushed and deployed
@@ -21,8 +41,8 @@ header. The list view retained its balanced card layout; at 390px the first thum
 had about 11px top/bottom and 9px right inset. No page errors were reported. JavaScript
 syntax and whitespace checks passed; PHP CLI was unavailable, and the live storefront
 render completed without a PHP fatal. No product, cart, or category data changed.
-Production was not changed. Use this deployed plugin commit as the next deployment's
-`--since` value.
+Production was not changed. At that point, this was the deployed plugin commit for
+the next deployment's `--since` value.
 
 ## 2026-11-11 Staging list thumbnail inset refinement
 
