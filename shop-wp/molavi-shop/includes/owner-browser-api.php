@@ -78,6 +78,25 @@ function molavi_owner_workflow_proxy_call(string $method, string $path, array $q
     }
     $response = wp_safe_remote_request($url, $args);
     if (is_wp_error($response)) {
+        $wpErrorCode = sanitize_key((string) $response->get_error_code());
+        $wpErrorCode = $wpErrorCode === '' ? 'unknown' : $wpErrorCode;
+        $errorMessage = $response->get_error_message();
+        $transportCategory = 'other';
+        if (preg_match('/\\bcurl error\\s+(\\d+)\\b/i', $errorMessage, $matches)) {
+            $transportCategory = 'curl_' . (string) ((int) $matches[1]);
+        } elseif (preg_match('/could not resolve|name or service not known|php_network_getaddresses/i', $errorMessage)) {
+            $transportCategory = 'dns';
+        } elseif (preg_match('/timed out|operation timed out/i', $errorMessage)) {
+            $transportCategory = 'timeout';
+        } elseif (preg_match('/certificate verify|ssl certificate|tls handshake/i', $errorMessage)) {
+            $transportCategory = 'tls';
+        } elseif (preg_match('/failed to connect|connection refused|network is unreachable/i', $errorMessage)) {
+            $transportCategory = 'connect';
+        }
+        $siteHost = strtolower((string) wp_parse_url(home_url('/'), PHP_URL_HOST));
+        if ($siteHost === 'staging.molavisale.ir') {
+            error_log('[molavi-owner-workflow-upstream] code=' . $wpErrorCode . ' transport=' . $transportCategory);
+        }
         return ['status'=>502, 'body'=>['ok'=>false, 'error'=>'upstream_unavailable']];
     }
     $status = (int) wp_remote_retrieve_response_code($response);
