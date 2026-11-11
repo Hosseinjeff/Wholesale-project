@@ -665,7 +665,6 @@
         var expandedBuyer = controls.querySelector(".molavi-buyer-expanded");
         var compactBuyer = controls.querySelector(".molavi-buyer-compact");
         var expandedHelp = controls.querySelector(".molavi-buyer-help-trigger");
-        var compactHelp = controls.querySelector(".molavi-compact-help-trigger");
         var toolbar = controls.querySelector(".molavi-product-toolbar");
         var panelTriggers = Array.prototype.slice.call(controls.querySelectorAll("[data-molavi-open-panel]"));
         var panels = Array.prototype.slice.call(root.querySelectorAll("[data-molavi-control-panel]"));
@@ -688,7 +687,7 @@
         function focusTargetFor(name, fallback) {
             var compact = controls.classList.contains("is-compact");
             if (name === "help") {
-                var helpTarget = compact ? compactHelp : expandedHelp;
+                var helpTarget = compact ? compactBuyer : expandedHelp;
                 if (canFocus(helpTarget)) return helpTarget;
             }
             if (name === "buyer") {
@@ -701,7 +700,7 @@
 
         function nextControlAfterPanel(name) {
             var compact = controls.classList.contains("is-compact");
-            if (name === "buyer") return compactHelp;
+            if (name === "buyer") return controls.querySelector(".molavi-compact-search-trigger");
             if (name === "help") {
                 return compact
                     ? controls.querySelector(".molavi-compact-search-trigger")
@@ -832,20 +831,17 @@
             var focused = document.activeElement;
             var focusInExpanded = expandedBuyer && expandedBuyer.contains(focused);
             var focusInCompactBuyer = compactBuyer && compactBuyer === focused;
-            var focusInCompactHelp = compactHelp && compactHelp === focused;
             var nextFocus = null;
             if (shouldCompact && focusInExpanded) {
                 if (focused.closest("[data-molavi-search-toggle]")) {
                     nextFocus = controls.querySelector(".molavi-compact-search-trigger");
                 } else if (focused === expandedHelp) {
-                    nextFocus = compactHelp;
+                    nextFocus = compactBuyer;
                 } else {
                     nextFocus = compactBuyer;
                 }
             } else if (!shouldCompact && focusInCompactBuyer && expandedBuyer) {
                 nextFocus = expandedBuyer.querySelector('[data-molavi-buyer][aria-pressed="true"]');
-            } else if (!shouldCompact && focusInCompactHelp) {
-                nextFocus = expandedHelp;
             } else if (focused.matches && focused.matches("[data-molavi-search-toggle]")) {
                 nextFocus = shouldCompact
                     ? controls.querySelector(".molavi-compact-search-trigger")
@@ -974,7 +970,12 @@
             });
             var count = root.querySelector("[data-molavi-result-count]");
             var empty = root.querySelector("[data-molavi-empty]");
-            if (count) count.textContent = digits(visible) + " کالا";
+            if (count) {
+                var countValue = count.querySelector("[data-molavi-result-value]");
+                if (countValue) countValue.textContent = digits(visible);
+                else count.textContent = digits(visible) + " کالا";
+                count.setAttribute("aria-label", digits(visible) + " کالا");
+            }
             if (empty) empty.hidden = visible > 0;
         }
 
@@ -999,6 +1000,8 @@
                 categoryTrigger.classList.toggle("has-active", selectedCategory !== "");
                 categoryTrigger.setAttribute("aria-label", categoryLabel);
                 categoryTrigger.title = categoryLabel;
+                var categoryCurrent = categoryTrigger.querySelector("[data-molavi-category-current]");
+                if (categoryCurrent) categoryCurrent.textContent = selectedCategory ? categoryName : "همه";
             }
             if (sortTrigger) {
                 var sortButton = sortOptions.filter(function (button) {
@@ -1010,6 +1013,8 @@
                 sortTrigger.classList.toggle("has-active", selectedSort !== "newest");
                 sortTrigger.setAttribute("aria-label", sortLabel);
                 sortTrigger.title = sortLabel;
+                var sortCurrent = sortTrigger.querySelector("[data-molavi-sort-current]");
+                if (sortCurrent) sortCurrent.textContent = sortName;
             }
         }
 

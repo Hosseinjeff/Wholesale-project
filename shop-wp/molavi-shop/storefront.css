@@ -3003,7 +3003,6 @@ body.molavi-site-page .woocommerce .woocommerce-notices-wrapper { margin-bottom:
 .molavi-toolbar-menu > summary:focus-visible,
 .molavi-product-area .molavi-buyer-choice-details summary:focus-visible,
 .molavi-buyer-compact > summary:focus-visible,
-.molavi-buyer-compact-help > summary:focus-visible,
 .molavi-toolbar-search-close:focus-visible {
     outline: 2px solid #788f83;
     outline-offset: 2px;
@@ -3134,7 +3133,6 @@ body.molavi-site-page .woocommerce .woocommerce-notices-wrapper { margin-bottom:
     width: fit-content;
 }
 .molavi-store-controls.is-compact .molavi-buyer-compact { display: block; flex: 0 0 auto; position: relative; }
-.molavi-compact-help-trigger { display: none; }
 .molavi-buyer-compact > summary {
     align-items: center;
     background: #fff;
@@ -3182,42 +3180,9 @@ body.molavi-site-page .woocommerce .woocommerce-notices-wrapper { margin-bottom:
 }
 .molavi-buyer-compact-options button:hover,
 .molavi-buyer-compact-options button[aria-pressed="true"] { background: #f3f5f1; color: #294f42; }
-.molavi-buyer-compact-help { display: none; flex: 0 0 auto; position: relative; }
-.molavi-buyer-compact-help > summary {
-    align-items: center;
-    background: #fff;
-    border: 1px solid var(--molavi-line);
-    border-radius: 9px;
-    color: var(--molavi-muted);
-    cursor: pointer;
-    display: grid;
-    height: 33px;
-    justify-items: center;
-    list-style: none;
-    width: 30px;
-}
-.molavi-buyer-compact-help > summary::-webkit-details-marker { display: none; }
-.molavi-buyer-compact-help > summary svg { fill: none; height: 15px; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.7; width: 15px; }
-.molavi-buyer-compact-help p {
-    background: #fff;
-    border: 1px solid var(--molavi-line);
-    border-radius: 11px;
-    box-shadow: 0 14px 34px rgba(36, 50, 57, .16);
-    font-size: .73rem;
-    inset-inline-end: 0;
-    line-height: 1.75;
-    margin: 7px 0 0;
-    padding: 11px 13px;
-    position: absolute;
-    top: 100%;
-    width: min(320px, calc(100vw - 28px));
-    z-index: 90;
-}
 .molavi-store-controls.is-compact .molavi-toolbar-actions { flex: 0 0 auto; gap: 3px; }
 .molavi-store-controls.is-compact .molavi-toolbar-meta { gap: 4px; }
-.molavi-store-controls.is-compact .molavi-compact-search-trigger,
-.molavi-store-controls.is-compact .molavi-buyer-compact-help { display: inline-flex; }
-.molavi-store-controls.is-compact .molavi-compact-help-trigger { display: inline-flex; flex: 0 0 auto; }
+.molavi-store-controls.is-compact .molavi-compact-search-trigger { display: inline-flex; }
 .molavi-store-controls.is-compact .molavi-toolbar-icon { height: 33px; min-width: 32px; padding: 0; width: 32px; }
 .molavi-store-controls.is-compact .molavi-product-toolbar .molavi-toolbar-menu > summary {
     flex: 0 0 32px;
@@ -3332,7 +3297,6 @@ body.molavi-site-page .woocommerce .woocommerce-notices-wrapper { margin-bottom:
     color: var(--molavi-orange-dark);
 }
 .molavi-store-controls.is-compact .molavi-buyer-compact:focus-visible,
-.molavi-store-controls.is-compact .molavi-compact-help-trigger:focus-visible,
 .molavi-control-panel-close:focus-visible,
 .molavi-control-option:focus-visible {
     outline: 2px solid #789184;
@@ -3511,4 +3475,146 @@ body.molavi-site-page .molavi-toolbar-search input:focus-visible {
     .molavi-store-controls,
     .molavi-product-toolbar,
     .molavi-buyer-choice { transition-duration: .01ms !important; }
+}
+
+/* Match the approved expanded and compact toolbar states. */
+.molavi-product-area .molavi-buyer-search-trigger {
+    background: #fff;
+    border: 1px solid #e7e5df;
+    border-radius: 9px;
+    flex: 0 0 30px;
+    height: 30px;
+    min-width: 30px;
+    padding: 0;
+    width: 30px;
+}
+.molavi-product-area .molavi-buyer-search-trigger:hover,
+.molavi-product-area .molavi-buyer-search-trigger[aria-expanded="true"] {
+    background: #fff3eb;
+    color: var(--molavi-orange);
+}
+.molavi-product-area .molavi-buyer-help-trigger {
+    background: #fff;
+    border: 1px solid #e7e5df;
+    border-radius: 50%;
+    color: #758084;
+    height: 23px;
+    min-width: 23px;
+    padding: 0;
+    width: 23px;
+}
+.molavi-product-area .molavi-buyer-help-trigger svg { height: 14px; width: 14px; }
+.molavi-product-area .molavi-buyer-help-trigger:hover,
+.molavi-product-area .molavi-buyer-help-trigger[aria-expanded="true"] {
+    background: #fff3eb;
+    border-color: #e7e5df;
+    color: var(--molavi-orange);
+}
+.molavi-product-toolbar .molavi-category-trigger,
+.molavi-product-toolbar .molavi-sort-trigger {
+    background: transparent;
+    border-color: transparent;
+    border-radius: 9px;
+    height: 34px;
+    min-width: 0;
+    padding: 5px 9px;
+}
+.molavi-product-toolbar .molavi-category-trigger:hover,
+.molavi-product-toolbar .molavi-category-trigger[aria-expanded="true"],
+.molavi-product-toolbar .molavi-sort-trigger:hover,
+.molavi-product-toolbar .molavi-sort-trigger[aria-expanded="true"] {
+    background: #fff;
+    border-color: var(--molavi-line);
+    color: var(--molavi-ink);
+}
+.molavi-toolbar-label { color: var(--molavi-ink); font-size: .72rem; white-space: nowrap; }
+.molavi-toolbar-value {
+    background: #f4f3ef;
+    border-radius: 999px;
+    color: #59666a;
+    font-size: .65rem;
+    padding: 2px 6px;
+    white-space: nowrap;
+}
+.molavi-result-count {
+    align-items: center;
+    display: inline-flex;
+    flex: 0 0 auto;
+    gap: 2px;
+    line-height: 1.4;
+}
+.molavi-result-label { white-space: nowrap; }
+.molavi-product-toolbar .molavi-view-toggle {
+    align-items: center;
+    background: #fff;
+    border: 1px solid var(--molavi-line);
+    border-radius: 10px;
+    display: inline-flex;
+    flex: 0 0 auto;
+    gap: 2px;
+    overflow: visible;
+    padding: 2px;
+}
+.molavi-product-toolbar .molavi-view-toggle button {
+    align-items: center;
+    background: transparent;
+    border: 0;
+    border-radius: 7px;
+    color: #748084;
+    display: grid;
+    height: 31px;
+    justify-items: center;
+    padding: 0;
+    width: 31px;
+}
+.molavi-product-toolbar .molavi-view-toggle button + button { border-inline-start: 0; }
+.molavi-product-toolbar .molavi-view-toggle button.is-active,
+.molavi-product-toolbar .molavi-view-toggle button[aria-pressed="true"] {
+    background: #fff3eb;
+    color: var(--molavi-orange);
+}
+.molavi-store-controls.is-compact .molavi-toolbar-label,
+.molavi-store-controls.is-compact .molavi-toolbar-value { display: none; }
+.molavi-store-controls.is-compact .molavi-result-label { display: none; }
+.molavi-store-controls.is-compact .molavi-product-toolbar .molavi-toolbar-icon {
+    background: transparent;
+    border-color: transparent;
+    border-radius: 9px;
+    color: #667378;
+    height: 33px;
+    min-width: 33px;
+    padding: 0;
+    width: 33px;
+}
+.molavi-store-controls.is-compact .molavi-product-toolbar .molavi-toolbar-icon:hover,
+.molavi-store-controls.is-compact .molavi-product-toolbar .molavi-toolbar-icon[aria-expanded="true"] {
+    background: #fff3eb;
+    border-color: transparent;
+    color: var(--molavi-orange);
+}
+@media (max-width: 760px) {
+    .molavi-product-toolbar .molavi-toolbar-label,
+    .molavi-product-toolbar .molavi-toolbar-value { display: none; }
+    .molavi-product-toolbar .molavi-category-trigger,
+    .molavi-product-toolbar .molavi-sort-trigger {
+        background: transparent;
+        border-color: transparent;
+        height: 33px;
+        min-width: 33px;
+        padding: 0;
+        width: 33px;
+    }
+    .molavi-product-toolbar .molavi-category-trigger:hover,
+    .molavi-product-toolbar .molavi-category-trigger[aria-expanded="true"],
+    .molavi-product-toolbar .molavi-sort-trigger:hover,
+    .molavi-product-toolbar .molavi-sort-trigger[aria-expanded="true"] {
+        background: #fff3eb;
+        border-color: transparent;
+        color: var(--molavi-orange);
+    }
+    .molavi-product-toolbar .molavi-view-toggle button { height: 28px; width: 28px; }
+}
+@media (max-width: 420px) {
+    .molavi-store-controls.is-compact .molavi-product-toolbar .molavi-view-toggle button { height: 27px; width: 26px; }
+    .molavi-store-controls:not(.is-compact) .molavi-product-toolbar .molavi-view-toggle button { height: 27px; width: 27px; }
 }
