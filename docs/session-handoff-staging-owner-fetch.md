@@ -88,6 +88,23 @@ hosts other than `staging.molavisale.ir`. Log only path, method, HTTP status, br
 failure category, and a sanitized error code. Never print cookies, nonces, auth
 headers, credentials, page business data, or response bodies.
 
+### Staging redesign release check
+
+Commit `7d265d1cb5c1740c474594d7e976e6e2c839cbf4` is live in Railway Staging as
+deployment `ab1a96c0-2d5a-40bc-b777-ebf4773253bd` (`SUCCESS`) and in the staging
+WordPress plugin. The guarded browser check returned HTTP 200 for both pages and for
+nine dashboard GET routes plus two AI-confirmation GETs. It displayed four work stages,
+three dashboard tabs, and the re-extraction scope/date/channel/group controls. The
+reported error and `Failed to fetch` were not visible. Outbox claims, review-store
+writes, and workflow POSTs were blocked during this follow-up, so no owner decision or
+re-extraction run was submitted by that check. Production was not changed.
+
+The re-extraction “linked” scope means that an eligible source offer references a
+`Product ID` present in the current `Products` table. It does not certify that the
+WooCommerce item is currently published. Scope, selected channels, and inclusive
+Tehran-date boundaries combine with AND logic; group-by channel/day changes only the
+preview display. Runs retain the configured model and existing quality checks.
+
 ## Next-session checklist
 
 1. **Keep all investigation on staging.** Do not change or deploy to production unless

@@ -1,6 +1,6 @@
 # MolaviSale — whole-workflow handoff
 
-Snapshot 4.75. Updated 2026-11-11, Asia/Tehran. The canonical roleplay decisions are in
+Snapshot 4.76. Updated 2026-11-11, Asia/Tehran. The canonical roleplay decisions are in
 `roleplay-state.json`; current live evidence and release gates are in
 `pipeline-readiness.md` and `pipeline-readiness-evidence.json`.
 The product intake and shelf policy is documented in `products-streamline-integrity.md`.
@@ -19,7 +19,9 @@ verification. The dashboard also drains queued owner decisions on page load; the
 inspection did not block this behavior, and whether a queued command was delivered is
 unknown. Further browser checks must block outbox claims, review-store writes, and all
 owner-proxy POSTs. Keep follow-up work on staging unless the user explicitly names
-production. See [`site-change-workflow.md`](site-change-workflow.md) and
+production. The owner-workbench redesign is now deployed only to Staging at commit
+`7d265d1cb5c1740c474594d7e976e6e2c839cbf4`; its deployment and filter semantics are
+recorded in [`site-change-workflow.md`](site-change-workflow.md). See also
 [`session-handoff-staging-owner-fetch.md`](session-handoff-staging-owner-fetch.md).
 
 ## 2026-11-06 User-confirmed pack-size quantity steps

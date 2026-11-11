@@ -46,6 +46,43 @@ owner-proxy `GET`s. The detailed guard and sanitized evidence checklist are in
 Keep further development and deployment on staging unless the user explicitly names
 production.
 
+## 2026-11-11 Staging owner workbench and re-extraction taxonomy
+
+Commit `7d265d1cb5c1740c474594d7e976e6e2c839cbf4` implements the owner workbench
+redesign and filtered re-extraction flow. Railway Staging deployment
+`ab1a96c0-2d5a-40bc-b777-ebf4773253bd` reached `SUCCESS`; the Staging source is pinned
+to that commit on `codex/staging-upstream-diagnostic`, and `/health` returned
+`healthy`. The plugin deployer uploaded and read back
+`includes/operations-dashboard.php`, `includes/owner-workflows.css`, and
+`includes/owner-workflows.js` from the Staging WordPress root. Production was not
+changed.
+
+The dashboard now separates intake/extraction, product identity, price/evidence, and
+publication/sync tasks, with store operations in their own tab. Re-extraction offers
+all ordinary eligible text messages, messages waiting for owner review, or messages
+linked to a product ID in the current catalog, then combines multi-channel selection
+and inclusive Tehran-date filters. Preview groups can be shown by channel or day.
+The linked scope means a current `Products` catalog association; it does not promise a
+published WooCommerce listing. OCR-only messages remain in the separate OCR flow.
+Runs use the existing configured extraction model and quality checks. Before enqueue,
+the backend recomputes the same selection under the publication lock and rejects a
+changed count or digest.
+
+The guarded authenticated Staging check loaded both owner pages at HTTP 200. All nine
+observed dashboard API GET routes and both AI-confirmation GETs returned HTTP 200; no
+reported error or `Failed to fetch` was visible. The new dashboard showed four stage
+cards and three work tabs, and the AI page showed its scope, date, channel-search, and
+grouping controls. The browser blocked review-store writes, outbox claims, and all
+workflow POSTs; no decision or extraction run was started in that guarded check.
+JavaScript syntax, Python compilation, and `git diff --check` passed. PHP CLI was not
+available in the workspace.
+
+The first authenticated page inspection occurred before that browser guard was added.
+Because the old dashboard auto-drains queued decisions at page load, whether a previously
+queued supplier-price or Sheet command was delivered is unknown. This is recorded in
+[`session-handoff-staging-owner-fetch.md`](session-handoff-staging-owner-fetch.md);
+do not describe that initial check as mutation-free.
+
 ## 2026-11-06 User-confirmed package quantity steps live
 
 WordPress plugin commit `b4a91259817e7f9ecd17cef93da05365aee22ecf` deployed the
