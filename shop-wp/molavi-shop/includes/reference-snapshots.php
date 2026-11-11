@@ -77,7 +77,8 @@ add_action('admin_enqueue_scripts', static function (string $hook): void {
         (string)filemtime($script),true);
     wp_localize_script('molavi-reference-snapshots','molaviReferenceSnapshots',[
         'apiUrl'=>rtrim($base,'/') . '/reference/snapshots',
-        'token'=>$token,
+        'apiProxyUrl'=>molavi_owner_workflow_relative_admin_url('admin-ajax.php'),
+        'apiProxyNonce'=>wp_create_nonce('molavi_owner_workflow_proxy'),
     ]);
 });
 

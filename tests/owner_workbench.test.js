@@ -106,23 +106,8 @@ async function main() {
   let sheetConflictResponse = 'stale';
   const referenceAssignments = [];
   let mediaPreview = null;
-  const fetch = async (url, options = {}) => {
+  const remoteFetch = async (url, options = {}) => {
     calls.push({url:String(url),options});
-    if (String(url) === '/admin-ajax.php') {
-      const form = new URLSearchParams(options.body);
-      if (form.get('action') === 'molavi_owner_review_outbox_pending') {
-        const commands = pendingOutboxCommands;
-        pendingOutboxCommands = [];
-        return {ok:true,status:200,json:async()=>({success:true,data:{commands}})};
-      }
-      const parsed = JSON.parse(form.get('records'));
-      storedReviewRows.push(...parsed);
-      const commands = Object.fromEntries(parsed
-        .filter(item => ['sheet_conflict','supplier_price'].includes(item.review_type)
-          && ['pending','accepted','failed'].includes(item.state))
-        .map(item => [item.event_id,'c'.repeat(64)]));
-      return {ok:true,status:200,json:async()=>({success:true,data:{stored:parsed.length,commands}})};
-    }
     const path = new URL(String(url),base).pathname;
     if (path.endsWith('/ai-confirmations') && new URL(String(url),base).searchParams.get('reextract') === 'preview') {
       return {ok:true,status:200,json:async()=>({ok:true,...mediaPreview})};
@@ -233,9 +218,35 @@ async function main() {
     assert(response, `unexpected API path: ${path}`);
     return {ok:true,status:200,json:async()=>({ok:true,...response})};
   };
+  const fetch = async (url, options = {}) => {
+    if (String(url) !== '/admin-ajax.php') return remoteFetch(url, options);
+    const form = new URLSearchParams(options.body);
+    if (form.get('action') === 'molavi_owner_workflow_proxy') {
+      const target = new URL(form.get('path') + (form.get('query') || ''),base);
+      const remoteOptions = {method:form.get('method'),headers:{}};
+      if (form.has('payload')) remoteOptions.body = form.get('payload');
+      const result = await remoteFetch(target.toString(),remoteOptions);
+      calls[calls.length - 1].transportUrl = String(url);
+      calls[calls.length - 1].transportOptions = options;
+      return result;
+    }
+    calls.push({url:String(url),options});
+    if (form.get('action') === 'molavi_owner_review_outbox_pending') {
+      const commands = pendingOutboxCommands;
+      pendingOutboxCommands = [];
+      return {ok:true,status:200,json:async()=>({success:true,data:{commands}})};
+    }
+    const parsed = JSON.parse(form.get('records'));
+    storedReviewRows.push(...parsed);
+    const commands = Object.fromEntries(parsed
+      .filter(item => ['sheet_conflict','supplier_price'].includes(item.review_type)
+        && ['pending','accepted','failed'].includes(item.state))
+      .map(item => [item.event_id,'c'.repeat(64)]));
+    return {ok:true,status:200,json:async()=>({success:true,data:{stored:parsed.length,commands}})};
+  };
   let scrollToCalls = 0;
   const window = {molaviOwnerWorkflow:{page:'molavi-operations',apiUrl:base+'/pipeline/operations-dashboard',
-    token:'scoped-operations',workflowApis,pageUrls:{'molavi-ai-confirmations':
+    token:'scoped-operations',workflowApis,apiProxyUrl:'/admin-ajax.php',apiProxyNonce:'nonce',pageUrls:{'molavi-ai-confirmations':
       'https://site.test/wp-admin/admin.php?page=molavi-ai-confirmations'},reviewStoreUrl:'/admin-ajax.php',reviewStoreNonce:'nonce'},
     parent:null,location:{href:'https://site.test/wp-admin/admin.php?page=molavi-operations',
       pathname:'/wp-admin/admin.php',search:'?page=molavi-operations'},crypto:webcrypto,history:{replaceState(){}},
@@ -348,7 +359,9 @@ async function main() {
     if (key === 'telegram_operators') continue; // write-only endpoint; pending rows arrive with operations state.
     const call = calls.find(item => item.url === workflowApis[key].url);
     assert(call, `${key} API must load independently`);
-    assert.equal(call.options.headers.Authorization,`Bearer scoped-${key}`);
+    assert.equal(call.options.headers.Authorization,undefined,
+      `${key} uses WordPress server-side authentication`);
+    assert.equal(call.transportUrl,'/admin-ajax.php');
   }
   assert(calls.some(item => item.url === '/admin-ajax.php'), 'source context is retained in WordPress');
   const verifyButton = walk(visibleCards[0]).find(element => element.tagName === 'BUTTON'
@@ -364,7 +377,7 @@ async function main() {
   const verification = calls.find(item => item.options.method === 'POST'
     && item.url === workflowApis.supplier_prices.url);
   assert(verification, 'supplier verification submits asynchronously without a page form post');
-  assert.equal(verification.options.headers.Authorization,'Bearer scoped-supplier_prices');
+  assert.equal(verification.options.headers.Authorization,undefined);
   assert.equal(JSON.parse(verification.options.body).command_id,'c'.repeat(64),
     'supplier verification sends the stable WordPress command id for idempotent Railway replay');
   assert.equal(calls.filter(item => item.url === workflowApis.product_status.url).length,
@@ -565,8 +578,8 @@ async function main() {
   const callsBeforeReferenceSave = calls.length;
   await assignReference.listeners.click();
   assert.equal(referenceAssignments.length,1);
-  assert.equal(referenceAssignments[0].authorization,'Bearer scoped-reference_items',
-    'in-card reference assignment uses its own route-scoped AJAX token');
+  assert.equal(referenceAssignments[0].authorization,undefined,
+    'in-card reference assignment keeps credentials on the WordPress server');
   assert.equal(referenceAssignments[0].payload.action,'assign_ai_reference');
   assert.equal(calls.filter(item => item.options.method === 'POST'
     && item.url === workflowApis.ai_confirmations.url).length,0,
@@ -766,6 +779,7 @@ async function main() {
   const supplierDocument = {...document,getElementById:id=>id === 'molavi-owner-workflow' ? supplierRoot : null};
   const supplierWindow = {...window,molaviOwnerWorkflow:{page:'molavi-supplier-prices',
     apiUrl:base+'/pipeline/supplier-price-evidence',token:'scoped-supplier_prices',
+    apiProxyUrl:'/admin-ajax.php',apiProxyNonce:'nonce',
     reviewStoreUrl:'/admin-ajax.php',reviewStoreNonce:'nonce'},
     location:{href:'https://site.test/wp-admin/admin.php?page=molavi-supplier-prices',
       pathname:'/wp-admin/admin.php',search:'?page=molavi-supplier-prices'}};
@@ -842,7 +856,7 @@ async function main() {
   const accessRequest = calls.find(item => new URL(item.url,base).pathname.endsWith('/telegram-operator-chats')
     && item.options.method === 'POST');
   assert(accessRequest,'approval reaches the owner-scoped Telegram operator endpoint');
-  assert.equal(accessRequest.options.headers.Authorization,'Bearer scoped-telegram_operators');
+  assert.equal(accessRequest.options.headers.Authorization,undefined);
   const accessEvents = storedReviewRows.filter(row => row.review_type === 'telegram_operator');
   assert(accessEvents.some(row => row.state === 'pending') && accessEvents.some(row => row.state === 'accepted'),
     'the approval and its receipt are durably recorded in the WordPress review database');

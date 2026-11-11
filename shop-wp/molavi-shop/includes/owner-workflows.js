@@ -229,6 +229,9 @@
             stale_or_conflicting_decision: 'وضعیت تصمیم تغییر کرده است؛ صفحه را تازه کنید.',
             review_unavailable: 'ثبت تصمیم موقتاً انجام نشد. صفحه را تازه کنید و دوباره تلاش کنید.',
             workflow_route_unavailable: 'اتصال این بخش تنظیم نشده است؛ از مدیریت سایت کمک بگیرید.',
+            workflow_proxy_unavailable: 'اتصال امن وردپرس به سرویس پردازش آماده نیست؛ صفحه را تازه کنید.',
+            upstream_unavailable: 'ارتباط وردپرس با سرویس پردازش برقرار نشد؛ چند لحظه بعد دوباره تلاش کنید.',
+            invalid_nonce: 'نشست مدیریت منقضی شده است؛ صفحه را تازه کنید و دوباره تلاش کنید.',
             conflict_or_invalid: 'وضعیت توقف تغییر کرده است؛ صفحه را تازه کنید و دوباره بررسی کنید.',
             offer_changed: 'نسخه قیمت تغییر کرده است؛ دوباره منبع را بررسی کنید.',
             invalid_body: 'درخواست تأیید قیمت ناقص بود؛ صفحه را تازه کنید و دوباره تلاش کنید.',
@@ -279,13 +282,22 @@
     async function request(method = 'GET', payload = undefined, url = '', apiKey = '') {
         const scopedApi = apiKey && config.workflowApis && config.workflowApis[apiKey];
         if (apiKey && !scopedApi) throw new Error('workflow_route_unavailable');
-        const options = { method, mode: 'cors', cache: 'no-store',
-            headers: { Authorization: 'Bearer ' + (scopedApi ? scopedApi.token : config.token) } };
-        if (payload !== undefined) {
-            options.headers['Content-Type'] = 'application/json';
-            options.body = JSON.stringify(payload);
-        }
-        const response = await fetch(url || (scopedApi && scopedApi.url) || config.apiUrl, options);
+        if (!config.apiProxyUrl || !config.apiProxyNonce) throw new Error('workflow_proxy_unavailable');
+        const target = new URL(url || (scopedApi && scopedApi.url) || config.apiUrl, window.location.href);
+        const apiBase = new URL(config.apiUrl, window.location.href);
+        if (target.origin !== apiBase.origin) throw new Error('workflow_route_unavailable');
+        const formBody = new URLSearchParams({
+            action: 'molavi_owner_workflow_proxy',
+            nonce: config.apiProxyNonce,
+            method: String(method).toUpperCase(),
+            path: target.pathname,
+            query: target.search,
+        });
+        if (payload !== undefined) formBody.set('payload', JSON.stringify(payload));
+        const response = await fetch(config.apiProxyUrl, {method:'POST', mode:'same-origin',
+            credentials:'same-origin', cache:'no-store',
+            headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8',
+                'Accept':'application/json'}, body:formBody});
         const body = await response.json().catch(() => null);
         if (!response.ok || !body || body.ok !== true) {
             const error = new Error(body && typeof body.error === 'string' ? body.error : 'request_failed');

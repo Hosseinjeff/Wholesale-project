@@ -34,6 +34,108 @@ function molavi_owner_workflow_page_urls(): array {
     return $urls;
 }
 
+function molavi_owner_workflow_proxy_paths(): array {
+    $paths = array_column(molavi_owner_workflow_pages(), 0);
+    return array_values(array_unique(array_merge($paths, [
+        '/pipeline/reconciliation',
+        '/pipeline/reconcile-publication-backlog',
+        '/pipeline/migration-shadow',
+        '/pipeline/telegram-operator-chats',
+        '/reference/snapshots',
+    ])));
+}
+
+/** Forward one owner-only browser request from WordPress to the private workflow API. */
+function molavi_owner_workflow_proxy_call(string $method, string $path, array $query = [], ?array $payload = null): array {
+    if (!in_array($method, ['GET', 'POST'], true)
+        || !in_array($path, molavi_owner_workflow_proxy_paths(), true)) {
+        return ['status'=>400, 'body'=>['ok'=>false, 'error'=>'workflow_route_unavailable']];
+    }
+    $base = defined('MOLAVI_REFERENCE_SERVER_URL') ? MOLAVI_REFERENCE_SERVER_URL : '';
+    $token = defined('MOLAVI_REFERENCE_BRIDGE_TOKEN') ? MOLAVI_REFERENCE_BRIDGE_TOKEN : '';
+    if (!is_string($base) || !is_string($token) || strlen($token) < 32
+        || wp_parse_url($base, PHP_URL_SCHEME) !== 'https') {
+        return ['status'=>503, 'body'=>['ok'=>false, 'error'=>'unconfigured']];
+    }
+    $queryString = $query ? http_build_query($query, '', '&', PHP_QUERY_RFC3986) : '';
+    $url = rtrim($base, '/') . $path . ($queryString === '' ? '' : '?' . $queryString);
+    $args = [
+        'method'=>$method,
+        'timeout'=>45,
+        'redirection'=>0,
+        'headers'=>[
+            'X-Molavi-Reference-Token'=>$token,
+            'X-Molavi-Actor'=>'wp:' . get_current_user_id(),
+            'Content-Type'=>'application/json',
+        ],
+    ];
+    if ($method === 'POST') {
+        $body = wp_json_encode($payload ?? []);
+        if (!is_string($body) || strlen($body) > 2000000) {
+            return ['status'=>400, 'body'=>['ok'=>false, 'error'=>'invalid_body']];
+        }
+        $args['body'] = $body;
+    }
+    $response = wp_safe_remote_request($url, $args);
+    if (is_wp_error($response)) {
+        return ['status'=>502, 'body'=>['ok'=>false, 'error'=>'upstream_unavailable']];
+    }
+    $status = (int) wp_remote_retrieve_response_code($response);
+    $body = json_decode((string) wp_remote_retrieve_body($response), true);
+    if ($status < 200 || $status > 599 || !is_array($body)) {
+        return ['status'=>502, 'body'=>['ok'=>false, 'error'=>'invalid_upstream_response']];
+    }
+    return ['status'=>$status, 'body'=>$body];
+}
+
+function molavi_owner_workflow_proxy_ajax(): void {
+    if (!current_user_can('manage_woocommerce') || !molavi_reference_owner()) {
+        wp_send_json(['ok'=>false, 'error'=>'owner_required'], 403);
+    }
+    $nonce = isset($_POST['nonce']) && is_string($_POST['nonce'])
+        ? sanitize_text_field(wp_unslash($_POST['nonce'])) : '';
+    if ($nonce === '' || !wp_verify_nonce($nonce, 'molavi_owner_workflow_proxy')) {
+        wp_send_json(['ok'=>false, 'error'=>'invalid_nonce'], 403);
+    }
+    $method = isset($_POST['method']) && is_string($_POST['method'])
+        ? strtoupper(sanitize_text_field(wp_unslash($_POST['method']))) : '';
+    $path = isset($_POST['path']) && is_string($_POST['path'])
+        ? wp_unslash($_POST['path']) : '';
+    if (!in_array($path, molavi_owner_workflow_proxy_paths(), true)) {
+        wp_send_json(['ok'=>false, 'error'=>'workflow_route_unavailable'], 400);
+    }
+    $rawQuery = isset($_POST['query']) && is_string($_POST['query'])
+        ? wp_unslash($_POST['query']) : '';
+    if (strlen($rawQuery) > 2048 || ($rawQuery !== '' && $rawQuery[0] !== '?')) {
+        wp_send_json(['ok'=>false, 'error'=>'invalid_query'], 400);
+    }
+    $query = [];
+    if ($rawQuery !== '') {
+        parse_str(substr($rawQuery, 1), $query);
+        foreach ($query as $key=>$value) {
+            if (!preg_match('/^[A-Za-z0-9_-]{1,64}$/', (string)$key) || !is_scalar($value)) {
+                wp_send_json(['ok'=>false, 'error'=>'invalid_query'], 400);
+            }
+            $query[$key] = sanitize_text_field((string)$value);
+        }
+    }
+    $payload = null;
+    if ($method === 'POST') {
+        $rawPayload = isset($_POST['payload']) && is_string($_POST['payload'])
+            ? wp_unslash($_POST['payload']) : '';
+        $payload = $rawPayload === '' ? [] : json_decode($rawPayload, true);
+        if (!is_array($payload) || strlen($rawPayload) > 2000000) {
+            wp_send_json(['ok'=>false, 'error'=>'invalid_body'], 400);
+        }
+    } elseif ($method !== 'GET') {
+        wp_send_json(['ok'=>false, 'error'=>'workflow_route_unavailable'], 400);
+    }
+    $result = molavi_owner_workflow_proxy_call($method, $path, $query, $payload);
+    nocache_headers();
+    wp_send_json($result['body'], $result['status']);
+}
+add_action('wp_ajax_molavi_owner_workflow_proxy', 'molavi_owner_workflow_proxy_ajax');
+
 function molavi_owner_workflow_token(string $scope): string {
     if (!molavi_reference_owner()) { return ''; }
     $allowed = array_merge(array_column(molavi_owner_workflow_pages(), 1),
@@ -86,7 +188,8 @@ add_action('admin_enqueue_scripts', static function (): void {
     $browserConfig = [
         'page' => $page,
         'apiUrl' => rtrim($base, '/') . $pages[$page][0],
-        'token' => $token,
+        'apiProxyUrl' => molavi_owner_workflow_relative_admin_url('admin-ajax.php'),
+        'apiProxyNonce' => wp_create_nonce('molavi_owner_workflow_proxy'),
         'pipelineUrl' => molavi_owner_workflow_relative_admin_url('admin.php?page=molavi-operations'),
         'pageUrls' => molavi_owner_workflow_page_urls(),
     ];
@@ -108,7 +211,6 @@ add_action('admin_enqueue_scripts', static function (): void {
             if ($scopedToken === '') { continue; }
             $browserConfig['workflowApis'][$key] = [
                 'url' => rtrim($base, '/') . $source[0],
-                'token' => $scopedToken,
             ];
         }
     }

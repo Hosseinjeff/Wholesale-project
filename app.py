@@ -2168,6 +2168,8 @@ def reference_snapshots_browser_cors(response):
         '/reference/decisions',
         '/reference/item-reviews',
         '/pipeline/operations-dashboard',
+        '/pipeline/reconciliation',
+        '/pipeline/migration-shadow',
         '/pipeline/telegram-operator-chats',
         '/pipeline/reconcile-publication-backlog',
         '/pipeline/product-status-snapshots',

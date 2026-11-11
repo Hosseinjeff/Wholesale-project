@@ -14,6 +14,9 @@
         const messages = {
             unauthorized: 'نشست شما منقضی شده است. صفحه را تازه کنید.',
             owner_required: 'این حساب اجازه بررسی قیمت‌های مرجع را ندارد.',
+            workflow_proxy_unavailable: 'اتصال امن وردپرس به سرویس پردازش آماده نیست؛ صفحه را تازه کنید.',
+            upstream_unavailable: 'ارتباط وردپرس با سرویس پردازش برقرار نشد؛ چند لحظه بعد دوباره تلاش کنید.',
+            invalid_nonce: 'نشست مدیریت منقضی شده است؛ صفحه را تازه کنید و دوباره تلاش کنید.',
             active_snapshot_changed: 'نسخه فعال تغییر کرده است. فهرست را دوباره بررسی کنید.',
             snapshot_changed_or_unreviewed: 'وضعیت نسخه تغییر کرده است. فهرست را دوباره بررسی کنید.',
             snapshot_not_found: 'این نسخه دیگر در دسترس نیست.',
@@ -125,17 +128,24 @@
     }
 
     async function request(method, payload, url) {
-        const options = {
-            method,
-            mode: 'cors',
-            cache: 'no-store',
-            headers: { Authorization: 'Bearer ' + config.token }
-        };
-        if (payload !== undefined) {
-            options.headers['Content-Type'] = 'application/json';
-            options.body = JSON.stringify(payload);
+        if (!config.apiProxyUrl || !config.apiProxyNonce) throw new Error('workflow_proxy_unavailable');
+        const target = new URL(url || config.apiUrl, window.location.href);
+        const apiBase = new URL(config.apiUrl, window.location.href);
+        if (target.origin !== apiBase.origin || target.pathname !== apiBase.pathname) {
+            throw new Error('workflow_route_unavailable');
         }
-        const response = await fetch(url || config.apiUrl, options);
+        const formBody = new URLSearchParams({
+            action: 'molavi_owner_workflow_proxy',
+            nonce: config.apiProxyNonce,
+            method: String(method).toUpperCase(),
+            path: target.pathname,
+            query: target.search,
+        });
+        if (payload !== undefined) formBody.set('payload', JSON.stringify(payload));
+        const response = await fetch(config.apiProxyUrl, {method:'POST', mode:'same-origin',
+            credentials:'same-origin', cache:'no-store',
+            headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8',
+                'Accept':'application/json'}, body:formBody});
         const body = await response.json().catch(() => null);
         if (!response.ok || !body || body.ok !== true) {
             throw new Error(body && typeof body.error === 'string' ? body.error : 'request_failed');
@@ -432,7 +442,7 @@
     }
 
     async function load(successMessage) {
-        if (!config || !config.apiUrl || !config.token) {
+        if (!config || !config.apiUrl || !config.apiProxyUrl || !config.apiProxyNonce) {
             root.replaceChildren(notice('اتصال فهرست قیمت تنظیم نشده است.', 'error'));
             return;
         }

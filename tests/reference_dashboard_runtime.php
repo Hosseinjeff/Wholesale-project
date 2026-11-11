@@ -905,7 +905,7 @@ ref_assert(strpos($workflow_api_php,'workflowApis')!==false
     && strpos($workflow_api_php,'owner:/pipeline/ai-confirmations')!==false
     && strpos($workflow_api_php,'owner:/reference/item-reviews')!==false
     && strpos($workflow_api_php,'owner:/pipeline/sheet-conflicts')!==false,
-    'dashboard exposes only short-lived route-scoped capabilities for its product data sources');
+    'dashboard maps its product data sources to owner-only workflow routes');
 ref_assert(strpos($workflow_js,'Promise.all(allKeys.map(key => {')!==false
     && strpos($workflow_js,'molavi-source-health')!==false,
     'dashboard loads product data sources independently and identifies unavailable sources');
