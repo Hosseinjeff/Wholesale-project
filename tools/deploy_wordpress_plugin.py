@@ -148,8 +148,8 @@ def remote_location(remote_root: str, tracked_name: str) -> tuple[str, str]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--since", default="HEAD^", help="Git ref before the plugin changes to deploy (default: HEAD^)")
-    parser.add_argument("--site", choices=sorted(SITE_DOCUMENT_ROOTS), default="production",
-                        help="cPanel WordPress document root to deploy to (default: production)")
+    parser.add_argument("--site", choices=sorted(SITE_DOCUMENT_ROOTS), default="staging",
+                        help="cPanel WordPress document root to deploy to (default: staging)")
     args = parser.parse_args()
 
     try:

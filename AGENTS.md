@@ -17,6 +17,10 @@ decisions; do not silently choose a different inventory or pricing authority.
 
 ## Source control and live WordPress changes
 
+Target Staging for development, validation, and deployments by default. Use Railway's
+Staging environment and `staging.molavisale.ir`; use production only when the user
+explicitly names production or the live site.
+
 Treat tracked files in `shop-wp/molavi-shop/` as the source of truth for the live
 store plugin. Make edits here, commit them, and push them to the configured Git
 upstream before deploying. Use `tools/deploy_wordpress_plugin.py` for live plugin
