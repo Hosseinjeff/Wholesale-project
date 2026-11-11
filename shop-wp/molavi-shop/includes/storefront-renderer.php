@@ -148,7 +148,7 @@ function molavi_render_storefront(): void
                     </div>
                     <div class="molavi-control-panel" id="molavi-help-panel" data-molavi-control-panel="help" role="dialog" aria-modal="false" aria-labelledby="molavi-help-panel-title" aria-describedby="molavi-help-panel-note" tabindex="-1" hidden>
                         <div class="molavi-control-panel-heading"><strong id="molavi-help-panel-title">راهنمای نوع خرید</strong><button type="button" class="molavi-control-panel-close" data-molavi-panel-close aria-label="بستن"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"></path></svg></button></div>
-                        <p class="molavi-control-panel-note" id="molavi-help-panel-note" data-molavi-buyer-help>قیمت‌ها و گام سفارش با نوع خرید هماهنگ می‌شوند. تعداد سبد خودکار تغییر نمی‌کند.</p>
+                        <p class="molavi-control-panel-note" id="molavi-help-panel-note" data-molavi-buyer-help>انتخاب «خانوار» یا «فروشگاه» قیمت و گام سفارش کالاها را به‌روز می‌کند. تعداد سبد خودکار تغییر نمی‌کند؛ اگر تعداد با گام تازه سازگار نباشد، پیش از ادامه می‌توانید آن را اصلاح کنید.</p>
                     </div>
                 </div>
                 <section class="molavi-recommendation-carousel" data-molavi-recommendations aria-label="پیشنهادهای محصول با تخفیف بیشتر">
