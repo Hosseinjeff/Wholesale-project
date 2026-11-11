@@ -110,25 +110,28 @@ function molavi_render_storefront(): void
                     <button class="molavi-toolbar-icon molavi-toolbar-search-trigger molavi-compact-search-trigger" type="button" data-molavi-search-toggle aria-label="جست‌وجوی محصولات" aria-expanded="false" aria-controls="molavi-toolbar-search" title="جست‌وجو">
                         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"></circle><path d="m16 16 4.5 4.5"></path></svg>
                     </button>
-                    <label class="molavi-sort molavi-toolbar-select">
-                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4v15m0 0-4-4m4 4 4-4M16 20V5m0 0 4 4m-4-4-4 4"></path></svg>
-                        <span class="molavi-toolbar-label">مرتب‌سازی</span>
-                        <select data-molavi-sort aria-label="مرتب‌سازی محصولات">
-                            <option value="newest">جدیدترین</option>
-                            <option value="cheap">قیمت: کم به زیاد</option>
-                            <option value="dear">قیمت: زیاد به کم</option>
-                        </select>
-                    </label>
-                    <label class="molavi-category-filter molavi-toolbar-select">
-                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16l-6.2 7.1V18l-3.6 2v-7.9L4 5Z"></path></svg>
-                        <span class="molavi-toolbar-label">دسته‌بندی</span>
-                        <select data-molavi-category-select aria-label="فیلتر دسته‌بندی محصولات">
-                            <option value="">همه</option>
+                    <details class="molavi-toolbar-menu molavi-category-menu" data-molavi-toolbar-menu data-molavi-menu-kind="category">
+                        <summary class="molavi-toolbar-icon" aria-label="فیلتر دسته‌بندی محصولات" aria-expanded="false" title="دسته‌بندی">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16l-6.2 7.1V18l-3.6 2v-7.9L4 5Z"></path></svg>
+                        </summary>
+                        <div class="molavi-toolbar-popover" role="group" aria-label="فیلتر دسته‌بندی محصولات">
+                            <button type="button" class="molavi-toolbar-option" data-molavi-category-option="" aria-pressed="true">همه دسته‌بندی‌ها</button>
                             <?php foreach ($categories as $category): ?>
-                                <option value="<?php echo esc_attr($category); ?>"><?php echo esc_html($category); ?></option>
+                                <button type="button" class="molavi-toolbar-option" data-molavi-category-option="<?php echo esc_attr($category); ?>" aria-pressed="false"><?php echo esc_html($category); ?></button>
                             <?php endforeach; ?>
-                        </select>
-                    </label>
+                        </div>
+                    </details>
+                    <details class="molavi-toolbar-menu molavi-sort-menu" data-molavi-toolbar-menu data-molavi-menu-kind="sort">
+                        <summary class="molavi-toolbar-icon" aria-label="مرتب‌سازی محصولات" aria-expanded="false" title="مرتب‌سازی">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4v15m0 0-4-4m4 4 4-4M16 20V5m0 0 4 4m-4-4-4 4"></path></svg>
+                        </summary>
+                        <div class="molavi-toolbar-popover" role="group" aria-label="مرتب‌سازی محصولات">
+                            <button type="button" class="molavi-toolbar-option" data-molavi-sort-option="newest" aria-pressed="true">جدیدترین</button>
+                            <button type="button" class="molavi-toolbar-option" data-molavi-sort-option="cheap" aria-pressed="false">قیمت: کم به زیاد</button>
+                            <button type="button" class="molavi-toolbar-option" data-molavi-sort-option="dear" aria-pressed="false">قیمت: زیاد به کم</button>
+                            <button type="button" class="molavi-toolbar-option" data-molavi-sort-option="name" aria-pressed="false">نام کالا</button>
+                        </div>
+                    </details>
                     </div>
                     <div class="molavi-toolbar-meta">
                     <span class="molavi-result-count" data-molavi-result-count aria-live="polite"><?php echo esc_html(molavi_digits((string) count($products))); ?> کالا</span>
