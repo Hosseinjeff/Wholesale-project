@@ -3562,7 +3562,7 @@ body.molavi-site-page .molavi-toolbar-search input:focus-visible {
     border-radius: 7px;
     color: #748084;
     display: grid;
-    height: 31px;
+    height: 30px;
     justify-items: center;
     padding: 0;
     width: 31px;
@@ -3618,6 +3618,8 @@ body.molavi-site-page .molavi-toolbar-search input:focus-visible {
         color: var(--molavi-orange);
     }
     .molavi-product-toolbar .molavi-view-toggle button { height: 28px; width: 28px; }
+    .molavi-product-toolbar .molavi-view-toggle { gap: 1px; }
+    .molavi-store-controls.is-compact .molavi-product-toolbar .molavi-view-toggle button { height: 28px; width: 28px; }
 }
 @media (max-width: 420px) {
     .molavi-store-controls.is-compact .molavi-product-toolbar .molavi-view-toggle button { height: 27px; width: 26px; }
