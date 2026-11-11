@@ -170,6 +170,12 @@
         document.querySelectorAll("[data-molavi-buyer-current]").forEach(function (node) {
             node.textContent = buyerType === "shop" ? "فروشگاه" : "خانوار";
         });
+        document.querySelectorAll("[data-molavi-buyer-icon-house]").forEach(function (icon) {
+            icon.hidden = buyerType !== "household";
+        });
+        document.querySelectorAll("[data-molavi-buyer-icon-store]").forEach(function (icon) {
+            icon.hidden = buyerType !== "shop";
+        });
         document.querySelectorAll("[data-molavi-buyer-help]").forEach(function (node) {
             var household = Number(lastQuote.household_unlock) || 5000000;
             var shop = Number(lastQuote.shop_unlock) || household * 4;
@@ -647,16 +653,82 @@
         }
     }
 
+    function setupStickyControls(root) {
+        var controls = root.querySelector("[data-molavi-store-controls]");
+        if (!controls) return;
+        var expandedBuyer = controls.querySelector(".molavi-buyer-expanded");
+        var compactBuyer = controls.querySelector(".molavi-buyer-compact");
+        var compactTrigger = compactBuyer ? compactBuyer.querySelector("summary") : null;
+        var frame = 0;
+
+        function update() {
+            frame = 0;
+            var shouldCompact = window.scrollY > 0 && controls.getBoundingClientRect().top <= 1;
+            var isCompact = controls.classList.contains("is-compact");
+            if (shouldCompact === isCompact) return;
+
+            var focused = document.activeElement;
+            var focusInExpanded = expandedBuyer && expandedBuyer.contains(focused);
+            var focusInCompact = compactBuyer && compactBuyer.contains(focused);
+            var nextFocus = null;
+            if (shouldCompact && focusInExpanded) {
+                nextFocus = focused.closest("[data-molavi-search-toggle]")
+                    ? controls.querySelector(".molavi-compact-search-trigger")
+                    : compactTrigger;
+                controls.querySelectorAll(".molavi-buyer-choice-details").forEach(function (details) { details.open = false; });
+                controls.querySelectorAll(".molavi-buyer-compact-help").forEach(function (details) { details.open = false; });
+            } else if (!shouldCompact && focusInCompact && expandedBuyer) {
+                if (focused.closest("[data-molavi-search-toggle]")) {
+                    nextFocus = expandedBuyer.querySelector(".molavi-buyer-search-trigger");
+                } else if (focused.closest(".molavi-buyer-compact-help")) {
+                    nextFocus = expandedBuyer.querySelector(".molavi-buyer-choice-details summary");
+                } else {
+                    nextFocus = expandedBuyer.querySelector('[data-molavi-buyer][aria-pressed="true"]');
+                }
+                if (compactBuyer) compactBuyer.open = false;
+                controls.querySelectorAll(".molavi-buyer-compact-help").forEach(function (details) { details.open = false; });
+            }
+
+            controls.classList.toggle("is-compact", shouldCompact);
+            if (nextFocus) window.requestAnimationFrame(function () { nextFocus.focus({ preventScroll: true }); });
+        }
+
+        function schedule() {
+            if (!frame) frame = window.requestAnimationFrame(update);
+        }
+
+        window.addEventListener("scroll", schedule, { passive: true });
+        window.addEventListener("resize", schedule);
+        document.addEventListener("click", function (event) {
+            if (compactBuyer && compactBuyer.open && !compactBuyer.contains(event.target)) compactBuyer.open = false;
+            controls.querySelectorAll(".molavi-buyer-compact-help[open]").forEach(function (details) {
+                if (!details.contains(event.target)) details.open = false;
+            });
+        });
+        schedule();
+    }
+
     function setupCatalog() {
         var root = document.querySelector("[data-molavi-storefront]");
         if (!root) return;
+        setupStickyControls(root);
         var grid = root.querySelector("[data-molavi-grid]");
-        var search = document.querySelector("[data-molavi-search]");
+        var searches = Array.prototype.slice.call(document.querySelectorAll("[data-molavi-search]"));
         var sort = root.querySelector("[data-molavi-sort]");
         var categorySelect = root.querySelector("[data-molavi-category-select]");
+        var toolbar = root.querySelector(".molavi-product-toolbar");
+        var toolbarSearch = root.querySelector("[data-molavi-toolbar-search]");
+        var searchToggles = Array.prototype.slice.call(root.querySelectorAll("[data-molavi-search-toggle]"));
+        var searchClose = root.querySelector("[data-molavi-search-close]");
+        var searchInput = toolbarSearch ? toolbarSearch.querySelector("[data-molavi-search]") : null;
+        var activeSearchToggle = null;
+        var query = searches.reduce(function (value, input) {
+            return value || String(input.value || "").trim();
+        }, "");
+        searches.forEach(function (input) { input.value = query; });
         var favoriteView = document.querySelector("[data-molavi-wishlist-view]");
         var viewButtons = root.querySelectorAll("[data-molavi-view]");
-        var selectedCategory = "";
+        var selectedCategory = categorySelect ? (categorySelect.value || "") : "";
         var favoritesOnly = new URLSearchParams(window.location.search).get("molavi_favorites") === "1";
         var favorites;
         try {
@@ -682,7 +754,7 @@
 
         function applyFilters() {
             if (!grid) return;
-            var term = String(search ? search.value : "").trim().toLocaleLowerCase();
+            var term = query.toLocaleLowerCase();
             var cards = Array.prototype.slice.call(grid.querySelectorAll("[data-molavi-card]"));
             var visible = 0;
             cards.forEach(function (card) {
@@ -702,15 +774,77 @@
             if (empty) empty.hidden = visible > 0;
         }
 
-        if (search) {
-            search.addEventListener("input", applyFilters);
-            if (search.form) {
-                search.form.addEventListener("submit", function (event) {
+        function updateSearch(source) {
+            query = String(source.value || "").trim();
+            searches.forEach(function (input) {
+                if (input !== source && input.value !== source.value) input.value = source.value;
+            });
+            applyFilters();
+        }
+
+        searches.forEach(function (input) {
+            input.addEventListener("input", function () { updateSearch(input); });
+            if (input.form) {
+                input.form.addEventListener("submit", function (event) {
                     event.preventDefault();
-                    applyFilters();
+                    updateSearch(input);
                     root.scrollIntoView({ behavior: "smooth", block: "start" });
                 });
             }
+        });
+
+        function setToolbarSearchOpen(open, restoreFocus) {
+            if (!toolbarSearch || !toolbar || !searchToggles.length) return;
+            if (open) {
+                root.querySelectorAll(".molavi-buyer-choice-details, .molavi-buyer-compact-help").forEach(function (details) { details.open = false; });
+            }
+            toolbarSearch.hidden = !open;
+            toolbar.classList.toggle("is-search-open", open);
+            searchToggles.forEach(function (toggle) { toggle.setAttribute("aria-expanded", open ? "true" : "false"); });
+            if (open && searchInput) {
+                searchInput.value = query;
+                window.requestAnimationFrame(function () { searchInput.focus({ preventScroll: true }); });
+            } else if (restoreFocus) {
+                var returnTo = activeSearchToggle;
+                if (!returnTo || !returnTo.getClientRects().length) {
+                    returnTo = searchToggles.filter(function (toggle) { return toggle.getClientRects().length > 0; })[0];
+                }
+                if (returnTo) returnTo.focus({ preventScroll: true });
+            }
+            if (!open) activeSearchToggle = null;
+        }
+
+        if (searchToggles.length && toolbarSearch) {
+            searchToggles.forEach(function (toggle) {
+                toggle.addEventListener("click", function () {
+                    if (!toolbarSearch.hidden) setToolbarSearchOpen(false, true);
+                    else {
+                        activeSearchToggle = toggle;
+                        setToolbarSearchOpen(true, false);
+                    }
+                });
+            });
+            if (searchClose) searchClose.addEventListener("click", function () { setToolbarSearchOpen(false, true); });
+            toolbarSearch.addEventListener("keydown", function (event) {
+                if (event.key === "Escape" && !toolbarSearch.hidden) {
+                    event.preventDefault();
+                    setToolbarSearchOpen(false, true);
+                }
+            });
+            toolbarSearch.addEventListener("focusout", function () {
+                window.requestAnimationFrame(function () {
+                    var focusOnSearchToggle = searchToggles.some(function (toggle) { return toggle === document.activeElement; });
+                    if (!toolbarSearch.hidden && !toolbarSearch.contains(document.activeElement) && !focusOnSearchToggle) {
+                        setToolbarSearchOpen(false, false);
+                    }
+                });
+            });
+            document.addEventListener("click", function (event) {
+                var clickOnSearchToggle = searchToggles.some(function (toggle) { return toggle.contains(event.target); });
+                if (!toolbarSearch.hidden && !toolbarSearch.contains(event.target) && !clickOnSearchToggle) {
+                    setToolbarSearchOpen(false, false);
+                }
+            });
         }
         if (categorySelect) {
             categorySelect.addEventListener("change", function () {

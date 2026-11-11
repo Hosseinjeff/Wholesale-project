@@ -2856,3 +2856,396 @@ body.molavi-site-page .woocommerce .woocommerce-notices-wrapper { margin-bottom:
     width: min(360px, 100%);
     z-index: auto;
 }
+
+/* Store controls stay together and fold into one short, accessible bar on scroll. */
+.molavi-store-controls {
+    background: linear-gradient(var(--molavi-bg) 72%, rgba(250, 250, 249, 0));
+    backdrop-filter: blur(10px);
+    margin: 0 -6px 12px;
+    padding: 6px;
+    position: sticky;
+    isolation: isolate;
+    top: 0;
+    transition: padding .18s ease;
+    z-index: 40;
+}
+.molavi-product-area .molavi-buyer-choice {
+    align-items: center;
+    border-radius: 14px 14px 0 0;
+    border-bottom: 0;
+    display: flex;
+    justify-content: flex-start;
+    margin: 0;
+    min-height: 46px;
+    padding: 5px 10px;
+}
+.molavi-buyer-expanded {
+    align-items: center;
+    display: flex;
+    flex: 1 1 auto;
+    flex-wrap: wrap;
+    gap: 7px 9px;
+    min-width: 0;
+}
+.molavi-product-area .molavi-buyer-choice-buttons {
+    align-items: center;
+    background: #f5f4f0;
+    border: 1px solid #eeece7;
+    border-radius: 10px;
+    flex: 0 0 auto;
+    gap: 2px;
+    padding: 2px;
+}
+.molavi-product-area .molavi-buyer-choice-buttons button {
+    border-radius: 8px;
+    font-size: .72rem;
+    min-height: 31px;
+    min-width: 68px;
+    padding: 4px 10px;
+}
+.molavi-product-area .molavi-buyer-choice-buttons button[aria-pressed="true"] {
+    background: #294f42;
+    box-shadow: 0 1px 3px rgba(26, 56, 45, .16);
+}
+.molavi-product-area .molavi-buyer-choice-details {
+    color: var(--molavi-muted);
+    flex: 0 0 auto;
+    position: relative;
+}
+.molavi-product-area .molavi-buyer-choice-details summary {
+    align-items: center;
+    background: #fff;
+    border: 1px solid var(--molavi-line);
+    border-radius: 50%;
+    color: var(--molavi-muted);
+    display: grid;
+    height: 29px;
+    justify-items: center;
+    list-style: none;
+    text-decoration: none;
+    width: 29px;
+}
+.molavi-product-area .molavi-buyer-choice-details summary::-webkit-details-marker { display: none; }
+.molavi-product-area .molavi-buyer-choice-details summary svg {
+    fill: none;
+    height: 15px;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.7;
+    width: 15px;
+}
+.molavi-product-area .molavi-buyer-choice-details p {
+    background: #fff;
+    border: 1px solid var(--molavi-line);
+    border-radius: 11px;
+    box-shadow: 0 12px 32px rgba(36, 50, 57, .14);
+    font-size: .75rem;
+    inset-inline-end: 0;
+    line-height: 1.75;
+    margin: 7px 0 0;
+    padding: 11px 13px;
+    position: absolute;
+    top: 100%;
+    width: min(320px, calc(100vw - 28px));
+    z-index: 80;
+}
+.molavi-product-area .molavi-buyer-choice .molavi-buyer-feedback { flex: 1 0 100%; }
+.molavi-buyer-compact { display: none; }
+.molavi-product-area .molavi-buyer-search-trigger { flex: 0 0 36px; }
+.molavi-product-area .molavi-compact-search-trigger { display: none; }
+.molavi-product-toolbar {
+    align-items: center;
+    background: #fff;
+    border: 1px solid var(--molavi-line);
+    border-radius: 0 0 14px 14px;
+    box-shadow: 0 5px 18px rgba(36, 50, 57, .045);
+    direction: rtl;
+    display: flex;
+    gap: 8px;
+    justify-content: space-between;
+    margin: 0;
+    min-height: 45px;
+    padding: 4px 6px;
+    position: relative;
+    transition: border-radius .18s ease, box-shadow .18s ease;
+}
+.molavi-toolbar-actions,
+.molavi-toolbar-meta {
+    align-items: center;
+    display: flex;
+    min-width: 0;
+}
+.molavi-toolbar-actions { flex: 1 1 auto; gap: 6px; }
+.molavi-toolbar-meta { flex: 0 0 auto; gap: 8px; }
+.molavi-toolbar-icon,
+.molavi-toolbar-select {
+    align-items: center;
+    background: #fffdfb;
+    border: 1px solid var(--molavi-line);
+    border-radius: 9px;
+    color: #5e6b70;
+    display: inline-flex;
+    flex: 0 0 auto;
+    gap: 6px;
+    height: 36px;
+    justify-content: center;
+    min-width: 36px;
+    padding: 0 9px;
+}
+.molavi-toolbar-icon { cursor: pointer; }
+.molavi-toolbar-icon:hover,
+.molavi-toolbar-icon:focus-visible { background: #fff3eb; color: var(--molavi-orange); }
+.molavi-toolbar-icon:focus-visible,
+.molavi-product-area .molavi-buyer-choice-details summary:focus-visible,
+.molavi-buyer-compact > summary:focus-visible,
+.molavi-buyer-compact-help > summary:focus-visible,
+.molavi-toolbar-search-close:focus-visible {
+    outline: 2px solid #788f83;
+    outline-offset: 2px;
+}
+.molavi-toolbar-icon svg,
+.molavi-toolbar-select > svg {
+    fill: none;
+    flex: 0 0 16px;
+    height: 16px;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.7;
+    width: 16px;
+}
+.molavi-product-toolbar .molavi-toolbar-select {
+    flex: 0 1 auto;
+    font-size: .73rem;
+    max-width: 250px;
+    min-width: 0;
+}
+.molavi-toolbar-select select {
+    appearance: none;
+    background: transparent;
+    border: 0;
+    color: var(--molavi-ink);
+    cursor: pointer;
+    flex: 0 1 auto;
+    font-size: .73rem;
+    max-width: 190px;
+    min-width: 0;
+    outline: 0;
+    padding: 0;
+    text-overflow: ellipsis;
+}
+.molavi-toolbar-label { color: var(--molavi-muted); white-space: nowrap; }
+.molavi-product-toolbar .molavi-result-count { font-size: .7rem; }
+.molavi-product-toolbar .molavi-view-toggle { border-radius: 9px; }
+.molavi-product-toolbar .molavi-view-toggle button { height: 32px; width: 32px; }
+.molavi-product-toolbar .molavi-view-toggle svg { height: 16px; width: 16px; }
+.molavi-toolbar-search[hidden] { display: none !important; }
+.molavi-toolbar-search {
+    align-items: center;
+    background: #fff;
+    border: 1px solid #dedbd3;
+    border-radius: 10px;
+    box-shadow: 0 3px 10px rgba(36, 50, 57, .08);
+    display: flex;
+    gap: 9px;
+    height: 34px;
+    inset-inline: 6px;
+    padding: 2px 8px 2px 5px;
+    position: absolute;
+    top: 6px;
+    z-index: 90;
+}
+.molavi-toolbar-search input {
+    background: transparent;
+    border: 0;
+    color: var(--molavi-ink);
+    flex: 1 1 auto;
+    font-size: .84rem;
+    height: 100%;
+    min-width: 0;
+    outline: 0;
+}
+.molavi-toolbar-search input::placeholder { color: #939b9d; }
+.molavi-toolbar-search:focus-within {
+    border-color: #9aa99f;
+    box-shadow: 0 0 0 3px rgba(41, 79, 66, .11), 0 3px 10px rgba(36, 50, 57, .08);
+}
+.molavi-toolbar-search-close {
+    align-items: center;
+    background: #f5f4f0;
+    border: 0;
+    border-radius: 8px;
+    color: var(--molavi-muted);
+    cursor: pointer;
+    display: grid;
+    flex: 0 0 32px;
+    height: 32px;
+    justify-items: center;
+    padding: 0;
+    width: 32px;
+}
+.molavi-toolbar-search-close svg { fill: none; height: 15px; stroke: currentColor; stroke-linecap: round; stroke-width: 1.8; width: 15px; }
+.molavi-product-toolbar:focus-within { outline: 0; }
+.molavi-store-controls.is-compact { padding-block: 3px; }
+.molavi-store-controls.is-compact .molavi-buyer-choice { display: none; }
+.molavi-store-controls.is-compact .molavi-product-toolbar {
+    border-radius: 12px;
+    box-shadow: 0 7px 22px rgba(36, 50, 57, .11);
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    margin-inline: 0 auto;
+    max-width: 100%;
+    min-height: 46px;
+    padding: 4px 5px;
+    width: fit-content;
+}
+.molavi-store-controls.is-compact .molavi-buyer-compact { display: block; flex: 0 0 auto; position: relative; }
+.molavi-buyer-compact > summary {
+    align-items: center;
+    background: #fff;
+    border: 1px solid #e8e6e0;
+    border-radius: 9px;
+    color: #294f42;
+    cursor: pointer;
+    display: inline-flex;
+    font-size: .68rem;
+    font-weight: 700;
+    gap: 5px;
+    height: 33px;
+    justify-content: center;
+    list-style: none;
+    min-width: 72px;
+    padding: 4px 7px;
+    white-space: nowrap;
+}
+.molavi-buyer-compact > summary::-webkit-details-marker { display: none; }
+.molavi-buyer-compact > summary svg { fill: none; height: 15px; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.7; width: 15px; }
+.molavi-buyer-compact > summary .molavi-buyer-chevron { color: #7d888b; height: 11px; width: 11px; }
+.molavi-buyer-compact-options {
+    background: #fff;
+    border: 1px solid var(--molavi-line);
+    border-radius: 11px;
+    box-shadow: 0 14px 34px rgba(36, 50, 57, .16);
+    display: grid;
+    gap: 3px;
+    inset-inline-end: 0;
+    padding: 6px;
+    position: absolute;
+    top: calc(100% + 7px);
+    width: 138px;
+    z-index: 90;
+}
+.molavi-buyer-compact-options button {
+    background: transparent;
+    border: 0;
+    border-radius: 8px;
+    color: var(--molavi-ink);
+    cursor: pointer;
+    font-size: .73rem;
+    min-height: 34px;
+    text-align: right;
+}
+.molavi-buyer-compact-options button:hover,
+.molavi-buyer-compact-options button[aria-pressed="true"] { background: #f3f5f1; color: #294f42; }
+.molavi-buyer-compact-help { display: none; flex: 0 0 auto; position: relative; }
+.molavi-buyer-compact-help > summary {
+    align-items: center;
+    background: #fff;
+    border: 1px solid var(--molavi-line);
+    border-radius: 9px;
+    color: var(--molavi-muted);
+    cursor: pointer;
+    display: grid;
+    height: 33px;
+    justify-items: center;
+    list-style: none;
+    width: 30px;
+}
+.molavi-buyer-compact-help > summary::-webkit-details-marker { display: none; }
+.molavi-buyer-compact-help > summary svg { fill: none; height: 15px; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.7; width: 15px; }
+.molavi-buyer-compact-help p {
+    background: #fff;
+    border: 1px solid var(--molavi-line);
+    border-radius: 11px;
+    box-shadow: 0 14px 34px rgba(36, 50, 57, .16);
+    font-size: .73rem;
+    inset-inline-end: 0;
+    line-height: 1.75;
+    margin: 7px 0 0;
+    padding: 11px 13px;
+    position: absolute;
+    top: 100%;
+    width: min(320px, calc(100vw - 28px));
+    z-index: 90;
+}
+.molavi-store-controls.is-compact .molavi-toolbar-actions { flex: 0 0 auto; gap: 3px; }
+.molavi-store-controls.is-compact .molavi-toolbar-meta { gap: 4px; }
+.molavi-store-controls.is-compact .molavi-compact-search-trigger,
+.molavi-store-controls.is-compact .molavi-buyer-compact-help { display: inline-flex; }
+.molavi-store-controls.is-compact .molavi-toolbar-icon { height: 33px; min-width: 32px; padding: 0; width: 32px; }
+.molavi-store-controls.is-compact .molavi-product-toolbar .molavi-toolbar-select {
+    flex: 0 0 32px;
+    height: 33px;
+    justify-content: center;
+    min-width: 32px;
+    overflow: hidden;
+    padding: 0;
+    position: relative;
+    width: 32px;
+}
+.molavi-store-controls.is-compact .molavi-toolbar-label { display: none; }
+.molavi-store-controls.is-compact .molavi-toolbar-select select {
+    cursor: pointer;
+    height: 100%;
+    inset: 0;
+    max-width: none;
+    opacity: 0;
+    position: absolute;
+    width: 100%;
+    z-index: 1;
+}
+.molavi-store-controls.is-compact .molavi-product-toolbar .molavi-result-count { font-size: .66rem; }
+.molavi-store-controls.is-compact .molavi-product-toolbar .molavi-view-toggle button { height: 28px; width: 28px; }
+.molavi-store-controls.is-compact .molavi-product-toolbar .molavi-view-toggle svg { height: 15px; width: 15px; }
+.molavi-store-controls.is-compact .molavi-toolbar-search { height: 39px; inset-inline: 4px; top: 3px; }
+@media (min-width: 761px) {
+    .molavi-store-controls.is-compact .molavi-product-toolbar { margin-inline-start: 0; margin-inline-end: auto; }
+}
+@media (max-width: 760px) {
+    .molavi-store-controls { margin-inline: -4px; padding-inline: 4px; }
+    .molavi-product-area .molavi-buyer-choice { min-height: 43px; padding: 5px 8px; }
+    .molavi-product-area .molavi-buyer-choice-buttons button { min-width: 60px; padding-inline: 7px; }
+    .molavi-product-toolbar { flex-wrap: wrap; gap: 5px; justify-content: space-between; }
+    .molavi-toolbar-actions { flex: 1 1 100%; gap: 4px; justify-content: space-between; }
+    .molavi-product-toolbar .molavi-toolbar-select { flex: 1 1 calc(50% - 25px); max-width: none; }
+    .molavi-product-toolbar .molavi-sort select,
+    .molavi-product-toolbar .molavi-category-filter select { font-size: .7rem; }
+    .molavi-toolbar-meta { flex: 1 1 100%; justify-content: space-between; }
+    .molavi-product-toolbar .molavi-result-count { order: 0; }
+    .molavi-product-toolbar .molavi-view-toggle { order: 1; }
+    .molavi-store-controls.is-compact .molavi-product-toolbar {
+        flex-wrap: nowrap;
+        gap: 3px;
+        justify-content: flex-start;
+        margin: 0;
+        min-height: 45px;
+        padding: 4px;
+        width: 100%;
+    }
+    .molavi-store-controls.is-compact .molavi-toolbar-actions { flex: 0 0 auto; gap: 2px; }
+    .molavi-store-controls.is-compact .molavi-toolbar-meta { flex: 0 0 auto; gap: 3px; margin-inline-start: auto; }
+    .molavi-store-controls.is-compact .molavi-buyer-compact > summary { min-width: 69px; }
+}
+@media (max-width: 360px) {
+    .molavi-store-controls.is-compact .molavi-product-toolbar { gap: 2px; padding-inline: 3px; }
+    .molavi-store-controls.is-compact .molavi-product-toolbar .molavi-toolbar-icon,
+    .molavi-store-controls.is-compact .molavi-product-toolbar .molavi-toolbar-select { min-width: 29px; width: 29px; }
+    .molavi-store-controls.is-compact .molavi-buyer-compact > summary { gap: 3px; min-width: 65px; padding-inline: 4px; }
+    .molavi-store-controls.is-compact .molavi-product-toolbar .molavi-view-toggle button { width: 25px; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .molavi-store-controls,
+    .molavi-product-toolbar,
+    .molavi-buyer-choice { transition-duration: .01ms !important; }
+}

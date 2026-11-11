@@ -71,13 +71,15 @@ function molavi_render_site_header(bool $forceStorefront = false): void
                     <a href="<?php echo esc_url($url); ?>"><?php echo esc_html($label); ?></a>
                 <?php endforeach; ?>
             </nav>
-            <form class="molavi-search" action="<?php echo esc_url($shopUrl); ?>" method="get" role="search" data-molavi-search-form>
-                <label class="screen-reader-text" for="molavi-site-search">جستجوی محصولات</label>
-                <input id="molavi-site-search" type="search" name="molavi_q" data-molavi-search value="<?php echo esc_attr($query); ?>" placeholder="جستجوی محصولات..." autocomplete="off">
-                <button class="molavi-search-submit" type="submit" aria-label="جستجو">
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="m16 16 4 4"></path></svg>
-                </button>
-            </form>
+            <?php if (!$isStorefront): ?>
+                <form class="molavi-search" action="<?php echo esc_url($shopUrl); ?>" method="get" role="search" data-molavi-search-form>
+                    <label class="screen-reader-text" for="molavi-site-search">جستجوی محصولات</label>
+                    <input id="molavi-site-search" type="search" name="molavi_q" data-molavi-search value="<?php echo esc_attr($query); ?>" placeholder="جستجوی محصولات..." autocomplete="off">
+                    <button class="molavi-search-submit" type="submit" aria-label="جستجو">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="m16 16 4 4"></path></svg>
+                    </button>
+                </form>
+            <?php endif; ?>
             <div class="molavi-header-actions">
                 <a class="molavi-header-icon" href="<?php echo esc_url($accountUrl); ?>" aria-label="حساب کاربری">
                     <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.5"></circle><path d="M4 21v-2a8 8 0 0 1 16 0v2"></path></svg>
