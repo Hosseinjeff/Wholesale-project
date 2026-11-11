@@ -2679,7 +2679,7 @@ body.molavi-site-page .woocommerce .woocommerce-notices-wrapper { margin-bottom:
 /* Keep list thumbnails square with a balanced inset and align the action row. */
 .molavi-product-grid.is-list-view .molavi-product-card {
     grid-template-areas: "photo price title" "photo bottom bottom";
-    grid-template-columns: clamp(128px, 11vw, 136px) minmax(196px, 230px) minmax(0, 1fr);
+    grid-template-columns: clamp(132px, 11vw, 136px) minmax(196px, 230px) minmax(0, 1fr);
     grid-template-rows: minmax(44px, auto) minmax(42px, auto);
     min-height: 134px;
 }
@@ -2739,7 +2739,7 @@ body.molavi-site-page .woocommerce .woocommerce-notices-wrapper { margin-bottom:
 @media (max-width: 760px) {
     .molavi-product-grid.is-list-view .molavi-product-card {
         grid-template-areas: "photo price" "photo title" "photo bottom";
-        grid-template-columns: clamp(114px, 31vw, 124px) minmax(0, 1fr);
+        grid-template-columns: clamp(120px, 31vw, 132px) minmax(0, 1fr);
         grid-template-rows: minmax(34px, auto) minmax(34px, auto) minmax(40px, auto);
         min-height: 126px;
         width: auto;
@@ -2772,7 +2772,7 @@ body.molavi-site-page .woocommerce .woocommerce-notices-wrapper { margin-bottom:
 }
 
 @media (max-width: 360px) {
-    .molavi-product-grid.is-list-view .molavi-product-card { grid-template-columns: clamp(114px, 31vw, 114px) minmax(0, 1fr); }
+    .molavi-product-grid.is-list-view .molavi-product-card { grid-template-columns: clamp(120px, 31vw, 120px) minmax(0, 1fr); }
     .molavi-product-grid.is-list-view .molavi-card-bottom { gap: 1px; padding-inline: 6px; }
     .molavi-product-grid.is-list-view .molavi-control { flex-basis: 96px; width: 96px; }
     .molavi-product-grid.is-list-view .molavi-card-facts { gap: 1px; max-width: calc(100% - 99px); }
@@ -2783,7 +2783,7 @@ body.molavi-site-page .woocommerce .woocommerce-notices-wrapper { margin-bottom:
 @media (min-width: 521px) and (max-width: 760px) {
     .molavi-product-grid.is-list-view .molavi-product-card {
         grid-template-areas: "photo price title" "photo bottom bottom";
-        grid-template-columns: clamp(124px, 16vw, 132px) minmax(170px, 196px) minmax(0, 1fr);
+        grid-template-columns: clamp(132px, 16vw, 140px) minmax(170px, 196px) minmax(0, 1fr);
         grid-template-rows: minmax(40px, auto) minmax(40px, auto);
         margin-inline: auto;
         min-height: 132px;
