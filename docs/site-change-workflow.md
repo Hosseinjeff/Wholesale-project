@@ -25,8 +25,10 @@ and 1440px, expanded and compact states had no horizontal overflow or overlappin
 toolbar controls. The buyer explanation, help-to-buyer focus handoff on scroll,
 Tab/Shift+Tab/Escape paths, category panel viewport placement, sorting label update,
 search filtering/count update, and grid/list switching were checked. Non-GET requests
-were blocked during browser review; none were sent, and no cart, order, or product
-data changed. Production was not changed.
+were blocked except for two same-origin Staging buyer-profile requests in an isolated
+guest session; the selection was changed from household to shop and restored to
+household. The guest cart stayed empty (0 lines), and no order or product data
+changed. Production was not changed.
 
 ## 2026-11-11 Staging storefront control popovers
 
