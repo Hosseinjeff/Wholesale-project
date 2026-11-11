@@ -19,9 +19,12 @@ verification. The dashboard also drains queued owner decisions on page load; the
 inspection did not block this behavior, and whether a queued command was delivered is
 unknown. Further browser checks must block outbox claims, review-store writes, and all
 owner-proxy POSTs. Keep follow-up work on staging unless the user explicitly names
-production. The owner-workbench redesign is now deployed only to Staging at commit
-`7d265d1cb5c1740c474594d7e976e6e2c839cbf4`; its deployment and filter semantics are
-recorded in [`site-change-workflow.md`](site-change-workflow.md). See also
+production. The core owner-workbench redesign is deployed only to Staging at
+`7d265d1cb5c1740c474594d7e976e6e2c839cbf4`; follow-up album OCR and dashboard filters
+are deployed only to Staging at `41ac5c25f0e7a3723ece656380eca37ebcad84c9`. No
+supplier re-extraction was run for the latest release, and this newer commit has not
+received an authenticated page check. Deployment details and remaining verification
+limits are recorded in [`site-change-workflow.md`](site-change-workflow.md). See also
 [`session-handoff-staging-owner-fetch.md`](session-handoff-staging-owner-fetch.md).
 
 ## 2026-11-06 User-confirmed pack-size quantity steps

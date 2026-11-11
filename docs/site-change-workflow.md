@@ -83,6 +83,36 @@ queued supplier-price or Sheet command was delivered is unknown. This is recorde
 [`session-handoff-staging-owner-fetch.md`](session-handoff-staging-owner-fetch.md);
 do not describe that initial check as mutation-free.
 
+## 2026-11-11 Staging album OCR and workbench filter update
+
+Commit `41ac5c25f0e7a3723ece656380eca37ebcad84c9` is live only in Railway Staging as
+deployment `a446438e-c61c-4545-86c6-febdbe2b53b3` (`SUCCESS`). The Staging service is
+pinned to this commit, has one running replica and no reported deployment issues, and
+`/health` returned `healthy`. The Staging WordPress deployer uploaded and read back
+`includes/owner-workflows.css` and `includes/owner-workflows.js`; the served JavaScript
+contains the updated album workflow copy. Production was not changed.
+
+The owner workbench cards now present one primary task, its next step and action link;
+related tasks are grouped behind a collapsed section. Filters combine source channel,
+operational state, current `Products` catalog status, Tehran-date range and product or
+channel search. Saved-message re-extraction groups Telegram album rows by source post;
+all, pending-review, linked-to-current-catalog and recent-policy scopes process every
+image in a complete album together. Channel/date selection and channel/day preview
+grouping remain available. A linked catalog record means a source offer resolves to a
+current `Products` row; it does not certify WooCommerce publication.
+
+Album OCR combines distinct captions and images in message order in one Gemini request,
+preserves image boundaries in its transcription prompt, and sends extracted offers to
+owner review. An album with a missing image file is surfaced but never OCRed partially.
+The request is bounded to 10 images, 8 MB per image and 12 MB total. No supplier post
+was reprocessed and no owner decision was submitted during this deployment.
+
+Python compilation, JavaScript syntax validation and `git diff --check` passed. The
+deployer and a staging static-file read confirmed the changed WordPress assets. No
+authenticated page check or owner-proxy request was performed against this commit, so
+this release does not establish that the earlier `Failed to fetch` report is fixed. The
+prior guarded page check remains the last authenticated UI evidence.
+
 ## 2026-11-06 User-confirmed package quantity steps live
 
 WordPress plugin commit `b4a91259817e7f9ecd17cef93da05365aee22ecf` deployed the

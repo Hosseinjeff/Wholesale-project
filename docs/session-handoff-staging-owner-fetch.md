@@ -105,6 +105,30 @@ WooCommerce item is currently published. Scope, selected channels, and inclusive
 Tehran-date boundaries combine with AND logic; group-by channel/day changes only the
 preview display. Runs retain the configured model and existing quality checks.
 
+### Staging album OCR and workbench filters — 2026-11-11
+
+Commit `41ac5c25f0e7a3723ece656380eca37ebcad84c9` is live only in Railway Staging as
+deployment `a446438e-c61c-4545-86c6-febdbe2b53b3` (`SUCCESS`). The staging service is
+pinned to that commit, has one running replica with no reported issues, and `/health`
+returned `healthy`. `owner-workflows.css` and `owner-workflows.js` were deployed to the
+Staging WordPress root and read back successfully.
+
+The workbench presents each product's primary task and groups related actions. Its
+filters combine product/channel search, source channel, operational state, current
+catalog status and Tehran-date range. Album rows sharing a Telegram `Media Group ID`
+are treated as one source post throughout all, pending, catalog-linked and recent-policy
+re-extraction. The server merges distinct captions, downloads every image and asks
+Gemini to transcribe them together with image boundaries. Incomplete albums do not
+produce partial OCR; extracted offers remain in owner review. Limits are 10 images,
+8 MB per image and 12 MB aggregate.
+
+No owner re-extraction was started and no supplier record or owner decision was changed
+by this release. Python compilation, JavaScript syntax and `git diff --check` passed; the
+changed WordPress static asset was also read from the staging host. No authenticated
+page load or owner-proxy API request was performed against commit `41ac5c2`, so the last
+authenticated UI evidence is the guarded check on `7d265d1` above. This release alone
+does not establish that the earlier `Failed to fetch` report is fixed.
+
 ## Next-session checklist
 
 1. **Keep all investigation on staging.** Do not change or deploy to production unless
@@ -159,6 +183,9 @@ and verify the logged-in page and failed request again. Do not call an end-to-en
 complete based only on CORS preflight or anonymous HTTP checks. Preserve any existing
 owner decisions and avoid reprocessing supplier posts during verification.
 
-No authenticated page inspection or authenticated proxy request has yet been completed
-in this incident. No owner workflow action or business-data mutation has been submitted
-during the checks recorded here.
+An authenticated staging sign-in and page inspection succeeded earlier in this incident;
+the guarded check on commit `7d265d1` blocked owner-proxy writes and extraction actions.
+The latest follow-up on `41ac5c2` used static asset reads and Railway health/status only;
+it did not load an owner page or submit an owner workflow action. The earlier unguarded
+dashboard load still leaves the previously recorded possibility that an already-pending
+outbox command was delivered.
