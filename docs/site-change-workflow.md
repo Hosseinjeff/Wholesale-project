@@ -2,6 +2,28 @@
 
 Updated: 2026-11-11, Asia/Tehran
 
+## 2026-11-11 Staging storefront controls refinement
+
+Plugin commit `75f1ef41ab97003b1a27d1a661e80e27af715af9` was pushed and deployed
+only to Staging from base `dff7412f0103b4804c528787167eaaad1ced3d47`. The uploader
+verified the read-back of the changed plugin files. Store controls now use a search
+icon in the buyer row, place buyer guidance beside the household/store switch, use a
+funnel icon for category filtering, and open search as an overlay across its current
+row. The compact sticky bar sits below the sticky site header and collapses the
+mobile toolbar to two rows when expanded and one short row while scrolling. Existing
+balanced list-card styling was preserved.
+
+The live Staging shop returned HTTP 200 with 30 product cards. Browser checks at
+320, 360, 390, 430, 760, and 1440px found no horizontal page overflow. Search
+filtered to one matching product, Escape closed it and restored focus, tabbing past
+the close button dismissed it, and compact search remained tappable below the fixed
+header. The list view retained its balanced card layout; at 390px the first thumbnail
+had about 11px top/bottom and 9px right inset. No page errors were reported. JavaScript
+syntax and whitespace checks passed; PHP CLI was unavailable, and the live storefront
+render completed without a PHP fatal. No product, cart, or category data changed.
+Production was not changed. Use this deployed plugin commit as the next deployment's
+`--since` value.
+
 ## 2026-11-11 Staging list thumbnail inset refinement
 
 Plugin commits `f6eefcada7c2abb14b0a895dda7f26b330e811a2` and
