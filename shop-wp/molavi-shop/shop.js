@@ -699,6 +699,19 @@
             return controls.querySelector('[data-molavi-open-panel="' + name + '"]');
         }
 
+        function nextControlAfterPanel(name) {
+            var compact = controls.classList.contains("is-compact");
+            if (name === "buyer") return compactHelp;
+            if (name === "help") {
+                return compact
+                    ? controls.querySelector(".molavi-compact-search-trigger")
+                    : controls.querySelector(".molavi-category-trigger");
+            }
+            if (name === "category") return controls.querySelector(".molavi-sort-trigger");
+            if (name === "sort") return controls.querySelector('[data-molavi-view="grid"]');
+            return null;
+        }
+
         function positionPanel(panel, trigger) {
             if (!panel || !trigger) return;
             var rect = trigger.getBoundingClientRect();
@@ -863,14 +876,25 @@
             window.requestAnimationFrame(function () { if (!activePanel) schedule(); });
         });
         document.addEventListener("keydown", function (event) {
-            if (event.key === "Tab" && event.shiftKey && activePanel) {
-                var closeButton = activePanel.querySelector("[data-molavi-panel-close]");
-                if (document.activeElement === closeButton && canFocus(activeTrigger)) {
+            if (event.key === "Tab" && activePanel) {
+                var panelStops = Array.prototype.slice.call(activePanel.querySelectorAll("button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex=\"-1\"])")).filter(canFocus);
+                var firstStop = panelStops[0];
+                var lastStop = panelStops[panelStops.length - 1];
+                if (event.shiftKey && document.activeElement === firstStop && canFocus(activeTrigger)) {
                     event.preventDefault();
                     var returnTo = activeTrigger;
                     closePanel(false);
                     returnTo.focus({ preventScroll: true });
                     return;
+                }
+                if (!event.shiftKey && document.activeElement === lastStop) {
+                    var nextControl = nextControlAfterPanel(activePanel.getAttribute("data-molavi-control-panel"));
+                    if (canFocus(nextControl)) {
+                        event.preventDefault();
+                        closePanel(false);
+                        nextControl.focus({ preventScroll: true });
+                        return;
+                    }
                 }
             }
             if (event.key === "Escape" && activePanel) {
