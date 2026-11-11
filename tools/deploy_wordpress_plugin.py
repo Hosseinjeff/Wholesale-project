@@ -27,6 +27,10 @@ import ssl
 PLUGIN_PREFIX = Path("shop-wp/molavi-shop")
 PRIVATE_CONFIG = "shop-wp/molavi-shop/includes/runtime-config.php"
 DEPLOYABLE_SUFFIXES = {".php", ".js", ".css"}
+SITE_DOCUMENT_ROOTS = {
+    "production": "public_html",
+    "staging": "public_html/staging",
+}
 
 
 def git(*args: str) -> str:
@@ -144,6 +148,8 @@ def remote_location(remote_root: str, tracked_name: str) -> tuple[str, str]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--since", default="HEAD^", help="Git ref before the plugin changes to deploy (default: HEAD^)")
+    parser.add_argument("--site", choices=sorted(SITE_DOCUMENT_ROOTS), default="production",
+                        help="cPanel WordPress document root to deploy to (default: production)")
     args = parser.parse_args()
 
     try:
@@ -157,7 +163,7 @@ def main() -> int:
         if urllib.parse.urlparse(base_url).scheme != "https":
             raise RuntimeError("MOLAVISALE_CPANEL_URL must use HTTPS")
         auth = "Basic " + base64.b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
-        remote_dir = f"/home/{username}/public_html/wp-content/plugins/molavi-shop"
+        remote_dir = f"/home/{username}/{SITE_DOCUMENT_ROOTS[args.site]}/wp-content/plugins/molavi-shop"
 
         remote: dict[str, str | None] = {}
         for name in files:
@@ -202,6 +208,7 @@ def main() -> int:
 
         print(json.dumps({
             "revision": revision,
+            "site": args.site,
             "uploaded": uploaded,
             "unchanged": unchanged,
             "host_normalized": host_normalized,
