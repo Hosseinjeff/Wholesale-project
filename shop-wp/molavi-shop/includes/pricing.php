@@ -613,10 +613,7 @@ function molavi_render_buyer_profile_selector(string $context = 'shop'): void
     $selected = molavi_buyer_type();
     $compact = $context !== 'shop';
     $label = $compact ? 'نوع خرید' : 'قیمت برای';
-    $targets = molavi_unlock_targets(molavi_catalog_map());
-    $buyerHelp = 'با انتخاب نوع خرید، قیمت‌ها و گام سفارش هر کالا تغییر می‌کند؛ تعداد سبد خودکار تغییر نمی‌کند. اگر تعداد با گام تازه سازگار نباشد، پیش از ادامه آن را خودتان اصلاح کنید. آستانه تخفیف خانوار '
-        . molavi_toman((int) $targets['household']) . ' و فروشگاه ' . molavi_toman((int) $targets['shop'])
-        . ' است؛ هزینه ارسال جداگانه محاسبه می‌شود.';
+    $buyerHelp = 'انتخاب «خانوار» یا «فروشگاه» قیمت و گام سفارش کالاها را به‌روز می‌کند. تعداد سبد خودکار تغییر نمی‌کند؛ اگر تعداد با گام تازه سازگار نباشد، پیش از ادامه می‌توانید آن را اصلاح کنید.';
     ?>
     <?php if ($compact): ?>
     <details class="molavi-buyer-choice-disclosure" data-molavi-buyer-disclosure>

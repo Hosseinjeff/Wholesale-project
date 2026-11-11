@@ -3592,6 +3592,11 @@ body.molavi-site-page .molavi-toolbar-search input:focus-visible {
     border-color: transparent;
     color: var(--molavi-orange);
 }
+.molavi-store-controls.is-compact .molavi-product-toolbar .molavi-view-toggle button {
+    height: 30px;
+    width: 31px;
+}
+.molavi-store-controls.is-compact .molavi-product-toolbar .molavi-view-toggle svg { height: 16px; width: 16px; }
 @media (max-width: 760px) {
     .molavi-product-toolbar .molavi-toolbar-label,
     .molavi-product-toolbar .molavi-toolbar-value { display: none; }
