@@ -2,31 +2,31 @@
 
 Updated: 2026-11-11, Asia/Tehran
 
-## 2026-11-11 Staging sticky header keyboard review
+## 2026-11-11 Staging sticky header mockup alignment
 
-Plugin commits `5e0121f8da7cf82122d351f923780bf89c224420`,
-`65d6aaf1183e973d588d9d7dc7a2dd60de27415e`, and
-`25d351dfda1716ab01f7fb64ef894064730ccb04` were pushed to `codex/storefront-ux`
-and deployed only to the separate Staging WordPress installation. The final
-Staging deployment read-back verified `storefront-renderer.php`, `storefront.css`,
-and `shop.js`.
+Plugin commits `182ac54`, `62689da`, `737bf43`, and `967fa2e` were pushed to
+`codex/storefront-ux` and deployed only to the separate Staging WordPress
+installation from base `25d351dfda1716ab01f7fb64ef894064730ccb04`. The uploader
+verified the deployed plugin files.
 
-The compact sticky bar now keeps the buyer switch and its help control separate.
-Keyboard focus transfers between the expanded and compact versions of the buyer,
-help, and search controls as the page scrolls. Tab from an open buyer/help/category/
-sort panel advances to the next toolbar control; Shift+Tab from the panel close
-button and Escape return focus to the trigger. Search Tab and Shift+Tab also close
-the overlay and move or return focus within the toolbar without collapsing it.
+The expanded buyer switch now sits beside a 23px bordered information button; the
+search handle is 30px. In the compact sticky bar the buyer control opens the two
+buyer choices and their explanation, so there is no separate help button. The
+expanded information panel and compact buyer menu show the same short customer
+guidance. Desktop category and sort controls show their names and selected values;
+compact and phone controls use borderless icons. The product count stays in the
+toolbar and shows only its number in compact mode. The grid/list switch now uses one
+outer border with the selected view softly filled, sized for desktop, mobile, and
+small-phone layouts.
 
-Live Chromium checks on `https://staging.molavisale.ir/` returned HTTP 200 with 30
+Chromium checks on `https://staging.molavisale.ir/` returned HTTP 200 with 30
 product cards and no page JavaScript errors. At 320, 360, 390, 430, 760, 761, 1024,
-and 1440px, expanded and sticky states had no horizontal overflow, overlapping
-controls, or site-header collision. The observed Tab order matched visible controls
-in both modes. Menu, search, Escape, Shift+Tab, panel option traversal, and focus
-handoffs were checked at 320 and 390px. Search overlays stayed within their rows;
-category, sort, buyer, and help panels remained inside the viewport. These checks
-only opened and closed controls; no product, cart, or order data changed. Production
-was not changed.
+and 1440px, expanded and compact states had no horizontal overflow or overlapping
+toolbar controls. The buyer explanation, help-to-buyer focus handoff on scroll,
+Tab/Shift+Tab/Escape paths, category panel viewport placement, sorting label update,
+search filtering/count update, and grid/list switching were checked. Non-GET requests
+were blocked during browser review; none were sent, and no cart, order, or product
+data changed. Production was not changed.
 
 ## 2026-11-11 Staging storefront control popovers
 
