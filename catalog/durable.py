@@ -550,6 +550,7 @@ class Handoffs:
                 'receipt_id': str(row['id']),
                 'message_id': str(source.get('id') or ''),
                 'channel': str(source.get('channel_username') or source.get('channel') or ''),
+                'source_channel': str(source.get('source_channel') or ''),
                 'source_timestamp': str(source.get('timestamp') or ''),
                 'source_timestamp_basis': str(source.get('source_timestamp_basis') or ''),
                 'source_created_at': str(source.get('source_created_at') or ''),

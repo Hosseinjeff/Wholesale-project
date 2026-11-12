@@ -1,6 +1,32 @@
 # Site changes and preservation workflow
 
-Updated: 2026-11-11, Asia/Tehran
+Updated: 2026-11-12, Asia/Tehran
+
+## 2026-11-12 Staging owner dashboard rebuilt around the source-to-store workflow
+
+The owner workbench is organized around six actual handoffs: intake and the Railway
+queue, extraction and owner review, Offer-to-Products identity, reference/price/stock
+evidence, catalog publication, and WooCommerce storefront state. The detail view now
+shows the selected product's identifiers and evidence at each stage. The master list
+keeps the current queue visible while the owner reviews one record and its focused
+next action; related actions for that record are grouped under its primary task.
+
+Filters combine with AND semantics across source channel, operational state, current
+Products status, Product ID linkage, message evidence/freshness, WooCommerce outcome,
+and Tehran-date range. Storefront filters require an explicit read-only reconciliation
+report. Album re-extraction keeps its existing all/pending/catalog-linked scope,
+channel/date grouping and all-images OCR behavior.
+
+Opening the dashboard now reads its queues only. It no longer claims or delivers
+saved WordPress outbox decisions or writes observed review context. Re-delivery is an
+explicit action for already-saved decisions, and storefront reconciliation is a
+separate read-only request. Product joins use stable Product and Offer IDs; a product
+without those identifiers is not merged by name and channel. The displayed price,
+stock, publication and storefront states stay unknown until their own evidence is
+available.
+
+This release is confined to Staging. Railway/Staging and WordPress/Staging deployment
+IDs, read-back evidence, and verification limits are recorded in the session handoff.
 
 ## 2026-11-11 Staging owner-workflow fetch incident — transport fix and authenticated page check
 

@@ -436,3 +436,73 @@
 #molavi-owner-workflow .molavi-workbench-filter-result { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:.5rem; }
 #molavi-owner-workflow .molavi-workbench-filter-result-text { margin:0; color:#646970; font-size:.9em; }
 #molavi-owner-workflow .molavi-workbench-filter-result [hidden] { display:none!important; }
+
+/* Pipeline workbench: stage map, scannable queue, one focused action panel. */
+#molavi-owner-workflow .molavi-workbench-toolbar { align-items:center; }
+#molavi-owner-workflow .molavi-workbench-toolbar > small { flex:1 1 18rem; color:#646970; line-height:1.5; }
+#molavi-owner-workflow .molavi-workbench-summary { align-items:flex-start; }
+#molavi-owner-workflow .molavi-workbench-summary h2 { flex:1 1 100%; }
+#molavi-owner-workflow .molavi-workbench-summary-copy { flex:1 1 100%; }
+#molavi-owner-workflow .molavi-workbench-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.55rem; width:100%; }
+#molavi-owner-workflow .molavi-workbench-metric { display:flex; align-items:center; gap:.55rem; min-width:0; padding:.55rem .7rem; border:1px solid #e1e5e9; border-radius:7px; background:#fff; }
+#molavi-owner-workflow .molavi-workbench-metric strong { color:#075e56; font-size:1.15rem; }
+#molavi-owner-workflow .molavi-workbench-metric span { color:#50575e; line-height:1.4; }
+#molavi-owner-workflow .molavi-workbench-stages { grid-template-columns:repeat(3,minmax(0,1fr)); gap:.65rem; }
+#molavi-owner-workflow .molavi-workbench-stage { grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:.25rem .65rem; min-height:6.3rem; padding:.75rem .85rem; border-radius:9px; }
+#molavi-owner-workflow .molavi-workbench-stage strong { grid-column:2; grid-row:1; }
+#molavi-owner-workflow .molavi-workbench-stage .molavi-stage-index { grid-column:1; grid-row:1; }
+#molavi-owner-workflow .molavi-workbench-stage .molavi-stage-count { grid-column:3; grid-row:1 / span 2; align-self:center; min-width:2.4rem; color:#075e56; font-size:1.25rem; text-align:center; }
+#molavi-owner-workflow .molavi-workbench-stage .molavi-stage-hint { grid-column:2; grid-row:2; }
+#molavi-owner-workflow .molavi-workbench-stage .molavi-stage-detail { grid-column:2 / 4; grid-row:3; color:#646970; line-height:1.45; }
+#molavi-owner-workflow .molavi-workbench-stage[aria-pressed="true"] { border-color:#08766b; background:#f0f8f6; box-shadow:inset 0 0 0 1px #08766b; }
+#molavi-owner-workflow .molavi-workbench-inbox { display:grid; grid-template-columns:minmax(14rem,.32fr) minmax(0,1fr); align-items:start; gap:1rem; }
+#molavi-owner-workflow .molavi-workbench-record-panel { position:sticky; top:36px; min-width:0; padding:.75rem; border:1px solid #d8dde3; border-radius:9px; background:#f8fafb; }
+#molavi-owner-workflow .molavi-workbench-record-panel > h3 { margin:.1rem 0 .6rem; font-size:1rem; }
+#molavi-owner-workflow .molavi-workbench-record-list { display:grid; gap:.35rem; max-height:min(68vh,52rem); overflow:auto; padding:.1rem .15rem .4rem; }
+#molavi-owner-workflow .molavi-workbench-record { display:grid; gap:.2rem; min-width:0; padding:.6rem .65rem; border:1px solid #e1e5e9; border-inline-start:3px solid #a7b0b8; border-radius:7px; background:#fff; color:#1d2327; text-align:start; cursor:pointer; }
+#molavi-owner-workflow .molavi-workbench-record[aria-current="true"] { border-color:#08766b; border-inline-start-color:#08766b; background:#eff8f5; box-shadow:0 0 0 1px #08766b; }
+#molavi-owner-workflow .molavi-workbench-record strong { overflow-wrap:anywhere; line-height:1.45; }
+#molavi-owner-workflow .molavi-workbench-record small { color:#646970; overflow-wrap:anywhere; }
+#molavi-owner-workflow .molavi-workbench-record-stage { color:#075e56; font-size:.85em; font-weight:600; }
+#molavi-owner-workflow .molavi-workbench-record-count { color:#646970; font-size:.82em; }
+#molavi-owner-workflow .molavi-workbench-show-more { width:100%; margin-top:.45rem; }
+#molavi-owner-workflow .molavi-current-product { min-width:0; }
+#molavi-owner-workflow .molavi-product-journey { display:grid; gap:.4rem; padding:.75rem; border:1px solid #d8e6e2; border-radius:8px; background:#f7fbfa; }
+#molavi-owner-workflow .molavi-product-journey > h3 { margin:0; font-size:1rem; }
+#molavi-owner-workflow .molavi-journey-explainer { margin:0; color:#646970; font-size:.86em; line-height:1.5; }
+#molavi-owner-workflow .molavi-journey-steps { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:.35rem; margin:0; padding:0; list-style:none; }
+#molavi-owner-workflow .molavi-journey-step { display:grid; align-content:start; gap:.25rem; min-width:0; min-height:6.1rem; padding:.45rem .5rem; border:1px solid #d8dde3; border-top:3px solid #8c8f94; border-radius:6px; background:#fff; }
+#molavi-owner-workflow .molavi-journey-step strong { font-size:.83em; line-height:1.4; }
+#molavi-owner-workflow .molavi-journey-index { display:grid; place-items:center; width:1.35rem; height:1.35rem; border-radius:50%; background:#f0f0f1; color:#50575e; font-size:.78em; font-weight:700; }
+#molavi-owner-workflow .molavi-journey-detail { color:#50575e; font-size:.78em; line-height:1.45; overflow-wrap:anywhere; }
+#molavi-owner-workflow .molavi-journey-step.is-complete { border-top-color:#008a20; background:#f5fbf5; }
+#molavi-owner-workflow .molavi-journey-step.is-active,
+#molavi-owner-workflow .molavi-journey-step.is-known { border-top-color:#2271b1; background:#f4f8fc; }
+#molavi-owner-workflow .molavi-journey-step.is-needs_action { border-top-color:#b78100; background:#fffaf0; }
+#molavi-owner-workflow .molavi-journey-step.is-blocked { border-top-color:#b32d2e; background:#fff6f6; }
+#molavi-owner-workflow .molavi-journey-step.is-unknown { border-top-style:dashed; color:#646970; }
+#molavi-owner-workflow .molavi-journey-identifiers { grid-template-columns:repeat(auto-fit,minmax(min(100%,9rem),1fr)); }
+#molavi-owner-workflow .molavi-journey-tools { display:flex; flex-wrap:wrap; align-items:center; gap:.5rem .75rem; }
+#molavi-owner-workflow .molavi-journey-tools .button { min-height:2.25rem; }
+#molavi-owner-workflow .molavi-journey-error { color:#b32d2e; }
+#molavi-owner-workflow .molavi-product-action-impact { color:#50575e; line-height:1.5; }
+#molavi-owner-workflow .molavi-product-task-summary { border-radius:7px; }
+#molavi-owner-workflow .molavi-product-primary-actions { padding:0; }
+#molavi-owner-workflow .molavi-secondary-product-details { margin-top:.25rem; }
+#molavi-owner-workflow .molavi-secondary-product-details > summary { background:#fafafa; }
+@media (max-width:1200px) {
+    #molavi-owner-workflow .molavi-workbench-stages { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    #molavi-owner-workflow .molavi-journey-steps { grid-template-columns:repeat(4,minmax(0,1fr)); }
+}
+@media (max-width:782px) {
+    #molavi-owner-workflow .molavi-workbench-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    #molavi-owner-workflow .molavi-workbench-inbox { grid-template-columns:minmax(0,1fr); }
+    #molavi-owner-workflow .molavi-workbench-record-panel { position:static; }
+    #molavi-owner-workflow .molavi-workbench-record-list { grid-template-columns:repeat(2,minmax(0,1fr)); max-height:17rem; }
+    #molavi-owner-workflow .molavi-journey-steps { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    #molavi-owner-workflow .molavi-journey-step { min-height:5.5rem; }
+}
+@media (max-width:480px) {
+    #molavi-owner-workflow .molavi-workbench-stages { grid-template-columns:minmax(0,1fr); }
+    #molavi-owner-workflow .molavi-workbench-record-list { grid-template-columns:minmax(0,1fr); }
+}

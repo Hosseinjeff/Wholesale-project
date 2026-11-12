@@ -326,6 +326,17 @@ def build_reconciliation_report(store, queue, *, site_url: str, limit: int = 200
             'source_post_url': expected['source_post_url'],
             'source_integrity_codes': expected['source_integrity_codes'],
         })
+    product_states = [{
+        'product_id': expected['product_id'],
+        'product_name': expected['product_name'],
+        'channel': expected['channel'],
+        'woo_sku': expected['id'],
+        'woo_state': catalog_woo_states[source_key],
+        'product_status': expected['status'],
+        'latest_offer_id': expected['latest_offer_id'],
+        'source_post_url': expected['source_post_url'],
+        'source_integrity_codes': expected['source_integrity_codes'],
+    } for source_key, expected in expected_by_source.items()]
     catalog_counts['issues'] = catalog_issue_details[:limit]
     receipt_rows = []
     totals = {
@@ -392,6 +403,7 @@ def build_reconciliation_report(store, queue, *, site_url: str, limit: int = 200
                 'reference_price_change_percent': _text(product.get('Reference Price Change Percent')),
                 'source_post_url': _text(product.get('Source Post URL') or latest_offer.get('Source Post URL')),
                 'woo_sku': woo_sku(product),
+                'latest_offer_id': _text(product.get('Latest Offer ID')),
             })
         latest_review_offers = ([row for row in matched_offers if _text(row.get('Offer ID')) in current_offer_ids]
                                 if current_offer_ids else matched_offers)
@@ -499,6 +511,8 @@ def build_reconciliation_report(store, queue, *, site_url: str, limit: int = 200
         'summary': totals,
         'validation': validation,
         'catalog_woo': catalog_counts,
+        'product_states': product_states[:limit],
+        'product_states_truncated': len(product_states) > limit,
         'source_integrity': {
             'products_checked': len(products),
             'products_with_issues': len(source_integrity_issues),

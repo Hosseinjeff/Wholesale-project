@@ -34,8 +34,8 @@ function molavi_operations_dashboard_screen(): void {
     if (!molavi_reference_owner()) { wp_die('دسترسی مجاز نیست.', '', ['response'=>403]); }
     nocache_headers();
     echo '<div class="wrap"><h1>' . esc_html('میز کار مولوی‌سل') . '</h1>';
-    echo '<p>' . esc_html('کارها بر اساس مرحلهٔ رسیدگی نمایش داده می‌شوند. بازاستخراج، عملیات فروشگاه و بررسی هر کالا در بخش مشخص خود قرار دارند.') . '</p>';
-    molavi_owner_workflow_mount('در حال آماده‌سازی کارت‌های کالا…');
+    echo '<p>' . esc_html('از رسید پیام در Railway تا استخراج، Offer، رکورد Products، مدرک قیمت و وضعیت واقعی Woo را مرحله‌به‌مرحله دنبال کنید. هر تصمیم اثر و رسید خودش را دارد؛ وضعیت نامعلوم موفق تلقی نمی‌شود.') . '</p>';
+    molavi_owner_workflow_mount('در حال ساخت مسیر رسیدگی و بارگذاری صف‌ها…');
     echo '<noscript><div class="notice notice-warning"><p>' . esc_html('برای نمایش وضعیت زنده، جاوااسکریپت را فعال کنید.') . '</p>';
     echo '<ul>';
     $labels = [
