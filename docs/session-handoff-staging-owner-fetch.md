@@ -190,6 +190,28 @@ no browser-control tool capable of blocking owner-proxy POSTs before an authenti
 page load, so the deployed layout and live dismissal behavior were not visually
 verified. Do not claim the earlier `Failed to fetch` issue is fixed from this release.
 
+### Railway queue visibility follow-up — 2026-11-12
+
+After the owner reported no visible queues, a staging sign-in succeeded once using the
+staging-specific environment variables; their values were not printed. The operations
+page returned HTTP 200. Read-only requests to all eight owner workflow GET routes also
+returned HTTP 200 with no JSON error code. Only path, method, status, and error-code
+metadata were retained; response records were not exposed. The displayed payload was
+not recorded, so this does not confirm whether the live queues contain open items.
+
+Code review found that Railway operations were nested under both the system view and a
+collapsed queue details section. It also found that the intake badge counted state
+subtotals without falling back to the API's `actionable_count`. Commit `a1e76cb` adds a
+direct intake entry point, shows that actionable count, and opens the queue details
+when intake is selected. It is deployed to WordPress Staging at revision
+`a1e76cbcf273786ffafaa985a4cfd3b20b1fbd3b`; the uploader verified read-back of
+`includes/owner-workflows.js` with no host normalization. Production and Railway were
+not changed.
+
+No browser-control tool was available to inspect the logged-in rendered page. If the
+owner still sees no work after selecting the Railway intake entry, the rendered page
+and its current route need a guarded browser inspection before another source change.
+
 ## Next-session checklist
 
 1. **Keep all investigation on staging.** Do not change or deploy to production unless

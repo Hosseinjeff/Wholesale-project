@@ -35,6 +35,24 @@ No authenticated visual page check was performed because this runtime has no bro
 control tool that can enforce the staging handoff's block on owner-proxy POSTs; visual
 layout and live dismissal behavior therefore remain unverified here.
 
+### Follow-up: expose the Railway intake queue — 2026-11-12
+
+After the owner reported an empty queue view, the staging owner page and all eight
+owner-workflow GET routes were checked read-only. The page returned HTTP 200; each
+route returned HTTP 200 with no JSON error code. The response records were not exposed
+or copied into notes. Review of the UI showed that Railway work could be hidden in two
+collapsed levels and the intake stage count could remain zero when `actionable_count`
+was populated but state subtotals were absent. Commit `a1e76cb` now counts the reported
+actionable total, opens the Railway queue when intake is selected, and adds a direct
+entry point when Railway has work but product queues are empty.
+
+The follow-up was deployed only to WordPress Staging with
+`python3 tools/deploy_wordpress_plugin.py --site staging --since 0fdd710`. The uploader
+read back and verified `includes/owner-workflows.js`; no host normalization was
+reported. `node --check` and `git diff --check` passed. The authenticated page itself
+was not visually inspected, and the staging response payload's queue contents were
+not recorded, so this does not establish that live work items exist.
+
 ## 2026-11-12 Staging owner dashboard rebuilt around the source-to-store workflow
 
 The owner workbench is organized around six actual handoffs: intake and the Railway
