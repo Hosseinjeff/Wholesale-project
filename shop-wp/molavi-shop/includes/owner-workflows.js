@@ -1291,12 +1291,30 @@
         products.sort((a,b) => Number(attention(b))-Number(attention(a))
             || workbenchPriority(a)-workbenchPriority(b) || a.name.localeCompare(b.name,'fa'));
         const openProducts = products.filter(attention);
+        const operationsQueue = operations && operations.operations || {};
+        const operationsQueueItems = Array.isArray(operationsQueue.items) ? operationsQueue.items : [];
+        const reportedOperationsCount = Number(operationsQueue.actionable_count);
+        const openOperationsCount = Math.max(Number.isFinite(reportedOperationsCount) ? reportedOperationsCount : 0,
+            operationsQueueItems.length);
         const summary = node('section', null, 'molavi-workbench-summary');
         summary.appendChild(node('h2', 'کنترل جریان کالا'));
-        summary.appendChild(node('p', openProducts.length
-            ? `${new Intl.NumberFormat('fa-IR').format(openProducts.length)} ردیف کالا/منبع نیازمند رسیدگی است. یک مرحله را انتخاب کنید تا فقط صف همان گام و اقدام‌هایش را ببینید.`
-            : 'در صف‌های بارگذاری‌شده کار بازی نیست؛ برای ردیابی WooCommerce گزارش انتها‌به‌انتها را اجرا کنید.', 'molavi-workbench-summary-copy'));
+        const summaryCopy = openProducts.length
+            ? `${new Intl.NumberFormat('fa-IR').format(openProducts.length)} ردیف کالا/منبع نیازمند رسیدگی است.`
+            : 'در صف‌های کالایی بارگذاری‌شده کار بازی نیست.';
+        summary.appendChild(node('p', summaryCopy
+            + (openOperationsCount ? ` ${new Intl.NumberFormat('fa-IR').format(openOperationsCount)} کار در صف پردازش Railway هم هست؛ مرحلهٔ دریافت را باز کنید.`
+                : openProducts.length ? ' یک مرحله را انتخاب کنید تا صف همان گام و اقدام‌هایش را ببینید.'
+                    : ' برای ردیابی WooCommerce گزارش انتها‌به‌انتها را اجرا کنید.'), 'molavi-workbench-summary-copy'));
         summary.appendChild(node('small', `${workbenchDismissals.length.toLocaleString('fa-IR')} کار کنارگذاشته‌شده و قابل‌بازگردانی · کنارگذاری فقط نمای همین حساب مالک را تغییر می‌دهد.`));
+        if (openOperationsCount) {
+            const openOperations = node('button','بازکردن صف پردازش Railway','button button-secondary molavi-open-intake-queue');
+            openOperations.type = 'button';
+            openOperations.addEventListener('click',() => {
+                const intakeStage = stageButtons.get('intake');
+                if (intakeStage) intakeStage.click();
+            });
+            summary.appendChild(openOperations);
+        }
         if (data.product_status) {
             const snapshots = Array.isArray(data.product_status.snapshots) ? data.product_status.snapshots : [];
             const latestSnapshot = snapshots.find(item => item.snapshot_id === data.product_status.latest_snapshot_id);
@@ -1901,8 +1919,9 @@
                 const failed = Number(states.failed || 0) + Number(states.needs_review || 0);
                 const workerLabel = ({alive:'کارگر فعال',stale:'کارگر بی‌پاسخ',stopped:'کارگر متوقف',unknown:'کارگر نامشخص'})[(ops.worker || {}).status]
                     || 'کارگر نامشخص';
-                return {count:queued + running + waiting + failed,
-                    detail:`${queued.toLocaleString('fa-IR')} منتظر · ${running.toLocaleString('fa-IR')} در حال اجرا · ${failed.toLocaleString('fa-IR')} خطا/بازبینی · ${workerLabel}`};
+                const stateTotal = queued + running + waiting + failed;
+                return {count:Math.max(openOperationsCount,stateTotal),
+                    detail:`${Math.max(openOperationsCount,stateTotal).toLocaleString('fa-IR')} مورد قابل‌پیگیری · ${queued.toLocaleString('fa-IR')} منتظر · ${running.toLocaleString('fa-IR')} در حال اجرا · ${failed.toLocaleString('fa-IR')} خطا/بازبینی · ${workerLabel}`};
             }
             if (stage.key === 'storefront') {
                 const counts = workbenchReconciliation && workbenchReconciliation.catalog_woo || {};
@@ -1970,6 +1989,8 @@
                 if (stage.key === 'intake') {
                     const operationsDetails = storeView.querySelector('.molavi-technical-details');
                     if (operationsDetails) operationsDetails.open = true;
+                    const operationsQueueDetails = storeView.querySelector('.molavi-operation-queue-details');
+                    if (operationsQueueDetails) operationsQueueDetails.open = true;
                     const heldBatches = storeView.querySelector('.molavi-batch-group');
                     if (heldBatches) heldBatches.open = true;
                 }
@@ -2986,6 +3007,7 @@
             const workerError = worker.last_error_code ? ` · آخرین کد خطا ${worker.last_error_code}` : '';
             const workerProgress=workerProgressLabels[worker.progress_status]||'پیشرفت نامشخص';
             technical.appendChild(node('p',`کارگر صف: ${workerLabels[worker.status] || worker.status || 'وضعیت نامشخص'} · پیشرفت: ${workerProgress}${progressAge}${workerAge}${workerJob}${workerError}`));
+            if (openOperationsCount) technical.open = true;
             const pendingTelegramChats = Array.isArray(ops.pending_telegram_chats) ? ops.pending_telegram_chats : [];
             if (pendingTelegramChats.length) {
                 const telegramDetails = document.createElement('details');
@@ -3088,6 +3110,8 @@
             registerOperationsQueue(queueItems,ops.next_cursor);
             if (queueItems.length || ops.next_cursor) {
                 const details = document.createElement('details');
+                details.className = 'molavi-operation-queue-details';
+                details.open = openOperationsCount > 0;
                 const summary=node('summary','');
                 const rows=document.createElement('div');
                 const pageState={items:[...queueItems],cursor:ops.next_cursor||null,loading:false};
