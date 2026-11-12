@@ -265,6 +265,9 @@
             no_reextraction_messages: 'پیامی برای بازاستخراج در این گروه پیدا نشد.',
             invalid_dismissal_request: 'درخواست رد گروهی معتبر نیست؛ صفحه را تازه کنید.',
             dismiss_failed: 'رد کردن همه موارد انجام نشد؛ صفحه را تازه کنید و موارد باقی‌مانده را بررسی کنید.',
+            dismissal_unavailable: 'امکان ثبت فهرست شخصی کنارگذاشته‌ها در این صفحه آماده نیست.',
+            dismissal_limit: 'بایگانی کنارگذاشته‌ها به سقف خود رسیده است؛ ابتدا بخشی از آن را بازگردانید.',
+            invalid_records: 'فهرست کنارگذاری معتبر نبود؛ صفحه را تازه کنید و دوباره بررسی کنید.',
             ai_extraction_disabled: 'برای استفاده از استخراج فقط با هوش مصنوعی، ابتدا سرویس سرور را به‌روزرسانی کنید.',
             ai_extraction_unconfigured: 'برای استخراج کالا، کلید GOOGLE_API_KEY را در تنظیمات سرویس اجرا تنظیم کنید.',
             unknown_reextraction_run: 'اجرای بازاستخراج پیدا نشد؛ فهرست را تازه کنید.',
@@ -312,6 +315,26 @@
             window.parent.postMessage({ type: 'molavi-owner-workflow-updated' }, window.location.origin);
         }
         return body;
+    }
+
+    async function workbenchDismissalRequest(operation, payload = {}) {
+        if (!config.apiProxyUrl || !config.workbenchDismissalNonce) throw new Error('dismissal_unavailable');
+        const body = new URLSearchParams({
+            action:'molavi_owner_workbench_dismissals', nonce:config.workbenchDismissalNonce,
+            operation:String(operation)
+        });
+        if (Array.isArray(payload.records)) body.set('records', JSON.stringify(payload.records));
+        if (Array.isArray(payload.keys)) body.set('keys', JSON.stringify(payload.keys));
+        const response = await fetch(config.apiProxyUrl, {method:'POST', mode:'same-origin',
+            credentials:'same-origin', cache:'no-store',
+            headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8','Accept':'application/json'},
+            body});
+        const result = await response.json().catch(() => null);
+        if (!response.ok || !result || result.success !== true || !result.data || !Array.isArray(result.data.items)) {
+            throw new Error(result && result.data && result.data.code || 'dismiss_failed');
+        }
+        workbenchSetDismissals(result.data.items);
+        return workbenchDismissals;
     }
 
     async function requestSheetConflict(payload, apiKey = '') {
@@ -601,6 +624,63 @@
     let workbenchVisibleLimit = 30;
     let workbenchReconciliation = null;
     let workbenchReconciliationError = '';
+    let workbenchDismissals = Array.isArray(config.workbenchDismissals) ? config.workbenchDismissals : [];
+    let workbenchDismissalIndex = new Map(workbenchDismissals
+        .filter(item => item && typeof item.task_key === 'string').map(item => [item.task_key, item]));
+    let workbenchDismissalAuxiliaryTasks = [];
+    let workbenchDismissalAuxiliaryHasMore = {media_review:false,operations:false};
+    let workbenchDismissalAuxiliaryLoaded = {media_review:false,operations:false};
+    let workbenchSelectedKeys = new Set();
+    let workbenchDismissedSelectedKeys = new Set();
+    let workbenchDismissalQueueKeys = new Set();
+    let workbenchDismissalScope = 'queue';
+    let workbenchDismissalReason = '';
+    let workbenchDismissalBusy = false;
+
+    const workbenchDismissalTaxonomy = [
+        {stage:'intake', label:'دریافت و پردازش', queues:[['operations','صف پردازش Railway']]},
+        {stage:'extract', label:'استخراج و بازبینی', queues:[['ai','پیشنهاد استخراج'],['media_review','پیام/آلبوم نیازمند OCR']]},
+        {stage:'identity', label:'هویت و تطبیق', queues:[['source_integrity','پیوند Offer و Product'],['references','تطبیق مرجع']]},
+        {stage:'evidence', label:'قیمت و شواهد', queues:[['supplier_prices','تازگی قیمت'],['conflicts','تعارض شیت']]},
+        {stage:'publish', label:'کاتالوگ و انتشار', queues:[['holds','توقف دسته'],['status','به‌روزرسانی محصول']]},
+        {stage:'storefront', label:'فروشگاه', queues:[['storefront','قابل‌نمایش/خرید بودن']]}
+    ];
+
+    function workbenchDismissalToken(value) {
+        return encodeURIComponent(String(value || '')).replace(/[!'()*~]/g, char =>
+            '%' + char.charCodeAt(0).toString(16).toUpperCase());
+    }
+
+    function workbenchDismissalStage(queue) {
+        return workbenchDismissalTaxonomy.find(stage => stage.queues.some(item => item[0] === queue))?.stage || '';
+    }
+    function workbenchMediaDismissalKey(messageKey) {
+        const identity = String(messageKey || '').trim();
+        if (!identity) return '';
+        const key = `media_review|${workbenchDismissalToken(identity)}`;
+        return key.length <= 520 ? key : '';
+    }
+    function workbenchOperationDismissalTask(item) {
+        const id = String(item && item.id || '').trim();
+        if (!id) return null;
+        const kind = String(item && item.kind || 'work').trim() || 'work';
+        const taskKey = `operations|${workbenchDismissalToken(`${kind}:${id}`)}`;
+        if (taskKey.length > 520) return null;
+        const label = kind === 'batch' ? 'صف پردازش · دسته'
+            : kind === 'publication' ? 'صف پردازش · انتشار' : 'صف پردازش · کار';
+        return {task_key:taskKey,queue:'operations',stage:'intake',label};
+    }
+    const workbenchDismissalReasons = {
+        duplicate:'تکراری در این صف', no_action:'اقدامی از این صف لازم نیست',
+        outside_scope:'فعلاً خارج از دامنه رسیدگی', later:'برای پیگیری بعدی کنار گذاشته شود',
+        other:'دلیل دیگر'
+    };
+
+    function workbenchSetDismissals(items) {
+        workbenchDismissals = Array.isArray(items) ? items : [];
+        workbenchDismissalIndex = new Map(workbenchDismissals
+            .filter(item => item && typeof item.task_key === 'string').map(item => [item.task_key, item]));
+    }
 
     function workbenchNameKey(name) {
         return String(name || '').normalize('NFKC').toLocaleLowerCase()
@@ -638,6 +718,38 @@
     function workbenchSourceRecord(product) {
         return workbenchSourceRecords(product).find(item => item && (item.message_id || item.source_post_url
             || item.channel || item.channel_username)) || {};
+    }
+
+    function workbenchDismissalKey(product, queue) {
+        const productId = String(product.product_id || product.status && product.status.product_id || '').trim();
+        let identity = productId ? `product:${productId}` : '';
+        if (!identity) {
+            const groups = {
+                source_integrity:[product.status], ai:product.ai, reextract:product.ai,
+                references:product.references, supplier_prices:product.supplierPrices,
+                conflicts:product.conflicts, holds:product.holds, status:[product.status],
+                storefront:[product.status]
+            };
+            const records = Array.isArray(groups[queue]) ? groups[queue] : [];
+            const ids = records.map(item => String(item && (item.case_id || item.conflict_id || item.review_id
+                || item.hold_id || item.latest_offer_id || item.offer_id || item.id) || '').trim())
+                .filter(Boolean).sort();
+            if (ids.length) identity = `${queue}:${ids.join(',')}`;
+        }
+        if (!identity) {
+            const source = workbenchSourceRecord(product);
+            const messageId = String(source.message_id || source.messageId || '').trim();
+            const channel = String(source.channel || source.channel_username || product.channel || '').trim();
+            if (messageId && channel) identity = `message:${channel}:${messageId}`;
+        }
+        if (!identity) return '';
+        const key = `${queue}|${workbenchDismissalToken(identity)}`;
+        return key.length <= 520 ? key : '';
+    }
+
+    function workbenchIsDismissed(product, queue) {
+        const key = workbenchDismissalKey(product, queue);
+        return Boolean(key && workbenchDismissalIndex.has(key));
     }
 
     function workbenchSourceMessageKey(product) {
@@ -703,14 +815,13 @@
     }
 
     function workbenchActionKey(product) {
-        if (product.status && Array.isArray(product.status.source_integrity_issues)
-            && product.status.source_integrity_issues.length) return 'source_integrity';
-        if (product.holds.length) return 'holds';
-        if (product.ai.some(item => !item.publication_held)) return 'ai';
-        if (product.references.length) return 'references';
-        if (product.conflicts.length) return 'conflicts';
-        if (workbenchPendingSupplierPrices(product)) return 'supplier_prices';
-        if (product.status && product.status.update_needed) return 'status';
+        if (workbenchQueueMatches(product,'source_integrity')) return 'source_integrity';
+        if (workbenchQueueMatches(product,'holds')) return 'holds';
+        if (workbenchQueueMatches(product,'ai')) return 'ai';
+        if (workbenchQueueMatches(product,'references')) return 'references';
+        if (workbenchQueueMatches(product,'conflicts')) return 'conflicts';
+        if (workbenchQueueMatches(product,'supplier_prices')) return 'supplier_prices';
+        if (workbenchQueueMatches(product,'status')) return 'status';
         if (workbenchQueueMatches(product, 'storefront')) return 'storefront';
         return 'next';
     }
@@ -725,18 +836,19 @@
     ];
 
     function workbenchQueueMatches(product, key) {
-        if (key === 'source_integrity') return Boolean(product.status
+        let matched = false;
+        if (key === 'source_integrity') matched = Boolean(product.status
             && Array.isArray(product.status.source_integrity_issues)
             && product.status.source_integrity_issues.length);
-        if (key === 'ai') return !product.holds.length && product.ai.some(item => !item.publication_held);
-        if (key === 'references') return product.references.length > 0;
-        if (key === 'conflicts') return product.conflicts.length > 0;
-        if (key === 'supplier_prices') return workbenchPendingSupplierPrices(product) > 0;
-        if (key === 'holds') return product.holds.length > 0;
-        if (key === 'status') return Boolean(product.status && product.status.update_needed);
-        if (key === 'storefront') return ['not_visible','held_but_purchasable','ambiguous_product_id',
+        if (key === 'ai') matched = !product.holds.length && product.ai.some(item => !item.publication_held);
+        if (key === 'references') matched = product.references.length > 0;
+        if (key === 'conflicts') matched = product.conflicts.length > 0;
+        if (key === 'supplier_prices') matched = workbenchPendingSupplierPrices(product) > 0;
+        if (key === 'holds') matched = product.holds.length > 0;
+        if (key === 'status') matched = Boolean(product.status && product.status.update_needed);
+        if (key === 'storefront') matched = ['not_visible','held_but_purchasable','ambiguous_product_id',
             'no_catalog_projection','not_checked','not_checked_catalog_truncated','sku_mismatch','not_purchasable'].includes(workbenchWooState(product));
-        return false;
+        return matched && !workbenchIsDismissed(product, key);
     }
 
     function workbenchActionForQueue(product, queue = workbenchQueue) {
@@ -952,21 +1064,20 @@
     }
 
     function workbenchPriority(product) {
-        if (product.status && Array.isArray(product.status.source_integrity_issues)
-            && product.status.source_integrity_issues.length) return 0;
-        if (product.holds.length) return 1;
+        if (workbenchQueueMatches(product,'source_integrity')) return 0;
+        if (workbenchQueueMatches(product,'holds')) return 1;
         if (workbenchQueueMatches(product,'ai')) return 2;
-        if (product.references.length) return 3;
-        if (product.conflicts.length) return 4;
-        if (workbenchPendingSupplierPrices(product)) return 5;
-        if (product.status && product.status.update_needed) return 6;
+        if (workbenchQueueMatches(product,'references')) return 3;
+        if (workbenchQueueMatches(product,'conflicts')) return 4;
+        if (workbenchQueueMatches(product,'supplier_prices')) return 5;
+        if (workbenchQueueMatches(product,'status')) return 6;
         if (workbenchQueueMatches(product,'storefront')) return 7;
         return 8;
     }
 
     async function dashboard(message = '', messageKind = 'info', refreshKeys = null) {
         if (!workbenchMounted) {
-            shell('میز کار مولوی‌سل', 'مسیر هر کالا را از پیام تأمین‌کننده تا قفسهٔ فروشگاه دنبال کنید؛ تصمیم‌ها فقط با اقدام صریح شما ثبت می‌شوند.');
+            shell('مرکز فرمان جریان کالا', 'یک ردیف برای هر کالا؛ صف را از دریافت منبع تا قفسه پیگیری کنید و فقط گام لازم را باز کنید.');
             const toolbar = node('div', null, 'molavi-workbench-toolbar');
             workbenchRefresh = node('button', 'به‌روزرسانی همه صف‌ها', 'button button-primary');
             workbenchRefresh.type = 'button';
@@ -1014,6 +1125,11 @@
             workbenchMounted = true;
         }
         const thisLoad = ++workbenchLoadId;
+        workbenchDismissalAuxiliaryTasks = [];
+        workbenchDismissalAuxiliaryHasMore.media_review = false;
+        workbenchDismissalAuxiliaryLoaded.media_review = false;
+        workbenchDismissalAuxiliaryHasMore.operations = false;
+        workbenchDismissalAuxiliaryLoaded.operations = false;
         workbenchRefresh.disabled = true;
         workbenchRefresh.textContent = 'در حال تازه‌سازی همه صف‌ها…';
         if (message) {
@@ -1025,6 +1141,10 @@
         }
         const board = workbenchBoard;
         let refreshQueueCounts = () => 0;
+        let focusDismissalTask = () => {};
+        let focusDismissalAuxiliaryTask = () => {};
+        let toggleDismissalAuxiliaryTask = () => {};
+        let syncDismissalQueueChecks = () => {};
 
         const labels = {
             product_status:'وضعیت کاتالوگ', ai_confirmations:'استخراج', reference_items:'تطبیق مرجع',
@@ -1166,29 +1286,17 @@
         const contextStored = {ai_confirmations:reviewStoreAvailable,reference_items:reviewStoreAvailable,
             sheet_conflicts:reviewStoreAvailable,supplier_prices:reviewStoreAvailable};
 
-        const attention = product => Boolean(product.status && product.status.update_needed)
-            || product.ai.length > 0 || product.references.length > 0 || workbenchPendingSupplierPrices(product) > 0
-            || product.conflicts.length > 0 || product.holds.length > 0 || workbenchQueueMatches(product, 'storefront');
+        const taskQueueKeys = [...new Set(workbenchStageModel.flatMap(stage => stage.queues).concat('storefront'))];
+        const attention = product => taskQueueKeys.some(key => workbenchQueueMatches(product, key));
         products.sort((a,b) => Number(attention(b))-Number(attention(a))
             || workbenchPriority(a)-workbenchPriority(b) || a.name.localeCompare(b.name,'fa'));
         const openProducts = products.filter(attention);
-        const summary = node('section', null, 'card molavi-workbench-summary');
-        summary.appendChild(node('h2', 'مسیر از منبع تا قفسه'));
+        const summary = node('section', null, 'molavi-workbench-summary');
+        summary.appendChild(node('h2', 'کنترل جریان کالا'));
         summary.appendChild(node('p', openProducts.length
-            ? `${new Intl.NumberFormat('fa-IR').format(openProducts.length)} کالا دست‌کم یک گام باز دارد. یک مرحله را انتخاب کنید؛ کارت جزئیات را با شناسه‌های منبع و وضعیت هر لایه نشان می‌دهد.`
+            ? `${new Intl.NumberFormat('fa-IR').format(openProducts.length)} ردیف کالا/منبع نیازمند رسیدگی است. یک مرحله را انتخاب کنید تا فقط صف همان گام و اقدام‌هایش را ببینید.`
             : 'در صف‌های بارگذاری‌شده کار بازی نیست؛ برای ردیابی WooCommerce گزارش انتها‌به‌انتها را اجرا کنید.', 'molavi-workbench-summary-copy'));
-        const taskMetrics = node('div', null, 'molavi-workbench-metrics');
-        [
-            ['تصمیم استخراج', products.reduce((sum,item)=>sum+item.ai.length,0)],
-            ['هویت و مرجع', products.reduce((sum,item)=>sum+(item.status?.source_integrity_issues?.length||0)+item.references.length,0)],
-            ['قیمت و تعارض', products.reduce((sum,item)=>sum+workbenchPendingSupplierPrices(item)+item.conflicts.length,0)],
-            ['انتشار و وضعیت', products.reduce((sum,item)=>sum+item.holds.length+Number(Boolean(item.status?.update_needed)),0)]
-        ].forEach(([label,count]) => {
-            const metric = node('div', null, 'molavi-workbench-metric');
-            metric.append(node('strong', new Intl.NumberFormat('fa-IR').format(count)), node('span', label));
-            taskMetrics.appendChild(metric);
-        });
-        summary.appendChild(taskMetrics);
+        summary.appendChild(node('small', `${workbenchDismissals.length.toLocaleString('fa-IR')} کار کنارگذاشته‌شده و قابل‌بازگردانی · کنارگذاری فقط نمای همین حساب مالک را تغییر می‌دهد.`));
         if (data.product_status) {
             const snapshots = Array.isArray(data.product_status.snapshots) ? data.product_status.snapshots : [];
             const latestSnapshot = snapshots.find(item => item.snapshot_id === data.product_status.latest_snapshot_id);
@@ -1323,16 +1431,10 @@
         const renderProduct = product => {
             const primaryKey = workbenchActionForQueue(product, workbenchQueue);
             const taskMeta = workbenchTaskMeta(product, primaryKey);
-            const card = node('article', null, 'card molavi-review-card molavi-product-card');
+            const card = node('section', null, 'molavi-task-workspace');
             const primaryContent = node('div', null, 'molavi-product-primary-actions');
-            const secondaryContent = node('div', null, 'molavi-secondary-product-checks');
-            const relatedTaskKeys = new Set();
             const primaryTaskTargetId = `molavi-product-action-${++workbenchProductCardSequence}`;
             let primaryTargetAssigned = false;
-            const secondaryChecks = document.createElement('details');
-            secondaryChecks.className = 'molavi-secondary-product-details';
-            const secondarySummary = node('summary', 'سایر گام‌های همین محصول');
-            secondaryChecks.appendChild(secondarySummary);
             const taskSummary = node('section', null, 'molavi-product-task-summary');
             taskSummary.dataset.taskStage = taskMeta.stageKey;
             taskSummary.dataset.taskType = primaryKey;
@@ -1347,42 +1449,76 @@
             const actionJump = ownerWorkflowAnchor(primaryTaskTargetId, 'رفتن به گزینه‌های اقدام');
             actionJump.hidden = true;
             taskActions.appendChild(actionJump);
+            if (primaryKey !== 'next') {
+                const dismissTask = node('button', 'کنارگذاشتن این گام', 'button button-link-delete molavi-dismiss-this-task');
+                dismissTask.type = 'button';
+                dismissTask.addEventListener('click', () => focusDismissalTask(product, primaryKey));
+                taskActions.appendChild(dismissTask);
+            }
             taskSummary.append(taskCopy, taskActions);
             const addWorkflowSection = (section, key) => {
                 section.dataset.taskType = key;
-                if (key === primaryKey) {
-                    section.classList.add('molavi-product-primary-action');
-                    if (!primaryTargetAssigned) {
-                        section.id = primaryTaskTargetId;
-                        primaryTargetAssigned = true;
-                        actionJump.hidden = false;
-                    }
-                    primaryContent.appendChild(section);
-                } else {
-                    section.classList.add('molavi-product-related-action');
-                    relatedTaskKeys.add(key);
-                    secondaryContent.appendChild(section);
+                if (key !== primaryKey) return;
+                section.classList.add('molavi-product-primary-action');
+                if (!primaryTargetAssigned) {
+                    section.id = primaryTaskTargetId;
+                    primaryTargetAssigned = true;
+                    actionJump.hidden = false;
                 }
+                primaryContent.appendChild(section);
             };
             if (product.holds.length) card.classList.add('is-held');
             if (product.conflicts.length) card.classList.add('has-conflict');
-            const header = node('div', null, 'molavi-product-card-heading');
-            header.appendChild(node('h2', product.name));
+            const header = node('header', null, 'molavi-task-header');
+            const identity = node('div', null, 'molavi-task-heading-copy');
+            identity.appendChild(node('h2', product.name));
+            if (product.channel) identity.appendChild(node('small', 'کانال منبع: ' + product.channel));
+            const productId = String(product.product_id || product.status && product.status.product_id || '').trim();
+            if (productId) identity.appendChild(node('small', `شناسه محصول: ${productId}`));
+            header.appendChild(identity);
             const state = product.holds.length ? 'انتشار متوقف'
                 : product.conflicts.length ? 'تعارض همگام‌سازی'
                     : attention(product) ? 'نیازمند اقدام' : 'وضعیت ثبت‌شده';
-            appendStatusPill(header, 'گام بعدی', taskMeta.label, attention(product) ? 'warning' : '');
-            const statePill = appendStatusPill(header, 'وضعیت', state, attention(product) ? 'warning' : 'success');
+            const stateBadge = node('span', state, `molavi-task-state${attention(product) ? ' is-open' : ''}`);
+            header.appendChild(stateBadge);
             card.appendChild(header);
-            card.appendChild(renderProductJourney(product));
             card.appendChild(taskSummary);
+            card.appendChild(primaryContent);
+            const relatedQueues = taskQueueKeys.filter(key => key !== primaryKey && workbenchQueueMatches(product,key));
+            if (relatedQueues.length) {
+                const related = node('nav', null, 'molavi-related-work-links');
+                related.setAttribute('aria-label', 'گام‌های باز دیگر برای همین کالا');
+                related.appendChild(node('strong', 'گام‌های باز دیگر برای همین کالا'));
+                relatedQueues.forEach(key => {
+                    const queue = queueDefinitions.find(item => item.key === key);
+                    if (!queue) return;
+                    const meta = workbenchTaskMeta(product,key);
+                    const jump = node('button', `${meta.label} · ${meta.countLabel}`, 'button button-link');
+                    jump.type = 'button';
+                    jump.addEventListener('click', () => {
+                        workbenchQueue = key;
+                        workbenchStage = activeStageForQueue(key)?.key || '';
+                        workbenchDismissalQueueKeys = new Set([key]);
+                        syncDismissalQueueChecks();
+                        workbenchIndex = 0;
+                        workbenchSelectedKey = product.key;
+                        workbenchVisibleLimit = 30;
+                        stageButtons.forEach((item,keyName) => item.setAttribute('aria-pressed', String(keyName === workbenchStage)));
+                        renderQueueNavigation();
+                        renderView();
+                        renderQueue();
+                    });
+                    related.appendChild(jump);
+                });
+                card.appendChild(related);
+            }
+            const journeyDetails = document.createElement('details');
+            journeyDetails.className = 'molavi-journey-details';
+            journeyDetails.appendChild(node('summary', 'ردیابی کامل منبع تا فروشگاه و شناسه‌های فنی'));
+            journeyDetails.appendChild(renderProductJourney(product));
+            card.appendChild(journeyDetails);
             const nextStep = taskCopy.querySelector('.molavi-product-next-step');
             const status = product.status || {};
-            const identityFacts = [];
-            if (product.channel) identityFacts.push(['تأمین‌کننده', product.channel]);
-            if (identityFacts.length) card.appendChild(reviewFacts(identityFacts,
-                'molavi-review-facts molavi-product-identity'));
-
             const stateRow = node('div', null, 'molavi-product-state-row');
             let supplierPricePill = null;
             if (status.reference_match_id || status.reference_match_name) appendStatusPill(stateRow, 'مرجع',
@@ -1396,7 +1532,13 @@
                 ['blocked','needs_review'].includes(status.supplier_price_state) ? 'warning' : '');
             if (status.update_needed) appendStatusPill(stateRow, 'به‌روزرسانی', 'لازم است', 'warning');
             if (product.holds.length) appendStatusPill(stateRow, 'انتشار', 'متوقف', 'warning');
-            if (stateRow.childNodes.length) card.appendChild(stateRow);
+            if (stateRow.childNodes.length) {
+                const evidenceSummary = document.createElement('details');
+                evidenceSummary.className = 'molavi-task-evidence';
+                evidenceSummary.appendChild(node('summary', 'وضعیت‌های ثبت‌شده و شواهد'));
+                evidenceSummary.appendChild(stateRow);
+                card.appendChild(evidenceSummary);
+            }
             const refreshInPlace = async (message, kind, statusNode, refreshKeys) => {
                 const scrollX = window.scrollX;
                 const scrollY = window.scrollY;
@@ -1404,7 +1546,7 @@
                 await dashboard(message, kind, refreshKeys);
                 window.scrollTo({left:scrollX,top:scrollY,behavior:'instant'});
             };
-            groupAiVariantCases(product.ai).forEach(relatedItems => {
+            if (primaryKey === 'ai') groupAiVariantCases(product.ai).forEach(relatedItems => {
                 const item = relatedItems[0];
                 const sourceKey = aiSourceMessageKey(item);
                 const sourceCases = sourceKey && aiCasesBySource.has(sourceKey)
@@ -1425,7 +1567,7 @@
                 ai.prepend(title);
                 addWorkflowSection(ai, 'ai');
             });
-            product.references.forEach(item => {
+            if (primaryKey === 'references') product.references.forEach(item => {
                 const reference = referenceItemCard(item, contextStored.reference_items, {
                     embedded:true, apiKey:'reference_items', refresh:refreshInPlace,
                     parentName:product.name, parentChannel:product.channel
@@ -1433,7 +1575,7 @@
                 reference.prepend(node('h3', 'تطبیق و مبنای قیمت مرجع'));
                 addWorkflowSection(reference, 'references');
             });
-            product.supplierPrices.forEach(offer => {
+            if (primaryKey === 'supplier_prices') product.supplierPrices.forEach(offer => {
                 const section = node('section', null, 'molavi-product-subsection molavi-review-block molavi-supplier-price-review');
                 section.appendChild(node('h3', 'تازگی قیمت تأمین‌کننده'));
                 const statusText = offer.acknowledged
@@ -1517,8 +1659,8 @@
                             workbenchLiveStatus.textContent = message;
                         }
                         const needsAttention = attention(product);
-                        statePill.textContent = `وضعیت: ${needsAttention ? 'نیازمند اقدام' : 'وضعیت ثبت‌شده'}`;
-                        statePill.className = `molavi-status-pill${needsAttention ? ' is-warning' : ' is-success'}`;
+                        stateBadge.textContent = needsAttention ? 'نیازمند اقدام' : 'وضعیت ثبت‌شده';
+                        stateBadge.className = `molavi-task-state${needsAttention ? ' is-open' : ''}`;
                     } catch (error) {
                         try { await persistOwnerReviews([reviewRecord(eventId,'supplier_price',offer.product_id,error.remoteRejected?'failed':'pending',context,decision,{error:String(error.message||'request_failed')})]); }
                         catch (_ignored) {}
@@ -1532,7 +1674,7 @@
                 section.appendChild(actions);
                 addWorkflowSection(section, 'supplier_prices');
             });
-            product.conflicts.forEach(conflict => {
+            if (primaryKey === 'conflicts') product.conflicts.forEach(conflict => {
                 const section = node('section', null, 'molavi-product-subsection molavi-review-block molavi-product-conflict');
                 section.appendChild(node('h3', `تعارض داده · ${conflict.field || 'فیلد نامشخص'}`));
                 section.appendChild(reviewFacts([
@@ -1625,7 +1767,7 @@
                 section.appendChild(actions);
                 addWorkflowSection(section, 'conflicts');
             });
-            if (product.holds.length) {
+            if (primaryKey === 'holds' && product.holds.length) {
                 const section = node('section', null, 'molavi-product-subsection molavi-product-hold');
                 section.appendChild(node('h3', 'انتشار این محصول در یک دسته متوقف شده است'));
                 product.holds.forEach(hold => {
@@ -1635,13 +1777,24 @@
                     const row = node('div', null, 'molavi-hold-next-step');
                     row.appendChild(node('span', labels[hold.reason] || 'دستهٔ پردازش متوقف شده است'));
                     const holdIndex = batchCards.findIndex(entry => entry.hold === hold);
-                    if (holdIndex >= 0) row.appendChild(ownerWorkflowAnchor(
-                        `molavi-batch-${holdIndex}`, 'دیدن پیام‌ها و اقدام بازیابی'));
+                    if (holdIndex >= 0) {
+                        const openBatch = node('button', 'دیدن پیام‌ها و اقدام بازیابی', 'button button-link');
+                        openBatch.type = 'button';
+                        openBatch.addEventListener('click', () => {
+                            workbenchView = 'store';
+                            renderView();
+                            const target = storeView.querySelector(`#molavi-batch-${holdIndex}`);
+                            const details = target && target.closest('details');
+                            if (details) details.open = true;
+                            if (target) target.scrollIntoView({behavior:'smooth',block:'center'});
+                        });
+                        row.appendChild(openBatch);
+                    }
                     section.appendChild(row);
                 });
                 addWorkflowSection(section, 'holds');
             }
-            if (Array.isArray(status.source_integrity_issues) && status.source_integrity_issues.length) {
+            if (primaryKey === 'source_integrity' && Array.isArray(status.source_integrity_issues) && status.source_integrity_issues.length) {
                 const section = node('section', null, 'molavi-product-subsection molavi-product-hold');
                 section.appendChild(node('h3', 'پیوند پیشنهاد منبع شکسته است'));
                 const labels={missing_product_id:'شناسه کالا ثبت نشده',duplicate_product_id:'شناسه کالا تکراری است',
@@ -1655,7 +1808,7 @@
                 section.appendChild(notice('این کالا تا بازیابی پیوند منبع در فروشگاه منتشر نمی‌شود. جزئیات و پست اصلی را بررسی کنید؛ دادهٔ Offer حدس زده یا بازسازی خودکار نمی‌شود.', 'warning'));
                 addWorkflowSection(section, 'source_integrity');
             }
-            if (workbenchQueueMatches(product,'storefront')) {
+            if (primaryKey === 'storefront' && workbenchQueueMatches(product,'storefront')) {
                 const section = node('section', null, 'molavi-product-subsection molavi-review-block molavi-storefront-reconciliation');
                 section.appendChild(node('h3', 'مغایرت وضعیت قفسهٔ WooCommerce'));
                 section.appendChild(node('p', `وضعیت گزارش‌شده: ${workbenchWooLabel(workbenchWooState(product))}. این مورد برای دیدن رسید و وضعیت عمومی نیازمند تطبیق است.`));
@@ -1667,7 +1820,7 @@
                 section.appendChild(actions);
                 addWorkflowSection(section, 'storefront');
             }
-            if (status.update_needed || status.review_reason || status.source_post_url) {
+            if (primaryKey === 'status' && (status.update_needed || status.review_reason || status.source_post_url)) {
                 const details = document.createElement('details');
                 details.open = primaryKey === 'status';
                 details.className = 'molavi-product-source-details';
@@ -1679,27 +1832,26 @@
                     `آخرین بررسی قیمت تأمین‌کننده: ${formatSourceTimestamp(status.supplier_price_verified_at) || 'ثبت شده'}`));
                 addWorkflowSection(details, 'status');
             }
-            if (primaryContent.childNodes.length) card.appendChild(primaryContent);
-            if (secondaryContent.childNodes.length) {
-                const sectionCount = new Intl.NumberFormat('fa-IR').format(secondaryContent.childElementCount);
-                const relatedLabels = [...relatedTaskKeys].map(key => workbenchTaskMeta(product, key).label);
-                secondarySummary.textContent = `سایر گام‌های همین محصول (${sectionCount})`
-                    + (relatedLabels.length ? ` · ${relatedLabels.join('، ')}` : '');
-                secondaryChecks.appendChild(secondaryContent);
-                card.appendChild(secondaryChecks);
+            if (primaryContent.childElementCount > 1) {
+                const taskGroup = document.createElement('details');
+                taskGroup.className = 'molavi-primary-task-list';
+                taskGroup.appendChild(node('summary',`${primaryContent.childElementCount.toLocaleString('fa-IR')} مورد در این صف · بازکردن گزینه‌های رسیدگی`));
+                while (primaryContent.firstChild) taskGroup.appendChild(primaryContent.firstChild);
+                primaryContent.appendChild(taskGroup);
+                actionJump.addEventListener('click',() => { taskGroup.open = true; });
             }
             return card;
         };
 
         const queueDefinitions = [
             {key:'next',label:'همه کارهای باز',matches:attention},
-            {key:'source_integrity',label:'پیوند منبع',matches:product=>Boolean(product.status && Array.isArray(product.status.source_integrity_issues) && product.status.source_integrity_issues.length)},
-            {key:'ai',label:'استخراج',matches:product=>product.ai.length>0},
-            {key:'references',label:'تطبیق مرجع',matches:product=>product.references.length>0},
-            {key:'conflicts',label:'تعارض شیت',matches:product=>product.conflicts.length>0},
-            {key:'supplier_prices',label:'قیمت تأمین‌کننده',matches:product=>workbenchPendingSupplierPrices(product)>0},
-            {key:'holds',label:'توقف انتشار',matches:product=>product.holds.length>0},
-            {key:'status',label:'وضعیت کالا',matches:product=>Boolean(product.status && product.status.update_needed)},
+            {key:'source_integrity',label:'پیوند منبع',matches:product=>workbenchQueueMatches(product,'source_integrity')},
+            {key:'ai',label:'استخراج',matches:product=>workbenchQueueMatches(product,'ai')},
+            {key:'references',label:'تطبیق مرجع',matches:product=>workbenchQueueMatches(product,'references')},
+            {key:'conflicts',label:'تعارض شیت',matches:product=>workbenchQueueMatches(product,'conflicts')},
+            {key:'supplier_prices',label:'قیمت تأمین‌کننده',matches:product=>workbenchQueueMatches(product,'supplier_prices')},
+            {key:'holds',label:'توقف انتشار',matches:product=>workbenchQueueMatches(product,'holds')},
+            {key:'status',label:'وضعیت کالا',matches:product=>workbenchQueueMatches(product,'status')},
             {key:'storefront',label:'ناهماهنگی فروشگاه',matches:product=>workbenchQueueMatches(product,'storefront')}
         ].map(queue=>({...queue,count:products.filter(queue.matches).length}));
         workbenchStageModel.forEach(stage => {
@@ -1762,20 +1914,20 @@
             }
             const matches = product => stage.queues.some(key => workbenchQueueMatches(product,key));
             const count = products.filter(matches).length;
-            const recordCount = stage.queues.reduce((sum,key) => {
-                const queue = queueDefinitions.find(item => item.key === key);
-                return sum + (queue ? queue.count : 0);
-            },0);
-            return {count,detail:`${recordCount.toLocaleString('fa-IR')} صف/مورد باز`};
+            return {count,detail:stage.key === 'extract'
+                ? 'ردیف‌های یکتای محصول · رسانه در مسیر OCR'
+                : 'ردیف‌های یکتای دارای گام باز'};
         };
         let currentQueue = queueDefinitions.find(queue=>queue.key===workbenchQueue);
-        if (!currentQueue || (workbenchQueue !== 'next' && currentQueue.count === 0)) {
-            const firstStage = workbenchStageModel.find(stage => stage.queues.some(key =>
-                (queueDefinitions.find(queue => queue.key === key)?.count || 0) > 0));
-            workbenchStage = firstStage ? firstStage.key : '';
-            workbenchQueue = firstStage ? `stage_${firstStage.key}` : 'next';
+        if (!currentQueue) {
+            workbenchStage = '';
+            workbenchQueue = 'next';
             workbenchSelectedKey = '';
             workbenchIndex = 0;
+        }
+        if (workbenchView === 'reextract') {
+            workbenchStage = 'extract';
+            workbenchQueue = 'stage_extract';
         }
         const activeStageForQueue = queue => workbenchStageModel.find(stage =>
             queue === `stage_${stage.key}` || stage.queues.includes(queue));
@@ -1792,7 +1944,6 @@
             const button = node('button', null, 'molavi-workbench-stage');
             button.type = 'button';
             button.setAttribute('aria-pressed', String(workbenchStage === stage.key));
-            button.disabled = Boolean(stage.queues.length && (!stageQueue || stageQueue.count === 0));
             button.append(node('span', new Intl.NumberFormat('fa-IR',{minimumIntegerDigits:2}).format(index + 1), 'molavi-stage-index'),
                 node('strong', stage.label),
                 node('span', stage.hint, 'molavi-stage-hint'),
@@ -1802,6 +1953,10 @@
                 workbenchStage = stage.key;
                 workbenchQueue = stage.queues.length ? `stage_${stage.key}` : 'next';
                 workbenchView = stage.view ? 'store' : 'tasks';
+                const dismissalStage = workbenchDismissalTaxonomy.find(group => group.stage === stage.key);
+                workbenchDismissalQueueKeys = new Set(dismissalStage
+                    ? dismissalStage.queues.map(([key]) => key) : []);
+                syncDismissalQueueChecks();
                 workbenchIndex = 0;
                 workbenchSelectedKey = '';
                 workbenchVisibleLimit = 30;
@@ -1827,7 +1982,9 @@
         const taskView = node('section', null, 'molavi-workbench-view');
         const reextractView = node('section', null, 'molavi-workbench-view');
         const storeView = node('section', null, 'molavi-workbench-view');
-        const viewPanels = new Map([['tasks',taskView],['reextract',reextractView],['store',storeView]]);
+        const dismissedView = node('section', null, 'molavi-workbench-view molavi-dismissed-view');
+        let renderDismissedView = () => {};
+        const viewPanels = new Map([['tasks',taskView],['reextract',reextractView],['store',storeView],['dismissed',dismissedView]]);
         const viewButtons = new Map();
         const renderView = () => {
             viewPanels.forEach((panel, key) => { panel.hidden = key !== workbenchView; });
@@ -1837,20 +1994,32 @@
                 button.setAttribute('aria-pressed', String(selected));
             });
         };
-        [['tasks','کارهای این مرحله'],['reextract','بازاستخراج پیام‌ها'],['store','وضعیت سیستم و فروشگاه']].forEach(([key,label]) => {
+        [['tasks','صف‌های کار'],['reextract','بازاستخراج منبع'],['store','سیستم و فروشگاه'],
+            ['dismissed',`کنارگذاشته‌شده‌ها · ${workbenchDismissals.length.toLocaleString('fa-IR')}`]].forEach(([key,label]) => {
             const button = node('button', label, 'molavi-workbench-tab');
             button.type = 'button';
             button.setAttribute('aria-pressed', String(key === workbenchView));
             button.addEventListener('click', () => {
+                if (key === 'reextract') {
+                    workbenchStage = 'extract';
+                    workbenchQueue = 'stage_extract';
+                    workbenchDismissalQueueKeys = new Set(['media_review']);
+                    workbenchSelectedKeys.clear();
+                    stageButtons.forEach((item,stageKey) => item.setAttribute('aria-pressed', String(stageKey === 'extract')));
+                    renderQueueNavigation();
+                    renderQueue();
+                }
                 workbenchView = key;
                 renderView();
+                if (key === 'dismissed') renderDismissedView();
             });
             viewButtons.set(key, button);
             tabs.appendChild(button);
         });
-        const queueNavigation = node('div', null, 'molavi-workbench-queues');
-        queueNavigation.setAttribute('role', 'group');
-        queueNavigation.setAttribute('aria-label', 'انتخاب صف همین مرحله');
+        const queueNavigation = node('label', null, 'molavi-workbench-queue-picker');
+        queueNavigation.appendChild(node('span', 'نوع کار در این مرحله'));
+        const queueSelect = document.createElement('select');
+        queueNavigation.appendChild(queueSelect);
         const taskSearchRow = node('div', null, 'molavi-workbench-search-row');
         const taskSearchField = field('جست‌وجوی نام کالا، شناسه یا کانال', 'workbench_search',
             workbenchFilters.search, 'search');
@@ -2061,11 +2230,106 @@
         };
         updateFilterPresentation();
         const queueContent = node('div', null, 'molavi-workbench-queue-content');
+        const dismissalPanel = document.createElement('details');
+        dismissalPanel.className = 'molavi-dismissal-manager';
+        dismissalPanel.appendChild(node('summary', 'مدیریت صف و کنارگذاری برگشت‌پذیر'));
+        dismissalPanel.appendChild(node('p', 'این کار فقط ردیف‌های انتخابی را از نمای همین حساب مالک پنهان می‌کند. محصول، پیام منبع، قیمت، موجودی، انتشار و تصمیم‌های ثبت‌شده تغییر نمی‌کنند؛ کارهای صف پردازش هم متوقف یا لغو نمی‌شوند. هر مورد را می‌توان از بایگانی برگرداند.'));
+        const dismissalScopeField = field('دامنهٔ کنارگذاری', 'workbench_dismissal_scope', workbenchDismissalScope, 'select', {choices:[
+            ['selected','ردیف‌های تیک‌خورده'],['queue','همین صف و فیلترها'],['stage','کل مرحلهٔ جاری با فیلترها'],
+            ['filtered','فیلترهای جاری در انواع صف انتخاب‌شده'],['all_open','همهٔ کارهای باز در انواع صف انتخاب‌شده']
+        ]});
+        const dismissalScopeSelect = dismissalScopeField.querySelector('select');
+        const dismissalTaxonomy = node('div', null, 'molavi-dismissal-taxonomy');
+        const dismissalQueueChecks = new Map();
+        const allDismissalQueueKeys = workbenchDismissalTaxonomy.flatMap(stage => stage.queues.map(item => item[0]));
+        const allProductQueueKeys = allDismissalQueueKeys.filter(key => !['media_review','operations'].includes(key));
+        if (!workbenchDismissalQueueKeys.size) {
+            const defaultStage = workbenchDismissalTaxonomy.find(stage => stage.stage === workbenchStage);
+            workbenchDismissalQueueKeys = new Set(workbenchView === 'reextract' ? ['media_review'] : defaultStage
+                ? defaultStage.queues.map(([key]) => key) : allProductQueueKeys);
+        }
+        workbenchDismissalTaxonomy.forEach(group => {
+            const fieldset = document.createElement('fieldset');
+            fieldset.className = 'molavi-dismissal-stage';
+            const legend = node('legend', workbenchStageModel.find(item => item.key === group.stage)?.label || group.label);
+            fieldset.appendChild(legend);
+            group.queues.forEach(([key,label]) => {
+                const itemLabel = node('label', null, 'molavi-dismissal-queue-option');
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.value = key;
+                checkbox.checked = workbenchDismissalQueueKeys.has(key);
+                checkbox.addEventListener('change', () => {
+                    if (checkbox.checked) workbenchDismissalQueueKeys.add(key);
+                    else workbenchDismissalQueueKeys.delete(key);
+                    updateDismissalPreview();
+                });
+                dismissalQueueChecks.set(key, checkbox);
+                itemLabel.append(checkbox, node('span', label));
+                fieldset.appendChild(itemLabel);
+            });
+            const stageToggle = node('button', 'انتخاب همهٔ این مرحله', 'button button-link');
+            stageToggle.type = 'button';
+            stageToggle.addEventListener('click', () => {
+                group.queues.forEach(([key]) => {
+                    workbenchDismissalQueueKeys.add(key);
+                    const checkbox = dismissalQueueChecks.get(key);
+                    if (checkbox) checkbox.checked = true;
+                });
+                updateDismissalPreview();
+            });
+            fieldset.appendChild(stageToggle);
+            dismissalTaxonomy.appendChild(fieldset);
+        });
+        syncDismissalQueueChecks = () => {
+            dismissalQueueChecks.forEach((checkbox,key) => { checkbox.checked = workbenchDismissalQueueKeys.has(key); });
+        };
+        const allQueuesToggle = node('button', 'انتخاب همهٔ انواع صف', 'button button-secondary');
+        allQueuesToggle.type = 'button';
+        allQueuesToggle.addEventListener('click', () => {
+            workbenchDismissalQueueKeys = new Set(allDismissalQueueKeys);
+            dismissalQueueChecks.forEach((checkbox,key) => { checkbox.checked = workbenchDismissalQueueKeys.has(key); });
+            updateDismissalPreview();
+        });
+        const noQueuesToggle = node('button', 'پاک‌کردن انتخاب انواع صف', 'button button-secondary');
+        noQueuesToggle.type = 'button';
+        noQueuesToggle.addEventListener('click', () => {
+            workbenchDismissalQueueKeys.clear();
+            dismissalQueueChecks.forEach(checkbox => { checkbox.checked = false; });
+            updateDismissalPreview();
+        });
+        const dismissalReasonField = field('علت کنارگذاری', 'workbench_dismissal_reason', workbenchDismissalReason, 'select', {choices:[
+            ['','یک دلیل انتخاب کنید'],...Object.entries(workbenchDismissalReasons)
+        ]});
+        const dismissalReasonSelect = dismissalReasonField.querySelector('select');
+        const dismissalNoteField = field('یادداشت برای «دلیل دیگر»', 'workbench_dismissal_note', '', 'textarea', {maxLength:400,rows:2});
+        const dismissalNote = dismissalNoteField.querySelector('textarea');
+        dismissalNoteField.hidden = true;
+        const dismissalPreview = node('p', '', 'molavi-dismissal-preview');
+        dismissalPreview.setAttribute('aria-live','polite');
+        const dismissSubmit = node('button', 'کنارگذاری موارد پیش‌نمایش‌شده', 'button button-primary');
+        dismissSubmit.type = 'button';
+        dismissalScopeSelect.addEventListener('change', () => {
+            workbenchDismissalScope = dismissalScopeSelect.value;
+            updateDismissalPreview();
+        });
+        dismissalReasonSelect.addEventListener('change', () => {
+            workbenchDismissalReason = dismissalReasonSelect.value;
+            dismissalNoteField.hidden = workbenchDismissalReason !== 'other';
+            updateDismissalPreview();
+        });
+        dismissalNote.addEventListener('input', updateDismissalPreview);
+        dismissalPanel.append(dismissalScopeField, allQueuesToggle, noQueuesToggle,
+            dismissalTaxonomy, dismissalReasonField, dismissalNoteField, dismissalPreview, dismissSubmit);
+        let lastShownProducts = [];
+        let lastQueueProducts = [];
+        let lastQueue = null;
+        let updateDismissalPreview = () => {};
         const sourceGroup = node('section', null, 'molavi-workbench-source-group');
         sourceGroup.setAttribute('aria-label', 'انتخاب پیام‌ها برای بازاستخراج');
         reextractView.appendChild(sourceGroup);
         taskView.append(queueNavigation, taskSearchRow, taskFilterDetails, filterResultRow, queueContent);
-        board.append(overview, stageGrid, tabs, taskView, reextractView, storeView);
+        board.append(overview, stageGrid, dismissalPanel, tabs, taskView, reextractView, storeView, dismissedView);
 
         refreshQueueCounts = () => {
             queueDefinitions.forEach(queue => {
@@ -2073,22 +2337,20 @@
                 const button = queueButtons.get(queue.key);
                 if (!button) return;
                 button.textContent = `${queue.label} · ${queue.count.toLocaleString('fa-IR')}`;
-                button.disabled = queue.count === 0;
             });
             workbenchStageModel.forEach(stage => {
                 const button = stageButtons.get(stage.key);
-                const queue = queueDefinitions.find(item => item.key === `stage_${stage.key}`);
                 if (!button) return;
                 const metric = workbenchStageMetric(stage);
                 button.querySelector('.molavi-stage-count').textContent = metric.count === null
                     ? '—' : metric.count.toLocaleString('fa-IR');
                 button.querySelector('.molavi-stage-detail').textContent = metric.detail;
-                button.disabled = Boolean(stage.queues.length && (!queue || queue.count === 0));
+                button.disabled = false;
             });
             return queueDefinitions.find(queue => queue.key === 'supplier_prices')?.count || 0;
         };
         function renderQueueNavigation() {
-            queueNavigation.replaceChildren();
+            queueSelect.replaceChildren();
             queueButtons.clear();
             const activeStage = workbenchStageModel.find(stage => stage.key === workbenchStage);
             const choices = [queueDefinitions.find(queue => queue.key === 'next')];
@@ -2097,36 +2359,43 @@
                 activeStage.queues.forEach(key => choices.push(queueDefinitions.find(queue => queue.key === key)));
             }
             choices.filter(Boolean).forEach(queue => {
-                const button = node('button', `${queue.label} · ${queue.count.toLocaleString('fa-IR')}`,
-                    'button button-secondary molavi-workbench-queue');
-                button.type = 'button';
-                button.disabled = queue.count === 0;
-                button.setAttribute('aria-pressed', String(queue.key === workbenchQueue));
-                button.addEventListener('click', () => {
-                    if (button.disabled || workbenchQueue === queue.key) return;
-                    workbenchQueue = queue.key;
-                    workbenchStage = queue.key === 'next' ? '' : (activeStageForQueue(queue.key)?.key || '');
-                    workbenchView = 'tasks';
-                    workbenchIndex = 0;
-                    workbenchSelectedKey = '';
-                    workbenchLiveStatus.className = 'molavi-workbench-live-status';
-                    workbenchLiveStatus.textContent = `صف «${queue.label}»؛ ${queue.count.toLocaleString('fa-IR')} کالا برای رسیدگی.`;
-                    stageButtons.forEach((item, key) => item.setAttribute('aria-pressed', String(key === workbenchStage)));
-                    queueButtons.forEach((item, key) => item.setAttribute('aria-pressed', String(key === workbenchQueue)));
-                    if (queue.key === 'next') renderQueueNavigation();
-                    renderView();
-                    renderQueue();
-                });
-                queueButtons.set(queue.key, button);
-                queueNavigation.appendChild(button);
+                const option = node('option', `${queue.label} · ${queue.count.toLocaleString('fa-IR')}`);
+                option.value = queue.key;
+                queueButtons.set(queue.key, option);
+                queueSelect.appendChild(option);
             });
+            queueSelect.value = workbenchQueue;
         }
+        queueSelect.addEventListener('change', () => {
+            const queue = queueDefinitions.find(item => item.key === queueSelect.value);
+            if (!queue) return;
+            workbenchQueue = queue.key;
+            workbenchStage = queue.key === 'next' ? '' : (activeStageForQueue(queue.key)?.key || '');
+            workbenchDismissalQueueKeys = new Set(queue.key === 'next'
+                ? allProductQueueKeys
+                : queue.key.startsWith('stage_')
+                    ? (workbenchDismissalTaxonomy.find(stage => `stage_${stage.stage}` === queue.key)?.queues.map(([key]) => key) || [])
+                    : [queue.key]);
+            syncDismissalQueueChecks();
+            renderQueueNavigation();
+            workbenchView = 'tasks';
+            workbenchIndex = 0;
+            workbenchSelectedKey = '';
+            workbenchLiveStatus.className = 'molavi-workbench-live-status';
+            workbenchLiveStatus.textContent = `صف «${queue.label}»؛ ${queue.count.toLocaleString('fa-IR')} کالا برای رسیدگی.`;
+            stageButtons.forEach((item, key) => item.setAttribute('aria-pressed', String(key === workbenchStage)));
+            renderView();
+            renderQueue();
+        });
         renderQueueNavigation();
         renderView();
         const renderQueue = () => {
             const queue=queueDefinitions.find(item=>item.key===workbenchQueue) || queueDefinitions[0];
             const queueProducts=products.filter(queue.matches);
             const shownProducts=queueProducts.filter(product => workbenchMatchesFilters(product, queue.key));
+            lastShownProducts = shownProducts;
+            lastQueueProducts = queueProducts;
+            lastQueue = queue;
             const reversedDateRange = workbenchFilters.from && workbenchFilters.to
                 && workbenchFilters.from > workbenchFilters.to;
             filterResult.textContent = reversedDateRange
@@ -2135,6 +2404,7 @@
                     + (workbenchActiveFilterCount() ? ' · فیلترها با هم ترکیب می‌شوند.' : '');
             clearTaskFilters.hidden = workbenchActiveFilterCount() === 0 && !workbenchFilters.includeUndated;
             queueContent.replaceChildren();
+            updateDismissalPreview();
             if (!products.length) {
                 queueContent.appendChild(notice(unavailable.length
                     ? 'وضعیت کالا دریافت نشد. منابع بالا را باز کنید تا اتصال ناموفق مشخص شود.'
@@ -2162,71 +2432,411 @@
                         : unavailable.length ? 'warning' : 'success'));
                 return;
             }
-            if (workbenchSelectedKey) {
-                const previousIndex=shownProducts.findIndex(product=>product.key===workbenchSelectedKey);
-                if (previousIndex>=0) workbenchIndex=previousIndex;
+            if (workbenchSelectedKey && shownProducts.some(product => product.key === workbenchSelectedKey)) {
+                workbenchIndex = shownProducts.findIndex(product => product.key === workbenchSelectedKey);
             }
-            workbenchIndex=Math.max(0,Math.min(workbenchIndex,shownProducts.length-1));
-            const navigation=node('nav',null,'molavi-product-navigation');
-            navigation.setAttribute('aria-label','مرور موارد صف انتخاب‌شده');
-            const previous=node('button','قبلی','button button-secondary');
-            const position=node('span','', 'molavi-product-position');
-            const next=node('button','بعدی','button button-primary');
-            previous.type='button'; next.type='button';
-            const inbox = node('div', null, 'molavi-workbench-inbox');
-            const listPanel = node('aside', null, 'molavi-workbench-record-panel');
-            listPanel.appendChild(node('h3', 'موارد این صف'));
-            const selectionList = node('nav', null, 'molavi-workbench-record-list');
-            selectionList.setAttribute('aria-label', 'انتخاب مورد رسیدگی');
-            const showMore = node('button', 'نمایش موارد بعدی', 'button button-secondary molavi-workbench-show-more');
+            workbenchIndex = Math.max(0,Math.min(workbenchIndex,shownProducts.length-1));
+            const workspace = node('section', null, 'molavi-workbench-workspace');
+            const listPanel = node('section', null, 'molavi-workbench-record-panel');
+            const listHead = node('header', null, 'molavi-list-heading');
+            listHead.append(node('h2','فهرست کارها'),node('span',shownProducts.length.toLocaleString('fa-IR') + ' ردیف'));
+            const selectedCount = node('span','', 'molavi-selection-count');
+            const selectionList = node('div', null, 'molavi-workbench-record-list');
+            selectionList.setAttribute('role','table');
+            selectionList.setAttribute('aria-label','فهرست یکتای کالاها و پیام‌های نیازمند اقدام');
+            const showMore = node('button', 'نمایش ردیف‌های بعدی', 'button button-secondary molavi-workbench-show-more');
             showMore.type = 'button';
             showMore.hidden = true;
             showMore.addEventListener('click', () => {
                 workbenchVisibleLimit = Math.min(shownProducts.length, workbenchVisibleLimit + 30);
                 renderSelectionList();
             });
-            listPanel.append(selectionList, showMore);
-            const current=node('div',null,'molavi-current-product');
-            const renderSelectionList=()=>{
+            listPanel.append(listHead,selectedCount,selectionList,showMore);
+            const current = node('section',null,'molavi-current-product');
+            const renderSelectionList = () => {
                 selectionList.replaceChildren();
-                if (workbenchIndex >= workbenchVisibleLimit) workbenchVisibleLimit = workbenchIndex + 1;
-                shownProducts.slice(0,workbenchVisibleLimit).forEach((product,index)=>{
-                    const meta=workbenchTaskMeta(product,workbenchActionForQueue(product,queue.key));
-                    const button=node('button',null,'molavi-workbench-record');
-                    button.type='button';
-                    button.setAttribute('aria-current',String(index===workbenchIndex));
-                    button.append(node('strong',product.name),
-                        node('small',[product.channel || 'کانال ثبت‌نشده',product.product_id || product.status?.latest_offer_id || 'بدون شناسه جاری'].join(' · ')),
-                        node('span',meta.label,'molavi-workbench-record-stage'),
-                        node('span',meta.countLabel,'molavi-workbench-record-count'));
-                    button.addEventListener('click',()=>{
-                        workbenchIndex=index;
-                        workbenchSelectedKey=product.key;
+                const heading = node('div',null,'molavi-record-table-head');
+                const selectAll = document.createElement('input');
+                selectAll.type = 'checkbox';
+                selectAll.setAttribute('aria-label','انتخاب همهٔ ردیف‌های فیلترشده');
+                const pageProducts = shownProducts.slice(0,workbenchVisibleLimit);
+                selectAll.checked = shownProducts.length > 0 && shownProducts.every(product => workbenchSelectedKeys.has(product.key));
+                selectAll.indeterminate = shownProducts.some(product => workbenchSelectedKeys.has(product.key)) && !selectAll.checked;
+                selectAll.addEventListener('change', () => {
+                    shownProducts.forEach(product => selectAll.checked
+                        ? workbenchSelectedKeys.add(product.key) : workbenchSelectedKeys.delete(product.key));
+                    renderSelectionList();
+                    updateDismissalPreview();
+                });
+                heading.append(selectAll,node('span','کالا / منبع'),node('span','گام باز'),node('span','شناسه'));
+                selectionList.appendChild(heading);
+                pageProducts.forEach((product,index) => {
+                    const meta = workbenchTaskMeta(product,workbenchActionForQueue(product,queue.key));
+                    const row = node('div',null,'molavi-workbench-record-row');
+                    row.setAttribute('role','row');
+                    const checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox';
+                    checkbox.checked = workbenchSelectedKeys.has(product.key);
+                    checkbox.setAttribute('aria-label','انتخاب ' + product.name);
+                    checkbox.addEventListener('change',() => {
+                        if (checkbox.checked) workbenchSelectedKeys.add(product.key);
+                        else workbenchSelectedKeys.delete(product.key);
+                        renderSelectionList();
+                        updateDismissalPreview();
+                    });
+                    const open = node('button',null,'molavi-workbench-record-open');
+                    open.type='button';
+                    open.setAttribute('aria-current',String(product.key === workbenchSelectedKey));
+                    const sourceName = product.channel || 'منبع ثبت‌نشده';
+                    open.append(node('strong',product.name),node('small',sourceName));
+                    open.addEventListener('click',() => {
+                        workbenchIndex = index;
+                        workbenchSelectedKey = product.key;
                         renderSelectionList();
                         renderCurrent();
                     });
-                    selectionList.appendChild(button);
+                    const id = String(product.product_id || product.status?.latest_offer_id || product.ai[0]?.offer_id || 'شناسهٔ جاری ندارد');
+                    row.append(checkbox,open,node('span',meta.label,'molavi-record-stage'),node('code',id,'molavi-record-id'));
+                    selectionList.appendChild(row);
                 });
-                showMore.hidden=workbenchVisibleLimit>=shownProducts.length;
-                showMore.textContent=`نمایش ${Math.min(30,shownProducts.length-workbenchVisibleLimit).toLocaleString('fa-IR')} مورد بعدی`;
+                const visibleSelected = shownProducts.filter(product => workbenchSelectedKeys.has(product.key)).length;
+                selectedCount.textContent = visibleSelected.toLocaleString('fa-IR') + ' از ' + shownProducts.length.toLocaleString('fa-IR') + ' ردیف انتخاب شده';
+                showMore.hidden = workbenchVisibleLimit >= shownProducts.length;
+                showMore.textContent = 'نمایش ' + Math.min(30,shownProducts.length-workbenchVisibleLimit).toLocaleString('fa-IR') + ' ردیف بعدی';
             };
-            const renderCurrent=()=>{
-                const product=shownProducts[workbenchIndex];
-                workbenchSelectedKey=product.key;
-                previous.disabled=workbenchIndex<=0;
-                next.disabled=workbenchIndex>=shownProducts.length-1;
-                position.textContent=`${queue.label} · کالای ${(workbenchIndex+1).toLocaleString('fa-IR')} از ${shownProducts.length.toLocaleString('fa-IR')}`;
-                current.replaceChildren(renderProduct(product));
+            const renderCurrent = () => {
+                const product = shownProducts[workbenchIndex];
+                workbenchSelectedKey = product.key;
+                const detailHead = node('header',null,'molavi-selected-record-heading');
+                detailHead.append(node('p','پروندهٔ انتخاب‌شده'),node('small',queue.label + ' · ' + (workbenchIndex+1).toLocaleString('fa-IR') + ' از ' + shownProducts.length.toLocaleString('fa-IR')));
+                current.replaceChildren(detailHead,renderProduct(product));
                 renderSelectionList();
             };
-            previous.addEventListener('click',()=>{if(workbenchIndex>0){workbenchIndex-=1;renderCurrent();}});
-            next.addEventListener('click',()=>{if(workbenchIndex+1<shownProducts.length){workbenchIndex+=1;renderCurrent();}});
-            navigation.append(previous,position,next);
-            inbox.append(listPanel,current);
-            queueContent.append(navigation,inbox);
+            workspace.append(listPanel,current);
+            queueContent.appendChild(workspace);
             renderCurrent();
         };
+        const dismissalQueueKeysForScope = (scope, queue) => {
+            if (scope === 'queue') {
+                if (workbenchView === 'reextract') return ['media_review'];
+                if (workbenchView === 'store' && workbenchStage === 'intake') return ['operations'];
+                if (workbenchView === 'store' && workbenchStage === 'storefront') return ['storefront'];
+                if (queue.key === 'next') return allProductQueueKeys;
+                if (queue.key.startsWith('stage_')) return workbenchDismissalTaxonomy
+                    .find(stage => 'stage_' + stage.stage === queue.key)?.queues.map(([key]) => key) || [];
+                return [queue.key];
+            }
+            if (scope === 'stage') {
+                return workbenchDismissalTaxonomy.find(stage => stage.stage === workbenchStage)
+                    ?.queues.map(([key]) => key) || [];
+            }
+            return [...workbenchDismissalQueueKeys];
+        };
+        const workbenchAuxTaskMatchesFilters = item => {
+            const search = workbenchNameKey(workbenchFilters.search);
+            if (search && !workbenchNameKey([item.label,item.channel,item.task_key].join(' ')).includes(search)) return false;
+            if (workbenchFilters.channelKeys instanceof Set
+                && !workbenchFilters.channelKeys.has(workbenchNameKey(item.channel) || '__unassigned__')) return false;
+            if (workbenchFilters.state !== 'all' || workbenchFilters.catalogStatus !== 'all'
+                || workbenchFilters.productLink !== 'all' || workbenchFilters.sourceEvidence !== 'all'
+                || workbenchFilters.storefrontState !== 'all') return false;
+            const hasDateFilter = Boolean(workbenchFilters.from || workbenchFilters.to);
+            const stamp = Date.parse(String(item.timestamp || ''));
+            if (Number.isFinite(stamp)) {
+                if (workbenchFilters.from && stamp < workbenchTehranBoundary(workbenchFilters.from)) return false;
+                if (workbenchFilters.to && stamp > workbenchTehranBoundary(workbenchFilters.to,true)) return false;
+            } else if (hasDateFilter && !workbenchFilters.includeUndated) return false;
+            return true;
+        };
+        const dismissalEntriesForScope = (scope, queue, shownProducts, queueProducts) => {
+            const queueKeys = [...new Set(dismissalQueueKeysForScope(scope,queue))]
+                .filter(key => allDismissalQueueKeys.includes(key));
+            const productQueueKeys = queueKeys.filter(key => allProductQueueKeys.includes(key));
+            let candidates = [];
+            if (scope === 'selected') candidates = shownProducts.filter(product => workbenchSelectedKeys.has(product.key));
+            else if (scope === 'queue') candidates = shownProducts;
+            else if (scope === 'stage') candidates = products.filter(product => productQueueKeys.some(key =>
+                workbenchQueueMatches(product,key) && workbenchMatchesFilters(product,key)));
+            else if (scope === 'filtered') candidates = products.filter(product => productQueueKeys.some(key =>
+                workbenchQueueMatches(product,key) && workbenchMatchesFilters(product,key)));
+            else if (scope === 'all_open') candidates = products.filter(product => productQueueKeys.some(key =>
+                workbenchQueueMatches(product,key)));
+            if (scope === 'queue' && workbenchView !== 'reextract' && queue.key === 'next' && !queueProducts.length) candidates = [];
+            const records = new Map();
+            let withoutStableId = 0;
+            candidates.forEach(product => productQueueKeys.forEach(key => {
+                if (!workbenchQueueMatches(product,key)) return;
+                if (scope !== 'all_open' && scope !== 'selected' && !workbenchMatchesFilters(product,key)) return;
+                const taskKey = workbenchDismissalKey(product,key);
+                if (!taskKey) { withoutStableId += 1; return; }
+                records.set(taskKey,{task_key:taskKey,queue:key,stage:workbenchDismissalStage(key)});
+            }));
+            workbenchDismissalAuxiliaryTasks.forEach(item => {
+                if (!queueKeys.includes(item.queue) || workbenchDismissalIndex.has(item.task_key)) return;
+                if (scope === 'selected' && !workbenchSelectedKeys.has(item.task_key)) return;
+                if (scope !== 'all_open' && scope !== 'selected' && !workbenchAuxTaskMatchesFilters(item)) return;
+                records.set(item.task_key,{task_key:item.task_key,queue:item.queue,stage:item.stage,label:item.label || ''});
+            });
+            const incompleteQueues = scope === 'selected' ? [] : queueKeys.filter(key =>
+                ['media_review','operations'].includes(key)
+                    && (!workbenchDismissalAuxiliaryLoaded[key] || workbenchDismissalAuxiliaryHasMore[key]));
+            return {records:[...records.values()],withoutStableId,needsMore:incompleteQueues.length > 0,incompleteQueues};
+        };
+        updateDismissalPreview = () => {
+            const queue = lastQueue || queueDefinitions.find(item => item.key === workbenchQueue) || queueDefinitions[0];
+            const preview = dismissalEntriesForScope(workbenchDismissalScope,queue,lastShownProducts,lastQueueProducts);
+            const count = preview.records.length;
+            const dismissedKeys = new Set(workbenchDismissals
+                .filter(item => item && typeof item.task_key === 'string').map(item => item.task_key));
+            const additions = preview.records.filter(item => !dismissedKeys.has(item.task_key)).length;
+            const dismissalCapacityExceeded = dismissedKeys.size + additions > 3000;
+            const reason = workbenchDismissalReason;
+            const incompleteQueueHints = preview.incompleteQueues.map(key => !workbenchDismissalAuxiliaryLoaded[key]
+                ? key === 'media_review' ? 'مسیرهای ویژهٔ استخراج را برای بارگیری OCR باز کنید'
+                    : 'صف پردازش را در مرحلهٔ دریافت باز کنید'
+                : key === 'media_review' ? 'همه صفحه‌های پیام/آلبوم OCR را بارگیری کنید'
+                    : 'همه صفحه‌های صف پردازش را بارگیری کنید').join(' · ');
+            dismissalPreview.textContent = count.toLocaleString('fa-IR') + ' گام صف در پیش‌نمایش'
+                + (preview.withoutStableId ? ' · ' + preview.withoutStableId.toLocaleString('fa-IR') + ' مورد بدون شناسهٔ پایدار کنار گذاشته می‌شود' : '')
+                + (preview.needsMore ? ` · ${incompleteQueueHints} تا چیزی از قلم نیفتد` : '')
+                + (dismissalCapacityExceeded ? ' · بایگانی این حساب به سقف ۳۰۰۰ مورد می‌رسد؛ ابتدا بخشی را بازگردانید' : '')
+                + (workbenchDismissalScope === 'all_open' ? ' · فیلترهای جست‌وجو/تاریخ نادیده گرفته می‌شوند' : '');
+            dismissSubmit.disabled = workbenchDismissalBusy || count === 0 || dismissalCapacityExceeded || preview.needsMore
+                || !reason || (reason === 'other' && !dismissalNote.value.trim());
+            dismissSubmit.textContent = workbenchDismissalBusy ? 'در حال ثبت…'
+                : 'کنارگذاری ' + count.toLocaleString('fa-IR') + ' گامِ پیش‌نمایش‌شده';
+            return preview;
+        };
+        dismissSubmit.addEventListener('click', async () => {
+            const preview = updateDismissalPreview();
+            if (!preview.records.length || dismissSubmit.disabled) return;
+            const reason = workbenchDismissalReason;
+            const reasonLabel = workbenchDismissalReasons[reason] || '';
+            if (!window.confirm(preview.records.length.toLocaleString('fa-IR') + ' گام از صف پنهان می‌شود (' + reasonLabel
+                + '). این فقط نمای همین حساب مالک را تغییر می‌دهد و هیچ تصمیم کالا/قیمت/انتشاری ثبت نمی‌کند. بعداً از «کنارگذاشته‌شده‌ها» قابل‌بازگردانی است. ادامه می‌دهید؟')) return;
+            dismissSubmit.disabled = true;
+            workbenchDismissalBusy = true;
+            updateDismissalPreview();
+            const records = preview.records.map(item => ({...item,reason,
+                note:reason === 'other' ? dismissalNote.value.trim() : '',scope:workbenchDismissalScope}));
+            let completed = 0;
+            try {
+                for (let offset = 0; offset < records.length; offset += 200) {
+                    const chunk = records.slice(offset, offset + 200);
+                    await workbenchDismissalRequest('dismiss',{records:chunk});
+                    completed += chunk.length;
+                    dismissSubmit.textContent = `در حال ثبت ${completed.toLocaleString('fa-IR')} از ${records.length.toLocaleString('fa-IR')}…`;
+                }
+                workbenchSelectedKeys.clear();
+                workbenchDismissalBusy = false;
+                refreshQueueCounts();
+                renderQueueNavigation();
+                renderQueue();
+                renderDismissedView();
+                workbenchLiveStatus.className = 'notice notice-success molavi-workbench-live-status';
+                workbenchLiveStatus.textContent = `${completed.toLocaleString('fa-IR')} گام فقط از صف این حساب مالک کنار گذاشته شد؛ هیچ رکورد کاری تغییر نکرد.`;
+            } catch (error) {
+                workbenchDismissalBusy = false;
+                if (completed) {
+                    workbenchSelectedKeys.clear();
+                    refreshQueueCounts();
+                    renderQueueNavigation();
+                    renderQueue();
+                    renderDismissedView();
+                    workbenchLiveStatus.className = 'notice notice-warning molavi-workbench-live-status';
+                    workbenchLiveStatus.textContent = `فقط ${completed.toLocaleString('fa-IR')} از ${records.length.toLocaleString('fa-IR')} گام ثبت شد؛ ادامه با خطا متوقف شد: ${errorText(error.message)}`;
+                } else {
+                    dismissalPanel.appendChild(notice(errorText(error.message),'error'));
+                    updateDismissalPreview();
+                }
+            }
+        });
+        focusDismissalTask = (product,queueKey) => {
+            if (!workbenchDismissalKey(product,queueKey)) {
+                workbenchLiveStatus.className = 'notice notice-warning molavi-workbench-live-status';
+                workbenchLiveStatus.textContent = 'این مورد شناسهٔ پایدار برای کنارگذاری ندارد؛ تغییری ثبت نشد.';
+                return;
+            }
+            workbenchSelectedKeys = new Set([product.key]);
+            workbenchDismissalScope = 'selected';
+            workbenchDismissalQueueKeys = new Set([queueKey]);
+            dismissalScopeSelect.value = 'selected';
+            syncDismissalQueueChecks();
+            dismissalPanel.open = true;
+            updateDismissalPreview();
+            dismissalPanel.scrollIntoView({behavior:'smooth',block:'center'});
+        };
+        const activateAuxiliaryDismissal = (queueKey = 'media_review') => {
+            workbenchDismissalScope = 'selected';
+            dismissalScopeSelect.value = 'selected';
+            workbenchDismissalQueueKeys.add(queueKey);
+            syncDismissalQueueChecks();
+            dismissalPanel.open = true;
+            updateDismissalPreview();
+        };
+        focusDismissalAuxiliaryTask = task => {
+            if (!task || !task.task_key) return;
+            workbenchSelectedKeys = new Set([task.task_key]);
+            workbenchDismissalQueueKeys = new Set([task.queue]);
+            activateAuxiliaryDismissal(task.queue);
+            dismissalPanel.scrollIntoView({behavior:'smooth',block:'center'});
+        };
+        toggleDismissalAuxiliaryTask = (task,checked) => {
+            if (!task || !task.task_key) return;
+            if (checked) workbenchSelectedKeys.add(task.task_key);
+            else workbenchSelectedKeys.delete(task.task_key);
+            activateAuxiliaryDismissal(task.queue);
+        };
+        let dismissedStageFilter = 'all';
+        let dismissedQueueFilter = 'all';
+        let dismissedReasonFilter = 'all';
+        let dismissedVisibleLimit = 60;
+        renderDismissedView = () => {
+            dismissedView.replaceChildren();
+            const title = node('h2','کارهای کنارگذاشته‌شده');
+            const intro = node('p','این بایگانی فقط برای حساب مالک جاری است. برگرداندن یک ردیف، آن را دوباره در صف اصلی قابل‌رسیدگی می‌کند و منبع یا وضعیت فروشگاه را تغییر نمی‌دهد.');
+            const controls = node('div',null,'molavi-dismissed-controls');
+            const stageOptions = [['all','همهٔ مرحله‌ها'],...workbenchDismissalTaxonomy.map(item => [
+                item.stage,workbenchStageModel.find(stage => stage.key === item.stage)?.label || item.label
+            ])];
+            const stageField = field('مرحله','dismissed_stage',dismissedStageFilter,'select',{choices:stageOptions});
+            const queueOptions = [['all','همهٔ صف‌ها'],...workbenchDismissalTaxonomy
+                .filter(group => dismissedStageFilter === 'all' || group.stage === dismissedStageFilter)
+                .flatMap(group => group.queues.map(([key,label]) => [key,label]))];
+            const queueField = field('نوع صف','dismissed_queue',dismissedQueueFilter,'select',{choices:queueOptions});
+            const reasonField = field('دلیل','dismissed_reason',dismissedReasonFilter,'select',{choices:[
+                ['all','همهٔ دلیل‌ها'],...Object.entries(workbenchDismissalReasons)
+            ]});
+            const stageSelect = stageField.querySelector('select');
+            const dismissedQueueSelect = queueField.querySelector('select');
+            const reasonSelect = reasonField.querySelector('select');
+            stageSelect.addEventListener('change',() => {
+                dismissedStageFilter=stageSelect.value; dismissedQueueFilter='all'; dismissedVisibleLimit=60;
+                workbenchDismissedSelectedKeys.clear(); renderDismissedView();
+            });
+            dismissedQueueSelect.addEventListener('change',() => {
+                dismissedQueueFilter=dismissedQueueSelect.value; dismissedVisibleLimit=60;
+                workbenchDismissedSelectedKeys.clear(); renderDismissedView();
+            });
+            reasonSelect.addEventListener('change',() => {
+                dismissedReasonFilter=reasonSelect.value; dismissedVisibleLimit=60;
+                workbenchDismissedSelectedKeys.clear(); renderDismissedView();
+            });
+            controls.append(stageField,queueField,reasonField);
+            const actionBar = node('div',null,'molavi-dismissed-actions');
+            const restoreSelected = node('button','بازگردانی انتخاب‌شده‌ها','button button-primary');
+            restoreSelected.type='button';
+            const restoreAll = node('button','بازگردانی همهٔ موارد','button button-secondary');
+            restoreAll.type='button';
+            restoreAll.disabled = workbenchDismissals.length === 0;
+            const table = node('div',null,'molavi-dismissed-table');
+            table.setAttribute('role','table');
+            const header = node('div',null,'molavi-dismissed-row is-header');
+            const selectAll = document.createElement('input');
+            selectAll.type='checkbox';
+            selectAll.setAttribute('aria-label','انتخاب موارد نمایش‌داده‌شده');
+            header.append(selectAll,node('span','کالا / شناسه'),node('span','مرحله و صف'),node('span','دلیل'),node('span','زمان'),node('span','اقدام'));
+            table.appendChild(header);
+            const currentByKey = new Map();
+            products.forEach(product => workbenchDismissalTaxonomy.forEach(group => group.queues.forEach(([queueKey]) => {
+                if (['media_review','operations'].includes(queueKey)) return;
+                const key=workbenchDismissalKey(product,queueKey);
+                if (key) currentByKey.set(key,product);
+            })));
+            const rows = workbenchDismissals.filter(item => item && typeof item.task_key === 'string'
+                && (dismissedStageFilter === 'all' || item.stage === dismissedStageFilter)
+                && (dismissedQueueFilter === 'all' || item.queue === dismissedQueueFilter)
+                && (dismissedReasonFilter === 'all' || item.reason === dismissedReasonFilter))
+                .sort((a,b) => String(b.dismissed_at||'').localeCompare(String(a.dismissed_at||'')));
+            const visibleRows = rows.slice(0,dismissedVisibleLimit);
+            selectAll.addEventListener('change',() => {
+                visibleRows.forEach(item => {
+                    if (selectAll.checked) workbenchDismissedSelectedKeys.add(item.task_key);
+                    else workbenchDismissedSelectedKeys.delete(item.task_key);
+                });
+                renderDismissedView();
+            });
+            visibleRows.forEach(item => {
+                const row=node('div',null,'molavi-dismissed-row');
+                const checkbox=document.createElement('input');
+                checkbox.type='checkbox';
+                checkbox.checked=workbenchDismissedSelectedKeys.has(item.task_key);
+                checkbox.setAttribute('aria-label','انتخاب ردیف کنارگذاشته‌شده');
+                checkbox.addEventListener('change',() => {
+                    if (checkbox.checked) workbenchDismissedSelectedKeys.add(item.task_key); else workbenchDismissedSelectedKeys.delete(item.task_key);
+                    renderDismissedView();
+                });
+                const product=currentByKey.get(item.task_key);
+                const label=product ? product.name : item.label || 'رکورد در دادهٔ جاری پیدا نشد';
+                const identity=node('div',null,'molavi-dismissed-identity');
+                identity.append(node('strong',label),node('code',item.task_key));
+                const stageLabel=workbenchStageModel.find(stage => stage.key === item.stage)?.label || item.stage;
+                const queueLabel=queueDefinitions.find(queue => queue.key === item.queue)?.label
+                    || workbenchDismissalTaxonomy.flatMap(group => group.queues)
+                        .find(([key]) => key === item.queue)?.[1] || item.queue;
+                const reasonText=workbenchDismissalReasons[item.reason] || 'دلیل نامشخص';
+                const reason=node('div',null,'molavi-dismissed-reason');
+                reason.append(node('span',reasonText),item.note ? node('small',item.note) : node('small','یادداشت ندارد'));
+                const restore=node('button','بازگردانی','button button-secondary');
+                restore.type='button';
+                restore.addEventListener('click',async () => {
+                    restore.disabled=true;
+                    try {
+                        await workbenchDismissalRequest('restore',{keys:[item.task_key]});
+                        await dashboard('یک مورد به صف اصلی برگردانده شد.','success',[]);
+                    } catch (error) {
+                        restore.disabled=false;
+                        row.appendChild(notice(errorText(error.message),'error'));
+                    }
+                });
+                row.append(checkbox,identity,node('span',stageLabel + ' / ' + queueLabel),reason,
+                    node('time',item.dismissed_at || 'زمان ثبت نشده'),restore);
+                table.appendChild(row);
+            });
+            selectAll.checked=visibleRows.length>0 && visibleRows.every(item => workbenchDismissedSelectedKeys.has(item.task_key));
+            const visibleSelectedKeys = visibleRows.filter(item => workbenchDismissedSelectedKeys.has(item.task_key))
+                .map(item => item.task_key);
+            restoreSelected.disabled=visibleSelectedKeys.length===0;
+            restoreAll.addEventListener('click',async () => {
+                if (!workbenchDismissals.length || !window.confirm('همهٔ موارد کنارگذاشته‌شده به صف اصلی برمی‌گردند. ادامه می‌دهید؟')) return;
+                restoreAll.disabled=true;
+                try {
+                    await workbenchDismissalRequest('restore_all');
+                    await dashboard('همهٔ موارد به صف اصلی برگشتند.','success',[]);
+                } catch (error) {
+                    restoreAll.disabled=false;
+                    dismissedView.appendChild(notice(errorText(error.message),'error'));
+                }
+            });
+            restoreSelected.addEventListener('click',async () => {
+                const keys=visibleSelectedKeys;
+                if (!keys.length) return;
+                restoreSelected.disabled=true;
+                try {
+                    await workbenchDismissalRequest('restore',{keys});
+                    workbenchDismissedSelectedKeys.clear();
+                    await dashboard(keys.length.toLocaleString('fa-IR') + ' مورد به صف اصلی برگشت.','success',[]);
+                } catch (error) {
+                    restoreSelected.disabled=false;
+                    dismissedView.appendChild(notice(errorText(error.message),'error'));
+                }
+            });
+            actionBar.append(restoreSelected,restoreAll);
+            const showMoreDismissed = node('button','نمایش موارد بیشتر','button button-secondary');
+            showMoreDismissed.type='button';
+            showMoreDismissed.hidden = visibleRows.length >= rows.length;
+            showMoreDismissed.textContent = `نمایش ${Math.min(60,rows.length-visibleRows.length).toLocaleString('fa-IR')} مورد بعدی`;
+            showMoreDismissed.addEventListener('click',() => {
+                dismissedVisibleLimit += 60;
+                renderDismissedView();
+            });
+            dismissedView.append(title,intro,controls,actionBar,
+                node('p',`${visibleRows.length.toLocaleString('fa-IR')} از ${rows.length.toLocaleString('fa-IR')} مورد نمایش داده می‌شود · ${visibleSelectedKeys.length.toLocaleString('fa-IR')} انتخاب شده`,'molavi-dismissed-count'),
+                table,showMoreDismissed);
+            if (!rows.length) dismissedView.appendChild(notice('موردی با این مرحله و دلیل پیدا نشد.','info'));
+        };
         renderQueue();
+        if (workbenchView === 'dismissed') renderDismissedView();
 
         if (batchCards.length) {
             const batchGroup = document.createElement('details');
@@ -2460,12 +3070,30 @@
                 technical.appendChild(reconcileButton);
             }
             const queueItems = Array.isArray(ops.items) ? ops.items : [];
+            const operationsTaskFor = item => workbenchOperationDismissalTask(item);
+            const registerOperationsQueue = (items,hasMore) => {
+                const auxiliary = items.map(operationsTaskFor).filter(Boolean);
+                workbenchDismissalAuxiliaryTasks = [
+                    ...workbenchDismissalAuxiliaryTasks.filter(item => item.queue !== 'operations'),
+                    ...auxiliary
+                ];
+                workbenchDismissalAuxiliaryHasMore.operations = Boolean(hasMore);
+                workbenchDismissalAuxiliaryLoaded.operations = true;
+                updateDismissalPreview();
+            };
+            registerOperationsQueue(queueItems,ops.next_cursor);
             if (queueItems.length || ops.next_cursor) {
                 const details = document.createElement('details');
                 const summary=node('summary','');
                 const rows=document.createElement('div');
                 const pageState={items:[...queueItems],cursor:ops.next_cursor||null,loading:false};
-                const updateSummary=()=>{summary.textContent=`موارد صف (${ops.actionable_count || queueItems.length}) · نمایش ${pageState.items.length}`;};
+                const updateSummary=()=>{
+                    const shown=pageState.items.filter(item=>{
+                        const task=operationsTaskFor(item);
+                        return !task || !workbenchDismissalIndex.has(task.task_key);
+                    }).length;
+                    summary.textContent=`موارد فعال سرویس (${ops.actionable_count || queueItems.length}) · نمایش ${shown} از ${pageState.items.length} بارگیری‌شده`;
+                };
                 const nextSteps={automatic_retry:'در نوبت پردازش خودکار',wait_for_processing:'در حال پردازش؛ نتیجهٔ worker را دنبال می‌کنیم',
                     recover_expired_lease:'مهلت worker تمام شده؛ رسید برای بازیابی خودکار آماده است',
                     resolve_reference_decision:'برای ادامه، تصمیم مرجع را در کارت تطبیق ثبت کنید',
@@ -2473,6 +3101,8 @@
                     inspect_failure_and_reconcile:'علت شکست و رسید را تطبیق دهید؛ این مورد خودکار بسته نمی‌شود',
                     inspect_result_and_decide:'نتیجهٔ ناقص را در کارت استخراج بررسی کنید'};
                 const appendItem=item=>{
+                    const dismissalTask=operationsTaskFor(item);
+                    if (dismissalTask && workbenchDismissalIndex.has(dismissalTask.task_key)) return;
                     const age=Number(item.age_seconds);
                     const ageLabel=Number.isFinite(age)?` · ${age<3600?`${Math.floor(age/60)} دقیقه`:`${Math.floor(age/3600)} ساعت`} در صف`:'';
                     const next=nextSteps[item.next_action]||'رسید را بررسی کنید';
@@ -2484,6 +3114,19 @@
                         technical.appendChild(node('summary', 'شناسه فنی رسید'));
                         technical.appendChild(node('code', item.id));
                         row.appendChild(technical);
+                    }
+                    if (dismissalTask) {
+                        const selectLabel=node('label',null,'molavi-operation-dismiss-select');
+                        const select=document.createElement('input');
+                        select.type='checkbox';
+                        select.checked=workbenchSelectedKeys.has(dismissalTask.task_key);
+                        select.setAttribute('aria-label','انتخاب ردیف پردازش برای کنارگذاری برگشت‌پذیر');
+                        select.addEventListener('change',()=>toggleDismissalAuxiliaryTask(dismissalTask,select.checked));
+                        selectLabel.append(select,document.createTextNode('انتخاب برای کنارگذاری برگشت‌پذیر'));
+                        const hide=node('button','پنهان‌کردن از فهرست این حساب','button button-link-delete');
+                        hide.type='button';
+                        hide.addEventListener('click',()=>focusDismissalAuxiliaryTask(dismissalTask));
+                        row.append(selectLabel,hide);
                     }
                     rows.appendChild(row);
                     const itemId=String(item.id || '');
@@ -2559,7 +3202,9 @@
                             const id=String(item.id||'');if(!id||seen.has(id))return;
                             seen.add(id);pageState.items.push(item);appendItem(item);
                         });
-                        pageState.cursor=next.next_cursor||null;loadMore.hidden=!pageState.cursor;updateSummary();
+                        pageState.cursor=next.next_cursor||null;loadMore.hidden=!pageState.cursor;
+                        registerOperationsQueue(pageState.items,pageState.cursor);
+                        updateSummary();
                     } catch(error) {
                         pageStatus.className='notice notice-warning';
                         pageStatus.textContent=`دریافت صفحه بعدی ناموفق بود: ${errorText(error.message)}`;
@@ -2627,7 +3272,30 @@
             technical.append(reportButton,report);
         }
         storeView.appendChild(technical);
-        reextractionPanel(sourceGroup);
+        reextractionPanel(sourceGroup, {
+            isDismissed:messageKey => workbenchDismissalIndex.has(workbenchMediaDismissalKey(messageKey)),
+            taskFor:item => ({task_key:workbenchMediaDismissalKey(item && item.message_key),queue:'media_review',
+                stage:'extract',label:`گروه رسانه‌ای · پیام ${String(item && item.message_id || '').slice(0,80)}`,
+                channel:String(item && (item.channel || item.channel_username) || ''),timestamp:String(item && item.timestamp || '')}),
+            isSelected:task => Boolean(task && workbenchSelectedKeys.has(task.task_key)),
+            setItems:(items,hasMore) => {
+                const mediaTasks = (Array.isArray(items) ? items : []).map(item => ({
+                    task_key:workbenchMediaDismissalKey(item && item.message_key),queue:'media_review',stage:'extract',
+                    label:`گروه رسانه‌ای · پیام ${String(item && item.message_id || '').slice(0,80)}`,
+                    channel:String(item && (item.channel || item.channel_username) || ''),
+                    timestamp:String(item && item.timestamp || '')
+                })).filter(item => item.task_key);
+                workbenchDismissalAuxiliaryTasks = [
+                    ...workbenchDismissalAuxiliaryTasks.filter(item => item.queue !== 'media_review'),
+                    ...mediaTasks
+                ];
+                workbenchDismissalAuxiliaryHasMore.media_review = Boolean(hasMore);
+                workbenchDismissalAuxiliaryLoaded.media_review = true;
+                updateDismissalPreview();
+            },
+            toggle:toggleDismissalAuxiliaryTask,
+            focus:focusDismissalAuxiliaryTask
+        });
     }
 
     function intValue(form, name) {
@@ -3774,7 +4442,7 @@
         }
     }
 
-    async function advancedReextractionTools(panel) {
+    async function advancedReextractionTools(panel, dismissalHooks = {}) {
         panel.className = 'card molavi-reextract-panel';
         panel.appendChild(node('h2', 'ابزارهای ویژهٔ استخراج'));
         panel.appendChild(node('p', 'آلبوم‌ها در انتخاب عادی با OCR همهٔ عکس‌هایشان با هم پردازش می‌شوند. این کارت‌ها مسیر بررسی جداگانهٔ رسانه‌ها هستند؛ بازپردازش با سیاست فعلی هم جداست.'));
@@ -3805,6 +4473,10 @@
                 panel.appendChild(notice('رسانه‌های غیرعکسی مثل استیکر در صف OCR قرار نمی‌گیرند و خودکار هم رد نمی‌شوند. اگر یکی از آن‌ها آگهی محصول است، پست را با متن یا عکس قابل‌خواندن دوباره بفرستید.', 'info'));
             }
             const mediaItems = Array.isArray(preview.media_review_messages) ? preview.media_review_messages : [];
+            let loadedMediaItems = [...mediaItems];
+            const mediaHasMore = () => preview.media_review_next_after !== null
+                && preview.media_review_next_after !== undefined;
+            if (typeof dismissalHooks.setItems === 'function') dismissalHooks.setItems(loadedMediaItems,mediaHasMore());
             if (mediaItems.length) {
                 const mediaSection = node('section', null, 'molavi-media-review');
                 let mediaTotal = Number(preview.media_review_total || counts.media_review || mediaItems.length);
@@ -3812,10 +4484,13 @@
                 const missingImageTotal = Number(counts.media_review_missing_images || 0);
                 const mediaHeading = node('h3', `گروه‌های رسانه‌ای نیازمند OCR (${mediaTotal} گروه/پیام · ${mediaImageTotal} تصویر)`);
                 mediaSection.appendChild(mediaHeading);
-                mediaSection.appendChild(node('p', `هر گروه آلبوم یک‌جا بررسی می‌شود و OCR همه عکس‌های آن را می‌خواند. نتیجه فقط برای بازبینی مالک ثبت می‌شود. ${missingImageTotal ? `${missingImageTotal} پیام آلبوم فایل تصویر کامل ندارد و تا دریافت همه عکس‌ها OCR نمی‌شود. ` : ''}اگر گروهی کالا نیست، تصمیم آن کل همان گروه را کنار می‌گذارد.`));
+                mediaSection.appendChild(node('p', `هر گروه آلبوم یک‌جا بررسی می‌شود و OCR همه عکس‌های آن را می‌خواند. نتیجه فقط برای بازبینی مالک ثبت می‌شود. موارد پنهان‌شده از فهرست همین حساب در «کنارگذاشته‌شده‌ها» قابل‌بازگردانی‌اند. ${missingImageTotal ? `${missingImageTotal} پیام آلبوم فایل تصویر کامل ندارد و تا دریافت همه عکس‌ها OCR نمی‌شود. ` : ''}تصمیم «این گروه کالا نیست» همچنان تصمیم جداگانه و ثبت‌شده است.`));
                 const mediaGrid = node('div', null, 'molavi-media-review-grid');
+                const isMediaDismissed = item => typeof dismissalHooks.isDismissed === 'function'
+                    && dismissalHooks.isDismissed(item && item.message_key);
                 function renderMedia(items) {
                     for (const item of items) {
+                        if (isMediaDismissed(item)) continue;
                         const imageFileIds = Array.isArray(item.image_file_ids) && item.image_file_ids.length
                             ? item.image_file_ids.map(value => String(value || '').trim()).filter(Boolean)
                             : (item.image_file_id ? [String(item.image_file_id)] : []);
@@ -3826,6 +4501,21 @@
                         const isAlbum = Boolean(item.grouped || item.media_group_id || imageCount > 1);
                         const card = node('article', null, 'molavi-media-review-card');
                         const details = node('div', null, 'molavi-media-review-details');
+                        const dismissalTask = typeof dismissalHooks.taskFor === 'function'
+                            ? dismissalHooks.taskFor(item) : null;
+                        if (dismissalTask && dismissalTask.task_key) {
+                            const selectLabel = node('label', null, 'molavi-media-dismiss-select');
+                            const select = document.createElement('input');
+                            select.type = 'checkbox';
+                            select.checked = typeof dismissalHooks.isSelected === 'function'
+                                && dismissalHooks.isSelected(dismissalTask);
+                            select.setAttribute('aria-label','انتخاب گروه رسانه‌ای برای کنارگذاری برگشت‌پذیر');
+                            select.addEventListener('change',() => {
+                                if (typeof dismissalHooks.toggle === 'function') dismissalHooks.toggle(dismissalTask,select.checked);
+                            });
+                            selectLabel.append(select,document.createTextNode('انتخاب برای کنارگذاری برگشت‌پذیر'));
+                            card.appendChild(selectLabel);
+                        }
                         details.appendChild(node('strong', `${item.channel || item.channel_username || 'منبع نامشخص'} · ${isAlbum ? `آلبوم ${imageCount || imageFileIds.length} تصویر` : `پیام ${item.message_id || '—'}`}`));
                         details.appendChild(node('span', `${item.timestamp || 'زمان ثبت نشده'} · ${messageCount} پیام · ${imageCount || imageFileIds.length} تصویر`));
                         const sourceLink = safeSourceLink(item.source_post_url);
@@ -3938,11 +4628,20 @@
                             }
                         });
                         details.appendChild(dismiss);
+                        if (dismissalTask && dismissalTask.task_key && typeof dismissalHooks.focus === 'function') {
+                            const hide = node('button','پنهان‌کردن از صف این حساب','button button-link-delete');
+                            hide.type='button';
+                            hide.addEventListener('click',() => dismissalHooks.focus(dismissalTask));
+                            details.appendChild(hide);
+                        }
                         card.appendChild(details);
                         mediaGrid.appendChild(card);
                     }
                 }
                 renderMedia(mediaItems);
+                if (!mediaItems.some(item => !isMediaDismissed(item))) {
+                    mediaSection.appendChild(notice('همهٔ گروه‌های همین صفحه برای این حساب کنار گذاشته شده‌اند؛ از بایگانی می‌توانید آن‌ها را برگردانید.','info'));
+                }
                 mediaSection.appendChild(mediaGrid);
                 if (preview.media_review_next_after !== null && preview.media_review_next_after !== undefined) {
                     const more = node('button', 'نمایش ۱۲ رسانه دیگر', 'button');
@@ -3953,8 +4652,14 @@
                             const nextUrl = reextractionUrl('preview') + '&media_after='
                                 + encodeURIComponent(String(preview.media_review_next_after));
                             const nextPage = await reextractionRequest('GET',undefined,nextUrl);
-                            renderMedia(Array.isArray(nextPage.media_review_messages)
-                                ? nextPage.media_review_messages : []);
+                            const nextItems = Array.isArray(nextPage.media_review_messages)
+                                ? nextPage.media_review_messages : [];
+                            loadedMediaItems = [...loadedMediaItems,...nextItems];
+                            if (typeof dismissalHooks.setItems === 'function') {
+                                dismissalHooks.setItems(loadedMediaItems,
+                                    nextPage.media_review_next_after !== null && nextPage.media_review_next_after !== undefined);
+                            }
+                            renderMedia(nextItems);
                             preview.media_review_next_after = nextPage.media_review_next_after;
                             preview.media_review_after = nextPage.media_review_after;
                             if (nextPage.media_review_next_after === null
@@ -4131,7 +4836,7 @@
         }
     }
 
-    async function reextractionPanel(panel) {
+    async function reextractionPanel(panel, dismissalHooks = {}) {
         panel.className = 'card molavi-reextract-workspace';
         panel.appendChild(node('h2', 'انتخاب پیام‌ها برای بازاستخراج'));
         panel.appendChild(node('p', 'همان مدل استخراج فعلی روی پیام‌های منبع اجرا می‌شود. دامنه، کانال و بازهٔ تاریخ با هم ترکیب می‌شوند؛ نتیجهٔ تازه از کنترل کیفیت موجود عبور می‌کند.'));
@@ -4400,7 +5105,7 @@
             advancedDetails.addEventListener('toggle',() => {
                 if (!advancedDetails.open || advancedLoaded) return;
                 advancedLoaded = true;
-                advancedReextractionTools(advancedBody);
+                advancedReextractionTools(advancedBody,dismissalHooks);
             });
             panel.appendChild(advancedDetails);
         } catch (error) {

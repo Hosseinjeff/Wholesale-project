@@ -180,6 +180,102 @@ function molavi_owner_workflow_proxy_ajax(): void {
 }
 add_action('wp_ajax_molavi_owner_workflow_proxy', 'molavi_owner_workflow_proxy_ajax');
 
+function molavi_owner_workbench_dismissals_meta_key(): string {
+    return 'molavi_owner_workbench_dismissals_v1';
+}
+
+function molavi_owner_workbench_dismissals_get(int $userId = 0): array {
+    $userId = $userId > 0 ? $userId : get_current_user_id();
+    if ($userId <= 0) { return []; }
+    $items = get_user_meta($userId, molavi_owner_workbench_dismissals_meta_key(), true);
+    return is_array($items) ? array_values($items) : [];
+}
+
+function molavi_owner_workbench_dismissal_key_is_valid(string $key, string $queue): bool {
+    if (strlen($key) > 520 || !preg_match('/^([a-z_]{2,32})\\|([A-Za-z0-9_:@.+%,-]{1,480})$/D', $key, $matches)) {
+        return false;
+    }
+    return hash_equals($queue, $matches[1]);
+}
+
+function molavi_owner_workbench_dismissals_ajax(): void {
+    if (!current_user_can('manage_woocommerce') || !function_exists('molavi_reference_owner')
+        || !molavi_reference_owner()) {
+        wp_send_json_error(['code'=>'owner_required'], 403);
+    }
+    check_ajax_referer('molavi_owner_workbench_dismissals', 'nonce');
+
+    $operation = isset($_POST['operation']) && is_string($_POST['operation'])
+        ? sanitize_key(wp_unslash($_POST['operation'])) : '';
+    $allowedQueues = [
+        'operations'=>'intake', 'source_integrity'=>'identity', 'references'=>'identity', 'ai'=>'extract',
+            'reextract'=>'extract', 'media_review'=>'extract', 'supplier_prices'=>'evidence', 'conflicts'=>'evidence',
+        'holds'=>'publish', 'status'=>'publish', 'storefront'=>'storefront',
+    ];
+    $allowedReasons = ['duplicate','no_action','outside_scope','later','other'];
+    $userId = get_current_user_id();
+    $items = molavi_owner_workbench_dismissals_get($userId);
+    $byKey = [];
+    foreach ($items as $item) {
+        if (is_array($item) && !empty($item['task_key'])) {
+            $byKey[(string)$item['task_key']] = $item;
+        }
+    }
+
+    if ($operation === 'dismiss') {
+        $raw = isset($_POST['records']) && is_string($_POST['records']) ? wp_unslash($_POST['records']) : '';
+        $records = $raw !== '' && strlen($raw) <= 400000 ? json_decode($raw, true) : null;
+        if (!is_array($records) || !$records || count($records) > 1000) {
+            wp_send_json_error(['code'=>'invalid_records'], 400);
+        }
+        foreach ($records as $record) {
+            if (!is_array($record)) { wp_send_json_error(['code'=>'invalid_records'], 400); }
+            $taskKey = isset($record['task_key']) && is_string($record['task_key']) ? $record['task_key'] : '';
+            $queue = isset($record['queue']) && is_string($record['queue']) ? sanitize_key($record['queue']) : '';
+            $stage = isset($record['stage']) && is_string($record['stage']) ? sanitize_key($record['stage']) : '';
+            $reason = isset($record['reason']) && is_string($record['reason']) ? sanitize_key($record['reason']) : '';
+            $scope = isset($record['scope']) && is_string($record['scope']) ? sanitize_key($record['scope']) : 'filtered';
+            $label = isset($record['label']) && is_string($record['label'])
+                ? sanitize_text_field($record['label']) : '';
+            $note = isset($record['note']) && is_string($record['note'])
+                ? sanitize_textarea_field($record['note']) : '';
+            if (!isset($allowedQueues[$queue]) || $allowedQueues[$queue] !== $stage
+                || !molavi_owner_workbench_dismissal_key_is_valid($taskKey, $queue)
+                || !in_array($reason, $allowedReasons, true) || !in_array($scope, ['selected','queue','stage','filtered','all_open'], true)
+                || strlen($label) > 160 || strlen($note) > 400 || ($reason === 'other' && trim($note) === '')) {
+                wp_send_json_error(['code'=>'invalid_records'], 400);
+            }
+            $byKey[$taskKey] = [
+                'task_key'=>$taskKey, 'queue'=>$queue, 'stage'=>$stage,
+                'label'=>$label, 'reason'=>$reason, 'note'=>$note, 'scope'=>$scope,
+                'dismissed_at'=>current_time('mysql', true),
+            ];
+        }
+        if (count($byKey) > 3000) { wp_send_json_error(['code'=>'dismissal_limit'], 400); }
+        update_user_meta($userId, molavi_owner_workbench_dismissals_meta_key(), array_values($byKey));
+    } elseif ($operation === 'restore') {
+        $raw = isset($_POST['keys']) && is_string($_POST['keys']) ? wp_unslash($_POST['keys']) : '';
+        $keys = $raw !== '' && strlen($raw) <= 100000 ? json_decode($raw, true) : null;
+        if (!is_array($keys) || !$keys || count($keys) > 1000) {
+            wp_send_json_error(['code'=>'invalid_records'], 400);
+        }
+        foreach ($keys as $key) {
+            if (!is_string($key) || strlen($key) > 520) { wp_send_json_error(['code'=>'invalid_records'], 400); }
+            unset($byKey[$key]);
+        }
+        update_user_meta($userId, molavi_owner_workbench_dismissals_meta_key(), array_values($byKey));
+    } elseif ($operation === 'restore_all') {
+        delete_user_meta($userId, molavi_owner_workbench_dismissals_meta_key());
+        $byKey = [];
+    } else {
+        wp_send_json_error(['code'=>'invalid_operation'], 400);
+    }
+
+    nocache_headers();
+    wp_send_json_success(['items'=>array_values($byKey)]);
+}
+add_action('wp_ajax_molavi_owner_workbench_dismissals', 'molavi_owner_workbench_dismissals_ajax');
+
 function molavi_owner_workflow_token(string $scope): string {
     if (!molavi_reference_owner()) { return ''; }
     $allowed = array_merge(array_column(molavi_owner_workflow_pages(), 1),
@@ -238,6 +334,8 @@ add_action('admin_enqueue_scripts', static function (): void {
         'pageUrls' => molavi_owner_workflow_page_urls(),
     ];
     if ($page === 'molavi-operations') {
+        $browserConfig['workbenchDismissalNonce'] = wp_create_nonce('molavi_owner_workbench_dismissals');
+        $browserConfig['workbenchDismissals'] = molavi_owner_workbench_dismissals_get();
         $workflowSources = [
             'ai_confirmations' => ['/pipeline/ai-confirmations', 'owner:/pipeline/ai-confirmations'],
             'reference_items' => ['/reference/item-reviews', 'owner:/reference/item-reviews'],
