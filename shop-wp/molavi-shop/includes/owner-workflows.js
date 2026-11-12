@@ -2629,6 +2629,10 @@
                 }
                 workbenchSelectedKeys.clear();
                 workbenchDismissalBusy = false;
+                workbenchDismissalReason = '';
+                dismissalReasonSelect.value = '';
+                dismissalNote.value = '';
+                dismissalNoteField.hidden = true;
                 refreshQueueCounts();
                 renderQueueNavigation();
                 renderQueue();
