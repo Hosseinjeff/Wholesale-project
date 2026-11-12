@@ -2,6 +2,28 @@
 
 Updated: 2026-11-12, Asia/Tehran
 
+## 2026-11-12 Fix blank Staging owner dashboard render
+
+Commit `f9d19e43bb2a2a8bd2c6c81fe5393d3d131b6c8e` fixes a JavaScript temporal-dead-zone
+error in the shared owner workbench. The dismissal-note input registered
+`updateDismissalPreview` before its `let` initialization. That threw a `ReferenceError`
+after the page announced that the queue was ready but before the dashboard appended its
+content. The input handler now resolves the initialized callback when the user types.
+
+The changed `includes/owner-workflows.js` asset was deployed only to WordPress Staging
+with `python3 tools/deploy_wordpress_plugin.py --site staging --since a1e76cb`. The
+deployer read back and verified the asset at revision `f9d19e43`; no host normalization
+was reported. Railway and production were not changed.
+
+An authenticated, guarded Staging page load returned HTTP 200 and rendered the board:
+eight board sections, six workflow stages, four tabs, and the queue selector. The eight
+unique workflow GET routes returned HTTP 200 with no error code (the confirmation route
+was also requested once more by a secondary view). There were no JavaScript errors or
+browser-level request failures. The browser allowed only the staging login and owner
+proxy requests whose embedded method was GET; all other POSTs were blocked. No queue
+action was clicked and no business payload was captured. `node --check` and
+`git diff --check` passed.
+
 ## 2026-11-12 Staging owner workbench queue and dismissal redesign
 
 The staging workbench now puts one deduplicated product/source row beside a focused

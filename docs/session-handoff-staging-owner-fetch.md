@@ -5,6 +5,38 @@ WordPress owner-workflow browser error. The broader business and pipeline decisi
 remain in [`project-handoff.md`](project-handoff.md); the staging-first development and
 deployment rule is in [`../AGENTS.md`](../AGENTS.md).
 
+## Latest: blank Staging dashboard render fixed — 2026-11-12
+
+The owner reported that the unified dashboard showed
+`صف آماده است؛ اقدام‌ها بدون خروج از این صفحه ثبت می‌شوند.` and rendered nothing below.
+This reproduced on `admin.php?page=molavi-operations`. The cause was a JavaScript
+`ReferenceError` at `owner-workflows.js:2342`: the dismissal-note input bound
+`updateDismissalPreview` before the `let` variable was initialized. Dashboard data had
+loaded, but rendering stopped before appending the board.
+
+Commit `f9d19e43bb2a2a8bd2c6c81fe5393d3d131b6c8e` moves the callback initialization
+before the event bindings and makes the note handler resolve the current callback when
+the owner types. It was deployed only to WordPress Staging with
+`python3 tools/deploy_wordpress_plugin.py --site staging --since a1e76cb`. The deployer
+read back and verified `includes/owner-workflows.js`; no host normalization was
+reported. Production and Railway were not changed.
+
+After deployment, one guarded staging sign-in and a read-only page load returned HTTP
+200. The ready status was followed by eight board sections, six stage buttons, four
+tabs, and one queue selector. All eight unique owner-workflow GET routes returned HTTP
+200 with no JSON error code; the AI-confirmations route was requested a second time by
+a secondary view. No JavaScript errors or browser-level request failures remained.
+The guard allowed the single WordPress sign-in and owner-proxy POST requests whose
+embedded method was GET; it blocked every other POST. No workflow write passed, no
+queue action was clicked, no direct Railway browser request was made, and no record
+payload was captured. Other POSTs and non-staging network requests were blocked by the
+browser guard.
+
+This resolves the reported blank dashboard render on Staging. It does not independently
+verify every action workflow or the separate `molavi-ai-confirmations` page. If the
+owner's existing tab was already open during deployment, refresh the Staging dashboard
+to load the updated asset.
+
 ## User report and scope
 
 The user reports that the owner workflow fails with `Failed to fetch`, including the
