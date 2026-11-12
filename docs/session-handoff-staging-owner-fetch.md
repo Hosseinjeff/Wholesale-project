@@ -1,6 +1,6 @@
 # Session handoff: staging owner-workflow `Failed to fetch`
 
-Updated 2026-11-11 (Asia/Tehran). This is the current operational handoff for the
+Updated 2026-11-12 (Asia/Tehran). This is the current operational handoff for the
 WordPress owner-workflow browser error. The broader business and pipeline decisions
 remain in [`project-handoff.md`](project-handoff.md); the staging-first development and
 deployment rule is in [`../AGENTS.md`](../AGENTS.md).
@@ -160,6 +160,33 @@ For a future browser check, allow the same-origin `admin-ajax.php` transport onl
 its embedded backend method is GET; block all backend POSTs, review-store writes, and
 outbox claims. A blanket block of the outer admin-ajax POST would also block read-only
 GETs proxied by WordPress.
+
+### Follow-up queue and dismissal redesign — 2026-11-12
+
+The workbench rewrite was initially deployed in commit
+`52c4aad64b70414f00444c319d3684f172fa17ca`. Follow-up source commit `3cb144c` resets the
+reason field after each successful batch. The combined plugin change is deployed to
+WordPress Staging with `python3 tools/deploy_wordpress_plugin.py --site staging --since
+14fcd6c`. The uploader verified read-back of `includes/owner-browser-api.php`,
+`includes/owner-workflows.css`, and `includes/owner-workflows.js` with no host
+normalization. No backend code changed, so Railway was not redeployed; production was
+not changed.
+
+This follow-up replaces the stage/queue card pile with a compact unique-row list and a
+focused selected-record action workspace. The source-to-store journey and supporting
+evidence are collapsed by default. The owner-only dismissal taxonomy spans all six
+workflow stages, including Railway operations and OCR/media groups, and supports
+selected rows, current queue, current stage, filtered selected queue types, and all open
+work for selected queue types. Reasons and notes are stored in per-owner WordPress
+user meta. Dismissal is reversible and only hides rows from that owner's dashboard; it
+does not alter a product, source record, price, publication decision, or worker job.
+The dismissed archive filters by stage, queue type, and reason. Bulk previews require
+complete auxiliary pagination and large batches are sent in bounded chunks.
+
+`node --check` and `git diff --check` passed. PHP CLI is unavailable. This runtime had
+no browser-control tool capable of blocking owner-proxy POSTs before an authenticated
+page load, so the deployed layout and live dismissal behavior were not visually
+verified. Do not claim the earlier `Failed to fetch` issue is fixed from this release.
 
 ## Next-session checklist
 

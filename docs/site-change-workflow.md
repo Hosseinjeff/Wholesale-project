@@ -2,6 +2,38 @@
 
 Updated: 2026-11-12, Asia/Tehran
 
+## 2026-11-12 Staging owner workbench queue and dismissal redesign
+
+The staging workbench now puts one deduplicated product/source row beside a focused
+workspace for its selected queue action. The six stages represent the handoffs from
+Railway intake through extraction, identity, evidence, catalog publication, and the
+WooCommerce storefront. Unrelated queue actions, the full source-to-store trace, and
+supporting evidence stay collapsed until needed.
+
+The shared, reversible dismissal manager covers Railway operations, OCR/media groups,
+and each product queue. Its taxonomy selects stages and queue types, with scopes for
+selected rows, the current queue, a stage, filtered queue types, or all open work in the
+selected queue types. It records a reason and optional note in the current owner's
+WordPress user meta; it only hides dashboard rows and does not alter records or stop
+worker jobs. The archive can filter by stage, queue type, and reason, then restore one,
+selected, or all dismissed items. Large selections are submitted in bounded chunks and
+the preview blocks incomplete paginated auxiliary queues.
+
+The workbench was initially deployed in commit `52c4aad64b70414f00444c319d3684f172fa17ca`.
+Follow-up commit `3cb144c` resets the reason field after a successful dismissal batch,
+so the next batch requires an explicit reason. The combined plugin change was deployed
+only to WordPress Staging with `python3 tools/deploy_wordpress_plugin.py --site staging
+--since 14fcd6c`. The uploader read back and verified
+`includes/owner-browser-api.php`, `includes/owner-workflows.css`, and
+`includes/owner-workflows.js`; it reported no host normalization. The backend was
+unchanged, so no Railway deployment was needed. Production and business records were
+not changed.
+
+`node --check` and `git diff --check` passed. PHP CLI is unavailable in this workspace.
+No authenticated visual page check was performed because this runtime has no browser
+control tool that can enforce the staging handoff's block on owner-proxy POSTs; visual
+layout and live dismissal behavior therefore remain unverified here.
+
 ## 2026-11-12 Staging owner dashboard rebuilt around the source-to-store workflow
 
 The owner workbench is organized around six actual handoffs: intake and the Railway
