@@ -2330,6 +2330,7 @@
         dismissalPreview.setAttribute('aria-live','polite');
         const dismissSubmit = node('button', 'کنارگذاری موارد پیش‌نمایش‌شده', 'button button-primary');
         dismissSubmit.type = 'button';
+        let updateDismissalPreview = () => {};
         dismissalScopeSelect.addEventListener('change', () => {
             workbenchDismissalScope = dismissalScopeSelect.value;
             updateDismissalPreview();
@@ -2339,13 +2340,12 @@
             dismissalNoteField.hidden = workbenchDismissalReason !== 'other';
             updateDismissalPreview();
         });
-        dismissalNote.addEventListener('input', updateDismissalPreview);
+        dismissalNote.addEventListener('input', () => updateDismissalPreview());
         dismissalPanel.append(dismissalScopeField, allQueuesToggle, noQueuesToggle,
             dismissalTaxonomy, dismissalReasonField, dismissalNoteField, dismissalPreview, dismissSubmit);
         let lastShownProducts = [];
         let lastQueueProducts = [];
         let lastQueue = null;
-        let updateDismissalPreview = () => {};
         const sourceGroup = node('section', null, 'molavi-workbench-source-group');
         sourceGroup.setAttribute('aria-label', 'انتخاب پیام‌ها برای بازاستخراج');
         reextractView.appendChild(sourceGroup);
