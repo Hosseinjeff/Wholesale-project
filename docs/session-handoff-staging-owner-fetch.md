@@ -164,13 +164,15 @@ GETs proxied by WordPress.
 ### Follow-up queue and dismissal redesign — 2026-11-12
 
 The workbench rewrite was initially deployed in commit
-`52c4aad64b70414f00444c319d3684f172fa17ca`. Follow-up source commit `3cb144c` resets the
-reason field after each successful batch. The combined plugin change is deployed to
-WordPress Staging with `python3 tools/deploy_wordpress_plugin.py --site staging --since
-14fcd6c`. The uploader verified read-back of `includes/owner-browser-api.php`,
-`includes/owner-workflows.css`, and `includes/owner-workflows.js` with no host
-normalization. No backend code changed, so Railway was not redeployed; production was
-not changed.
+`52c4aad64b70414f00444c319d3684f172fa17ca`; the uploader read back and verified
+`includes/owner-browser-api.php`, `includes/owner-workflows.css`, and
+`includes/owner-workflows.js`. Follow-up source commit `3cb144c` resets the reason field
+after each successful batch. Final Staging deploy revision
+`0fdd71015b22e2d912b304e2a120e3feeeda72c8` ran with
+`python3 tools/deploy_wordpress_plugin.py --site staging --since 14fcd6c`; the uploader
+uploaded and verified `includes/owner-workflows.js`, confirmed the PHP and CSS files
+were unchanged, and reported no host normalization. No backend code changed, so
+Railway was not redeployed; production was not changed.
 
 This follow-up replaces the stage/queue card pile with a compact unique-row list and a
 focused selected-record action workspace. The source-to-store journey and supporting

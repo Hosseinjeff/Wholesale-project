@@ -19,15 +19,16 @@ worker jobs. The archive can filter by stage, queue type, and reason, then resto
 selected, or all dismissed items. Large selections are submitted in bounded chunks and
 the preview blocks incomplete paginated auxiliary queues.
 
-The workbench was initially deployed in commit `52c4aad64b70414f00444c319d3684f172fa17ca`.
-Follow-up commit `3cb144c` resets the reason field after a successful dismissal batch,
-so the next batch requires an explicit reason. The combined plugin change was deployed
-only to WordPress Staging with `python3 tools/deploy_wordpress_plugin.py --site staging
---since 14fcd6c`. The uploader read back and verified
+The workbench was initially deployed from commit
+`52c4aad64b70414f00444c319d3684f172fa17ca`; the uploader read back and verified
 `includes/owner-browser-api.php`, `includes/owner-workflows.css`, and
-`includes/owner-workflows.js`; it reported no host normalization. The backend was
-unchanged, so no Railway deployment was needed. Production and business records were
-not changed.
+`includes/owner-workflows.js`. Follow-up code commit `3cb144c` resets the reason field
+after a successful dismissal batch, so the next batch requires an explicit reason. The
+final Staging deploy ran at repository revision `0fdd71015b22e2d912b304e2a120e3feeeda72c8`
+with `python3 tools/deploy_wordpress_plugin.py --site staging --since 14fcd6c`; it
+uploaded and verified `includes/owner-workflows.js`, confirmed the PHP and CSS files
+were unchanged, and reported no host normalization. The backend was unchanged, so no
+Railway deployment was needed. Production and business records were not changed.
 
 `node --check` and `git diff --check` passed. PHP CLI is unavailable in this workspace.
 No authenticated visual page check was performed because this runtime has no browser
