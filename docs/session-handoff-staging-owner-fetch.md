@@ -129,6 +129,38 @@ page load or owner-proxy API request was performed against commit `41ac5c2`, so 
 authenticated UI evidence is the guarded check on `7d265d1` above. This release alone
 does not establish that the earlier `Failed to fetch` report is fixed.
 
+### Ground-up owner dashboard rebuild — 2026-11-12
+
+Commit `14fcd6c205d7685aa0818df5aeaa9ac7a9b7060e` is live only in Railway Staging as
+deployment `e7b7a59f-aa16-4175-b5ed-7bbb6f1541a0` (`SUCCESS`). The service is pinned to
+that commit, has one running replica and no active warnings or criticals. Its
+`/health` endpoint returned `healthy`. The matching WordPress plugin release was
+deployed with `tools/deploy_wordpress_plugin.py --site staging --since 41ac5c2`; the
+four changed PHP/JavaScript/CSS files were read back and verified against commit
+`14fcd6c`.
+
+The workbench now shows six handoffs from Telegram/Railway intake through extraction,
+Offer and Product identity, evidence, catalog publication, and Woo storefront. Its
+master/detail queue keeps records and a focused primary action together. Combined
+filters cover channel, work state, Product ID linkage, message evidence/freshness,
+catalog status, Woo outcome, and Tehran-date range. Existing all/pending/catalog-linked
+re-extraction scopes and all-images album OCR remain available.
+
+Dashboard initialization now issues queue reads only; saved outbox delivery and
+review-context writes require an explicit action. Storefront reconciliation is a
+read-only request and stable Product/Offer IDs are required to join records. No
+re-extraction, approval, retry, or record-decision action was submitted for this
+release. Production was not changed.
+
+This runtime had both staging credential variable names, and their values were never
+printed, but it exposed no browser-control tool for the required authenticated page
+inspection. The files and Railway health were verified; the rebuilt page was not
+visually inspected and the earlier `Failed to fetch` issue is not yet confirmed fixed.
+For a future browser check, allow the same-origin `admin-ajax.php` transport only when
+its embedded backend method is GET; block all backend POSTs, review-store writes, and
+outbox claims. A blanket block of the outer admin-ajax POST would also block read-only
+GETs proxied by WordPress.
+
 ## Next-session checklist
 
 1. **Keep all investigation on staging.** Do not change or deploy to production unless
