@@ -1,9 +1,30 @@
 # Session handoff: staging owner-workflow `Failed to fetch`
 
-Updated 2026-11-12 (Asia/Tehran). This is the current operational handoff for the
+Updated 2026-11-13 (Asia/Tehran). This is the current operational handoff for the
 WordPress owner-workflow browser error. The broader business and pipeline decisions
 remain in [`project-handoff.md`](project-handoff.md); the staging-first development and
 deployment rule is in [`../AGENTS.md`](../AGENTS.md).
+
+## Latest: Staging CSS layout repair — 2026-11-13
+
+The owner reported that the dashboard CSS looked badly broken. The live stylesheet had
+multiple stale stage-grid rules; its latest declaration forced all six workflow stages
+into one horizontally scrolling row and overrode the earlier mobile rules. At a 390px
+viewport, the stage grid measured 795px inside a 368px work area.
+
+Commit `b9fefee44cced0281e8d2639e1a2b717c3e35968` removes the competing stage
+declarations and defines a three-column desktop grid and two-column phone grid. The
+cards wrap within the available width and no longer create the oversized horizontal
+stage strip. It was deployed only to WordPress Staging with
+`python3 tools/deploy_wordpress_plugin.py --site staging --since b92f45b`. The uploader
+read back and verified `includes/owner-workflows.css`; production and Railway were not
+changed.
+
+The guarded authenticated page check returned HTTP 200. Computed styles showed three
+columns at a 1365px viewport and two at 390px, with the stage grid fitting its container
+at both widths. All eight unique owner-workflow GET routes returned HTTP 200 with no
+JSON error code and there were no JavaScript errors. Workflow writes were blocked, no
+dashboard action was clicked, and no record payload was captured.
 
 ## Latest: blank Staging dashboard render fixed — 2026-11-12
 

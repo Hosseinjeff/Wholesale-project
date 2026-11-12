@@ -1,6 +1,26 @@
 # Site changes and preservation workflow
 
-Updated: 2026-11-12, Asia/Tehran
+Updated: 2026-11-13, Asia/Tehran
+
+## 2026-11-13 Staging workbench responsive stage layout
+
+Commit `b9fefee44cced0281e8d2639e1a2b717c3e35968` removes stale, competing stage-grid
+rules from the owner-workbench stylesheet. The active rule had forced all six stages
+into one horizontally scrolling row and overrode earlier responsive declarations. At
+390px viewport width, the stage strip measured 795px inside a 368px work area. The
+workbench now uses three columns on desktop and two on phone, with individual stage
+cards and no horizontal overflow.
+
+The changed `includes/owner-workflows.css` asset was deployed only to WordPress Staging
+with `python3 tools/deploy_wordpress_plugin.py --site staging --since b92f45b`. The
+deployer read back and verified the asset at revision `b9fefee`; production and Railway
+were not changed.
+
+The guarded authenticated page check returned HTTP 200. The computed grid had three
+columns at 1365px and two at 390px; both widths fit their containers. All eight unique
+owner-workflow GET routes returned HTTP 200 with no JSON error code, and no JavaScript
+errors occurred. Workflow writes and non-staging requests were blocked; no dashboard
+action was clicked and no record payload was captured. `git diff --check` passed.
 
 ## 2026-11-12 Fix blank Staging owner dashboard render
 
