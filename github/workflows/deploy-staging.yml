@@ -1,0 +1,21 @@
+--- file starts ---
+name: Deploy to staging
+
+on:
+  push:
+    branches: [deploy/staging]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    if: ${{ secrets.MOLAVISALE_CPANEL_PASSWORD != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy plugin to staging
+        env:
+          MOLAVISALE_CPANEL_URL: ${{ secrets.MOLAVISALE_CPANEL_URL }}
+          MOLAVISALE_CPANEL_USERNAME: ${{ secrets.MOLAVISALE_CPANEL_USERNAME }}
+          MOLAVISALE_CPANEL_PASSWORD: ${{ secrets.MOLAVISALE_CPANEL_PASSWORD }}
+        run: python3 tools/deploy_staging_uapi.py
+--- file ends ---
