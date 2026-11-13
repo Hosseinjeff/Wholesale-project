@@ -109,6 +109,13 @@ class MemoryStore:
         return self.read(name)
 
     def write_cells(self,name: str,row_number: int,headers: list[str],values: dict[str,Any]) -> None:
+        self.write_cells_batch(name,headers,[(row_number,values)])
+
+    def write_cells_batch(self,name: str,headers: list[str],updates: list[tuple[int,dict[str,Any]]]) -> None:
+        for row_number,values in updates:
+            self.write_cells_row(name,row_number,headers,values)
+
+    def write_cells_row(self,name: str,row_number: int,headers: list[str],values: dict[str,Any]) -> None:
         table=self.sheets.setdefault(name,[])
         while len(table)<row_number:table.append([])
         row=list(table[row_number-1])+['']*max(0,len(headers)-len(table[row_number-1]))
@@ -347,22 +354,33 @@ class GoogleSheetStore:
         return _copy_table(result.get("values") or [])
 
     def write_cells(self,name: str,row_number: int,headers: list[str],values: dict[str,Any]) -> None:
-        if not values:return
+        self.write_cells_batch(name,headers,[(row_number,values)])
+
+    def write_cells_batch(self,name: str,headers: list[str],updates: list[tuple[int,dict[str,Any]]]) -> None:
         data=[]
-        for header,value in values.items():
-            if header not in headers:continue
-            column=headers.index(header)+1
-            cell=f"{_quote(name)}!{_column(column)}{row_number}:{_column(column)}{row_number}"
-            data.append({'range':cell,'values':[[value]]})
+        for row_number,values in updates:
+            for header,value in values.items():
+                if header not in headers:continue
+                column=headers.index(header)+1
+                cell=f"{_quote(name)}!{_column(column)}{row_number}:{_column(column)}{row_number}"
+                data.append({'range':cell,'values':[[value]]})
         if not data:return
-        self._api().values_batch_update('RAW',{'data':data})
+        total_updated=0
+        for start in range(0,len(data),5000):
+            receipt=self._api().values_batch_update('RAW',{'data':data[start:start+5000]})
+            total_updated+=int(receipt.get('totalUpdatedCells') or 0)
+            if receipt and receipt.get('totalUpdatedCells') not in (None,len(data[start:start+5000])):
+                raise RuntimeError('Sheets cell update receipt differs from reference delta')
+        if total_updated and total_updated!=len(data):
+            raise RuntimeError('Sheets cell update receipt is incomplete')
         cached=self._values.get(name)
         if cached is not None:
-            while len(cached)<row_number:cached.append([])
-            row=cached[row_number-1]
-            if len(row)<len(headers):row.extend(['']*(len(headers)-len(row)))
-            for header,value in values.items():
-                if header in headers:row[headers.index(header)]=value
+            for row_number,values in updates:
+                while len(cached)<row_number:cached.append([])
+                row=cached[row_number-1]
+                if len(row)<len(headers):row.extend(['']*(len(headers)-len(row)))
+                for header,value in values.items():
+                    if header in headers:row[headers.index(header)]=value
 
     def append(self, name: str, rows: list[list[Any]]) -> None:
         if not rows:
@@ -2182,7 +2200,7 @@ def _active_reference_snapshot_id(ledger):
 
 
 def reconcile_reference_price_approvals(store, previous_snapshot, next_snapshot, reference_store,
-                                        *, max_price_change=0.05):
+                                        *, max_price_change=0.05, affected_reference_ids=None):
     """Recheck linked reference prices when a new owner-reviewed snapshot is activated."""
     if not isinstance(next_snapshot, dict) or not next_snapshot.get('snapshot_id'):
         return {'checked': 0, 'retained': 0, 'needs_review': 0}
@@ -2196,6 +2214,8 @@ def reconcile_reference_price_approvals(store, previous_snapshot, next_snapshot,
     next_id = str(next_snapshot['snapshot_id'])
     now = _now()
     counts = {'checked': 0, 'retained': 0, 'needs_review': 0}
+    affected=(set(str(value) for value in affected_reference_ids)
+              if affected_reference_ids is not None else None)
 
     def ref_price(snapshot, reference_id, role):
         if not isinstance(snapshot, dict):
@@ -2213,6 +2233,8 @@ def reconcile_reference_price_approvals(store, previous_snapshot, next_snapshot,
         status = str(record.get('Status') or '').strip().lower()
         approval = str(record.get('Reference Approval State') or '')
         reference_id = str(record.get('Reference Match ID') or '')
+        if affected is not None and reference_id not in affected:
+            continue
         role = str(record.get('Reference Price Role') or '')
         source_snapshot_id = str(record.get('Reference Snapshot ID') or '')
         is_linked_approved = (approval in {'owner_approved', 'approved_compatible', 'approved_within_margin'}

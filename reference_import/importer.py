@@ -192,16 +192,20 @@ def _woocommerce_row(product, row_number, timestamp):
             '', str(row_number), code, 'TOMAN', SOURCE_NAME, SOURCE_URL, timestamp]
 
 
-def _build_woocommerce_candidate(products, page_count, source_currency, timestamp):
-    rows = [_woocommerce_row(product, index, timestamp)
-            for index, product in enumerate(products, 1)]
+def _build_woocommerce_candidate(products, page_count, source_currency, timestamp, *, include_rows=True):
+    rows = ([_woocommerce_row(product, index, timestamp)
+             for index, product in enumerate(products, 1)] if include_rows else [])
     return {'schema_version': 1, 'status': 'staged', 'requires_review': True,
             'source_type': SOURCE_TYPE, 'source_url': SOURCE_URL,
-            'source_currency': source_currency, 'source_total': len(rows),
+            'source_currency': source_currency, 'source_total': len(products),
             'source_page_count': page_count, 'processed_page_count': page_count,
-            'first_source_row_number': 1, 'last_source_row_number': len(rows),
+            'first_source_row_number': 1, 'last_source_row_number': len(products),
             'model': None, 'extracted_at': timestamp, 'row_count': len(rows),
-            'coverage_verified': True, 'headers': HEADERS, 'rows': rows}
+            'coverage_verified': bool(include_rows), 'headers': HEADERS, 'rows': rows,
+            # The store compares these raw source records with its last successful
+            # refresh and parses only new or changed products. They are removed
+            # before the immutable snapshot is saved.
+            '_source_products': products}
 
 
 def _fetch_woocommerce_page(get, page, *, per_page, expected_total=None, expected_pages=None):
@@ -267,7 +271,7 @@ def _fetch_woocommerce_page(get, page, *, per_page, expected_total=None, expecte
     raise ImportFailure('WooCommerce products could not be read', code='woocommerce_http_error')
 
 
-def _extract_woocommerce_attempt(get, per_page, *, session, max_workers):
+def _extract_woocommerce_attempt(get, per_page, *, session, max_workers, incremental=False):
     first, total, page_count = _fetch_woocommerce_page(get, 1, per_page=per_page)
     pages = [first]
     if page_count > 1:
@@ -319,7 +323,8 @@ def _extract_woocommerce_attempt(get, per_page, *, session, max_workers):
         raise ImportFailure('WooCommerce products use inconsistent currencies',
                             code='woocommerce_currency_mismatch')
     extracted_at = datetime.now(timezone.utc).isoformat()
-    candidate = _build_woocommerce_candidate(products, page_count, next(iter(currencies)), extracted_at)
+    candidate = _build_woocommerce_candidate(products, page_count, next(iter(currencies)),
+                                             extracted_at, include_rows=not incremental)
     if candidate['source_total'] != total:
         raise ImportFailure('WooCommerce product coverage is incomplete',
                             code='woocommerce_product_coverage_incomplete')
@@ -327,7 +332,7 @@ def _extract_woocommerce_attempt(get, per_page, *, session, max_workers):
     return candidate
 
 
-def extract_woocommerce_store_api(session=None, *, per_page=100):
+def extract_woocommerce_store_api(session=None, *, per_page=100, incremental=False):
     """Fetch every product, retrying transport failures with smaller pages and less load."""
     if isinstance(per_page, bool) or not isinstance(per_page, int) or not 1 <= per_page <= 100:
         raise ImportFailure('WooCommerce page size is invalid', code='woocommerce_pagination_invalid')
@@ -349,8 +354,8 @@ def extract_woocommerce_store_api(session=None, *, per_page=100):
         strategies.append((per_page // 2, 2))
     for index, (page_size, workers) in enumerate(strategies):
         try:
-            return _extract_woocommerce_attempt(get, page_size, session=session,
-                                                max_workers=workers)
+            return _extract_woocommerce_attempt(get,page_size,session=session,
+                max_workers=workers,incremental=incremental)
         except ImportFailure as exc:
             retryable = (exc.code.startswith('woocommerce_transport_')
                          or exc.code == 'woocommerce_http_429'

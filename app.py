@@ -2166,6 +2166,49 @@ def _owner_api_actor(scope, bridge_token, owners):
     return actor, (None if actor else 401)
 
 
+def _complete_reference_activation(reference_store, snapshot, previous_snapshot, *, owners,
+                                   incremental=False):
+    """Project an activated reference version and reconcile only affected bot products."""
+    from reference_import.projection import project_reference_prices, project_reference_delta
+    snapshot_id=str(snapshot.get('snapshot_id') or '')
+    if reference_store.projection_snapshot_id()==snapshot_id:
+        projection={'sheet':'ReferencePrices','row_count':snapshot.get('row_count') or 0,
+                    'verified':True,'snapshot_id':snapshot_id,'mode':'already_projected'}
+    elif incremental:
+        projection=project_reference_delta(build_store(),snapshot,previous_snapshot,reference_store)
+    else:
+        projection=project_reference_prices(build_store(),snapshot)
+        reference_store.mark_projected(snapshot_id)
+
+    update_summary={'checked':0,'retained':0,'needs_review':0}
+    status_snapshot=None
+    reconciliation_state='complete'
+    if reference_store.reconciliation_snapshot_id()!=snapshot_id:
+        try:
+            from reference_import.item_reviews import ItemReviewLedger
+            ItemReviewLedger(reference_store.database,owner_ids=owners).inherit_mappings(
+                snapshot_id,max_price_change=0.05)
+            affected=(snapshot.get('change_summary') or {}).get('reconcile_reference_ids') if incremental else None
+            if not incremental or affected:
+                from catalog.sync import reconcile_reference_price_approvals
+                catalog_store=build_store()
+                update_summary=reconcile_reference_price_approvals(
+                    catalog_store,previous_snapshot,snapshot,reference_store,max_price_change=0.05,
+                    affected_reference_ids=affected)
+                if update_summary.get('checked'):
+                    from catalog.product_status import capture_from_store
+                    queue=handoff_queue()
+                    if queue is not None:
+                        status_snapshot=capture_from_store(catalog_store,queue.path,
+                            reason=f'reference_snapshot:{snapshot_id}')
+            reference_store.mark_reconciled(snapshot_id)
+        except Exception:
+            reconciliation_state='failed'
+            logger.exception('Could not reconcile products for activated reference snapshot')
+    return {'projection':projection,'product_reconciliation_state':reconciliation_state,
+            'product_reference_updates':update_summary,'product_status_snapshot':status_snapshot}
+
+
 @app.after_request
 def reference_snapshots_browser_cors(response):
     browser_paths = {
@@ -2275,11 +2318,45 @@ def reference_snapshots_route():
                     'retry_after_seconds':outcome.get('retry_after_seconds')}),429
             if outcome.get('state')=='not_due':
                 return jsonify({'ok':False,'error':'refresh_not_retryable'}),409
-            state=scheduler.state() or {}
-            result={'ok':True,'action':'refresh','state':state.get('state'),
-                'last_attempt_at':state.get('last_attempt_at'),'error_code':state.get('error_code')}
-            if state.get('snapshot_id'):
-                result['snapshot_id']=state['snapshot_id']
+            refresh_state=scheduler.state() or {}
+            refresh_result={'projection_state':None,'product_reconciliation_state':'complete',
+                            'product_reference_updates':{'checked':0,'retained':0,'needs_review':0}}
+            snapshot_id=outcome.get('snapshot_id') or refresh_state.get('snapshot_id')
+            if outcome.get('state')=='staged' and outcome.get('automatic_update'):
+                if not USE_SHEETS:
+                    return jsonify({'ok':False,'error':'sheets_unavailable'}),503
+                candidate=store.snapshot(snapshot_id)
+                previous_id=(candidate or {}).get('previous_snapshot_id')
+                previous=store.snapshot(previous_id) if previous_id else None
+                store.activate_incremental(snapshot_id,expected_active_id=previous_id)
+                active=store.active_snapshot()
+                refresh_result=_complete_reference_activation(store,active,previous,
+                    owners=owners,incremental=True)
+                scheduler.mark_completed(snapshot_id,state='updated')
+                refresh_state=scheduler.state() or {}
+                if refresh_result['product_reconciliation_state']=='complete':
+                    _wake_reference_waiters_if_eligible(handoff_queue(),store)
+            elif outcome.get('state')=='unchanged':
+                active=store.active_snapshot()
+                if (active and (store.projection_snapshot_id()!=active.get('snapshot_id')
+                                or store.reconciliation_snapshot_id()!=active.get('snapshot_id'))):
+                    if not USE_SHEETS:
+                        return jsonify({'ok':False,'error':'sheets_unavailable'}),503
+                    previous_id=active.get('previous_snapshot_id')
+                    previous=store.snapshot(previous_id) if previous_id else None
+                    refresh_result=_complete_reference_activation(store,active,previous,
+                        owners=owners,incremental=bool(active.get('automatic_update')))
+                if active:
+                    snapshot_id=active.get('snapshot_id')
+                    scheduler.mark_completed(snapshot_id,state='unchanged')
+                    refresh_state=scheduler.state() or {}
+            result={'ok':True,'action':'refresh','state':refresh_state.get('state'),
+                'last_attempt_at':refresh_state.get('last_attempt_at'),'error_code':refresh_state.get('error_code'),
+                'change_summary':refresh_state.get('change_summary'),
+                'product_reconciliation_state':refresh_result['product_reconciliation_state'],
+                'product_reference_updates':refresh_result['product_reference_updates']}
+            if snapshot_id:
+                result['snapshot_id']=snapshot_id
             if outcome.get('row_count'):
                 result['row_count']=outcome['row_count']
             response=jsonify(result)
@@ -2316,34 +2393,14 @@ def reference_snapshots_route():
                     return jsonify({'ok':False,'error':'sheets_unavailable'}),503
                 store._activate_locked(snapshot_id,actor_id=actor,expected_active_id=expected)
                 active=store.active_snapshot()
-                from reference_import.projection import project_reference_prices
-                projection=project_reference_prices(build_store(),active)
-                reference_update_summary = {'checked': 0, 'retained': 0, 'needs_review': 0}
-                status_snapshot = None
-                reconciliation_state = 'complete'
-                try:
-                    from reference_import.item_reviews import ItemReviewLedger
-                    ItemReviewLedger(path, owner_ids=owners).inherit_mappings(
-                        snapshot_id, max_price_change=0.05)
-                    from catalog.sync import reconcile_reference_price_approvals
-                    from catalog.product_status import capture_from_store
-                    catalog_store = build_store()
-                    reference_update_summary = reconcile_reference_price_approvals(
-                        catalog_store, current, active, store, max_price_change=0.05)
-                    queue = handoff_queue()
-                    if queue is not None:
-                        status_snapshot = capture_from_store(catalog_store, queue.path,
-                            reason=f'reference_snapshot:{snapshot_id}')
-                except Exception:
-                    reconciliation_state = 'failed'
-                    logger.exception('Could not reconcile product approvals for activated reference snapshot')
+                completed=_complete_reference_activation(store,active,current,owners=owners)
                 result={'ok':True,'action':'activate','snapshot_id':snapshot_id,
                     'active_snapshot_id':active['snapshot_id'],'projection_state':'written',
-                    'row_count':projection['row_count'],
-                    'product_reconciliation_state':reconciliation_state,
-                    'product_reference_updates':reference_update_summary,
-                    'product_status_snapshot':status_snapshot}
-                if reconciliation_state == 'complete':
+                    'row_count':completed['projection']['row_count'],
+                    'product_reconciliation_state':completed['product_reconciliation_state'],
+                    'product_reference_updates':completed['product_reference_updates'],
+                    'product_status_snapshot':completed['product_status_snapshot']}
+                if completed['product_reconciliation_state'] == 'complete':
                     _wake_reference_waiters_if_eligible(handoff_queue(),store)
         response=jsonify(result)
         response.headers['Cache-Control']='no-store'

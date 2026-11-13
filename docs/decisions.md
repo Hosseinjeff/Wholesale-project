@@ -750,3 +750,25 @@ Do not record suggested options, silence, or previously inferred preferences as 
 - Remove per-card notes and duplicate confirmation where a direct, explicit choice is
   already clear. Keep a bulk action, visible source details, and refresh the list after
   decisions so the next required action is apparent.
+
+### D-045 — Refresh reference products by stable ID and changed source fields
+
+- User clarification on 2026-11-13: the Rezvan reference catalog is a saved reference
+  dataset for future comparison with products extracted by the bot. The store's own
+  WooCommerce catalog is not consulted during those comparisons.
+- Keep each source product keyed by its stable API product ID and retain the latest raw
+  source record locally. On refresh, compare only relevant source nodes. Recompute only
+  fields derived from changed nodes; a price-only change updates price fields, while a
+  title change recomputes title-derived details for that product. Unchanged products
+  require no extraction or ReferencePrices write.
+- Apply complete and validated changes directly to the active local reference dataset
+  and `ReferencePrices`; do not require an owner review/activation for every refresh.
+  Preserve version history and the existing 5% approval check for products whose linked
+  reference price or identity changed. A first reference version still requires review.
+- The public Rezvan API remains the read-only source for reference refreshes. It is
+  fetched independently of bot product comparison; the saved local dataset is the
+  comparison input. No Gemini call is used by the reference refresh path.
+- This decision supersedes D-036's requirement to leave every complete refresh inactive
+  for manual review. Coverage/field validation failures still leave the active version
+  untouched. Product additions/removals may require a full sheet projection to preserve
+  row order; ordinary field changes write only the affected cells.

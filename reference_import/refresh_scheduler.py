@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import fcntl
+import json
 import os
 import sqlite3
 import uuid
@@ -23,7 +24,11 @@ class ReferenceRefreshScheduler:
         with self._connect() as db:
             db.execute('''CREATE TABLE IF NOT EXISTS reference_refresh_state (
                 singleton INTEGER PRIMARY KEY CHECK(singleton=1), last_attempt_at TEXT,
-                state TEXT, occurrence_id TEXT, snapshot_id TEXT, error_code TEXT)''')
+                state TEXT, occurrence_id TEXT, snapshot_id TEXT, error_code TEXT,
+                change_summary TEXT)''')
+            columns={row['name'] for row in db.execute('PRAGMA table_info(reference_refresh_state)')}
+            if 'change_summary' not in columns:
+                db.execute('ALTER TABLE reference_refresh_state ADD COLUMN change_summary TEXT')
             db.execute('INSERT OR IGNORE INTO reference_refresh_state(singleton) VALUES (1)')
 
     @contextmanager
@@ -48,7 +53,25 @@ class ReferenceRefreshScheduler:
     def state(self):
         with self._connect() as db:
             row=db.execute('SELECT * FROM reference_refresh_state WHERE singleton=1').fetchone()
-        return dict(row) if row else None
+        if not row:
+            return None
+        result=dict(row)
+        try:
+            result['change_summary']=json.loads(result['change_summary']) if result.get('change_summary') else None
+        except (TypeError,ValueError):
+            result['change_summary']=None
+        if isinstance(result.get('change_summary'),dict):
+            summary=result['change_summary']
+            result['change_summary']={key:summary.get(key,0) for key in
+                ('added_count','updated_count','removed_count','has_changes','metadata_upgrade','order_changed')}
+        return result
+
+    def mark_completed(self, snapshot_id, *, state='updated'):
+        if state not in {'updated','unchanged'}:
+            raise ValueError('Invalid reference refresh completion state')
+        with self._connect() as db:
+            db.execute("UPDATE reference_refresh_state SET state=? WHERE singleton=1 AND snapshot_id=?",
+                       (state,snapshot_id))
 
     def run_if_due(self, refresh=None, *, now=None, force=False):
         now=now or datetime.now(timezone.utc)
@@ -68,7 +91,7 @@ class ReferenceRefreshScheduler:
                     elapsed=self.interval_seconds
                     due=True
             if force:
-                if previous.get('state') not in (None, 'failed', 'running', 'staged'):
+                if previous.get('state') not in (None, 'failed', 'running', 'staged', 'updated', 'unchanged'):
                     due = False
                 else:
                     due = True
@@ -83,16 +106,24 @@ class ReferenceRefreshScheduler:
             occurrence=now.strftime('%Y%m%dT%H%M%S')+'Z-'+uuid.uuid4().hex
             with self._connect() as db:
                 db.execute('''UPDATE reference_refresh_state SET last_attempt_at=?,state='running',
-                    occurrence_id=?,snapshot_id=NULL,error_code=NULL WHERE singleton=1''',
+                    occurrence_id=?,snapshot_id=NULL,error_code=NULL,change_summary=NULL WHERE singleton=1''',
                     (now.isoformat(),occurrence))
             try:
                 candidate=(refresh or self._refresh_woocommerce)()
-                snapshot_id=self.store.stage(candidate)
+                staged=self.store.stage_incremental(candidate)
+                snapshot_id=staged['snapshot_id']
+                state=staged['state']
+                full_summary=staged.get('change_summary') or {}
+                summary=json.dumps({key:full_summary.get(key,0) for key in
+                    ('added_count','updated_count','removed_count','has_changes','metadata_upgrade','order_changed')},
+                    ensure_ascii=False,separators=(',',':'))
                 with self._connect() as db:
-                    db.execute('''UPDATE reference_refresh_state SET state='staged',snapshot_id=?,error_code=NULL
-                        WHERE singleton=1 AND occurrence_id=?''',(snapshot_id,occurrence))
-                return {'state':'staged','snapshot_id':snapshot_id,'occurrence_id':occurrence,
-                        'row_count':candidate.get('row_count')}
+                    db.execute('''UPDATE reference_refresh_state SET state=?,snapshot_id=?,error_code=NULL,
+                        change_summary=? WHERE singleton=1 AND occurrence_id=?''',
+                        (state,snapshot_id,summary,occurrence))
+                return {'state':state,'snapshot_id':snapshot_id,'occurrence_id':occurrence,
+                        'row_count':staged.get('row_count'),'automatic_update':staged.get('automatic_update',False),
+                        'change_summary':staged.get('change_summary') or {}}
             except Exception as exc:
                 self.store.record_refresh_failure(occurrence)
                 error_code = getattr(exc, 'code', None) or type(exc).__name__
@@ -100,11 +131,11 @@ class ReferenceRefreshScheduler:
                     error_code = 'refresh_failed'
                 error_code = error_code[:80]
                 with self._connect() as db:
-                    db.execute('''UPDATE reference_refresh_state SET state='failed',error_code=?
+                    db.execute('''UPDATE reference_refresh_state SET state='failed',error_code=?,change_summary=NULL
                         WHERE singleton=1 AND occurrence_id=?''',(error_code,occurrence))
                 return {'state':'failed','occurrence_id':occurrence,'error_code':error_code}
 
     @staticmethod
     def _refresh_woocommerce():
         from .importer import extract_woocommerce_store_api
-        return extract_woocommerce_store_api()
+        return extract_woocommerce_store_api(incremental=True)

@@ -5,6 +5,18 @@ Snapshot 4.76. Updated 2026-11-11, Asia/Tehran. The canonical roleplay decisions
 `pipeline-readiness.md` and `pipeline-readiness-evidence.json`.
 The product intake and shelf policy is documented in `products-streamline-integrity.md`.
 
+## Current reference refresh behavior — 2026-11-13 (D-045)
+
+The reference catalog is saved locally for future bot-product comparisons. Each source
+item is keyed by its stable Rezvan API ID and its latest raw record is retained. Refresh
+recomputes only changed source nodes; unchanged items are reused. Validated updates go
+directly to the active local dataset and only changed cells in `ReferencePrices`; linked
+product approvals are revisited only for changed reference prices or identities. The
+store's own WooCommerce catalog is not read during bot comparisons. The public Rezvan
+Store API remains a separate read-only refresh source, and reference refresh uses no
+Gemini. D-045 supersedes the manual review requirement in D-036 for later refreshes; an
+initial reference version still needs review.
+
 ## Current incident — staging owner-workflow fetch error (2026-11-11)
 
 The current user-facing issue is `Failed to fetch` in the WordPress owner workflow,
