@@ -7,6 +7,7 @@ import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from pathlib import Path
 
 
 class ProductStatusLedger:
@@ -189,10 +190,11 @@ class ProductStatusLedger:
         return int(row['schema_version']) if row else 0
 
 
-def capture_from_store(store, database, *, reason):
-    """Capture the current Products sheet and its supplier freshness evaluation."""
+def _current_product_status_inputs(store, database, *, now=None):
+    """Read current Products, source integrity, and supplier verification evidence."""
     from catalog.sync import _fresh_read, _records
-    from catalog.supplier_freshness import PriceFreshness, source_price_revision
+    from catalog.launch_policies import supplier_price_state
+    from catalog.supplier_freshness import source_price_revision
 
     rows = _fresh_read(store, 'Products')
     _, records = _records(rows)
@@ -202,14 +204,64 @@ def capture_from_store(store, database, *, reason):
     source_integrity = {str(item.get('product_id') or ''): item.get('codes') or []
                         for item in product_offer_link_issues(records, offer_records)
                         if item.get('product_id')}
-    now = datetime.now(timezone.utc)
-    freshness = PriceFreshness(database)
+    now = now or datetime.now(timezone.utc)
+    evidence_rows = {}
+    database_path = Path(os.path.realpath(os.fspath(database)))
+    if database_path.exists():
+        database_uri = database_path.as_uri() + '?mode=ro'
+        try:
+            with sqlite3.connect(database_uri, uri=True, timeout=15) as db:
+                for row in db.execute('SELECT offer_id,source_revision,verified_at,method '
+                                      'FROM supplier_price_evidence'):
+                    evidence_rows[str(row[0])] = {
+                        'source_revision': str(row[1]), 'verified_at': str(row[2]),
+                        'method': str(row[3])}
+        except sqlite3.OperationalError as exc:
+            if 'no such table' not in str(exc).lower():
+                raise
     evidence = {}
     for record in records:
         offer_id = str(record.get('Latest Offer ID') or '').strip()
         if not offer_id:
             continue
         revision = source_price_revision(record)
-        evidence[offer_id] = freshness.state(offer_id, now=now, expected_revision=revision)
+        saved = evidence_rows.get(offer_id)
+        verified_at = saved.get('verified_at') if saved else None
+        if not saved or not revision or revision != saved.get('source_revision'):
+            state = 'needs_review'
+        else:
+            try:
+                state = supplier_price_state(datetime.fromisoformat(verified_at), now)
+            except (TypeError, ValueError):
+                state = 'needs_review'
+        evidence[offer_id] = {'state':state, 'verified_at':verified_at,
+            'method':saved.get('method') if saved else None}
+    return rows, evidence, source_integrity, now
+
+
+def read_current_from_store(store, database, *, now=None):
+    """Build a live product status view without creating an audit snapshot."""
+    from catalog.sync import _records
+
+    rows, evidence, source_integrity, now = _current_product_status_inputs(
+        store, database, now=now)
+    _, records = _records(rows)
+    products = []
+    for record in records:
+        if not record.get('Product Name') and not record.get('Product ID'):
+            continue
+        offer_id = str(record.get('Latest Offer ID') or '')
+        product_id = str(record.get('Product ID') or '').strip()
+        state = ProductStatusLedger._state(record, evidence.get(offer_id),
+            source_integrity.get(product_id))
+        state.pop('product_record', None)
+        products.append(state)
+    products.sort(key=lambda item: (item['product_name'], item['product_id']))
+    return {'generated_at':now.astimezone(timezone.utc).isoformat(), 'products':products}
+
+
+def capture_from_store(store, database, *, reason):
+    """Capture the current Products sheet and its supplier freshness evaluation."""
+    rows, evidence, source_integrity, now = _current_product_status_inputs(store, database)
     return ProductStatusLedger(database).capture(rows, reason=reason,
         supplier_evidence=evidence, source_integrity=source_integrity, now=now)

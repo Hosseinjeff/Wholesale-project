@@ -342,7 +342,7 @@ add_action('admin_enqueue_scripts', static function (): void {
             'supplier_prices' => ['/pipeline/supplier-price-evidence', 'owner:/pipeline/supplier-price-evidence'],
             'sheet_conflicts' => ['/pipeline/sheet-conflicts', 'owner:/pipeline/sheet-conflicts'],
             'publication_holds' => ['/pipeline/publication-holds', 'owner:/pipeline/publication-holds'],
-            'product_status' => ['/pipeline/product-status-snapshots', 'owner:/pipeline/product-status-snapshots'],
+            'product_status' => ['/pipeline/product-status-snapshots?view=current', 'owner:/pipeline/product-status-snapshots'],
             'reference_decisions' => ['/reference/decisions', 'owner:/reference/decisions'],
             'reconciliation' => ['/pipeline/reconciliation?limit=200', 'owner:/pipeline/operations-dashboard'],
             'migration_shadow' => ['/pipeline/migration-shadow', 'owner:/pipeline/migration-shadow'],

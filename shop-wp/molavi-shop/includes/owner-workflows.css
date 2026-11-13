@@ -749,3 +749,42 @@
     #molavi-owner-workflow .molavi-dismissed-row > :nth-child(4),
     #molavi-owner-workflow .molavi-dismissed-row > :nth-child(5) { display:none; }
 }
+#molavi-owner-workflow .molavi-live-products-heading {
+    display:grid; gap:.45rem; margin:0 0 .75rem; padding:.8rem 1rem;
+}
+#molavi-owner-workflow .molavi-live-products-heading h2,
+#molavi-owner-workflow .molavi-live-products-heading p { margin:0; }
+#molavi-owner-workflow .molavi-live-products-heading small,
+#molavi-owner-workflow .molavi-live-products-count { color:#657581; font-size:.8rem; }
+#molavi-owner-workflow .molavi-live-products-heading-actions {
+    display:flex; flex-wrap:wrap; align-items:center; gap:.5rem; margin-top:.25rem;
+}
+#molavi-owner-workflow .molavi-live-product-grid {
+    display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,340px),1fr)); gap:.75rem;
+}
+#molavi-owner-workflow .molavi-live-product-card {
+    display:flex; flex-direction:column; align-items:stretch; gap:.65rem; min-width:0;
+}
+#molavi-owner-workflow .molavi-live-product-card .molavi-review-card-header { margin:0; }
+#molavi-owner-workflow .molavi-live-product-card .molavi-review-facts { margin:0; }
+#molavi-owner-workflow .molavi-live-product-tabs {
+    display:flex; flex-wrap:wrap; gap:.15rem; border-bottom:1px solid #d8dedc;
+}
+#molavi-owner-workflow .molavi-live-product-tab {
+    min-height:2.35rem; padding:.45rem .65rem; border:0; border-bottom:2px solid transparent;
+    background:transparent; color:#5b6a73; font-size:.78rem; font-weight:600; cursor:pointer;
+}
+#molavi-owner-workflow .molavi-live-product-tab[aria-selected="true"] {
+    border-bottom-color:#c94e18; background:#fff; color:#24394a;
+}
+#molavi-owner-workflow .molavi-live-product-panel { display:grid; align-content:start; gap:.55rem; min-height:7rem; }
+#molavi-owner-workflow .molavi-live-product-panel h3,
+#molavi-owner-workflow .molavi-live-product-panel p { margin:0; }
+#molavi-owner-workflow .molavi-live-product-panel .molavi-review-facts { margin:0; }
+#molavi-owner-workflow .molavi-live-product-panel .notice { margin:0; }
+#molavi-owner-workflow .molavi-live-product-actions { display:flex; flex-wrap:wrap; gap:.45rem; }
+#molavi-owner-workflow .molavi-live-products-more { margin:.8rem auto; }
+@media (max-width:520px) {
+    #molavi-owner-workflow .molavi-live-product-tabs { flex-wrap:nowrap; overflow-x:auto; }
+    #molavi-owner-workflow .molavi-live-product-tab { flex:0 0 auto; }
+}

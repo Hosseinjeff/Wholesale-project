@@ -1425,7 +1425,7 @@ def pipeline_reconciliation_route():
 
 @app.route('/pipeline/product-status-snapshots', methods=['GET', 'POST'])
 def product_status_snapshots_route():
-    """Owner view and explicit capture for immutable product status history."""
+    """Owner current product view and immutable status history operations."""
     token = os.getenv('REFERENCE_BRIDGE_TOKEN') or ''
     owners = {value.strip() for value in (os.getenv('REFERENCE_OWNER_IDS') or '').split(',') if value.strip()}
     queue = handoff_queue()
@@ -1436,7 +1436,12 @@ def product_status_snapshots_route():
         return jsonify({'ok': False, 'error': 'unauthorized' if auth_error == 401 else 'owner_required'}), auth_error
     try:
         from datetime import datetime, timedelta, timezone
-        from catalog.product_status import ProductStatusLedger, capture_from_store
+        from catalog.product_status import ProductStatusLedger, capture_from_store, read_current_from_store
+        if request.method == 'GET' and request.args.get('view') == 'current':
+            payload = read_current_from_store(build_store(), queue.path)
+            response = jsonify({'ok': True, **payload})
+            response.headers['Cache-Control'] = 'no-store'
+            return response
         ledger = ProductStatusLedger(queue.path)
         if request.method == 'POST':
             body = request.get_json(silent=True)
