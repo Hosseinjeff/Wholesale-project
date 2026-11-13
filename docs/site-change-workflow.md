@@ -2,6 +2,32 @@
 
 Updated: 2026-11-13, Asia/Tehran
 
+## 2026-11-13 Staging live product action cards
+
+Commit `cf8d1c28ec23670e54cda05689a794d3060b6e86` adds a default Products view to
+the owner workbench. It shows searchable current product cards, tabs for source,
+extraction, reference, supplier price, conflicts, publication and WooCommerce state,
+and links each section to its available review action. The source-integrity panel
+links to the original post and the re-extraction tools, and explains when no direct
+Offer repair exists.
+
+The dashboard's product feed now requests `view=current`. The Railway route reads the
+current Products and Offers sheets and supplier-verification evidence without writing
+an audit snapshot. The separate product-status history page retains its daily
+checkpoint and explicit capture behavior.
+
+The plugin files were deployed only to WordPress Staging with
+`python3 tools/deploy_wordpress_plugin.py --site staging --since 2ff6be7`; the uploader
+read back and verified `owner-browser-api.php`, `owner-workflows.css` and
+`owner-workflows.js`. Railway Staging service `Wholesale-project-staging` deployed the
+same commit in deployment `5f6b768a-4422-4bba-afdf-d09535caf973` with status `SUCCESS`.
+The Railway change was scoped to Staging and unpinned its old source commit so the
+service follows `codex/staging-upstream-diagnostic`; production and data resources
+were not changed.
+
+`node --check`, Python AST parsing and `git diff --check` passed before deployment.
+No test suite or authenticated visual browser check was run.
+
 ## 2026-11-13 Staging workbench responsive stage layout
 
 Commit `b9fefee44cced0281e8d2639e1a2b717c3e35968` removes stale, competing stage-grid
