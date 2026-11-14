@@ -1,6 +1,29 @@
 # Site changes and preservation workflow
 
-Updated: 2026-11-13, Asia/Tehran
+Updated: 2026-11-14, Asia/Tehran
+
+## 2026-11-14 Staging product actions consolidated in live cards
+
+Commit `226bd691024cc78d6d50f6213d62ab8e59188f9c` makes the live product tabs call
+the same review components used by the owner work queues. Extraction, reference-item,
+supplier-price, Sheet-conflict and publication actions now appear inside the matching
+product card. Source-integrity recovery opens the existing re-extraction tool in the
+same workbench. Global reference refresh and shared batch recovery retain their own
+scope. The reference warning now names Rezvan's API and states that the store's own Woo
+catalog is not the comparison source.
+
+The plugin change was deployed only to WordPress Staging with
+`python3 tools/deploy_wordpress_plugin.py --site staging --since cf8d1c2`. The uploader
+read back and verified `includes/owner-workflows.js`; it also confirmed the already
+deployed reference snapshot files were unchanged. Production, Railway, and business
+records were not changed. `node --check` and `git diff --check` passed. No test suite or
+authenticated visual check was run.
+
+This consolidates the owner-facing product actions. Business data still has the
+documented separate owners: Sheets/Railway remain operational writers, WordPress stores
+owner-review decisions/outbox receipts, reference snapshots live in the reference
+store, and WooCommerce is the catalog projection/order system. The D-043 migration
+remains the path for retiring those parallel masters after per-domain shadow parity.
 
 ## 2026-11-13 Staging live product action cards
 

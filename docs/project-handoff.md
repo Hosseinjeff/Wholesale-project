@@ -1,6 +1,6 @@
 # MolaviSale — whole-workflow handoff
 
-Snapshot 4.76. Updated 2026-11-11, Asia/Tehran. The canonical roleplay decisions are in
+Snapshot 4.77. Updated 2026-11-14, Asia/Tehran. The canonical roleplay decisions are in
 `roleplay-state.json`; current live evidence and release gates are in
 `pipeline-readiness.md` and `pipeline-readiness-evidence.json`.
 The product intake and shelf policy is documented in `products-streamline-integrity.md`.
@@ -16,6 +16,19 @@ store's own WooCommerce catalog is not read during bot comparisons. The public R
 Store API remains a separate read-only refresh source, and reference refresh uses no
 Gemini. D-045 supersedes the manual review requirement in D-036 for later refreshes; an
 initial reference version still needs review.
+
+## Staging product workflow consolidation — 2026-11-14
+
+The live Products view now reuses the same review controls as the work queues inside
+each product tab, reducing parallel product-action UI. Source-integrity recovery stays
+in the same workbench. The reference warning correctly identifies Rezvan's API as the
+external reference source and excludes the store's own WooCommerce catalog. Commit
+`226bd691024cc78d6d50f6213d62ab8e59188f9c` was deployed to WordPress Staging and read
+back successfully. This is a presentation consolidation only. D-043 still governs the
+data cutover: one domain at a time, shadow-compare IDs/revisions/hashes, switch one
+writer, and retain the old ledger until its receipts reconcile. No source dataset was
+deleted or made non-authoritative in this slice. See
+[`site-change-workflow.md`](site-change-workflow.md) for verification limits.
 
 ## Current incident — staging owner-workflow fetch error (2026-11-11)
 
