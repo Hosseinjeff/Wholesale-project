@@ -20,6 +20,11 @@ unavailable because PHP is not installed in this environment; an authenticated v
 check was unavailable because no connected browser tool was present. No test suite,
 dashboard action, product data, Railway service or production site was changed.
 
+Follow-up commit `17367dc45a53265bac3a832a28b932b46d16c252` opens the selected action's
+review controls by default while leaving other product actions closed. The uploader
+deployed and read back `includes/owner-workflows.js` with
+`python3 tools/deploy_wordpress_plugin.py --site staging --since 76fdd80a1d40aa8d6ce586459118914725e63044`.
+
 ## 2026-11-14 Staging product actions consolidated in live cards
 
 Commit `226bd691024cc78d6d50f6213d62ab8e59188f9c` makes the live product tabs call
