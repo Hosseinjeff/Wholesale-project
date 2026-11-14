@@ -61,12 +61,30 @@
         return node('div', null, className);
     }
 
-    function ownerWorkflowLink(page, label, hash = '') {
-        const path = config.pageUrls && config.pageUrls[page];
+    const unifiedProductPageQueues = {
+        'molavi-ai-confirmations':'ai',
+        'molavi-reference-items':'references',
+        'molavi-supplier-prices':'supplier_prices',
+        'molavi-sheet-conflicts':'conflicts',
+        'molavi-publication-holds':'holds'
+    };
+
+    function ownerWorkflowLink(page, label, hash = '', query = {}) {
+        const isReextraction = page === 'molavi-ai-confirmations'
+            && String(hash || '').toLowerCase().includes('reextract');
+        const targetPage = unifiedProductPageQueues[page] ? 'molavi-operations' : page;
+        const path = config.pageUrls && config.pageUrls[targetPage];
         if (!path) return null;
         const link = node('a', label, 'button button-secondary');
         const url = new URL(path, window.location.href);
-        if (hash) url.hash = hash;
+        if (unifiedProductPageQueues[page]) {
+            url.searchParams.set('workbench_action', isReextraction ? 'reextract' : unifiedProductPageQueues[page]);
+        }
+        Object.entries(query && typeof query === 'object' ? query : {}).forEach(([key, value]) => {
+            if (value !== null && value !== undefined && String(value) !== '') url.searchParams.set(key, String(value));
+        });
+        if (isReextraction) url.hash = 'reextract';
+        else if (hash) url.hash = hash;
         link.href = url.toString();
         link.target = '_top';
         return link;
@@ -605,11 +623,25 @@
         container.prepend(notice(message, 'error'));
     }
 
-    let workbenchQueue = '';
-    let workbenchStage = '';
-    const workbenchFilters = {search:'', channelKeys:null, state:'all', catalogStatus:'all', from:'', to:'', includeUndated:false,
+    const workbenchRouteParams = new URLSearchParams(window.location.search);
+    const workbenchAllowedRouteActions = new Set(['source_integrity','ai','references','supplier_prices',
+        'conflicts','holds','status','storefront','reextract']);
+    const workbenchRequestedAction = workbenchRouteParams.get('workbench_action') || '';
+    const workbenchRouteAction = workbenchAllowedRouteActions.has(workbenchRequestedAction)
+        ? workbenchRequestedAction : '';
+    let workbenchFocusId = ['product_id','offer_id','case_id','conflict_id','hold_id','reference_id']
+        .map(key => workbenchRouteParams.get(key) || '')
+        .find(Boolean) || '';
+    const workbenchFilters = {search:workbenchFocusId, channelKeys:null, state:'all', catalogStatus:'all', from:'', to:'', includeUndated:false,
         productLink:'all', sourceEvidence:'all', storefrontState:'all'};
-    let workbenchView = window.location.hash === '#reextract' ? 'reextract' : 'products';
+    let workbenchQueue = workbenchRouteAction === 'reextract' ? 'stage_extract' : workbenchRouteAction;
+    let workbenchStage = workbenchRouteAction === 'ai' || workbenchRouteAction === 'reextract' ? 'extract'
+        : ['source_integrity','references'].includes(workbenchRouteAction) ? 'identity'
+            : ['supplier_prices','conflicts'].includes(workbenchRouteAction) ? 'evidence'
+                : ['holds','status'].includes(workbenchRouteAction) ? 'publish'
+                    : workbenchRouteAction === 'storefront' ? 'storefront' : '';
+    let workbenchView = window.location.hash === '#reextract' || workbenchRouteAction === 'reextract'
+        ? 'reextract' : workbenchRouteAction ? 'tasks' : 'products';
     let workbenchIndex = 0;
     let workbenchSelectedKey = '';
     let workbenchLoadId = 0;
@@ -1003,7 +1035,30 @@
 
     function workbenchMatchesFilters(product, queue) {
         const search = workbenchNameKey(workbenchFilters.search);
-        if (search && !workbenchNameKey([product.name, product.product_id, product.channel].join(' ')).includes(search)) {
+        const exactIdentities = [
+            product.product_id, product.status && product.status.product_id,
+            product.status && product.status.latest_offer_id,
+            ...(product.ai || []).flatMap(item => [item.offer_id, item.case_id, item.message_id]),
+            ...(product.ai || []).flatMap(item => (Array.isArray(item.reference_candidates) ? item.reference_candidates : [])
+                .map(candidate => candidate && candidate.reference_id)),
+            ...(product.references || []).flatMap(item => [item.offer_id, item.case_id, item.reference_id]),
+            ...(product.supplierPrices || []).flatMap(item => [item.offer_id, item.product_id]),
+            ...(product.conflicts || []).map(item => item.conflict_id),
+            ...(product.holds || []).map(item => item.hold_id)
+        ].map(value => String(value || '').trim()).filter(Boolean);
+        const searchIdentity = [
+            product.name, product.product_id, product.channel,
+            product.status && product.status.latest_offer_id,
+            ...(product.ai || []).flatMap(item => [item.offer_id, item.case_id, item.message_id]),
+            ...(product.ai || []).flatMap(item => (Array.isArray(item.reference_candidates) ? item.reference_candidates : [])
+                .map(candidate => candidate && candidate.reference_id)),
+            ...(product.references || []).flatMap(item => [item.offer_id, item.case_id, item.reference_id]),
+            ...(product.supplierPrices || []).map(item => item.offer_id || item.product_id),
+            ...(product.conflicts || []).map(item => item.conflict_id),
+            ...(product.holds || []).map(item => item.hold_id)
+        ].join(' ');
+        if (workbenchFocusId && !exactIdentities.includes(workbenchFocusId)) return false;
+        if (!workbenchFocusId && search && !workbenchNameKey(searchIdentity).includes(search)) {
             return false;
         }
         if (workbenchFilters.channelKeys instanceof Set) {
@@ -1520,9 +1575,11 @@
             card.appendChild(primaryContent);
             const relatedQueues = taskQueueKeys.filter(key => key !== primaryKey && workbenchQueueMatches(product,key));
             if (!compact && relatedQueues.length) {
+                const relatedDetails = document.createElement('details');
+                relatedDetails.className = 'molavi-related-work-details';
+                relatedDetails.appendChild(node('summary', `گام‌های دیگر همین کالا · ${relatedQueues.length.toLocaleString('fa-IR')}`));
                 const related = node('nav', null, 'molavi-related-work-links');
                 related.setAttribute('aria-label', 'گام‌های باز دیگر برای همین کالا');
-                related.appendChild(node('strong', 'گام‌های باز دیگر برای همین کالا'));
                 relatedQueues.forEach(key => {
                     const queue = queueDefinitions.find(item => item.key === key);
                     if (!queue) return;
@@ -1544,7 +1601,8 @@
                     });
                     related.appendChild(jump);
                 });
-                card.appendChild(related);
+                relatedDetails.appendChild(related);
+                card.appendChild(relatedDetails);
             }
             if (!compact) {
                 const journeyDetails = document.createElement('details');
@@ -2079,6 +2137,7 @@
         taskSearchInput.autocomplete = 'off';
         taskSearchInput.addEventListener('input', () => {
             workbenchFilters.search = taskSearchInput.value;
+            workbenchFocusId = '';
             updateFilterPresentation();
             renderQueue();
         });
@@ -2948,6 +3007,7 @@
                 const productId = String(status.product_id || product.product_id || '').trim();
                 const offerId = String(status.latest_offer_id || '').trim();
                 const sourceIssues = Array.isArray(status.source_integrity_issues) ? status.source_integrity_issues : [];
+                const primaryAction = workbenchActionKey(product);
                 const needsReference = Boolean(product.references.length || !status.reference_match_id
                     || status.reference_approval_state === 'needs_review' || status.reference_review_due
                     || status.reference_update_needed || status.reference_approval_state === 'price_unavailable');
@@ -2961,31 +3021,27 @@
                 if (product.conflicts.length) tabsForProduct.push({key:'conflicts', label:`تعارض · ${product.conflicts.length.toLocaleString('fa-IR')}`});
                 if (product.holds.length || status.update_needed) tabsForProduct.push({key:'publication', label:'کاتالوگ و انتشار'});
                 tabsForProduct.push({key:'storefront', label:'فروشگاه'});
+                const preferredTabByAction = {source_integrity:'source', ai:'ai', references:'reference',
+                    supplier_prices:'supplier_prices', conflicts:'conflicts', holds:'publication',
+                    status:'publication', storefront:'storefront'};
+                const preferredTab = preferredTabByAction[workbenchActionKey(product)] || 'overview';
+                const defaultTab = tabsForProduct.some(tab => tab.key === preferredTab) ? preferredTab : 'overview';
 
                 const card = node('article', null, 'card molavi-review-card molavi-live-product-card');
-                const badge = status.update_needed || sourceIssues.length
+                const badge = attention(product) || sourceIssues.length
                     ? 'نیازمند اقدام' : readableWorkflowStatus(status.status || 'imported');
                 card.appendChild(reviewCardHeader(product.name || status.product_name || 'کالای بدون نام', badge));
-                const facts = reviewFacts([
-                    ['شناسهٔ محصول', productId],
-                    ['وضعیت کالا', readableWorkflowStatus(status.status)],
-                    ['تطبیق مرجع', status.reference_match_name || status.reference_match_id
-                        || readableWorkflowStatus(status.reference_approval_state || 'not_checked')],
-                    ['نقش قیمت مرجع', status.reference_price_role || 'ثبت نشده'],
-                    ['تغییر قیمت مرجع', status.reference_price_change_percent !== ''
-                        && status.reference_price_change_percent !== null
-                        && status.reference_price_change_percent !== undefined
-                        ? `${status.reference_price_change_percent}٪` : 'ثبت نشده'],
-                    ['تازگی قیمت تأمین‌کننده', readableWorkflowStatus(status.supplier_price_state || 'not_checked')],
-                    ['بررسی مرجع', readableWorkflowStatus(status.reference_review_result || 'not_checked')],
-                    ['به‌روزرسانی کالا', status.update_needed ? 'نیازمند بررسی' : 'فعلاً لازم نیست']
+                const identity = reviewFacts([
+                    ['شناسهٔ محصول', productId], ['شناسهٔ پیشنهاد', offerId]
                 ]);
-                card.appendChild(facts);
-                if (sourceIssues.length) {
-                    card.appendChild(notice(`پیوند منبع: ${sourceIssues.join('، ')}`, 'warning'));
+                if (identity.childElementCount) card.appendChild(identity);
+                if (primaryAction !== 'next') {
+                    const next = node('section', null, 'molavi-live-product-next-action');
+                    const task = workbenchTaskMeta(product, primaryAction);
+                    next.append(node('strong', `${task.stage} · ${task.title}`),
+                        node('p', workbenchNextStep(product, primaryAction)));
+                    card.appendChild(next);
                 }
-                const sourceLink = safeSourceLink(status.source_post_url);
-                if (sourceLink) card.appendChild(sourceLink);
 
                 const tabBar = node('nav', null, 'molavi-live-product-tabs');
                 tabBar.setAttribute('role', 'tablist');
@@ -3109,24 +3165,39 @@
                     if (actionLinks.childElementCount) panel.appendChild(actionLinks);
                 };
 
-                tabsForProduct.forEach((tab, index) => {
+                tabsForProduct.forEach(tab => {
                     const button = node('button', tab.label, 'molavi-live-product-tab');
                     button.type = 'button';
                     button.setAttribute('role', 'tab');
                     button.id = `${panelId}-tab-${tab.key}`;
                     button.setAttribute('aria-controls', panelId);
-                    button.setAttribute('aria-selected', String(index === 0));
+                    button.setAttribute('aria-selected', String(tab.key === defaultTab));
+                    button.tabIndex = tab.key === defaultTab ? 0 : -1;
                     button.addEventListener('click', () => {
-                        buttons.forEach((other, otherKey) => other.setAttribute('aria-selected', String(otherKey === tab.key)));
+                        buttons.forEach((other, otherKey) => {
+                            const selected = otherKey === tab.key;
+                            other.setAttribute('aria-selected', String(selected));
+                            other.tabIndex = selected ? 0 : -1;
+                        });
                         panel.setAttribute('aria-labelledby', button.id);
                         renderPanel(tab.key);
+                    });
+                    button.addEventListener('keydown', event => {
+                        if (!['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return;
+                        event.preventDefault();
+                        const tabButtons = [...tabBar.querySelectorAll('[role="tab"]')];
+                        const current = tabButtons.indexOf(button);
+                        const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabButtons.length - 1
+                            : (current + (event.key === 'ArrowRight' ? 1 : -1) + tabButtons.length) % tabButtons.length;
+                        tabButtons[next]?.focus();
+                        tabButtons[next]?.click();
                     });
                     buttons.set(tab.key, button);
                     tabBar.appendChild(button);
                 });
                 card.append(tabBar, panel);
-                panel.setAttribute('aria-labelledby', `${panelId}-tab-overview`);
-                renderPanel('overview');
+                panel.setAttribute('aria-labelledby', `${panelId}-tab-${defaultTab}`);
+                renderPanel(defaultTab);
                 return card;
             };
 

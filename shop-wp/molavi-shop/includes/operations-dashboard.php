@@ -7,6 +7,33 @@ function molavi_operations_dashboard_request() {
     return molavi_pipeline_request('/pipeline/operations-dashboard', 'GET');
 }
 
+add_action('admin_init', static function (): void {
+    if (!molavi_reference_owner() || !current_user_can('manage_woocommerce')) { return; }
+    $page = isset($_GET['page']) && is_string($_GET['page'])
+        ? sanitize_key(wp_unslash($_GET['page'])) : '';
+    $routes = [
+        'molavi-ai-confirmations'=>'ai',
+        'molavi-reference-items'=>'references',
+        'molavi-supplier-prices'=>'supplier_prices',
+        'molavi-sheet-conflicts'=>'conflicts',
+        'molavi-publication-holds'=>'holds',
+    ];
+    if (!isset($routes[$page])) { return; }
+
+    $params = ['page'=>'molavi-operations', 'workbench_action'=>$routes[$page]];
+    if ($page === 'molavi-ai-confirmations'
+        && isset($_GET['reextract']) && is_string($_GET['reextract'])) {
+        $params['workbench_action'] = 'reextract';
+    }
+    foreach (['product_id','offer_id','case_id','conflict_id','hold_id','reference_id'] as $key) {
+        if (!isset($_GET[$key]) || !is_string($_GET[$key])) { continue; }
+        $value = trim(sanitize_text_field(wp_unslash($_GET[$key])));
+        if ($value !== '' && strlen($value) <= 191) { $params[$key] = $value; }
+    }
+    wp_safe_redirect(add_query_arg($params, admin_url('admin.php')));
+    exit;
+}, 1);
+
 add_action('admin_menu', static function (): void {
     if (!molavi_reference_owner()) { return; }
     add_submenu_page('woocommerce', 'میز کار مولوی‌سل', 'میز کار مولوی‌سل',
