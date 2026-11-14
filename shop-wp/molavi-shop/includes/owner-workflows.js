@@ -1445,10 +1445,25 @@
             return journey;
         };
 
-        const renderProduct = product => {
-            const primaryKey = workbenchActionForQueue(product, workbenchQueue);
+        const openSourceReviewTool = () => {
+            workbenchView = 'reextract';
+            workbenchStage = 'extract';
+            workbenchQueue = 'stage_extract';
+            workbenchDismissalQueueKeys = new Set(['media_review']);
+            workbenchSelectedKeys.clear();
+            stageButtons.forEach((item, key) => item.setAttribute('aria-pressed', String(key === 'extract')));
+            renderQueueNavigation();
+            renderQueue();
+            renderView();
+            reextractView.scrollIntoView({behavior:'smooth', block:'start'});
+        };
+
+        const renderProduct = (product, options = {}) => {
+            const compact = options.compact === true;
+            const primaryKey = options.queue || workbenchActionForQueue(product, workbenchQueue);
             const taskMeta = workbenchTaskMeta(product, primaryKey);
             const card = node('section', null, 'molavi-task-workspace');
+            if (compact) card.classList.add('is-inline-action');
             const primaryContent = node('div', null, 'molavi-product-primary-actions');
             const primaryTaskTargetId = `molavi-product-action-${++workbenchProductCardSequence}`;
             let primaryTargetAssigned = false;
@@ -1498,11 +1513,13 @@
                     : attention(product) ? 'نیازمند اقدام' : 'وضعیت ثبت‌شده';
             const stateBadge = node('span', state, `molavi-task-state${attention(product) ? ' is-open' : ''}`);
             header.appendChild(stateBadge);
-            card.appendChild(header);
-            card.appendChild(taskSummary);
+            if (!compact) {
+                card.appendChild(header);
+                card.appendChild(taskSummary);
+            }
             card.appendChild(primaryContent);
             const relatedQueues = taskQueueKeys.filter(key => key !== primaryKey && workbenchQueueMatches(product,key));
-            if (relatedQueues.length) {
+            if (!compact && relatedQueues.length) {
                 const related = node('nav', null, 'molavi-related-work-links');
                 related.setAttribute('aria-label', 'گام‌های باز دیگر برای همین کالا');
                 related.appendChild(node('strong', 'گام‌های باز دیگر برای همین کالا'));
@@ -1529,11 +1546,13 @@
                 });
                 card.appendChild(related);
             }
-            const journeyDetails = document.createElement('details');
-            journeyDetails.className = 'molavi-journey-details';
-            journeyDetails.appendChild(node('summary', 'ردیابی کامل منبع تا فروشگاه و شناسه‌های فنی'));
-            journeyDetails.appendChild(renderProductJourney(product));
-            card.appendChild(journeyDetails);
+            if (!compact) {
+                const journeyDetails = document.createElement('details');
+                journeyDetails.className = 'molavi-journey-details';
+                journeyDetails.appendChild(node('summary', 'ردیابی کامل منبع تا فروشگاه و شناسه‌های فنی'));
+                journeyDetails.appendChild(renderProductJourney(product));
+                card.appendChild(journeyDetails);
+            }
             const nextStep = taskCopy.querySelector('.molavi-product-next-step');
             const status = product.status || {};
             const stateRow = node('div', null, 'molavi-product-state-row');
@@ -1549,7 +1568,7 @@
                 ['blocked','needs_review'].includes(status.supplier_price_state) ? 'warning' : '');
             if (status.update_needed) appendStatusPill(stateRow, 'به‌روزرسانی', 'لازم است', 'warning');
             if (product.holds.length) appendStatusPill(stateRow, 'انتشار', 'متوقف', 'warning');
-            if (stateRow.childNodes.length) {
+            if (!compact && stateRow.childNodes.length) {
                 const evidenceSummary = document.createElement('details');
                 evidenceSummary.className = 'molavi-task-evidence';
                 evidenceSummary.appendChild(node('summary', 'وضعیت‌های ثبت‌شده و شواهد'));
@@ -1823,8 +1842,10 @@
                 const source = safeSourceLink(status.source_post_url);
                 if (source) section.appendChild(source);
                 section.appendChild(notice('این کالا تا بازیابی پیوند منبع در فروشگاه منتشر نمی‌شود. جزئیات و پست اصلی را بررسی کنید؛ دادهٔ Offer حدس زده یا بازسازی خودکار نمی‌شود.', 'warning'));
-                const recoveryTools = ownerWorkflowLink('molavi-ai-confirmations', 'بازبینی و بازپردازش پست‌های اخیر', 'molavi-reextract-panel');
-                if (recoveryTools) section.appendChild(recoveryTools);
+                const recoveryTools = node('button', 'رفتن به ابزار بازبینی منبع', 'button button-secondary');
+                recoveryTools.type = 'button';
+                recoveryTools.addEventListener('click', openSourceReviewTool);
+                section.appendChild(recoveryTools);
                 addWorkflowSection(section, 'source_integrity');
             }
             if (primaryKey === 'storefront' && workbenchQueueMatches(product,'storefront')) {
@@ -1854,6 +1875,7 @@
             if (primaryContent.childElementCount > 1) {
                 const taskGroup = document.createElement('details');
                 taskGroup.className = 'molavi-primary-task-list';
+                taskGroup.open = compact;
                 taskGroup.appendChild(node('summary',`${primaryContent.childElementCount.toLocaleString('fa-IR')} مورد در این صف · بازکردن گزینه‌های رسیدگی`));
                 while (primaryContent.firstChild) taskGroup.appendChild(primaryContent.firstChild);
                 primaryContent.appendChild(taskGroup);
@@ -2913,8 +2935,6 @@
                 link.target = '_top';
                 return link;
             };
-            const displayPrice = value => value === null || value === undefined || value === ''
-                ? 'ثبت نشده' : amount(value);
             const referenceState = data.reference_items && data.reference_items.reference_state || {};
             const referenceEvents = data.reference_decisions && Array.isArray(data.reference_decisions.events)
                 ? data.reference_decisions.events : [];
@@ -2977,7 +2997,7 @@
                 const buttons = new Map();
                 const actionLinks = node('div', null, 'molavi-live-product-actions');
                 const appendActionLink = link => { if (link) actionLinks.appendChild(link); };
-                const priceRows = product.supplierPrices.slice(0, 3);
+                const inlineAction = queue => renderProduct(product, {queue, compact:true});
 
                 const renderPanel = key => {
                     panel.replaceChildren();
@@ -2992,21 +3012,15 @@
                             ['پیام منبع', status.source_post_url || 'پیوند ثبت نشده']
                         ]));
                         if (sourceIssues.length) {
-                            panel.appendChild(notice('این کارت دکمهٔ تعمیر مستقیم ندارد. مسیر موجود، بازبینی منبع و استخراج ذخیره‌شده است؛ Offer از روی اطلاعات ناقص ساخته نمی‌شود.', 'warning'));
+                            panel.appendChild(inlineAction('source_integrity'));
+                        } else {
+                            panel.appendChild(node('p', 'پیوند منبع ثبت شده است. برای دیدن متن و رسیدهای پردازش، صف استخراج را باز کنید.'));
                         }
-                        appendActionLink(safeSourceLink(status.source_post_url));
-                        appendActionLink(pageLink('molavi-ai-confirmations', 'بازبینی و بازپردازش منبع', {}, 'molavi-reextract-panel'));
+                        if (!sourceIssues.length) appendActionLink(safeSourceLink(status.source_post_url));
                     } else if (key === 'ai') {
                         panel.appendChild(node('h3', 'بازبینی استخراج'));
-                        product.ai.slice(0, 3).forEach(item => panel.appendChild(reviewFacts([
-                            ['محصول', item.product_name || product.name],
-                            ['دلیل بررسی', aiReviewReason(item.reason)],
-                            ['زمان پیام', formatSourceTimestamp(item.message_timestamp) || 'ثبت نشده'],
-                            ['موجودی پیام', aiStockLabel(item.stock_status)]
-                        ])));
-                        if (product.ai.length > 3) panel.appendChild(node('p', `و ${product.ai.length - 3} مورد دیگر در همین صف.`));
-                        appendActionLink(pageLink('molavi-ai-confirmations', 'باز کردن بررسی استخراج'));
-                        appendActionLink(pageLink('molavi-ai-confirmations', 'ابزار بازپردازش منبع', {}, 'molavi-reextract-panel'));
+                        if (product.ai.length) panel.appendChild(inlineAction('ai'));
+                        else panel.appendChild(notice('برای این محصول پیشنهاد استخراج بازی وجود ندارد.', 'info'));
                     } else if (key === 'reference') {
                         panel.appendChild(node('h3', 'تطبیق و قیمت مرجع'));
                         panel.appendChild(reviewFacts([
@@ -3015,19 +3029,20 @@
                             ['نقش قیمت', status.reference_price_role || 'نیازمند بررسی'],
                             ['نتیجهٔ آخرین بررسی', readableWorkflowStatus(status.reference_review_result || 'not_checked')]
                         ]));
-                        if (referenceNeedsRefresh) panel.appendChild(notice('نسخهٔ فعال فهرست مرجع معتبر نیست؛ ابتدا نسخهٔ ووکامرس را دریافت، بررسی و فعال کنید.', 'warning'));
+                        if (referenceNeedsRefresh) panel.appendChild(notice('نسخهٔ فعال فهرست مرجع معتبر نیست؛ ابتدا فهرست را از API رزوان دریافت، بررسی و فعال کنید. این کار محصولات ووکامرس فروشگاه شما را نمی‌خواند.', 'warning'));
                         else if (!status.reference_match_id) panel.appendChild(notice('برای این محصول هنوز مرجع ثبت نشده است. تطبیق فقط با گزینه‌های نسخهٔ فعال انجام می‌شود.', 'info'));
-                        appendActionLink(pageLink('molavi-reference-snapshots', 'دریافت یا بررسی فهرست مرجع'));
+                        if (product.references.length) panel.appendChild(inlineAction('references'));
+                        else if (product.ai.some(item => Array.isArray(item.reference_candidates) && item.reference_candidates.length)) {
+                            const openExtraction = node('button', 'انتخاب مرجع از پیشنهاد استخراج', 'button button-secondary');
+                            openExtraction.type = 'button';
+                            openExtraction.addEventListener('click', () => buttons.get('ai')?.click());
+                            actionLinks.appendChild(openExtraction);
+                        } else if (!referenceNeedsRefresh) {
+                            panel.appendChild(notice('استخراج یا تطبیق مرجعی برای این کالا در صف نیست؛ پس از ورود پیشنهاد منبع، تصمیم لازم همین‌جا نمایش داده می‌شود.', 'info'));
+                        }
+                        if (referenceNeedsRefresh) appendActionLink(pageLink('molavi-reference-snapshots', 'به‌روزرسانی فهرست مرجع'));
                         if (referenceNeedsRefresh && referenceEvents.length) {
                             appendActionLink(pageLink('molavi-reference-decisions', 'رسیدگی به هشدار تازگی فهرست'));
-                        }
-                        const matchingCase = product.references.find(item => !offerId || String(item.offer_id || '') === offerId);
-                        if (matchingCase) {
-                            appendActionLink(pageLink('molavi-reference-items', 'باز کردن همین مورد تطبیق', {offer_id:matchingCase.offer_id}));
-                        } else if (product.ai.some(item => Array.isArray(item.reference_candidates) && item.reference_candidates.length)) {
-                            appendActionLink(pageLink('molavi-ai-confirmations', 'باز کردن بررسی استخراج و تطبیق'));
-                        } else {
-                            panel.appendChild(notice('برای این محصول مورد تطبیق بازی ثبت نشده است؛ پس از معتبرشدن فهرست، اگر موردی ایجاد شود از صف تطبیق قابل رسیدگی است.', 'info'));
                         }
                     } else if (key === 'supplier_prices') {
                         panel.appendChild(node('h3', 'قیمت تأمین‌کننده'));
@@ -3036,18 +3051,24 @@
                             ['آخرین تأیید', formatSourceTimestamp(status.supplier_price_verified_at) || 'تأیید نشده'],
                             ['قیمت‌های در صف', product.supplierPrices.length.toLocaleString('fa-IR')]
                         ]));
-                        priceRows.forEach(item => panel.appendChild(reviewFacts([
-                            ['منبع', item.channel || product.channel || 'نامشخص'],
-                            ['قیمت', displayPrice(item.sale_price)],
-                            ['وضعیت', readableWorkflowStatus(item.state || 'needs_review')],
-                            ['زمان منبع', formatSourceTimestamp(item.source_timestamp) || 'ثبت نشده']
-                        ])));
-                        appendActionLink(pageLink('molavi-supplier-prices', 'بررسی قیمت همین کالا',
-                            productId ? {product_id:productId} : {}));
+                        if (product.supplierPrices.length) panel.appendChild(inlineAction('supplier_prices'));
+                        else {
+                            panel.appendChild(notice('مدرک قیمت قابل‌تأییدی به این محصول متصل نیست؛ پیام منبع را بررسی کنید و پیشنهاد معتبر را از صف استخراج وصل کنید.', 'warning'));
+                            if (product.ai.length) {
+                                const openExtraction = node('button', 'بازکردن پیشنهاد استخراج', 'button button-secondary');
+                                openExtraction.type = 'button';
+                                openExtraction.addEventListener('click', () => buttons.get('ai')?.click());
+                                actionLinks.appendChild(openExtraction);
+                            }
+                            const openSourceReview = node('button', 'بازبینی منبع و استخراج', 'button button-secondary');
+                            openSourceReview.type = 'button';
+                            openSourceReview.addEventListener('click', openSourceReviewTool);
+                            actionLinks.appendChild(openSourceReview);
+                        }
                     } else if (key === 'conflicts') {
                         panel.appendChild(node('h3', 'تعارض‌های همگام‌سازی'));
-                        panel.appendChild(node('p', `${product.conflicts.length.toLocaleString('fa-IR')} تعارض باز برای این محصول.`));
-                        appendActionLink(pageLink('molavi-sheet-conflicts', 'بررسی تعارض‌ها'));
+                        if (product.conflicts.length) panel.appendChild(inlineAction('conflicts'));
+                        else panel.appendChild(notice('تعارض بازی برای این محصول ثبت نشده است.', 'info'));
                     } else if (key === 'publication') {
                         panel.appendChild(node('h3', 'کاتالوگ و انتشار'));
                         panel.appendChild(reviewFacts([
@@ -3055,11 +3076,22 @@
                             ['به‌روزرسانی لازم', status.update_needed ? 'بله' : 'خیر'],
                             ['توقف‌های دسته', product.holds.length.toLocaleString('fa-IR')]
                         ]));
-                        if (product.holds.length) {
-                            appendActionLink(pageLink('molavi-publication-holds', 'باز کردن توقف‌های انتشار'));
-                        } else if (status.update_needed) {
-                            panel.appendChild(notice('این پرچم نیاز به بررسی وضعیت قیمت یا منبع را نشان می‌دهد؛ خودش مجوز نوشتن یا انتشار قیمت در فروشگاه نیست. برای بررسی، زبانهٔ مرجع یا قیمت تأمین‌کننده را باز کنید.', 'warning'));
+                        if (product.holds.length) panel.appendChild(inlineAction('holds'));
+                        else if (status.update_needed) {
+                            panel.appendChild(inlineAction('status'));
+                            const nextActions = [];
+                            if (needsReference) nextActions.push(['reference', 'رسیدگی به مرجع']);
+                            if (needsPrice) nextActions.push(['supplier_prices', 'بررسی قیمت تأمین‌کننده']);
+                            if (sourceIssues.length) nextActions.push(['source', 'بررسی پیوند منبع']);
+                            nextActions.forEach(([tabKey, label]) => {
+                                const proceed = node('button', label, 'button button-secondary');
+                                proceed.type = 'button';
+                                proceed.addEventListener('click', () => buttons.get(tabKey)?.click());
+                                actionLinks.appendChild(proceed);
+                            });
+                            if (!nextActions.length) panel.appendChild(notice('پرچم به‌روزرسانی دلیل اقدام مستقلی ندارد؛ جزئیات را نگه‌دارید تا وابستگی مرجع یا قیمت روشن شود.', 'info'));
                         }
+                        else panel.appendChild(notice('اقدام انتشار بازی برای این محصول وجود ندارد.', 'info'));
                         appendActionLink(pageLink('molavi-product-status-snapshots', 'دیدن تاریخچهٔ وضعیت'));
                     } else if (key === 'storefront') {
                         panel.appendChild(node('h3', 'وضعیت فروشگاه'));
