@@ -1933,7 +1933,7 @@
             if (primaryContent.childElementCount > 1) {
                 const taskGroup = document.createElement('details');
                 taskGroup.className = 'molavi-primary-task-list';
-                taskGroup.open = compact;
+                taskGroup.open = true;
                 taskGroup.appendChild(node('summary',`${primaryContent.childElementCount.toLocaleString('fa-IR')} مورد در این صف · بازکردن گزینه‌های رسیدگی`));
                 while (primaryContent.firstChild) taskGroup.appendChild(primaryContent.firstChild);
                 primaryContent.appendChild(taskGroup);
