@@ -2,6 +2,24 @@
 
 Updated: 2026-11-14, Asia/Tehran
 
+## 2026-11-14 Staging product queues routed into the shared workbench
+
+Commit `76fdd80a1d40aa8d6ce586459118914725e63044` routes product-action links and
+the direct AI-confirmation, reference-item, supplier-price, Sheet-conflict and
+publication-hold pages into the Operations workbench. The route opens the matching
+task queue and can focus a product, Offer, case, conflict, hold or reference candidate
+by ID. The live product card now starts on its highest-priority open action, with the
+other action sections available as tabs; other open steps in queue cards are collapsed.
+Existing same-origin AJAX handles the review actions and refreshes.
+
+The plugin files were deployed only to WordPress Staging with
+`python3 tools/deploy_wordpress_plugin.py --site staging --since 226bd691024cc78d6d50f6213d62ab8e59188f9c`.
+The uploader read back and verified `operations-dashboard.php`, `owner-workflows.css`
+and `owner-workflows.js`. `node --check` and `git diff --check` passed. PHP lint was
+unavailable because PHP is not installed in this environment; an authenticated visual
+check was unavailable because no connected browser tool was present. No test suite,
+dashboard action, product data, Railway service or production site was changed.
+
 ## 2026-11-14 Staging product actions consolidated in live cards
 
 Commit `226bd691024cc78d6d50f6213d62ab8e59188f9c` makes the live product tabs call
