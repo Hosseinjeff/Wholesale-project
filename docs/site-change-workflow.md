@@ -2,6 +2,43 @@
 
 Updated: 2026-11-15, Asia/Tehran
 
+## 2026-11-15 Customer storefront journey upgrade
+
+The user authorized the non-data storefront improvements from the review and reserved
+product data corrections for the product pipeline. Commit `730f4cf` first reconciles six
+deployed frontend files with Git, preserving the Staging toolbar, buyer selector and
+quantity behavior. Commit `aeb0c2e` implements the shared customer shell, native guest
+checkout policy, customer quantity/price presentation, separate delivery preview,
+revalidated saved shopping lists and 24-tile catalog pagination. Implementation details
+and boundaries are in [`storefront-customer-upgrade.md`](storefront-customer-upgrade.md).
+
+Final plugin revision `dbc679a236f7df7bc127ee20ac08f8c982200bce` was deployed only to
+WordPress Staging with `python3 tools/deploy_wordpress_plugin.py --site staging --since 357d674`.
+Two earlier uploader checks stopped because the host editor relocated/replaced charset
+markup. Commits `5b304f4` and `dbc679a` use explicit UTF-8 tags immediately after the head
+tag. The final uploader verified every changed/new source file; it reported only the
+known header charset insertion in `site-chrome.php` and `storefront-renderer.php`.
+
+Verification:
+
+- Eight new/changed PHP files parsed successfully. The disposable PHP Wasm runtime
+  passed 12 focused customer tests and the existing shop-rules test. No tool dependency
+  was added to the deployed plugin.
+- The local Chromium fixture passed 12 interaction/layout checks: bounded tiles,
+  no writes on load, explicit quantities, checkout waiting for saves, delivery updates,
+  local list storage/restoration, 390px layout, help dialog and incremental loading.
+- Staging HTTP checks returned 200 for home, product, cart, account and populated-cart
+  checkout. There is exactly one Molavi header and footer on the checked native pages,
+  without starter-theme navigation. Initial HTML and public product facts contain 24
+  products; the next catalog page returns the remaining six of the current 30.
+- A separate anonymous Staging cart verified quantity saving, optional guest email,
+  delivery-preview values and idempotent saved-list restoration. The temporary cart
+  was emptied. No order was submitted and no payment or refund was initiated.
+- Staging exposes no active payment method. The checkout form works, but payment
+  completion remains blocked by gateway configuration. No provider was selected,
+  activated or charged. Shipping zones, product data, prices, references, orders,
+  supplier workflows and production configuration were not changed by this release.
+
 ## 2026-11-15 Product dashboard rebuilt as one application
 
 Commit `b20083b9a585c967fbe8e6533a509a048364e356` replaces the former stage board,

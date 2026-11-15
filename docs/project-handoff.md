@@ -1,9 +1,23 @@
 # MolaviSale — whole-workflow handoff
 
-Snapshot 4.78. Updated 2026-11-15, Asia/Tehran. The canonical roleplay decisions are in
+Snapshot 4.79. Updated 2026-11-15, Asia/Tehran. The canonical roleplay decisions are in
 `roleplay-state.json`; current live evidence and release gates are in
 `pipeline-readiness.md` and `pipeline-readiness-evidence.json`.
 The product intake and shelf policy is documented in `products-streamline-integrity.md`.
+
+## Current Staging customer storefront — 2026-11-15
+
+The non-data storefront upgrades are deployed at plugin revision `dbc679a`: one
+customer shell for product/cart/checkout/account, native guest checkout with optional
+email, explicit quantity/selection totals, a delivery preview separate from discount
+progress, revalidated browser-local shopping lists and 24-tile catalog loading.
+Deployed frontend edits were first reconciled in `730f4cf`; implementation is `aeb0c2e`.
+See [`storefront-customer-upgrade.md`](storefront-customer-upgrade.md) and
+[`site-change-workflow.md`](site-change-workflow.md) for architecture and verification.
+The real Staging product/cart/account/checkout pages return 200, list retries are
+idempotent, and the separate verification cart was emptied. Staging has no active
+payment method; a paid transaction, callback and fulfillment were not verified.
+Product-data repairs remain with the pipeline; no production change was made.
 
 ## Current Staging dashboard — 2026-11-15
 
