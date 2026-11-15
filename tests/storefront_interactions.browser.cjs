@@ -15,7 +15,7 @@ const fixture=process.env.MOLAVI_FIXTURE_DIR||'/tmp/molavi-storefront-fixture';
    return route.fulfill({json:{success:true,data:{quote,fragments:{}}}});
   }
   if(url.searchParams.get('wc-ajax')==='molavi_restore_list'){
-   writes.push('list');const replacing=/name="mode"\r?\n\r?\nreplace/.test(req.postData()||'');quote.qtys=replacing?{'52':4,'51':4}:{'52':8};quote.count=8;quote.kinds=replacing?2:1;quote.subtotal=720000;quote.savings=80000;quote.delivery.remaining=4280000;
+   writes.push('list');const replacing=/name="mode"\r?\n\r?\nreplace/.test(req.postData()||'');quote.qtys={'52':replacing?4:8};quote.count=replacing?4:8;quote.kinds=1;quote.subtotal=Number(quote.units['52'])*quote.count;quote.savings=(100000-Number(quote.units['52']))*quote.count;quote.delivery.remaining=5000000-quote.subtotal;
    return route.fulfill({json:{success:true,data:{quote,catalog:data.catalog,added:1,skipped:[999],adjusted:[]}}});
   }
   if(url.searchParams.get('wc-ajax')==='molavi_catalog'){
@@ -68,6 +68,7 @@ const fixture=process.env.MOLAVI_FIXTURE_DIR||'/tmp/molavi-storefront-fixture';
  await page.locator('.molavi-mobile-basket').click();await page.locator('#molavi-basket-dialog.is-open').waitFor();
  await page.locator('[data-molavi-favorites-cart]').click();await page.locator('[data-molavi-lists-status]').filter({hasText:'سبد جدید ساخته شد'}).waitFor();
  assert.equal(writes.filter(x=>x==='list').length,2);
+ assert.equal(await page.locator('.molavi-bline[data-product="52"] .molavi-step b').innerText(),'۴','favorites start a fresh cart at the current minimum');
  const backups=await page.evaluate(()=>JSON.parse(localStorage.getItem('molavi-shopping-lists-v1')));
  assert.deepEqual(backups[0].items,{'52':8},'old cart is saved before new favorites cart');
  assert.equal(await page.locator('[data-molavi-favorites-count]').innerText(),'۱','saved cart items share favorites');
