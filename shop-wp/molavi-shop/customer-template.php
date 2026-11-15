@@ -4,7 +4,7 @@ defined('ABSPATH') || exit;
 $GLOBALS['molavi_customer_shell'] = true;
 ?><!doctype html>
 <html <?php language_attributes(); ?>>
-<head><meta charset="<?php bloginfo('charset'); ?>"><meta name="viewport" content="width=device-width, initial-scale=1"><?php wp_head(); ?></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><?php wp_head(); ?></head>
 <body <?php body_class(); ?>>
 <?php wp_body_open(); \Molavi\Elementor\molavi_render_site_header(true); ?>
 <main id="primary" class="molavi-customer-main">
