@@ -47,16 +47,6 @@ function molavi_delivery_preview(int $goods): array {
         'basis'=>'جمع کالاها پس از تخفیف؛ مبلغ قطعی ارسال با نشانی در تسویه‌حساب مشخص می‌شود.'];
 }
 
-function molavi_render_delivery_preview(array $quote): void {
-    $delivery = $quote['delivery'] ?? molavi_delivery_preview((int)($quote['subtotal'] ?? 0));
-    echo '<section class="molavi-delivery-preview" aria-label="ارسال تهران">';
-    echo '<div><strong>ارسال تهران</strong><span data-molavi-delivery-estimate>'
-        . esc_html($delivery['qualifies'] ? 'به حد ارسال رایگان رسیدید' : 'برآورد ارسال: ' . molavi_toman((int)$delivery['estimate'])) . '</span></div>';
-    echo '<p data-molavi-delivery-remaining>' . esc_html($delivery['qualifies'] ? 'ارسال رایگان برای نشانی‌های مشمول تهران'
-        : molavi_toman((int)$delivery['remaining']) . ' تا ارسال رایگان') . '</p>';
-    echo '<small>' . esc_html((string)$delivery['basis']) . '</small></section>';
-}
-
 // Guest access and optional email are the agreed buying policy. Gateway-specific required fields remain explicit.
 add_filter('pre_option_woocommerce_enable_guest_checkout', static function () { return 'yes'; });
 add_filter('woocommerce_checkout_registration_required', '__return_false');
@@ -100,10 +90,15 @@ add_action('woocommerce_before_cart', static function (): void {
     echo '<h1 class="molavi-customer-title">سبد خرید</h1>';
     echo '<p class="molavi-customer-note">قیمت‌ها شامل تخفیف فعلی هستند. هزینه ارسال با نشانی شما در تسویه‌حساب محاسبه می‌شود.</p>';
 }, 1);
-add_action('woocommerce_cart_totals_before_shipping', static function (): void {
-    echo '<tr><td colspan="2">'; molavi_render_delivery_preview(molavi_quote()); echo '</td></tr>';
+// Keep shipping rates and address-based delivery decisions at checkout.
+add_filter('woocommerce_cart_ready_to_calc_shipping', static function ($ready): bool {
+    return is_cart() ? false : (bool) $ready;
+});
+add_action('woocommerce_cart_is_empty', static function (): void {
+    \Molavi\Elementor\molavi_render_cart_collections();
 });
 add_action('woocommerce_after_cart_table', static function (): void {
+    \Molavi\Elementor\molavi_render_cart_collections();
     echo '<a class="molavi-continue-shopping" href="' . esc_url(wc_get_page_permalink('shop')) . '">ادامهٔ خرید</a>';
 });
 add_action('woocommerce_thankyou', static function ($orderId): void {
@@ -149,7 +144,9 @@ function molavi_restore_shopping_list(): void {
     if (!is_array($items) || !$items || count($items)>40) { wp_send_json_error(['message'=>'فهرست خرید معتبر نیست؛ حداکثر ۴۰ کالا.'],400); }
     $requestId=isset($_POST['request_id'])&&is_string($_POST['request_id'])?$_POST['request_id']:'';
     if(!preg_match('/^[a-f0-9]{32}$/',$requestId)){wp_send_json_error(['message'=>'شناسهٔ درخواست فهرست معتبر نیست.'],400);}
-    $fingerprint=hash('sha256',json_encode($items));
+    $mode=isset($_POST['mode'])&&is_string($_POST['mode'])?$_POST['mode']:'merge';
+    if(!in_array($mode,['merge','replace'],true)){wp_send_json_error(['message'=>'روش افزودن فهرست معتبر نیست.'],400);}
+    $fingerprint=hash('sha256',json_encode([$mode,$items]));
     $receipts=WC()->session->get('molavi_restored_lists',[]);
     if(!is_array($receipts))$receipts=[];
     if(isset($receipts[$requestId])){
@@ -159,6 +156,7 @@ function molavi_restore_shopping_list(): void {
         wp_send_json_success(['quote'=>$quote,'catalog'=>\Molavi\Elementor\molavi_catalog_public_rows(array_keys($quote['qtys']))]+$receipt);
     }
     $skipped=[]; $adjusted=[]; $added=0;
+    $planned=[];
     foreach ($items as $id=>$requested) {
         if (!ctype_digit((string)$id) || !is_int($requested) || $requested<1 || $requested>999) {
             wp_send_json_error(['message'=>'تعدادهای فهرست خرید معتبر نیست.'],400);
@@ -170,13 +168,31 @@ function molavi_restore_shopping_list(): void {
             || !$product->is_purchasable() || !$product->is_in_stock()) {
             $skipped[]=(int)$id; continue;
         }
-        $existing=molavi_cart_qty((int)$id);
+        $existing=$mode==='replace'?0:molavi_cart_qty((int)$id);
         $target=molavi_normalize_order_quantity($existing+$requested,molavi_product_min($product));
         if ($target<=$existing) { $skipped[]=(int)$id; continue; }
-        if (molavi_set_cart_qty((int)$id,$target)) {
-            $added++;
-            if ($target!==$existing+$requested) { $adjusted[]=(int)$id; }
-        } else { $skipped[]=(int)$id; }
+        $planned[(int)$id]=$target;
+        if ($target!==$existing+$requested) { $adjusted[]=(int)$id; }
+    }
+    if($mode==='replace'&&!$planned){wp_send_json_error(['message'=>'هیچ‌کدام از علاقه‌مندی‌ها اکنون قابل خرید نیست؛ سبد قبلی حفظ شد.'],400);}
+    $original=$cart->get_cart();
+    $failed=false;
+    try {
+        foreach($planned as $id=>$target){
+            if(molavi_set_cart_qty($id,$target)){$added++;}
+            elseif($mode==='replace'){$failed=true;break;}
+            else{$skipped[]=$id;}
+        }
+        if($mode==='replace'&&!$failed){
+            foreach($cart->get_cart() as $key=>$line){
+                if(!isset($planned[(int)$line['product_id']])||!empty($line['variation_id'])){$cart->remove_cart_item($key);}
+            }
+        }
+    } catch (\Throwable $error) { $failed=true; }
+    if($failed){
+        $cart->set_cart_contents($original);
+        $cart->calculate_totals();
+        wp_send_json_error(['message'=>'سبد جدید ساخته نشد؛ سبد قبلی حفظ شد. دوباره امتحان کنید.'],409);
     }
     $cart->calculate_totals();
     $receipts[$requestId]=['fingerprint'=>$fingerprint,'added'=>$added,'skipped'=>$skipped,'adjusted'=>$adjusted];

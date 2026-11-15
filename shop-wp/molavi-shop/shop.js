@@ -8,6 +8,7 @@
     var buyerType = molaviShop.buyerType === "shop" ? "shop" : "household";
     var sending = false;
     var listRestoring = false;
+    var nativeCartUpdating = false;
     var pricingRevision = 0;
     var dirty = false;
     var retries = 0;
@@ -185,7 +186,7 @@
                 : "قیمت و گام سفارش خانوار نمایش داده می‌شود.";
         });
         document.querySelectorAll("[data-molavi-buyer-help]").forEach(function (node) {
-            node.textContent = "انتخاب «خانوار» یا «فروشگاه» قیمت و گام سفارش کالاها را به‌روز می‌کند. تعداد سبد خودکار تغییر نمی‌کند؛ اگر تعداد با گام تازه سازگار نباشد، پیش از ادامه می‌توانید آن را اصلاح کنید.";
+            node.textContent = "«خانوار» برای مصرف خانه و «فروشگاه» برای خرید مغازه است. هرکدام قیمت و گام سفارش خود را دارد. با تغییر نوع خرید، تعداد سبد حفظ می‌شود؛ اگر لازم باشد، دکمهٔ «اصلاح تعداد» نشان داده می‌شود.";
         });
     }
 
@@ -603,7 +604,10 @@
         if (countNode) countNode.textContent = kinds > 0 ? "(" + digits(kinds) + " محصول)" : "";
         var checkout = document.querySelector("[data-molavi-checkout]");
         var mobileBasketTrigger = document.querySelector(".molavi-mobile-basket[data-molavi-open-basket]");
-        if (mobileBasketTrigger) mobileBasketTrigger.hidden = kinds < 1;
+        if (mobileBasketTrigger) {
+            mobileBasketTrigger.hidden = false;
+            mobileBasketTrigger.setAttribute("aria-label", "سبد خرید و علاقه‌مندی‌ها؛ " + digits(kinds) + " کالا؛ " + percent(referenceTotal > 0 ? saved / referenceTotal : 0) + " تخفیف فعلی؛ " + toman(total));
+        }
         var invalidCount = Array.isArray(quote && quote.invalid_lines) ? quote.invalid_lines.length : 0;
         var checkoutHelp = document.querySelector("[data-molavi-checkout-help]");
         if (checkout) {
@@ -626,6 +630,7 @@
         setText("[data-molavi-savings-rate]", percent(referenceTotal > 0 ? saved / referenceTotal : 0));
         setText("[data-molavi-mobile-total]", toman(total));
         setText("[data-molavi-mobile-saving]", toman(saved));
+        setText("[data-molavi-mobile-rate]", percent(referenceTotal > 0 ? saved / referenceTotal : 0));
         setText("[data-molavi-mobile-count]", digits(Object.keys(counts).reduce(function (sum, id) { return sum + (Number(counts[id]) || 0); }, 0)));
         var progress = Math.max(0, Math.min(1, Number(quote && quote.progress) || 0));
         var progressPct = Math.round(progress * 100);
@@ -655,10 +660,6 @@
         });
     }
     function paintCustomerDetails(quote) {
-        document.querySelectorAll('[data-molavi-card]').forEach(function(card){
-            var id=card.getAttribute('data-product'),row=rowOf(id),cost=card.querySelector('[data-molavi-selection-cost]');
-            if(cost&&row&&quote.units&&quote.units[id]!=null)cost.textContent='حداقل '+digits(row.min)+' عدد با قیمت فعلی: '+toman(Number(quote.units[id])*row.min);
-        });
         document.querySelectorAll('[data-molavi-product-detail]').forEach(function(panel){
             var id=panel.getAttribute('data-product'),row=rowOf(id);
             if(!row)return;
@@ -678,11 +679,12 @@
             if(total)total.textContent=toman(Number(quote.units&&quote.units[id]||0)*count);
             var totalLabel=panel.querySelector('[data-molavi-detail-total-label]');if(totalLabel)totalLabel.textContent='مبلغ '+digits(count)+' عدد با قیمت فعلی: ';
         });
-        var delivery=quote.delivery;
-        if(delivery){
-            setText('[data-molavi-delivery-estimate]',delivery.qualifies?'به حد ارسال رایگان رسیدید':'برآورد ارسال: '+toman(delivery.estimate));
-            setText('[data-molavi-delivery-remaining]',delivery.qualifies?'ارسال رایگان برای نشانی‌های مشمول تهران':toman(delivery.remaining)+' تا ارسال رایگان');
-        }
+        var guide=document.querySelector('[data-molavi-guide]');
+        if(guide)guide.textContent=(quote.invalid_lines||[]).length
+            ? 'برای ادامهٔ سفارش، تعداد کالاهای مشخص‌شده را اصلاح کنید.'
+            : Number(quote.count)>0
+                ? (Number(quote.progress)>=1?'سقف تخفیف سبد فعال است؛ می‌توانید سفارش را ادامه دهید.':'قیمت‌های نمایش‌داده‌شده شامل تخفیف فعلی سبد شماست.')
+                : 'نوع خرید را انتخاب کنید، بعد کالاها را به سبد اضافه کنید.';
         updateCheckoutBusy();
     }
     function setupShoppingHelp() {
@@ -692,58 +694,109 @@
         });
         document.addEventListener('input',function(event){if(event.target.matches('form.cart input.qty'))paintCustomerDetails(lastQuote);});
     }
+    function readFavoriteIds() {
+        try {
+            var value=JSON.parse(localStorage.getItem('molavi-wishlist-v1')||'[]');
+            return Array.isArray(value)?Array.from(new Set(value.map(String).filter(function(id){return /^[1-9][0-9]*$/.test(id);}))) : [];
+        } catch(error) { return []; }
+    }
     function setupShoppingLists() {
-        var host=document.querySelector('[data-molavi-lists]');if(!host)return;
+        var host=document.querySelector('[data-molavi-lists]');if(!host||host._molaviCollectionsReady)return;
+        host._molaviCollectionsReady=true;
         var select=host.querySelector('[data-molavi-list-select]'),feedback=host.querySelector('[data-molavi-lists-status]');
         var key='molavi-shopping-lists-v1',lists=[],pendingRestore=null;
         try{var parsed=JSON.parse(localStorage.getItem(key)||'[]');lists=Array.isArray(parsed)?parsed.slice(0,10):[];}catch(error){}
         lists=lists.filter(function(item){return item&&typeof item.id==='string'&&typeof item.name==='string'&&item.items&&typeof item.items==='object';});
-        function display(){
-            var selected=select.value;select.replaceChildren(new Option('فهرست‌های من',''));
-            lists.forEach(function(item){select.add(new Option(item.name.slice(0,60),item.id));});select.value=selected;
-            host.querySelector('[data-molavi-save-list]').disabled=Object.keys(serverQtys).length===0||sending||buyerChanging||listRestoring;
-            host.querySelector('[data-molavi-load-list]').disabled=!select.value||sending||buyerChanging||listRestoring;
-            host.querySelector('[data-molavi-delete-list]').disabled=!select.value||listRestoring;
+        function busy(){return sending||dirty||buyerChanging||listRestoring||nativeCartUpdating;}
+        function nativeQuantities(){
+            if(!document.body.classList.contains('woocommerce-cart')||document.querySelector('[data-molavi-storefront]'))return;
+            var current={};document.querySelectorAll('.woocommerce-cart-form__cart-item').forEach(function(line){
+                var product=line.querySelector('[data-product_id]'),input=line.querySelector('input.qty');
+                if(product&&input&&Number(input.value)>0)current[product.getAttribute('data-product_id')]=Number(input.value);
+            });serverQtys=current;
         }
-        function persist(){try{localStorage.setItem(key,JSON.stringify(lists));return true;}catch(error){feedback.textContent='مرورگر اجازهٔ ذخیرهٔ فهرست را نداد.';return false;}}
+        function display(){
+            nativeQuantities();
+            var selected=select.value;select.replaceChildren(new Option('یک سبد انتخاب کنید',''));
+            lists.forEach(function(item){select.add(new Option(item.name.slice(0,60),item.id));});select.value=selected;
+            var favorites=readFavoriteIds();host.querySelector('[data-molavi-favorites-count]').textContent=digits(favorites.length);
+            host.querySelector('[data-molavi-save-list]').disabled=!Object.keys(serverQtys).length||busy();
+            host.querySelector('[data-molavi-favorites-cart]').disabled=!favorites.length||busy();
+            ['load','rename','delete'].forEach(function(action){host.querySelector('[data-molavi-'+action+'-list]').disabled=!select.value||busy();});
+        }
+        function persist(){try{localStorage.setItem(key,JSON.stringify(lists));return true;}catch(error){feedback.textContent='مرورگر اجازهٔ ذخیرهٔ سبد را نداد.';return false;}}
+        function saveCurrent(addFavorites){
+            nativeQuantities();
+            var number=1;while(lists.some(function(item){return item.name==='سبد '+digits(number);}))number++;
+            var item={id:Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,8),name:'سبد '+digits(number),items:Object.assign({},serverQtys)};
+            var previous=lists.slice();lists=[item].concat(lists).slice(0,10);
+            if(!persist()){lists=previous;return false;}
+            if(addFavorites){
+                try{localStorage.setItem('molavi-wishlist-v1',JSON.stringify(Array.from(new Set(readFavoriteIds().concat(Object.keys(item.items))))));}
+                catch(error){feedback.textContent='سبد ذخیره شد؛ افزودن کالاها به علاقه‌مندی‌ها ممکن نشد.';}
+                document.dispatchEvent(new CustomEvent('molavi:favorites'));
+            }
+            display();select.value=item.id;display();return item;
+        }
         select.addEventListener('change',display);
         host.querySelector('[data-molavi-save-list]').addEventListener('click',function(){
-            if(sending||buyerChanging||listRestoring||!Object.keys(serverQtys).length)return;
+            if(busy()||!Object.keys(serverQtys).length)return;
+            var item=saveCurrent(true);if(item)feedback.textContent='«'+item.name+'» ذخیره شد؛ نام آن را هر وقت خواستید تغییر دهید.';
+        });
+        host.querySelector('[data-molavi-rename-list]').addEventListener('click',function(){
+            var item=lists.find(function(row){return row.id===select.value;});if(!item||busy())return;
             var dialog=document.createElement('dialog');dialog.className='molavi-list-dialog';
-            var form=document.createElement('form');form.innerHTML='<label>نام فهرست <input name="name" maxlength="60" required autocomplete="off"></label><small>فقط شناسه و تعداد کالاها ذخیره می‌شود؛ قیمت‌ها هنگام خرید دوباره محاسبه می‌شوند.</small><button type="submit">ذخیرهٔ فهرست</button><button type="button" data-cancel>انصراف</button>';
-            dialog.appendChild(form);document.body.appendChild(dialog);
-            form.querySelector('[data-cancel]').onclick=function(){dialog.close();};dialog.onclose=function(){dialog.remove();};
-            form.onsubmit=function(event){event.preventDefault();var name=form.elements.name.value.trim();if(!name)return;
-                if(sending||buyerChanging||listRestoring){feedback.textContent='ابتدا ذخیرهٔ سبد را کامل کنید.';dialog.close();return;}
-                var item={id:Date.now().toString(36),name:name,items:Object.assign({},serverQtys)};
-                var previous=lists.slice();lists=[item].concat(lists).slice(0,10);
-                if(!persist()){lists=previous;return;}display();select.value=item.id;display();feedback.textContent='فهرست روی این مرورگر ذخیره شد.';dialog.close();};dialog.showModal();
+            var form=document.createElement('form');form.innerHTML='<label>نام سبد <input name="name" maxlength="60" autocomplete="off"></label><button type="submit">ذخیرهٔ نام</button><button type="button" data-cancel>انصراف</button>';
+            form.elements.name.value=item.name;dialog.appendChild(form);document.body.appendChild(dialog);
+            form.querySelector('[data-cancel]').onclick=function(){dialog.close();};dialog.onclose=function(){dialog.remove();host.querySelector('[data-molavi-rename-list]').focus();};
+            form.onsubmit=function(event){event.preventDefault();var name=form.elements.name.value.trim();if(!name){dialog.close();return;}
+                var previous=item.name;item.name=name;if(!persist()){item.name=previous;return;}display();feedback.textContent='نام سبد تغییر کرد.';dialog.close();};
+            dialog.showModal();form.elements.name.select();
         });
         host.querySelector('[data-molavi-delete-list]').addEventListener('click',function(){
-            var previous=lists.slice();lists=lists.filter(function(item){return item.id!==select.value;});
-            if(!persist())lists=previous;display();
+            if(busy())return;var previous=lists.slice();lists=lists.filter(function(item){return item.id!==select.value;});
+            if(!persist())lists=previous;display();feedback.textContent='سبد ذخیره‌شده حذف شد.';
         });
-        host.querySelector('[data-molavi-load-list]').addEventListener('click',async function(){
-            var item=lists.find(function(row){return row.id===select.value;});if(!item||sending||buyerChanging||listRestoring)return;
-            listRestoring=true;pricingRevision++;display();updateCheckoutBusy();feedback.textContent='در حال بررسی کالاها با قیمت و تعداد فعلی…';
+        async function restore(items,mode){
+            if(busy())return;
+            var fingerprint=mode+':'+JSON.stringify(items);
+            if(!pendingRestore||pendingRestore.fingerprint!==fingerprint){
+                var bytes=new Uint8Array(16);window.crypto.getRandomValues(bytes);
+                pendingRestore={fingerprint:fingerprint,id:Array.from(bytes,function(b){return b.toString(16).padStart(2,'0');}).join(''),backup:false};
+            }
+            // Preserve the existing selection before replacing it, including uncertain retries.
+            if(mode==='replace'&&!pendingRestore.backup&&Object.keys(serverQtys).length){
+                if(!saveCurrent(false))return;pendingRestore.backup=true;
+            }
+            listRestoring=true;pricingRevision++;display();updateCheckoutBusy();feedback.textContent='در حال بررسی کالاها و قیمت‌های فعلی…';
+            var completed=false;
             try{
-                var body=new FormData();body.append('nonce',molaviShop.nonce);body.append('items',JSON.stringify(item.items));
-                var fingerprint=JSON.stringify(item.items);
-                if(!pendingRestore||pendingRestore.fingerprint!==fingerprint){
-                    var bytes=new Uint8Array(16);window.crypto.getRandomValues(bytes);
-                    pendingRestore={fingerprint:fingerprint,id:Array.from(bytes,function(b){return b.toString(16).padStart(2,'0');}).join('')};
-                }
-                body.append('request_id',pendingRestore.id);
+                var body=new FormData();body.append('nonce',molaviShop.nonce);body.append('items',JSON.stringify(items));body.append('mode',mode);body.append('request_id',pendingRestore.id);
                 var response=await fetch(molaviShop.restoreList,{method:'POST',credentials:'same-origin',body:body});var result=await response.json();
-                if(!response.ok||!result||!result.success||!result.data||!result.data.quote)throw new Error(result&&result.data&&result.data.message||'فهرست به سبد اضافه نشد.');
-                pendingRestore=null;Object.assign(catalog,result.data.catalog||{});lastQuote=result.data.quote;serverQtys=Object.assign({},lastQuote.qtys||{});qtys=Object.assign({},serverQtys);paint(lastQuote);
-                feedback.textContent=digits(result.data.added)+' کالا با قیمت فعلی به سبد اضافه شد.'
+                if(!response.ok||!result||!result.success||!result.data||!result.data.quote)throw new Error(result&&result.data&&result.data.message||'سبد به‌روز نشد.');
+                pendingRestore=null;Object.assign(catalog,result.data.catalog||{});lastQuote=result.data.quote;serverQtys=Object.assign({},lastQuote.qtys||{});qtys=Object.assign({},serverQtys);paint(lastQuote);completed=true;
+                feedback.textContent=(mode==='replace'?'سبد جدید ساخته شد. ':'')+digits(result.data.added)+' کالا با قیمت فعلی اضافه شد.'
                     +(result.data.skipped.length?' '+digits(result.data.skipped.length)+' کالا قابل افزودن نبود.':'')
-                    +(result.data.adjusted.length?' تعداد '+digits(result.data.adjusted.length)+' کالا با گام خرید فعلی هماهنگ شد.':'');
-            }catch(error){feedback.textContent=/[\u0600-\u06ff]/.test(error.message||'')?error.message:'نتیجهٔ افزودن فهرست تأیید نشد؛ سبد را بررسی کنید و همین درخواست را دوباره امتحان کنید.';}
-            finally{listRestoring=false;display();updateCheckoutBusy();document.dispatchEvent(new CustomEvent('molavi:cart'));}
+                    +(result.data.adjusted.length?' تعداد '+digits(result.data.adjusted.length)+' کالا با گام خرید هماهنگ شد.':'');
+                if(document.body.classList.contains('woocommerce-cart')&&!document.querySelector('[data-molavi-storefront]'))window.location.reload();
+            }catch(error){feedback.textContent=/[\u0600-\u06ff]/.test(error.message||'')?error.message:'نتیجه تأیید نشد؛ برای بررسی، همین درخواست را دوباره امتحان کنید.';}
+            finally{listRestoring=false;display();updateCheckoutBusy();if(completed)document.dispatchEvent(new CustomEvent('molavi:cart'));}
+        }
+        host.querySelector('[data-molavi-load-list]').addEventListener('click',function(){
+            var item=lists.find(function(row){return row.id===select.value;});if(item)restore(item.items,'merge');
         });
-        document.addEventListener('molavi:cart',display);document.addEventListener('molavi:buyer',display);display();
+        host.querySelector('[data-molavi-favorites-cart]').addEventListener('click',function(){
+            var ids=readFavoriteIds();if(!ids.length)return;
+            if(ids.length>40){feedback.textContent='برای ساخت یک سبد، حداکثر ۴۰ کالا در علاقه‌مندی‌ها انتخاب کنید.';return;}
+            var items={};ids.forEach(function(id){items[id]=1;});restore(items,'replace');
+        });
+        host.querySelector('[data-molavi-show-favorites]').addEventListener('click',function(event){
+            var root=document.querySelector('[data-molavi-storefront]');if(!root)return;
+            event.preventDefault();document.dispatchEvent(new CustomEvent('molavi:show-favorites'));
+            var closer=root.querySelector('.molavi-store-basket.is-open [data-molavi-close-basket]');if(closer)closer.click();
+            root.querySelector('[data-molavi-grid]').scrollIntoView({behavior:'smooth',block:'start'});
+        });
+        ['molavi:cart','molavi:buyer','molavi:favorites'].forEach(function(name){document.addEventListener(name,function(){if(host.isConnected)display();});});display();
     }
 
     function setText(selector, value) {
@@ -1049,7 +1102,7 @@
         var favoritesOnly = new URLSearchParams(window.location.search).get("molavi_favorites") === "1";
         var favorites;
         try {
-            favorites = new Set(JSON.parse(window.localStorage.getItem("molavi-wishlist-v1") || "[]").map(String));
+            favorites = new Set(readFavoriteIds());
         } catch (error) {
             favorites = new Set();
         }
@@ -1332,9 +1385,12 @@
             if (favorites.has(id)) favorites.delete(id);
             else favorites.add(id);
             try { window.localStorage.setItem("molavi-wishlist-v1", JSON.stringify(Array.from(favorites))); } catch (error) {}
+            document.dispatchEvent(new CustomEvent("molavi:favorites"));
             paintFavorites();
             applyFilters();
         });
+        document.addEventListener("molavi:favorites", function () { favorites = new Set(readFavoriteIds()); paintFavorites(); if (favoritesOnly) applyFilters(); });
+        document.addEventListener("molavi:show-favorites", function () { favoritesOnly = true; paintFavorites(); applyFilters(); });
         if (favoriteView) {
             favoriteView.addEventListener("click", function () {
                 favoritesOnly = !favoritesOnly;
@@ -1505,6 +1561,17 @@
         if (!triggers.length || !dialog || !backdrop) return;
         var mobileQuery = window.matchMedia("(max-width: 900px)");
         var lastTrigger = triggers[0];
+        var floating=root.querySelector('.molavi-mobile-basket'),peekTimer=null;
+        var cartSignature=JSON.stringify([serverQtys,lastQuote.subtotal,lastQuote.savings,buyerType]);
+        function retract(){if(floating)floating.classList.remove('is-peeking');window.clearTimeout(peekTimer);}
+        function peek(){
+            var signature=JSON.stringify([serverQtys,lastQuote.subtotal,lastQuote.savings,buyerType]);
+            if(signature===cartSignature)return;cartSignature=signature;
+            if(!floating||dialog.classList.contains('is-open'))return;
+            floating.classList.add('is-peeking');window.clearTimeout(peekTimer);peekTimer=window.setTimeout(retract,4200);
+        }
+        document.addEventListener('molavi:cart',peek);document.addEventListener('molavi:buyer',peek);
+
         if (mobileQuery.matches) {
             dialog.setAttribute("inert", "");
             dialog.setAttribute("aria-hidden", "true");
@@ -1528,6 +1595,7 @@
         }
 
         function open() {
+            retract();
             dialog.classList.add("is-open");
             dialog.setAttribute("aria-modal", "true");
             dialog.removeAttribute("inert");
@@ -1562,7 +1630,7 @@
                 return;
             }
             if (event.key !== "Tab") return;
-            var focusable = Array.prototype.slice.call(dialog.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])')).filter(function (node) { return !node.hidden; });
+            var focusable = Array.prototype.slice.call(dialog.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])')).filter(function (node) { return !node.hidden && node.getClientRects().length > 0; });
             if (!focusable.length) {
                 event.preventDefault();
                 dialog.focus();
@@ -1789,9 +1857,12 @@
         var forms = Array.prototype.slice.call(document.querySelectorAll("form.woocommerce-cart-form"));
         if (!forms.length) return;
         forms.forEach(function (form) {
+            if(form._molaviAutoUpdateReady)return;form._molaviAutoUpdateReady=true;
+            form.addEventListener('submit',function(){nativeCartUpdating=true;document.dispatchEvent(new CustomEvent('molavi:cart'));});
             form.addEventListener("change", function (event) {
                 var input = event.target.closest("input.qty");
                 if (!input || !form.contains(input)) return;
+                nativeCartUpdating=true;document.dispatchEvent(new CustomEvent('molavi:cart'));
                 var updateButton = form.querySelector('[name="update_cart"]');
                 if (!updateButton) return;
                 window.clearTimeout(form._molaviUpdateTimer);
@@ -1802,6 +1873,13 @@
                 }, 300);
             });
         });
+        if(window.jQuery&&!document.body._molaviCartRefreshReady){
+            document.body._molaviCartRefreshReady=true;
+            jQuery(document.body).on('updated_wc_div wc_cart_emptied',function(){
+                nativeCartUpdating=false;setupNativeCartAutoUpdate();setupShoppingLists();
+                document.dispatchEvent(new CustomEvent('molavi:cart'));
+            });
+        }
         document.body.classList.add("molavi-auto-cart-update-ready");
     }
 

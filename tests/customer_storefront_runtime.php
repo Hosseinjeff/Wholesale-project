@@ -5,7 +5,7 @@ define('ABSPATH','/synthetic/');define('DAY_IN_SECONDS',86400);
 $GLOBALS['filters']=[];$GLOBALS['transients']=[];$GLOBALS['products']=[];
 function add_action($key,$callback,$priority=10,$accepted=1){$GLOBALS['filters'][$key][]=$callback;}
 function add_filter($key,$callback,$priority=10,$accepted=1){add_action($key,$callback,$priority,$accepted);}
-function is_admin(){return false;}function wp_doing_ajax(){return false;}function is_cart(){return false;}
+function is_admin(){return false;}function wp_doing_ajax(){return false;}function is_cart(){return $GLOBALS['test_is_cart']??false;}
 function add_option($key,$value){}
 function get_option($key,$default=false){return $default;}function get_transient($key){return $GLOBALS['transients'][$key]??false;}
 function set_transient($key,$value,$ttl){$GLOBALS['transients'][$key]=$value;}function delete_transient($key){unset($GLOBALS['transients'][$key]);}
@@ -17,6 +17,7 @@ function wc_get_products($args){return array_values($GLOBALS['products']);}funct
 function home_url($path='/'){return 'http://molavi.test'.$path;}function wc_get_page_permalink($name){return home_url('/'.$name.'/');}
 function molavi_product_min($p){return molavi_profile_order_unit($p,molavi_buyer_type());}
 function molavi_digits($s){return strtr((string)$s,['0'=>'۰','1'=>'۱','2'=>'۲','3'=>'۳','4'=>'۴','5'=>'۵','6'=>'۶','7'=>'۷','8'=>'۸','9'=>'۹',','=>'٬']);}
+function add_query_arg($key,$value,$url){return $url.'?'.$key.'='.$value;}
 function wc_get_checkout_url(){return home_url('/checkout/');}function get_woocommerce_currency(){return 'IRT';}
 function wp_get_attachment_image_url($id,$size){return false;}function wc_placeholder_img_src($size){return 'http://molavi.test/placeholder.svg';}
 function check_ajax_referer($action,$field){if(($_POST[$field]??'')!=='test-nonce')throw new RuntimeException('invalid nonce');}
@@ -35,8 +36,9 @@ class WC_Product{
 class WC_Cart{
  public $lines=[];function get_cart(){return $this->lines;}function calculate_totals(){}
  function set_quantity($key,$qty,$refresh=false){$this->lines[$key]['quantity']=$qty;return true;}
+ function set_cart_contents($lines){$this->lines=$lines;}
  function remove_cart_item($key){unset($this->lines[$key]);return true;}
- function add_to_cart($id,$qty){$this->lines[(string)$id]=['product_id'=>$id,'quantity'=>$qty,'data'=>wc_get_product($id)];return (string)$id;}
+ function add_to_cart($id,$qty){if(in_array($id,$GLOBALS['failed_add_ids']??[],true))return false;$this->lines[(string)$id]=['product_id'=>$id,'quantity'=>$qty,'data'=>wc_get_product($id)];return (string)$id;}
 }
 class FakeSession{public $buyer='household';public $values=[];function get($key,$default=null){return $key==='molavi_buyer_type'?$this->buyer:($this->values[$key]??$default);}function set($key,$value){$this->values[$key]=$value;}}
 $wc=(object)['cart'=>new WC_Cart(),'session'=>new FakeSession()];function WC(){global $wc;return $wc;}
@@ -79,7 +81,22 @@ $before=WC()->cart->lines;
 try{molavi_restore_shopping_list();}catch(Reply $r){test_assert(WC()->cart->lines===$before,'restoring same request twice does not double quantity');}
 $_POST=['nonce'=>'test-nonce','request_id'=>str_repeat('b',32),'items'=>'{"1":3,"2":1.5}'];
 try{molavi_restore_shopping_list();}catch(Reply $r){test_assert(!$r->success&&WC()->cart->lines===$before,'invalid list rejected before any cart write');}
-$GLOBALS['products'][2]->available=true;WC()->cart->lines=[];
+$GLOBALS['products'][2]->available=true;
+$_POST=['nonce'=>'test-nonce','request_id'=>str_repeat('c',32),'mode'=>'replace','items'=>'{"999":1}'];
+try{molavi_restore_shopping_list();}catch(Reply $r){test_assert(!$r->success&&WC()->cart->lines===$before,'unavailable favorites preserve original cart');}
+$_POST=['nonce'=>'test-nonce','request_id'=>str_repeat('d',32),'mode'=>'replace','items'=>'{"3":1,"2":1}'];
+$GLOBALS['failed_add_ids']=[2];
+try{molavi_restore_shopping_list();}catch(Reply $r){test_assert(!$r->success&&WC()->cart->lines===$before,'failed replacement rolls back partially added lines');}
+$GLOBALS['failed_add_ids']=[];
+try{molavi_restore_shopping_list();}catch(Reply $r){test_assert($r->success&&$r->data['quote']['qtys']==[2=>4,3=>4],'favorites create a new cart with current minimum quantities');}
+$replaced=WC()->cart->lines;
+try{molavi_restore_shopping_list();}catch(Reply $r){test_assert($r->success&&WC()->cart->lines===$replaced,'new-cart retries are idempotent');}
+$_POST['mode']='merge';
+try{molavi_restore_shopping_list();}catch(Reply $r){test_assert(!$r->success&&WC()->cart->lines===$replaced,'request token cannot change from replace to merge');}
+$shippingFilter=$GLOBALS['filters']['woocommerce_cart_ready_to_calc_shipping'][0];
+$GLOBALS['test_is_cart']=true;test_assert(!$shippingFilter(true),'shipping is deferred on the native cart');
+$GLOBALS['test_is_cart']=false;test_assert($shippingFilter(true),'checkout retains native shipping calculation');
+WC()->cart->lines=[];
 if(getenv('MOLAVI_FIXTURE_DIR')){
  $dir=getenv('MOLAVI_FIXTURE_DIR');
  ob_start();\Molavi\Elementor\molavi_render_storefront();$html=ob_get_clean();

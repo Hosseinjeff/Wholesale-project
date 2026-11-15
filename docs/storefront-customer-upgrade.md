@@ -29,28 +29,41 @@ page explains verified versus pending payment and retaining the secure receipt l
 
 The generic maximum-discount carousel is replaced by a short purchase explanation.
 The buyer choice, actual pricing engine and maximum/current discount values remain.
-Add controls name the current quantity; minimum-selection totals update with server
-prices. Product-detail quantity and price summaries follow the selected buyer profile.
-Repeated-purchase lists are collapsed until requested. Lists store only product IDs,
-quantities and a user-supplied label locally in the browser, with at most ten lists.
-They never store old prices or customer contact details.
+Add controls name the current quantity. Catalog cards omit the additional calculated
+minimum total; product-detail quantity and price explanations remain. Grid and list
+cards show complete wrapping titles, prioritize the current price and keep quantity
+controls below. The short top guide responds to an empty cart, active discount or
+invalid quantities. Buyer information explains profile effects and quantity repair.
+
+Favorites and saved carts share one collapsed section inside the catalog cart and
+native Woo cart, including its empty state. Saving assigns a name automatically;
+renaming is optional. Explicitly saving a cart also adds its products to the existing favorites.
+Saved carts retain only IDs, quantities and labels in this browser (up to ten), never
+old prices or contact details. The compact cart button remains at the lower left,
+including when empty. Confirmed changes show a 4.2-second summary with the actual
+current discount rate and savings before it retracts; reduced motion is respected.
 
 Restoring a list validates the nonce, item count/types, current simple-product
 eligibility and current approved quantity increments. It merges with the active cart,
 reports skipped/adjusted lines and returns freshly calculated prices and public facts.
 An idempotent request token in the Woo session prevents an uncertain network response
 from doubling quantities when retried. It does not submit an order or charge a payment.
+Creating a new cart from favorites uses the same endpoint in explicit replacement
+mode. It first saves the old cart locally, then uses current product eligibility and
+minimum quantities. Unavailable-only requests preserve the old cart; a failed write
+restores the original contents. Request receipts include the operation mode and make
+replacement retries idempotent. No second cart ledger is introduced. Native cart tools
+read the current form quantities, wait for updates and remount after Woo refreshes.
 Checkout is blocked while a quantity/profile/list update is unresolved.
 
 ## Delivery and pricing
 
 The existing supplier prices, price bands, household/shop caps, tuna-based discount
-threshold and quantity policy remain authoritative. A separate delivery preview reads
-the configured native Molavi shipping method where unambiguous, or the agreed initial
-Tehran fee/threshold as an estimate. It labels the final delivery rate as address-dependent.
-The preview uses discounted goods value and never substitutes the discount-unlock
-threshold for the delivery threshold. Actual checkout shipping continues through the
-existing Woo shipping zones and method. No zone or shipping instance is silently added.
+threshold and quantity policy remain authoritative. Delivery estimates and rates are absent from both catalog and native carts; the
+native cart defers shipping calculation. The existing checkout zones and methods
+still determine shipping from the address. The approved delivery policy remains
+available in shopping help and quote metadata; it never uses the discount threshold
+as the delivery threshold. No shipping policy, zone or instance is changed.
 
 ## Catalog delivery
 
@@ -72,13 +85,17 @@ and cart quote remain responsible for complete-catalog price calculations.
 and the actual price functions. It checks first/last pages, Persian search, quote sorting,
 delivery threshold boundaries, optional email/required mobile, skipped unavailable
 products, current quantity steps, public-only restored facts, idempotent retries and
-validation before mutations. It can generate local browser fixtures when
+validation before mutations. The 19 assertions also cover replacement rollback,
+current minimum quantities, mode-bound retries and cart-only shipping deferral.
+It can generate local browser fixtures when
 `MOLAVI_FIXTURE_DIR` is set. Run with PHP 8 or the disposable PHP Wasm CLI.
 
 `tests/storefront_interactions.browser.cjs` runs the generated fixtures in Chromium
 with intercepted mock APIs. It checks bounded tiles, quantity labels, no writes on
-load, checkout waiting for price saves, delivery updates, list storage/restoration,
-mobile width, help dialogs and incremental loading. Screenshots stay in `/tmp`.
+load, checkout waiting for price saves, no card totals or cart delivery rates, automatic list names, renaming, shared
+favorites, backup before replacement, complete titles in both layouts, a retracting
+lower-left cart, native cart quantities/update blocking, mobile width, help dialogs
+and incremental loading (25 checks). Screenshots stay in `/tmp`.
 
 Connected release checks must use an isolated anonymous Staging cart, inspect native
 product/cart/account/checkout rendering, confirm the fresh quote and restore endpoint,
