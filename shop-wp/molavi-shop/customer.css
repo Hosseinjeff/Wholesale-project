@@ -362,3 +362,4 @@ body.molavi-site-page .molavi-brand strong {font-family:inherit;}
 body.molavi-site-page .molavi-product-grid:not(.is-list-view) .molavi-card-body h3 {min-height:46px;}
 body.molavi-site-page .molavi-product-grid:not(.is-list-view) .molavi-card-price {min-height:70px;justify-content:flex-start;}
 body.molavi-site-page .molavi-product-grid:not(.is-list-view) .molavi-current-price {flex-direction:column;align-items:flex-start;gap:4px;}
+@media(max-width:360px){body.molavi-site-page .molavi-mobile-total {display:none;}}

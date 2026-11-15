@@ -59,6 +59,8 @@ replacement mode. It first saves the old cart locally, then uses current product
 minimum quantities. Unavailable-only requests preserve the old cart; a failed write
 restores the original contents. Request receipts include the operation mode and make
 replacement retries idempotent. No second cart ledger is introduced. The heart library reads native cart form quantities and waits for Woo updates.
+Library quantity/restore actions re-read native cart HTML with a GET, preserving
+the open heart panel and avoiding a POST of old form quantities.
 Checkout is blocked while a quantity/profile/list update is unresolved.
 
 ## Delivery and pricing
@@ -107,7 +109,7 @@ It can generate local browser fixtures when
 `MOLAVI_FIXTURE_DIR` is set. Run with PHP 8 or the disposable PHP Wasm CLI.
 
 `tests/storefront_interactions.browser.cjs` runs the generated fixtures in Chromium
-with intercepted mock APIs. The 38 checks cover bounded tiles, read-only page/heart
+with intercepted mock APIs. The 40 checks cover bounded tiles, read-only page/heart
 loading, current quantity labels, pending-save checkout blocking, no cart delivery or
 card total, shared off-page favorite facts/controls, saving favorites without a cart
 write, automatic names, inline rename, save-current behavior, merge/replacement with

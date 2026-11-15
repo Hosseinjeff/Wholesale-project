@@ -30,7 +30,7 @@
     document.addEventListener("click", function (event) {
         var button = event.target.closest("[data-molavi-step], [data-molavi-clear], [data-molavi-set-qty]");
         if (!button) return;
-        if (buyerChanging || listRestoring) {
+        if (buyerChanging || listRestoring || nativeCartUpdating) {
             event.preventDefault();
             return;
         }
@@ -316,6 +316,7 @@
                     paint(payload.data.quote || {});
                     applyFragments(payload.data.fragments || {});
                     showStatus("");
+                    refreshNativeCart();
                 }
             })
             .catch(function () {
@@ -653,7 +654,7 @@
             .replace(/[\s\u200c]+/g,' ').trim();
     }
     function updateCheckoutBusy() {
-        var pending=sending||buyerChanging||listRestoring||dirty;
+        var pending=sending||buyerChanging||listRestoring||dirty||nativeCartUpdating;
         document.querySelectorAll('[data-molavi-checkout]').forEach(function(link){
             var invalid=Array.isArray(lastQuote.invalid_lines)&&lastQuote.invalid_lines.length>0;
             link.setAttribute('aria-disabled',pending||invalid?'true':'false');
@@ -806,7 +807,7 @@
                 if(!response.ok||!result.success||!result.data||!result.data.quote)throw new Error(result&&result.data&&result.data.message||'سبد به‌روز نشد.');
                 pendingRestore=null;Object.assign(catalog,result.data.catalog||{});lastQuote=result.data.quote;serverQtys=Object.assign({},lastQuote.qtys||{});qtys=Object.assign({},serverQtys);paint(lastQuote);completed=true;
                 feedback.textContent=(mode==='replace'?'سبد خرید جدید آماده شد. ':'')+digits(result.data.added)+' کالا اضافه شد.'+(result.data.skipped.length?' '+digits(result.data.skipped.length)+' کالا فعلاً قابل خرید نبود.':'')+(result.data.adjusted.length?' تعداد '+digits(result.data.adjusted.length)+' کالا با گام خرید هماهنگ شد.':'');
-                if(document.body.classList.contains('woocommerce-cart')&&!document.querySelector('[data-molavi-storefront]'))window.location.reload();
+                refreshNativeCart();
             }catch(error){feedback.textContent=/[\u0600-\u06ff]/.test(error.message||'')?error.message:'نتیجه تأیید نشد؛ همین درخواست را دوباره امتحان کنید.';}
             finally{listRestoring=false;display();updateCheckoutBusy();if(completed)document.dispatchEvent(new CustomEvent('molavi:cart'));}
         }
@@ -1879,6 +1880,22 @@
             var target = jQuery(selector);
             if (target.length) target.replaceWith(html);
         });
+    }
+
+    function refreshNativeCart() {
+        if(!document.body.classList.contains('woocommerce-cart')||document.querySelector('[data-molavi-storefront]'))return;
+        nativeCartUpdating=true;updateCheckoutBusy();
+        // Re-read Woo's server-rendered cart; posting the previous form could overwrite the new quantities.
+        fetch(window.location.href,{credentials:'same-origin',cache:'no-store'})
+            .then(function(response){if(!response.ok)throw new Error('cart');return response.text();})
+            .then(function(html){
+                var parsed=new DOMParser().parseFromString(html,'text/html'),fresh=parsed.querySelector('.molavi-customer-main .woocommerce'),current=document.querySelector('.molavi-customer-main .woocommerce');
+                if(!fresh||!current)throw new Error('cart');current.replaceWith(document.importNode(fresh,true));
+                nativeCartUpdating=false;setupNativeCartAutoUpdate();
+                if(window.jQuery)jQuery(document.body).trigger('updated_wc_div');
+                else document.dispatchEvent(new CustomEvent('molavi:cart'));
+            })
+            .catch(function(){window.location.reload();});
     }
 
     function setupNativeCartAutoUpdate() {
