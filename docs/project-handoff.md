@@ -15,8 +15,8 @@ Deployed frontend edits were first reconciled in `730f4cf`; implementation is `a
 See [`storefront-customer-upgrade.md`](storefront-customer-upgrade.md) and
 [`site-change-workflow.md`](site-change-workflow.md) for architecture and verification.
 The real Staging product/cart/account/checkout pages return 200, list retries are
-idempotent, and the separate verification cart was emptied. Staging has no active
-payment method; a paid transaction, callback and fulfillment were not verified.
+idempotent, and the separate verification cart was emptied. No payment method was available
+in the checked Staging checkout; a paid transaction, callback and fulfillment were not verified.
 Product-data repairs remain with the pipeline; no production change was made.
 
 ## Current Staging dashboard — 2026-11-15

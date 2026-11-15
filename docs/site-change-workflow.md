@@ -34,8 +34,8 @@ Verification:
 - A separate anonymous Staging cart verified quantity saving, optional guest email,
   delivery-preview values and idempotent saved-list restoration. The temporary cart
   was emptied. No order was submitted and no payment or refund was initiated.
-- Staging exposes no active payment method. The checkout form works, but payment
-  completion remains blocked by gateway configuration. No provider was selected,
+- No payment method was available in the checked Staging checkout. The checkout form
+  works, but payment completion remains unverified and requires an available gateway. No provider was selected,
   activated or charged. Shipping zones, product data, prices, references, orders,
   supplier workflows and production configuration were not changed by this release.
 
