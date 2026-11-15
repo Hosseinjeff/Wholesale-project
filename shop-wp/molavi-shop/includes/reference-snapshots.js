@@ -1,6 +1,5 @@
 (() => {
-    const root = document.getElementById('molavi-reference-snapshots');
-    const config = window.molaviReferenceSnapshots;
+    function mount(root, config) {
     if (!root) return;
 
     function element(tag, text, className) {
@@ -409,59 +408,39 @@
     function render(data, successMessage) {
         root.replaceChildren();
         if (successMessage) root.appendChild(notice(successMessage, 'success'));
-        appendRefreshStatus(root, data.refresh_state);
-
-        const snapshots = Array.isArray(data.snapshots) ? data.snapshots : [];
-        if (snapshots.length === 0) {
-            root.appendChild(element('p', 'نسخه قیمتی برای بررسی وجود ندارد.'));
-            return;
+        const snapshots=(Array.isArray(data.snapshots)?data.snapshots:[]).filter(item=>item && /^[a-f0-9]{64}$/.test(item.snapshot_id||''));
+        const active=snapshots.find(item=>item.snapshot_id===data.active_snapshot_id);
+        const usable=Boolean(active && active.source_type==='woocommerce_store_api' && active.coverage_verified===true);
+        const refresh=data.refresh_state || {};
+        const current=element('section',undefined,'card');
+        current.appendChild(element('h2',usable?'مرجع فعال':active?'مرجع نیاز به به‌روزرسانی دارد':'مرجع فعال نیست'));
+        current.appendChild(element('p',active
+            ? `${formatCount(active.row_count,'کالا')} · آخرین دریافت: ${formatDate(active.last_checked_at||active.extracted_at)}`
+            : 'ابتدا داده‌های رزوان را دریافت کنید.'));
+        current.appendChild(element('p','هر کالا با شناسهٔ پایدار ذخیره می‌شود. تازه‌سازی فقط رکوردها و فیلدهای تغییرکرده را به‌روز می‌کند.'));
+        if(refresh.state)current.appendChild(element('p',refreshLabel(refresh.state),'description'));
+        if(refresh.state==='failed')current.appendChild(notice(refreshErrorText(refresh.error_code),'error'));
+        appendRefreshForm(current,refresh);
+        if(active){
+            const preview=element('details');preview.appendChild(element('summary','نمونهٔ داده‌های ذخیره‌شده'));
+            appendPreview(preview,active);current.appendChild(preview);
         }
-
-        snapshots.forEach((snapshot) => {
-            if (!snapshot || typeof snapshot.snapshot_id !== 'string'
-                || !/^[a-f0-9]{64}$/.test(snapshot.snapshot_id)) return;
-            const card = element('section', undefined, 'card');
-            const active = data.active_snapshot_id === snapshot.snapshot_id || Boolean(snapshot.active);
-            const reviewed = Boolean(snapshot.reviewed_by);
-            const supportedSource = snapshot.source_type === 'woocommerce_store_api';
-            const complete = supportedSource && snapshot.coverage_verified === true;
-            const status = active && !supportedSource ? 'فعالِ قدیمی از PDF/Gemini؛ نیازمند جایگزینی'
-                : (active ? 'فعال و در حال استفاده'
-                : (!complete ? 'کامل بودن استخراج تأیید نشده'
-                    : (snapshot.automatic_update ? 'به‌روزرسانی خودکار ثبت شد'
-                    : (reviewed ? 'بررسی شده؛ آماده فعال‌سازی' : 'نیاز به بررسی'))));
-
-            card.appendChild(element('h2', supportedSource ? (snapshot.automatic_update
-                ? 'به‌روزرسانی خودکار مرجع' : 'نسخهٔ فهرست مرجع')
-                : 'پیش‌نویس قدیمی PDF/Gemini'));
-            card.appendChild(element('p', 'وضعیت: ' + status, 'description'));
-            card.appendChild(element('p', (snapshot.active ? 'آخرین دریافت: ' : 'زمان نسخه: ')
-                + formatDate(snapshot.last_checked_at || snapshot.extracted_at)
-                + ' · تعداد ردیف: ' + new Intl.NumberFormat('fa-IR').format(Number(snapshot.row_count) || 0)
-                + (snapshot.source_page_count ? ' · صفحات API: ' + new Intl.NumberFormat('fa-IR').format(snapshot.source_page_count) : '')
-                + (snapshot.first_source_row_number && snapshot.last_source_row_number
-                    ? ' · ردیف‌های منبع: ' + snapshot.first_source_row_number + ' تا ' + snapshot.last_source_row_number : '')
-                + (snapshot.source_currency ? ' · واحد قیمت API: ' + snapshot.source_currency : '')));
-            appendPreview(card, snapshot);
-
-            if (!supportedSource) {
-                card.appendChild(notice('این پیش‌نویس قدیمی از PDF/Gemini ساخته شده است. نسخهٔ مرجع فعلی از API عمومی رزوان دریافت می‌شود؛ این نسخهٔ قدیمی فعال نمی‌شود.', 'error'));
-            } else if (!complete) {
-                card.appendChild(notice(active
-                    ? 'این نسخه در حال حاضر فعال است، اما کامل بودن استخراج آن قابل تأیید نیست؛ از این صفحه نمی‌توان دوباره آن را ثبت یا فعال کرد.'
-                    : 'کامل بودن فهرست دریافتی تأیید نشده؛ بررسی و فعال‌سازی این نسخه غیرفعال است. فهرست تازه را از API رزوان دریافت کنید.', 'error'));
-            } else if (snapshot.automatic_update) {
-                card.appendChild(notice('این نسخه فقط فیلدهای تغییرکرده را به‌روز کرده است؛ کالاهای بدون تغییر دوباره پردازش نشدند.', 'info'));
-            } else if (reviewed) {
-                if (snapshot.review_note) {
-                    card.appendChild(element('p', 'یادداشت بررسی: ' + snapshot.review_note, 'notice notice-info'));
-                }
-                appendActionForm(card, 'activate', snapshot, data.active_snapshot_id);
-            } else {
-                appendActionForm(card, 'review', snapshot, data.active_snapshot_id);
-            }
+        root.appendChild(current);
+        const initial=snapshots.find(item=>item.snapshot_id!==data.active_snapshot_id
+            && item.source_type==='woocommerce_store_api' && item.coverage_verified===true && !item.automatic_update);
+        if(!usable && initial){
+            const card=element('section',undefined,'card');
+            card.appendChild(element('h2','بررسی اولیهٔ مرجع'));
+            card.appendChild(element('p','این بررسی فقط برای شروع استفاده از نخستین فهرست است. تازه‌سازی‌های بعدی به‌صورت تغییرات رکوردی اعمال می‌شوند.'));
+            appendPreview(card,initial);
+            appendActionForm(card,initial.reviewed_by?'activate':'review',initial,data.active_snapshot_id);
             root.appendChild(card);
-        });
+        }
+        if(snapshots.length){
+            const history=element('details');history.appendChild(element('summary','سابقهٔ دریافت مرجع'));
+            snapshots.forEach(item=>history.appendChild(element('p',`${formatDate(item.last_checked_at||item.extracted_at)} · ${formatCount(item.row_count,'کالا')}${item.snapshot_id===data.active_snapshot_id?' · فعال':''}`)));
+            root.appendChild(history);
+        }
     }
 
     async function load(successMessage) {
@@ -476,11 +455,16 @@
                 throw new Error('invalid_response');
             }
             render(data, successMessage);
+            if (successMessage && typeof config.onUpdated === 'function') config.onUpdated();
         } catch (error) {
             root.replaceChildren(notice(messageText(error.message), 'error'));
             addReloadButton(root);
         }
     }
 
-    load();
+    return load();
+    }
+    window.MolaviReferenceCatalog = {mount};
+    const root = document.getElementById('molavi-reference-snapshots');
+    if (root) mount(root, window.molaviReferenceSnapshots);
 })();

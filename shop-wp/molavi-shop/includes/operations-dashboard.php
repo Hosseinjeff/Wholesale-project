@@ -18,6 +18,11 @@ add_action('admin_init', static function (): void {
         'molavi-sheet-conflicts'=>'conflicts',
         'molavi-publication-holds'=>'holds',
     ];
+    $views = ['molavi-reference-snapshots'=>'references', 'molavi-reference-decisions'=>'references'];
+    if (isset($views[$page])) {
+        wp_safe_redirect(add_query_arg(['page'=>'molavi-operations','view'=>$views[$page]], admin_url('admin.php')));
+        exit;
+    }
     if (!isset($routes[$page])) { return; }
 
     $params = ['page'=>'molavi-operations', 'workbench_action'=>$routes[$page]];
@@ -60,8 +65,7 @@ add_action('admin_footer', static function (): void {
 function molavi_operations_dashboard_screen(): void {
     if (!molavi_reference_owner()) { wp_die('دسترسی مجاز نیست.', '', ['response'=>403]); }
     nocache_headers();
-    echo '<div class="wrap"><h1>' . esc_html('مدیریت محصولات') . '</h1>';
-    echo '<p>' . esc_html('هر کالا در یک کارت نمایش داده می‌شود؛ وضعیت، کار بعدی و گزینه‌های رسیدگی همان‌جا هستند.') . '</p>';
+    echo '<div class="wrap molavi-dashboard-page">';
     molavi_owner_workflow_mount('در حال دریافت محصولات…');
     echo '<noscript><div class="notice notice-warning"><p>' . esc_html('برای نمایش وضعیت زنده، جاوااسکریپت را فعال کنید.') . '</p>';
     echo '<ul>';

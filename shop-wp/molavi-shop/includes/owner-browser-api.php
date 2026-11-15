@@ -318,7 +318,18 @@ add_action('admin_enqueue_scripts', static function (): void {
     $token = molavi_owner_workflow_token($pages[$page][1]);
     if (!is_string($base) || wp_parse_url($base, PHP_URL_SCHEME) !== 'https'
         || $token === '' || !is_readable($script)) { return; }
-    wp_enqueue_script('molavi-owner-workflows', plugins_url('owner-workflows.js', __FILE__), [],
+    $dependencies = [];
+    if ($page === 'molavi-operations') {
+        foreach (['reference-snapshots', 'owner-dashboard'] as $asset) {
+            $assetPath = __DIR__ . '/' . $asset . '.js';
+            wp_enqueue_script('molavi-' . $asset, plugins_url($asset . '.js', __FILE__), [],
+                (string) filemtime($assetPath), true);
+            $dependencies[] = 'molavi-' . $asset;
+        }
+        wp_enqueue_style('molavi-owner-dashboard', plugins_url('owner-dashboard.css', __FILE__),
+            ['molavi-owner-workflows'], (string) filemtime(__DIR__ . '/owner-dashboard.css'));
+    }
+    wp_enqueue_script('molavi-owner-workflows', plugins_url('owner-workflows.js', __FILE__), $dependencies,
         (string) filemtime($script), true);
     $style = __DIR__ . '/owner-workflows.css';
     if (is_readable($style)) {
