@@ -64,15 +64,20 @@ function molavi_catalog_public_rows(array $ids): array {
         if(!$row||!$product instanceof \WC_Product)continue;
         $image=wp_get_attachment_image_url($product->get_image_id(),'woocommerce_thumbnail');
         $public[(string)$id]=array_intersect_key($row,array_flip(['name','min','pack_size','household_unit','shop_unit','household_threshold_units','shop_threshold_units','shelf','discountable','household_max_discount','shop_max_discount']))
-            +['image'=>$image?:wc_placeholder_img_src('woocommerce_thumbnail')];
+            +['image'=>$image?:wc_placeholder_img_src('woocommerce_thumbnail'),'url'=>$product->get_permalink()];
     }
     return $public;
 }
 function molavi_storefront_catalog_ajax(): void {
     $params=wp_unslash($_GET);
     $result=molavi_storefront_catalog_page(is_array($params)?$params:[]);
-    ob_start();foreach($result['products'] as $product)molavi_render_storefront_card($product,$result['quote']);$html=(string)ob_get_clean();
     $ids=array_map(static function($p){return $p->get_id();},$result['products']);
+    if(($params['format']??'')==='collection'){
+        nocache_headers();wp_send_json_success(['catalog'=>molavi_catalog_public_rows($ids),
+            'quote'=>$result['quote'],'page'=>$result['page'],'total'=>$result['total'],
+            'has_more'=>$result['has_more'],'buyer_type'=>\molavi_buyer_type()]);
+    }
+    ob_start();foreach($result['products'] as $product)molavi_render_storefront_card($product,$result['quote']);$html=(string)ob_get_clean();
     nocache_headers();wp_send_json_success(['html'=>$html,'catalog'=>molavi_catalog_public_rows($ids),
         'page'=>$result['page'],'total'=>$result['total'],'has_more'=>$result['has_more'],'buyer_type'=>\molavi_buyer_type()]);
 }

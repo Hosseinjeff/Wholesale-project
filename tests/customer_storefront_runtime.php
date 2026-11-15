@@ -97,9 +97,12 @@ $shippingFilter=$GLOBALS['filters']['woocommerce_cart_ready_to_calc_shipping'][0
 $GLOBALS['test_is_cart']=true;test_assert(!$shippingFilter(true),'shipping is deferred on the native cart');
 $GLOBALS['test_is_cart']=false;test_assert($shippingFilter(true),'checkout retains native shipping calculation');
 WC()->cart->lines=[];
+$_GET=['ids'=>'1,2','format'=>'collection'];$beforeRead=WC()->cart->lines;
+try{\Molavi\Elementor\molavi_storefront_catalog_ajax();}catch(Reply $r){test_assert($r->success&&isset($r->data['quote'],$r->data['catalog'][1]['url'])&&!isset($r->data['html'])&&WC()->cart->lines===$beforeRead,'collection facts use a bounded read without cart mutation');}
+$_GET=[];
 if(getenv('MOLAVI_FIXTURE_DIR')){
  $dir=getenv('MOLAVI_FIXTURE_DIR');
- ob_start();\Molavi\Elementor\molavi_render_storefront();$html=ob_get_clean();
+ ob_start();\Molavi\Elementor\molavi_render_storefront();\Molavi\Elementor\molavi_render_favorites_library();$html=ob_get_clean();
  file_put_contents($dir.'/storefront.html',$html);
  file_put_contents($dir.'/storefront.json',json_encode(['initial'=>molavi_quote(),'catalog'=>\Molavi\Elementor\molavi_catalog_public_rows(array_keys($map))],JSON_UNESCAPED_UNICODE));
 }

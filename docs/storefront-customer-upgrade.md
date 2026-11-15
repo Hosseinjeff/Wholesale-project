@@ -1,6 +1,6 @@
 # Customer storefront upgrade
 
-2026-11-15, Asia/Tehran. Implements the non-data parts of the storefront review.
+Updated 2026-11-16, Asia/Tehran. Implements the non-data parts of the storefront review.
 Product titles, categories, attributes, images, pack metadata and pricing bands are
 not corrected by this release. Those remain product-pipeline responsibilities.
 
@@ -35,28 +35,40 @@ cards show complete wrapping titles, prioritize the current price and keep quant
 controls below. The short top guide responds to an empty cart, active discount or
 invalid quantities. Buyer information explains profile effects and quantity repair.
 
-Favorites and saved carts share one collapsed section inside the catalog cart and
-native Woo cart, including its empty state. Saving assigns a name automatically;
-renaming is optional. Explicitly saving a cart also adds its products to the existing favorites.
-Saved carts retain only IDs, quantities and labels in this browser (up to ten), never
-old prices or contact details. The compact cart button remains at the lower left,
-including when empty. Confirmed changes show a 4.2-second summary with the actual
-current discount rate and savings before it retracts; reduced motion is respected.
+The header heart opens one native dialog on catalog, product, cart, checkout and
+account pages. Its keyboard-accessible tabs show favorite products and saved carts;
+these tools are outside the cart drawer. Products have current public details and
+shared quantity controls. Saved carts show expandable item previews, direct add/new
+active-cart actions, inline optional renaming and deletion. Names are automatic.
+Saving all favorites as a new saved cart performs no Woo cart write. Saving the active
+cart does not add its products to individual favorites. Existing browser records are
+preserved: product IDs in `molavi-wishlist-v1`, and at most ten ID/quantity/name lists
+in `molavi-shopping-lists-v1`. No old prices or contact details are stored.
+
+The compact cart remains at the lower left. Its count sits inside the icon at the
+upper right, is absent for an empty cart and caps visually at 99+. Confirmed cart
+changes show a 4.2-second current-discount/savings summary before retracting.
 
 Restoring a list validates the nonce, item count/types, current simple-product
 eligibility and current approved quantity increments. It merges with the active cart,
 reports skipped/adjusted lines and returns freshly calculated prices and public facts.
 An idempotent request token in the Woo session prevents an uncertain network response
 from doubling quantities when retried. It does not submit an order or charge a payment.
-Creating a new cart from favorites uses the same endpoint in explicit replacement
-mode. It first saves the old cart locally, then uses current product eligibility and
+Creating a new active cart from a saved cart uses the same endpoint in explicit
+replacement mode. It first saves the old cart locally, then uses current product eligibility and
 minimum quantities. Unavailable-only requests preserve the old cart; a failed write
 restores the original contents. Request receipts include the operation mode and make
-replacement retries idempotent. No second cart ledger is introduced. Native cart tools
-read the current form quantities, wait for updates and remount after Woo refreshes.
+replacement retries idempotent. No second cart ledger is introduced. The heart library reads native cart form quantities and waits for Woo updates.
 Checkout is blocked while a quantity/profile/list update is unresolved.
 
 ## Delivery and pricing
+
+The owner subsequently requested a new visual direction, focused on layout, spacing
+and typography. `customer.css` now defines warm-white/ink/blue customer styling,
+consistent content widths, quieter controls, complete titles and aligned card prices.
+Header navigation is simplified; product galleries are contained on phones; account
+forms are aligned; empty carts offer shop and heart entry points. Native Woo forms,
+validation, checkout and payment handlers remain. The owner dashboard is separate.
 
 The existing supplier prices, price bands, household/shop caps, tuna-based discount
 threshold and quantity policy remain authoritative. Delivery estimates and rates are absent from both catalog and native carts; the
@@ -70,7 +82,10 @@ as the delivery threshold. No shipping policy, zone or instance is changed.
 `includes/storefront-catalog.php` maintains a 60-second static public index and renders
 at most 24 product tiles per request. Search normalizes Arabic/Persian character and
 digit variants over existing names/packaging/category values. Categories are read as-is.
-Current-price sorting uses the server quote. Each returned product's active eligibility
+Current-price sorting uses the server quote. The same endpoint's `format=collection`
+returns at most 24 public facts plus the current quote without card HTML. The heart
+library reads pages lazily, cancels obsolete requests and rejects older cart/profile
+revisions. It keeps local selections after failures and offers a visible retry. Each returned product's active eligibility
 is checked again after the index cache. The client debounces filters, cancels older
 requests and rejects a catalog response from an obsolete cart/profile revision.
 
@@ -85,17 +100,20 @@ and cart quote remain responsible for complete-catalog price calculations.
 and the actual price functions. It checks first/last pages, Persian search, quote sorting,
 delivery threshold boundaries, optional email/required mobile, skipped unavailable
 products, current quantity steps, public-only restored facts, idempotent retries and
-validation before mutations. The 19 assertions also cover replacement rollback,
-current minimum quantities, mode-bound retries and cart-only shipping deferral.
+validation before mutations. The 20 assertions also cover replacement rollback,
+current minimum quantities, mode-bound retries, cart-only shipping deferral and a
+bounded collection read without cart mutation.
 It can generate local browser fixtures when
 `MOLAVI_FIXTURE_DIR` is set. Run with PHP 8 or the disposable PHP Wasm CLI.
 
 `tests/storefront_interactions.browser.cjs` runs the generated fixtures in Chromium
-with intercepted mock APIs. It checks bounded tiles, quantity labels, no writes on
-load, checkout waiting for price saves, no card totals or cart delivery rates, automatic list names, renaming, shared
-favorites, backup before replacement, complete titles in both layouts, a retracting
-lower-left cart, native cart quantities/update blocking, mobile width, help dialogs
-and incremental loading (25 checks). Screenshots stay in `/tmp`.
+with intercepted mock APIs. The 38 checks cover bounded tiles, read-only page/heart
+loading, current quantity labels, pending-save checkout blocking, no cart delivery or
+card total, shared off-page favorite facts/controls, saving favorites without a cart
+write, automatic names, inline rename, save-current behavior, merge/replacement with
+backup, complete titles in both layouts, 320/390px fit, correctly anchored cart count,
+peek/retraction, accessible modal/tab navigation, read failure/retry, native cart
+quantity capture/update blocking, help and pagination. Screenshots stay in `/tmp`.
 
 Connected release checks must use an isolated anonymous Staging cart, inspect native
 product/cart/account/checkout rendering, confirm the fresh quote and restore endpoint,

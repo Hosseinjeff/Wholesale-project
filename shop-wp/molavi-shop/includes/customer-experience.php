@@ -94,11 +94,17 @@ add_action('woocommerce_before_cart', static function (): void {
 add_filter('woocommerce_cart_ready_to_calc_shipping', static function ($ready): bool {
     return is_cart() ? false : (bool) $ready;
 });
+add_action('wp', static function (): void {
+    if (is_cart()) { remove_action('woocommerce_cart_is_empty','wc_empty_cart_message',10); }
+});
 add_action('woocommerce_cart_is_empty', static function (): void {
-    \Molavi\Elementor\molavi_render_cart_collections();
+    echo '<section class="molavi-cart-empty"><span class="molavi-empty-cart-mark" aria-hidden="true">';
+    echo '<svg viewBox="0 0 24 24"><path d="M4 5h3l2 11h10l2-9H8"></path><circle cx="10" cy="20" r="1"></circle><circle cx="18" cy="20" r="1"></circle></svg></span>';
+    echo '<h1>سبد خرید شما خالی است</h1><p>از فروشگاه شروع کنید یا سراغ انتخاب‌های ذخیره‌شدهٔ خود بروید.</p><div>';
+    echo '<a class="button" href="' . esc_url(wc_get_page_permalink('shop')) . '">دیدن فروشگاه</a>';
+    echo '<button type="button" data-molavi-open-library aria-haspopup="dialog" aria-controls="molavi-favorites-dialog">علاقه‌مندی‌ها و سبدهای ذخیره‌شده</button></div></section>';
 });
 add_action('woocommerce_after_cart_table', static function (): void {
-    \Molavi\Elementor\molavi_render_cart_collections();
     echo '<a class="molavi-continue-shopping" href="' . esc_url(wc_get_page_permalink('shop')) . '">ادامهٔ خرید</a>';
 });
 add_action('woocommerce_thankyou', static function ($orderId): void {
@@ -214,4 +220,4 @@ function molavi_render_shopping_help(): void {
     echo '<p>خرید به‌صورت مهمان امکان‌پذیر است. نام، شماره همراه و نشانی تحویل لازم است؛ حساب و ایمیل اختیاری‌اند. پس از تأیید پرداخت، آماده‌سازی و تأمین سفارش پیگیری می‌شود.</p>';
     echo '<form method="dialog"><button class="button" type="submit">متوجه شدم</button></form></dialog>';
 }
-add_action('wp_footer',static function (): void { if(molavi_is_customer_request()) molavi_render_shopping_help(); },15);
+add_action('wp_footer',static function (): void { if(molavi_is_customer_request()) { molavi_render_shopping_help(); \Molavi\Elementor\molavi_render_favorites_library(); } },15);
