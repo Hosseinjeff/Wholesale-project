@@ -605,6 +605,7 @@ function molavi_quote(): array
         'kinds' => count($qtys),
         'units' => $units,
         'qtys' => $qtys,
+        'delivery' => function_exists('molavi_delivery_preview') ? molavi_delivery_preview($subtotal) : null,
     ];
 }
 

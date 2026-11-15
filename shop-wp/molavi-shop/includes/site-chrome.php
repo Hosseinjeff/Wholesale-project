@@ -35,7 +35,7 @@ function molavi_site_page_links(): array
 
 function molavi_render_site_header(bool $forceStorefront = false): void
 {
-    if (is_admin() || wp_doing_ajax() || !function_exists('wc_get_page_permalink')
+    if ((!$forceStorefront && !empty($GLOBALS['molavi_customer_shell'])) || is_admin() || wp_doing_ajax() || !function_exists('wc_get_page_permalink')
         || (!$forceStorefront && function_exists('molavi_is_storefront_request') && molavi_is_storefront_request())) {
         return;
     }
@@ -109,7 +109,7 @@ function molavi_render_site_header(bool $forceStorefront = false): void
 
 function molavi_render_site_footer(bool $elementorOnly = false): void
 {
-    if (is_admin() || wp_doing_ajax()) {
+    if ((!$elementorOnly && !empty($GLOBALS['molavi_customer_shell'])) || is_admin() || wp_doing_ajax()) {
         return;
     }
     if ($elementorOnly) {
@@ -127,6 +127,7 @@ function molavi_render_site_footer(bool $elementorOnly = false): void
         <div class="molavi-site-footer-inner">
             <a class="molavi-footer-brand" href="<?php echo esc_url(home_url('/')); ?>">فروشگاه مولوی‌سل</a>
             <nav aria-label="پیوندهای فروشگاه">
+                <button class="molavi-footer-help" type="button" data-molavi-open-help>روش خرید و ارسال</button>
                 <a href="<?php echo esc_url($shopUrl); ?>">فروشگاه شما</a>
                 <?php foreach (molavi_site_page_links() as $label => $url): ?>
                     <a href="<?php echo esc_url($url); ?>"><?php echo esc_html($label); ?></a>

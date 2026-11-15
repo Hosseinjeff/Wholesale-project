@@ -34,6 +34,8 @@ require_once __DIR__ . '/includes/woocommerce-admin.php';
 require_once __DIR__ . '/includes/delivery.php';
 require_once __DIR__ . '/includes/storefront-renderer.php';
 require_once __DIR__ . '/includes/site-chrome.php';
+require_once __DIR__ . '/includes/customer-experience.php';
+require_once __DIR__ . '/includes/storefront-catalog.php';
 add_shortcode('molavi_storefront', '\\Molavi\\Elementor\\molavi_storefront_shortcode');
 
 add_action('wp_body_open', '\\Molavi\\Elementor\\molavi_render_site_header', 5);
@@ -248,28 +250,18 @@ add_action('wp_enqueue_scripts', static function (): void {
         (string) filemtime(__DIR__ . '/shop.js'),
         true
     );
-    $catalog = [];
-    foreach (molavi_catalog_map() as $id => $row) {
-        $product = wc_get_product((int) $id);
-        $image = $product ? wp_get_attachment_image_url($product->get_image_id(), 'woocommerce_thumbnail') : false;
-        $catalog[(string) $id] = [
-            'name' => (string) $row['name'],
-            'image' => $image ?: wc_placeholder_img_src('woocommerce_thumbnail'),
-            'min' => (int) $row['min'],
-            'pack_size' => (int) $row['pack_size'],
-            'household_unit' => (int) $row['household_unit'],
-            'shop_unit' => (int) $row['shop_unit'],
-            'household_threshold_units' => (int) $row['household_threshold_units'],
-            'shop_threshold_units' => (int) $row['shop_threshold_units'],
-            'shelf' => (int) $row['shelf'],
-            'discountable' => (int) $row['discountable'],
-            'household_max_discount' => (float) $row['household_max_discount'],
-            'shop_max_discount' => (float) $row['shop_max_discount'],
-        ];
-    }
+    $quote = molavi_quote();
+    $exposed = array_keys($quote['qtys']);
+    if (molavi_is_storefront_request()) {
+        $GLOBALS['molavi_page_catalog'] = \Molavi\Elementor\molavi_storefront_catalog_page(wp_unslash($_GET));
+        foreach ($GLOBALS['molavi_page_catalog']['products'] as $visible) { $exposed[]=$visible->get_id(); }
+    } elseif (function_exists('is_product') && is_product()) { $exposed[]=get_queried_object_id(); }
+    $catalog = \Molavi\Elementor\molavi_catalog_public_rows($exposed);
     $quote = molavi_quote();
     wp_localize_script('molavi-shop', 'molaviShop', [
         'qty' => WC_AJAX::get_endpoint('molavi_qty'),
+        'restoreList' => WC_AJAX::get_endpoint('molavi_restore_list'),
+        'catalogEndpoint' => WC_AJAX::get_endpoint('molavi_catalog'),
         'buyer' => WC_AJAX::get_endpoint('molavi_buyer'),
         'nonce' => wp_create_nonce('molavi-qty'),
         'unlock' => (int) $quote['unlock'],
@@ -346,7 +338,7 @@ add_filter('woocommerce_get_price_html', static function (string $html, $product
     $shelf = (int) $curve['shelf'];
     $rate = $shelf > $unit ? ($shelf - $unit) / $shelf : 0.0;
     $markup = '<span class="molavi-public-price">';
-    if ($shelf > 0) {
+    if ($shelf > $unit) {
         $markup .= '<span class="molavi-public-reference">قیمت مصرف <del>' . esc_html(molavi_toman($shelf)) . '</del></span>';
     }
     $markup .= '<span class="molavi-public-current">' . esc_html(molavi_toman($unit)) . '</span>';
