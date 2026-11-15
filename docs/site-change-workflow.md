@@ -1,6 +1,22 @@
 # Site changes and preservation workflow
 
-Updated: 2026-11-14, Asia/Tehran
+Updated: 2026-11-15, Asia/Tehran
+
+## 2026-11-15 Staging product dashboard simplified
+
+Commit `a6f6935c656d912b0bd09d7257fd2330fc3bf3af` makes the product-card list the
+default and only normal management view. The stage map and duplicate queue workspace
+are removed from the visible dashboard. Legacy product-queue links now open the same
+product-card view, filtered to the relevant work, with its action selected. History,
+batch recovery, source re-review and system-level tools are grouped under one collapsed
+“More tools” disclosure.
+
+The plugin files were deployed only to WordPress Staging with
+`python3 tools/deploy_wordpress_plugin.py --site staging --since 17367dc45a53265bac3a832a28b932b46d16c252`.
+The uploader read back and verified `operations-dashboard.php`, `owner-workflows.css`
+and `owner-workflows.js`. `node --check` and `git diff --check` passed. An authenticated
+visual check was unavailable because no connected browser tool was present. No product
+records, Railway service or production site were changed.
 
 ## 2026-11-14 Staging product queues routed into the shared workbench
 
