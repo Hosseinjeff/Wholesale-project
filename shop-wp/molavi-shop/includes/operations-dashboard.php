@@ -36,7 +36,7 @@ add_action('admin_init', static function (): void {
 
 add_action('admin_menu', static function (): void {
     if (!molavi_reference_owner()) { return; }
-    add_submenu_page('woocommerce', 'میز کار مولوی‌سل', 'میز کار مولوی‌سل',
+    add_submenu_page('woocommerce', 'مدیریت محصولات مولوی‌سل', 'مدیریت محصولات',
         'manage_woocommerce', 'molavi-operations', 'molavi_operations_dashboard_screen');
 }, 20);
 
@@ -60,9 +60,9 @@ add_action('admin_footer', static function (): void {
 function molavi_operations_dashboard_screen(): void {
     if (!molavi_reference_owner()) { wp_die('دسترسی مجاز نیست.', '', ['response'=>403]); }
     nocache_headers();
-    echo '<div class="wrap"><h1>' . esc_html('میز کار مولوی‌سل') . '</h1>';
-    echo '<p>' . esc_html('از رسید پیام در Railway تا استخراج، Offer، رکورد Products، مدرک قیمت و وضعیت واقعی Woo را مرحله‌به‌مرحله دنبال کنید. هر تصمیم اثر و رسید خودش را دارد؛ وضعیت نامعلوم موفق تلقی نمی‌شود.') . '</p>';
-    molavi_owner_workflow_mount('در حال ساخت مسیر رسیدگی و بارگذاری صف‌ها…');
+    echo '<div class="wrap"><h1>' . esc_html('مدیریت محصولات') . '</h1>';
+    echo '<p>' . esc_html('هر کالا در یک کارت نمایش داده می‌شود؛ وضعیت، کار بعدی و گزینه‌های رسیدگی همان‌جا هستند.') . '</p>';
+    molavi_owner_workflow_mount('در حال دریافت محصولات…');
     echo '<noscript><div class="notice notice-warning"><p>' . esc_html('برای نمایش وضعیت زنده، جاوااسکریپت را فعال کنید.') . '</p>';
     echo '<ul>';
     $labels = [

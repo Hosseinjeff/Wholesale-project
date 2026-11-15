@@ -582,7 +582,7 @@
         root.replaceChildren();
         const header = node('div', null, 'molavi-workflow-heading');
         header.appendChild(node('h1', title));
-        const back = node('a', 'بازگشت به خط لوله');
+        const back = node('a', 'بازگشت به محصولات');
         back.href = config.pipelineUrl;
         back.target = '_top';
         header.appendChild(back);
@@ -641,12 +641,13 @@
                 : ['holds','status'].includes(workbenchRouteAction) ? 'publish'
                     : workbenchRouteAction === 'storefront' ? 'storefront' : '';
     let workbenchView = window.location.hash === '#reextract' || workbenchRouteAction === 'reextract'
-        ? 'reextract' : workbenchRouteAction ? 'tasks' : 'products';
+        ? 'reextract' : 'products';
     let workbenchIndex = 0;
     let workbenchSelectedKey = '';
     let workbenchLoadId = 0;
     let workbenchMounted = false;
     let workbenchBoard = null;
+    let workbenchToolsDisclosure = null;
     let workbenchRefresh = null;
     let workbenchDeliverQueued = null;
     let workbenchLiveStatus = null;
@@ -1501,6 +1502,7 @@
         };
 
         const openSourceReviewTool = () => {
+            if (workbenchToolsDisclosure) workbenchToolsDisclosure.open = true;
             workbenchView = 'reextract';
             workbenchStage = 'extract';
             workbenchQueue = 'stage_extract';
@@ -1875,6 +1877,7 @@
                         const openBatch = node('button', 'دیدن پیام‌ها و اقدام بازیابی', 'button button-link');
                         openBatch.type = 'button';
                         openBatch.addEventListener('click', () => {
+                            if (workbenchToolsDisclosure) workbenchToolsDisclosure.open = true;
                             workbenchView = 'store';
                             renderView();
                             const target = storeView.querySelector(`#molavi-batch-${holdIndex}`);
@@ -2050,6 +2053,7 @@
                 node('b', metric.count === null ? '—' : metric.count.toLocaleString('fa-IR'), 'molavi-stage-count'),
                 node('small', metric.detail, 'molavi-stage-detail'));
             button.addEventListener('click', () => {
+                if (workbenchToolsDisclosure) workbenchToolsDisclosure.open = true;
                 workbenchStage = stage.key;
                 workbenchQueue = stage.queues.length ? `stage_${stage.key}` : 'next';
                 workbenchView = stage.view ? 'store' : 'tasks';
@@ -2098,18 +2102,20 @@
                 button.setAttribute('aria-pressed', String(selected));
             });
         };
-        [['products','محصولات زنده'],['tasks','صف‌های کار'],['reextract','بازاستخراج منبع'],['store','سیستم و فروشگاه'],
-            ['dismissed',`کنارگذاشته‌شده‌ها · ${workbenchDismissals.length.toLocaleString('fa-IR')}`]].forEach(([key,label]) => {
+        [['reextract','بازبینی پیام‌های منبع'],['store','پردازش و فروشگاه'],
+            ['dismissed',`کارهای کنارگذاشته‌شده · ${workbenchDismissals.length.toLocaleString('fa-IR')}`]].forEach(([key,label]) => {
             const button = node('button', label, 'molavi-workbench-tab');
             button.type = 'button';
             button.setAttribute('aria-pressed', String(key === workbenchView));
             button.addEventListener('click', () => {
                 if (key === 'products') {
                     workbenchView = key;
+                    if (workbenchToolsDisclosure) workbenchToolsDisclosure.open = false;
                     renderView();
                     renderLiveProductsView();
                     return;
                 }
+                if (workbenchToolsDisclosure) workbenchToolsDisclosure.open = true;
                 if (key === 'reextract') {
                     workbenchStage = 'extract';
                     workbenchQueue = 'stage_extract';
@@ -2440,7 +2446,14 @@
         sourceGroup.setAttribute('aria-label', 'انتخاب پیام‌ها برای بازاستخراج');
         reextractView.appendChild(sourceGroup);
         taskView.append(queueNavigation, taskSearchRow, taskFilterDetails, filterResultRow, queueContent);
-        board.append(overview, stageGrid, dismissalPanel, tabs, liveProductsView, taskView, reextractView, storeView, dismissedView);
+        workbenchToolsDisclosure = document.createElement('details');
+        workbenchToolsDisclosure.className = 'molavi-workbench-tools-disclosure';
+        workbenchToolsDisclosure.open = workbenchView !== 'products';
+        workbenchToolsDisclosure.appendChild(node('summary', 'ابزارهای بیشتر'));
+        const historyLink = ownerWorkflowLink('molavi-product-status-snapshots', 'تاریخچهٔ وضعیت کالاها');
+        if (historyLink) workbenchToolsDisclosure.appendChild(historyLink);
+        workbenchToolsDisclosure.append(tabs, reextractView, storeView, dismissedView);
+        board.append(liveProductsView, workbenchToolsDisclosure);
 
         refreshQueueCounts = () => {
             queueDefinitions.forEach(queue => {
@@ -2480,6 +2493,7 @@
         queueSelect.addEventListener('change', () => {
             const queue = queueDefinitions.find(item => item.key === queueSelect.value);
             if (!queue) return;
+            if (workbenchToolsDisclosure) workbenchToolsDisclosure.open = true;
             workbenchQueue = queue.key;
             workbenchStage = queue.key === 'next' ? '' : (activeStageForQueue(queue.key)?.key || '');
             workbenchDismissalQueueKeys = new Set(queue.key === 'next'
@@ -2952,11 +2966,11 @@
         };
         renderLiveProductsView = () => {
             liveProductsView.replaceChildren();
-            const sourceRows = data.product_status && Array.isArray(data.product_status.products)
-                ? data.product_status.products : [];
             const heading = node('section', null, 'card molavi-live-products-heading');
             heading.appendChild(node('h2', 'فهرست زندهٔ محصولات'));
-            heading.appendChild(node('p', 'اطلاعات هر کارت از خواندن فعلی صف‌ها و رکورد محصولات ساخته می‌شود. برای دیدن تغییرهای تازه، فهرست را به‌روزرسانی کنید.'));
+            heading.appendChild(node('p', workbenchRouteAction
+                ? 'این فهرست فقط کالاهای همین کار را نشان می‌دهد؛ گزینهٔ اقدام در کارت باز است.'
+                : 'هر کالا یک کارت دارد. کار بعدی در همان کارت باز است و بقیهٔ کارها در زبانه‌ها می‌مانند.'));
             const stamp = data.product_status && data.product_status.generated_at;
             if (stamp) heading.appendChild(node('small', `آخرین خواندن: ${formatSourceTimestamp(stamp) || stamp}`));
             const headingActions = node('div', null, 'molavi-live-products-heading-actions');
@@ -2964,8 +2978,6 @@
             refresh.type = 'button';
             refresh.addEventListener('click', () => dashboard('در حال دریافت دوبارهٔ وضعیت زندهٔ محصولات…', 'info'));
             headingActions.appendChild(refresh);
-            const historyLink = ownerWorkflowLink('molavi-product-status-snapshots', 'تاریخچهٔ وضعیت کالاها');
-            if (historyLink) headingActions.appendChild(historyLink);
             heading.appendChild(headingActions);
             liveProductsView.appendChild(heading);
 
@@ -3007,7 +3019,8 @@
                 const productId = String(status.product_id || product.product_id || '').trim();
                 const offerId = String(status.latest_offer_id || '').trim();
                 const sourceIssues = Array.isArray(status.source_integrity_issues) ? status.source_integrity_issues : [];
-                const primaryAction = workbenchActionKey(product);
+                const primaryAction = workbenchRouteAction && workbenchQueueMatches(product, workbenchRouteAction)
+                    ? workbenchRouteAction : workbenchActionKey(product);
                 const needsReference = Boolean(product.references.length || !status.reference_match_id
                     || status.reference_approval_state === 'needs_review' || status.reference_review_due
                     || status.reference_update_needed || status.reference_approval_state === 'price_unavailable');
@@ -3024,7 +3037,7 @@
                 const preferredTabByAction = {source_integrity:'source', ai:'ai', references:'reference',
                     supplier_prices:'supplier_prices', conflicts:'conflicts', holds:'publication',
                     status:'publication', storefront:'storefront'};
-                const preferredTab = preferredTabByAction[workbenchActionKey(product)] || 'overview';
+                const preferredTab = preferredTabByAction[primaryAction] || 'overview';
                 const defaultTab = tabsForProduct.some(tab => tab.key === preferredTab) ? preferredTab : 'overview';
 
                 const card = node('article', null, 'card molavi-review-card molavi-live-product-card');
@@ -3148,7 +3161,6 @@
                             if (!nextActions.length) panel.appendChild(notice('پرچم به‌روزرسانی دلیل اقدام مستقلی ندارد؛ جزئیات را نگه‌دارید تا وابستگی مرجع یا قیمت روشن شود.', 'info'));
                         }
                         else panel.appendChild(notice('اقدام انتشار بازی برای این محصول وجود ندارد.', 'info'));
-                        appendActionLink(pageLink('molavi-product-status-snapshots', 'دیدن تاریخچهٔ وضعیت'));
                     } else if (key === 'storefront') {
                         panel.appendChild(node('h3', 'وضعیت فروشگاه'));
                         const liveState = workbenchReconciliation && Array.isArray(workbenchReconciliation.product_states)
@@ -3203,22 +3215,33 @@
 
             const paintCards = () => {
                 const needle = workbenchNameKey(workbenchLiveProductSearch);
-                const liveProducts = sourceRows.map(row => {
-                    const id = String(row.product_id || '').trim();
-                    return byProductId.get(id) || ensureProduct(row, 'product_status');
-                }).filter(product => !needle || workbenchNameKey([
-                    product.name, product.product_id, product.channel,
-                    product.status && product.status.latest_offer_id
-                ].join(' ')).includes(needle));
+                const liveProducts = products.filter(product => {
+                    const matchesSearch = !needle || workbenchNameKey([
+                        product.name, product.product_id, product.channel,
+                        product.status && product.status.latest_offer_id
+                    ].join(' ')).includes(needle);
+                    const matchesAction = !workbenchRouteAction
+                        || workbenchQueueMatches(product, workbenchRouteAction);
+                    const matchesFocus = !workbenchFocusId
+                        || workbenchMatchesFilters(product, workbenchRouteAction);
+                    return matchesSearch && matchesAction && matchesFocus;
+                });
                 liveProducts.sort((a,b) => Number(attention(b))-Number(attention(a))
                     || workbenchPriority(a)-workbenchPriority(b) || a.name.localeCompare(b.name, 'fa'));
                 resultCount.textContent = `نمایش ${Math.min(workbenchLiveProductLimit, liveProducts.length).toLocaleString('fa-IR')} از ${liveProducts.length.toLocaleString('fa-IR')} محصول`;
                 cards.replaceChildren();
                 liveProducts.slice(0, workbenchLiveProductLimit).forEach(product => cards.appendChild(renderCard(product.status || {}, product)));
+                if (workbenchRouteAction && !liveProducts.length) {
+                    cards.appendChild(notice(workbenchFocusId
+                        ? `برای شناسهٔ ${workbenchFocusId} مورد بازی در این کار پیدا نشد.`
+                        : 'در این کار مورد بازی برای نمایش وجود ندارد.', 'info'));
+                } else if (!workbenchRouteAction && !liveProducts.length && products.length) {
+                    cards.appendChild(notice('محصولی با این نام یا شناسه پیدا نشد.', 'info'));
+                }
                 showMore.hidden = workbenchLiveProductLimit >= liveProducts.length;
                 showMore.textContent = `نمایش ${Math.min(30, liveProducts.length - workbenchLiveProductLimit).toLocaleString('fa-IR')} محصول بعدی`;
-                if (!sourceRows.length) {
-                    liveProductsView.appendChild(notice(workbenchErrors.product_status || 'فهرست زندهٔ محصولات در دسترس نیست.', 'warning'));
+                if (!products.length) {
+                    cards.appendChild(notice(workbenchErrors.product_status || 'فهرست زندهٔ محصولات در دسترس نیست.', 'warning'));
                 }
             };
             searchInput.addEventListener('input', () => {
@@ -3227,7 +3250,7 @@
                 paintCards();
             });
             showMore.addEventListener('click', () => {
-                workbenchLiveProductLimit = Math.min(sourceRows.length, workbenchLiveProductLimit + 30);
+                workbenchLiveProductLimit = Math.min(products.length, workbenchLiveProductLimit + 30);
                 paintCards();
             });
             paintCards();
@@ -5940,7 +5963,7 @@
     }
 
     async function productStatusSnapshots(message = '', messageKind = 'info') {
-        shell('سوابق وضعیت کالا', 'این صفحه برای تاریخچه و مقایسهٔ تغییرهای وضعیت محصول است؛ برای رسیدگی روزمره از کارت‌های زندهٔ محصولات در مرکز فرمان استفاده کنید. اگر از آخرین ثبت روزانه گذشته باشد، بازکردن این صفحه یک نسخهٔ تاریخچه ثبت می‌کند.');
+        shell('سوابق وضعیت کالا', 'این صفحه تاریخچه را نشان می‌دهد و اگر از آخرین ثبت بیش از ۲۴ ساعت گذشته باشد، نسخهٔ روزانه ثبت می‌کند. برای رسیدگی روزمره از کارت‌های زندهٔ محصولات استفاده کنید.');
         if (message) root.appendChild(notice(message, messageKind));
         const liveProductsLink = ownerWorkflowLink('molavi-operations', 'بازگشت به محصولات زنده');
         if (liveProductsLink) root.appendChild(liveProductsLink);

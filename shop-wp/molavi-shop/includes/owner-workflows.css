@@ -777,6 +777,12 @@
 }
 #molavi-owner-workflow .molavi-live-product-next-action strong { color:#713b20; font-size:.8rem; }
 #molavi-owner-workflow .molavi-live-product-next-action p { margin:0; color:#304456; font-size:.84rem; line-height:1.45; }
+#molavi-owner-workflow .molavi-workbench-tools-disclosure {
+    margin-top:1.25rem; border-top:1px solid #e1e5e9;
+}
+#molavi-owner-workflow .molavi-workbench-tools-disclosure > summary {
+    width:fit-content; padding:.65rem 0; color:#646970; font-size:.85em; cursor:pointer;
+}
 #molavi-owner-workflow .molavi-live-product-tabs {
     display:flex; flex-wrap:wrap; gap:.15rem; border-bottom:1px solid #d8dedc;
 }
