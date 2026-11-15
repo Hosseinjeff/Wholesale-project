@@ -1,9 +1,21 @@
 # MolaviSale — whole-workflow handoff
 
-Snapshot 4.77. Updated 2026-11-14, Asia/Tehran. The canonical roleplay decisions are in
+Snapshot 4.78. Updated 2026-11-15, Asia/Tehran. The canonical roleplay decisions are in
 `roleplay-state.json`; current live evidence and release gates are in
 `pipeline-readiness.md` and `pipeline-readiness-evidence.json`.
 The product intake and shelf policy is documented in `products-streamline-integrity.md`.
+
+## Current Staging dashboard — 2026-11-15
+
+The owner requested a ground-up rebuild after the staged queue/card changes remained
+confusing. Commit `b20083b9a585c967fbe8e6533a509a048364e356` is deployed to WordPress
+Staging and replaces those competing views with one application and one product card
+renderer. Continue from [`../design/product-dashboard-v2/README.md`](../design/product-dashboard-v2/README.md)
+for the navigation, state and dataset responsibilities. The latest release and verification
+evidence are in [`site-change-workflow.md`](site-change-workflow.md). The old stage board,
+queue workspace and separate product page renderers are removed; retain the shared audited
+action routines when evolving the new interface. The data-authority cutover under D-043
+is still separate from this interface rebuild. No business data was migrated in this release.
 
 ## Current reference refresh behavior — 2026-11-13 (D-045)
 

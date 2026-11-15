@@ -2,6 +2,41 @@
 
 Updated: 2026-11-15, Asia/Tehran
 
+## 2026-11-15 Product dashboard rebuilt as one application
+
+Commit `b20083b9a585c967fbe8e6533a509a048364e356` replaces the former stage board,
+queue workspace and independent product-page renderers. `owner-dashboard.js` owns the
+application state and renders one product card everywhere; `owner-workflows.js` supplies
+normalized records and the existing audited action routines. The new application theme
+is in `owner-dashboard.css`. Retired layout and page-rendering code was removed.
+
+The four navigation sections are Products, Reference Catalog, Source Messages and System
+Status. Product cards show the current state and next step, with seven lazy action panels.
+Search, supplier, scope and action filters operate on the same records. Offer-only cases
+remain visible, exact ID links retain their identity type, unfinished input survives
+navigation, partial failures are explicit, and a failed action-source refresh blocks its
+decision controls. Reference refresh is mounted inside the application; its active catalog
+and initial activation are distinct from closed history. Source review opened from a
+product retains that product and preselects its supplier when the preview recognizes it.
+The design and data responsibilities are in
+[`../design/product-dashboard-v2/README.md`](../design/product-dashboard-v2/README.md).
+
+The release was pushed and deployed only to WordPress Staging with
+`python3 tools/deploy_wordpress_plugin.py --site staging --since a6f6935c656d912b0bd09d7257fd2330fc3bf3af`.
+The uploader read back and verified all seven changed/new plugin files without host
+normalization. An authenticated HTTP check returned 200 for the owner page and all five
+required application assets, and confirmed seven legacy review routes return the intended
+302 redirects. That check executed no dashboard JavaScript or workflow API requests.
+
+The replacement Chromium interaction harness (`node tests/owner_workbench.test.js`) passed
+with synthetic intercepted APIs. It checks desktop and 390px layout, all four navigation
+sections, no writes on reads, exact IDs, unlinked extraction cases, a single expanded
+panel, retained manual input, stale-read blocking, a revision-bound price confirmation
+with pending/accepted receipts, and reversible dismissal/restoration. Its five writes
+were mocks. JavaScript syntax and `git diff --check` passed. PHP CLI was unavailable;
+the authenticated WordPress render confirms the deployed PHP loaded successfully. No
+production site or real product, review, reference, inventory or order record was changed.
+
 ## 2026-11-15 Staging product dashboard simplified
 
 Commit `a6f6935c656d912b0bd09d7257fd2330fc3bf3af` makes the product-card list the
