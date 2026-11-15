@@ -1,6 +1,48 @@
 # Site changes and preservation workflow
 
-Updated: 2026-11-15, Asia/Tehran
+Updated: 2026-11-16, Asia/Tehran
+
+## 2026-11-16 Heart library and new customer visual direction
+
+The owner clarified that favorite products and saved carts belong behind the header
+heart, rather than inside the cart, and requested creating a saved cart from all current
+favorites. In the clarification responses the owner chose a new visual direction and
+prioritized layout, spacing and typography. Commit `3e25688` implements the heart modal,
+public collection reads and a warm-white/ink/blue customer theme; `8abbe3d` adds the
+native cart's read-only HTML refresh and a narrow-screen cart summary adjustment.
+
+The heart provides product/saved-cart tabs, shared product quantity controls, expandable
+cart previews, automatic names, inline renaming, deletion and add/new-active-cart actions.
+Saving favorites performs no Woo cart write. Existing local favorites/lists are preserved,
+and saving a cart no longer populates individual favorites. Cart lists were removed from
+the cart drawer/native form. The floating count is anchored inside the icon's upper right,
+hidden at zero and capped at 99+. Shared widths, typography, quieter navigation/controls,
+contained galleries, aligned account forms and a useful empty cart complete the visual pass.
+
+Plugin revision `8abbe3d2aa86057413ac545c16e8435f5e845c6b` was pushed and deployed only to
+WordPress Staging using `python3 tools/deploy_wordpress_plugin.py --site staging --since 50be08877c197c7a151f0a6696c269e7eb306181`.
+The uploader read back all six changed files successfully, accepting only known host
+charset insertion in the two renderers. The pre-deploy copy is at
+`/tmp/molavi-wordpress-8abbe3d2-uen4idkz`.
+
+Verification: 20 synthetic PHP runtime checks passed, including a bounded collection
+read without cart mutation and the existing price/quantity/shipping/idempotence cases.
+All changed PHP loaded in the runtime or passed PHP lint; JS syntax and whitespace checks
+passed. Chromium passed 40 checks: heart tabs/modality/focus, off-page favorites/current
+controls, save-favorites without a cart write, automatic names/inline rename, saved-cart
+merge/replacement with backup, read failure/retry, complete grid/list titles, 320/390px
+fit, correctly placed count/peek/retraction, help/loading and native-cart current counts.
+Native library quantity changes updated the cart form via GET while preserving the modal.
+Local visual review used captured anonymous Staging HTML/public assets for catalog,
+product, cart and account layouts; it did not execute a connected browser or payment.
+Connected anonymous Staging checks returned 200 for catalog, product, cart, account
+and populated checkout, with one heart modal and opener on every checked page. Cart
+contains no list tools or delivery-rate row; the empty-cart presentation and bounded
+public collection response were present. A separate guest cart verified fresh minimum
+counts and merge/replacement retry idempotence, then was emptied. No order or payment
+was made. No payment method was available in the checked checkout; payment completion
+remains outside this release. Pricing policy, shipping policy, product/reference
+records and production are unchanged.
 
 ## 2026-11-15 Cart, favorites and card presentation refinement
 

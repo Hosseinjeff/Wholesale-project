@@ -1,35 +1,45 @@
 # MolaviSale — whole-workflow handoff
 
-Snapshot 4.80. Updated 2026-11-15, Asia/Tehran. The canonical roleplay decisions are in
+Snapshot 4.81. Updated 2026-11-16, Asia/Tehran. The canonical roleplay decisions are in
 `roleplay-state.json`; current live evidence and release gates are in
 `pipeline-readiness.md` and `pipeline-readiness-evidence.json`.
 The product intake and shelf policy is documented in `products-streamline-integrity.md`.
 
-## Current Staging customer storefront — 2026-11-15
+## Current Staging customer storefront — 2026-11-16
 
-The user-requested storefront refinement is deployed at plugin revision `50be088`.
-Catalog cards have complete wrapping titles and aligned prices/actions, without the
-extra minimum-selection total. Cart delivery rates are deferred to native checkout.
-One favorites/saved-cart component is inside both the catalog drawer and native cart,
-including an empty cart. Names are automatic and editable. Creating a new cart from
-favorites preserves the old cart locally and uses current eligibility/minimum counts;
-failed replacement restores the original contents and retries are idempotent.
-The lower-left compact cart peeks for 4.2 seconds after a confirmed update, emphasizing
-the current discount. The top guide responds to cart state; buyer information explains
-profile effects and quantity repair. Pricing and delivery business rules are preserved.
+The owner clarified that the header heart must own both favorite products and saved
+carts, outside the cart drawer. The owner also selected a new visual direction and
+prioritized overall layout, spacing and typography. Continue from plugin revision
+`8abbe3d`: warm-white/ink/blue styling with consistent page widths, quieter controls,
+complete/aligned catalog cards, contained phone galleries, aligned account forms and
+an intentional empty cart. The count badge is inside the cart icon's upper right and
+hidden at zero; the lower-left compact cart still peeks with the current discount.
 
-Implementation `a31428a` and browser assertion refinement `50be088` are pushed.
-The deployment uploader read back all five changed plugin files successfully.
-The synthetic runtime passed 19 checks and Chromium passed 25 interaction/layout
-checks, including native cart quantities. Connected Staging checks also passed for
-cart-only shipping deferral, favorites replacement at current minimum counts and
-idempotent retries. The isolated guest test cart was emptied; no order/payment was made.
-See
+The heart opens one modal on all customer pages, with product and saved-cart tabs.
+Saving all favorites creates a saved cart without changing the active Woo cart.
+Saved carts have expandable previews, automatic names, inline rename, add/new-active-
+cart actions and deletion. Saving an active cart does not add individual favorites.
+The existing browser keys and Woo cart remain authoritative; old browser records are
+preserved. Bounded collection reads reuse the public catalog endpoint. Native cart
+mutations re-read its Woo HTML with GET, keeping the heart panel open and avoiding
+submitting stale form quantities. Existing replacement rollback/idempotence remains.
+
+Implementation `3e25688` and native-cart/small-screen refinement `8abbe3d` are pushed.
+All six changed plugin files were read back by the Staging uploader successfully.
+The synthetic runtime passed 20 checks; Chromium passed 40 interaction/layout checks,
+including 320/390px, off-page favorites, no cart writes from saving favorites, recovery,
+quantity controls and native-cart refresh. Local visual review also used captured
+anonymous Staging HTML/assets for catalog, product, cart and account pages. It is not
+a connected-browser payment/fulfillment test. Connected anonymous HTTP checks passed
+for all five customer pages, one heart modal per page, a bounded collection read,
+cart-only shipping deferral and merge/replacement retries. The isolated guest test
+cart was emptied; no order/payment was made. Architecture and release details are in
 [`storefront-customer-upgrade.md`](storefront-customer-upgrade.md) and
-[`site-change-workflow.md`](site-change-workflow.md) for architecture and release evidence.
-Product-data repairs remain with the pipeline; no production change was made.
-The connected checkout check still found no available payment method; payment
-completion is outside this presentation change and remains unverified.
+[`site-change-workflow.md`](site-change-workflow.md).
+
+Pricing, shipping business rules and product/reference data are unchanged. The checked
+connected checkout still had no available payment method; payment completion is outside
+this visual change. Product-data repairs remain with the pipeline; production is unchanged.
 
 ## Current Staging dashboard — 2026-11-15
 
