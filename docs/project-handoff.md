@@ -1,23 +1,35 @@
 # MolaviSale — whole-workflow handoff
 
-Snapshot 4.79. Updated 2026-11-15, Asia/Tehran. The canonical roleplay decisions are in
+Snapshot 4.80. Updated 2026-11-15, Asia/Tehran. The canonical roleplay decisions are in
 `roleplay-state.json`; current live evidence and release gates are in
 `pipeline-readiness.md` and `pipeline-readiness-evidence.json`.
 The product intake and shelf policy is documented in `products-streamline-integrity.md`.
 
 ## Current Staging customer storefront — 2026-11-15
 
-The non-data storefront upgrades are deployed at plugin revision `dbc679a`: one
-customer shell for product/cart/checkout/account, native guest checkout with optional
-email, explicit quantity/selection totals, a delivery preview separate from discount
-progress, revalidated browser-local shopping lists and 24-tile catalog loading.
-Deployed frontend edits were first reconciled in `730f4cf`; implementation is `aeb0c2e`.
-See [`storefront-customer-upgrade.md`](storefront-customer-upgrade.md) and
-[`site-change-workflow.md`](site-change-workflow.md) for architecture and verification.
-The real Staging product/cart/account/checkout pages return 200, list retries are
-idempotent, and the separate verification cart was emptied. No payment method was available
-in the checked Staging checkout; a paid transaction, callback and fulfillment were not verified.
+The user-requested storefront refinement is deployed at plugin revision `50be088`.
+Catalog cards have complete wrapping titles and aligned prices/actions, without the
+extra minimum-selection total. Cart delivery rates are deferred to native checkout.
+One favorites/saved-cart component is inside both the catalog drawer and native cart,
+including an empty cart. Names are automatic and editable. Creating a new cart from
+favorites preserves the old cart locally and uses current eligibility/minimum counts;
+failed replacement restores the original contents and retries are idempotent.
+The lower-left compact cart peeks for 4.2 seconds after a confirmed update, emphasizing
+the current discount. The top guide responds to cart state; buyer information explains
+profile effects and quantity repair. Pricing and delivery business rules are preserved.
+
+Implementation `a31428a` and browser assertion refinement `50be088` are pushed.
+The deployment uploader read back all five changed plugin files successfully.
+The synthetic runtime passed 19 checks and Chromium passed 25 interaction/layout
+checks, including native cart quantities. Connected Staging checks also passed for
+cart-only shipping deferral, favorites replacement at current minimum counts and
+idempotent retries. The isolated guest test cart was emptied; no order/payment was made.
+See
+[`storefront-customer-upgrade.md`](storefront-customer-upgrade.md) and
+[`site-change-workflow.md`](site-change-workflow.md) for architecture and release evidence.
 Product-data repairs remain with the pipeline; no production change was made.
+The connected checkout check still found no available payment method; payment
+completion is outside this presentation change and remains unverified.
 
 ## Current Staging dashboard — 2026-11-15
 

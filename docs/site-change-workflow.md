@@ -2,6 +2,40 @@
 
 Updated: 2026-11-15, Asia/Tehran
 
+## 2026-11-15 Cart, favorites and card presentation refinement
+
+The user requested removal of the additional card total and cart delivery estimate,
+cart-based favorites/lists without a required name, a compact lower-left cart that
+briefly summarizes current discounts, shorter contextual guidance and complete titles
+in both card layouts. Commit `a31428a` implements these changes; `50be088` tightens the
+browser assertion for fresh favorite quantities. Existing browser-local list/favorite
+records and Woo cart remain the storage; no parallel cart or price authority is added.
+A new favorites cart backs up the old selection locally, revalidates current products
+and quantities, rolls back failed replacement and uses mode-bound idempotent receipts.
+The same component works on native cart pages and remounts after Woo updates.
+
+Plugin revision `50be08877c197c7a151f0a6696c269e7eb306181` was pushed and deployed only to
+WordPress Staging using `python3 tools/deploy_wordpress_plugin.py --site staging --since dbc679a236f7df7bc127ee20ac08f8c982200bce`.
+The uploader verified all five changed source files, accepting only the known host
+charset insertion in `includes/storefront-renderer.php`. Pre-deploy files are preserved
+at `/tmp/molavi-wordpress-50be0887-9anpkst0`.
+
+Verification: the synthetic PHP runtime passed 19 checks, including replacement
+rollback, current minimum quantities, retry identity and shipping deferral on cart
+while retaining checkout calculation. Chromium passed 25 checks for desktop/390px,
+complete titles in grid/list, no extra card totals or delivery preview, automatic names,
+renaming, local favorites integration, backup before replacement, current-discount peek
+and retraction, native cart quantities/update blocking and existing checkout-save guard.
+The PHP runtime loaded all changed PHP; PHP syntax checks, JS syntax and diff whitespace
+checks passed. Connected anonymous Staging checks returned 200 for home, product,
+cart, account and checkout. The catalog still loads 24/6 of 30 products; collections
+are inside the catalog cart and present on the empty/populated native cart. No delivery
+preview or native shipping-total row appeared on cart. A separate temporary guest cart
+verified merge/replacement retry idempotence and replacement at current minimum counts,
+then was emptied. No order or payment was initiated. No payment method was available
+in the checked checkout, consistent with the earlier release; gateway activation is
+outside this change. No production, pricing policy or product/reference record changed.
+
 ## 2026-11-15 Customer storefront journey upgrade
 
 The user authorized the non-data storefront improvements from the review and reserved
