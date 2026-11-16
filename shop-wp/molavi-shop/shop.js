@@ -933,7 +933,7 @@
                 if(customerId){if(!await accountRequest([{type:'cart_save',cart:item},{type:'favorites_remove',ids:ids}]))return;}
                 else if(!await persist([item].concat(lists)))return;
             }
-            if(!customerId&&!await writeFavorites(readFavoriteIds().filter(function(id){return ids.indexOf(id)===-1;}))){revealList(item.id);feedback.textContent='سبد ذخیره شد؛ علاقه‌مندی‌ها به‌دلیل خطای مرورگر حفظ شدند.';return;}
+            if(!customerId&&!await writeFavorites(readFavoriteIds().filter(function(id){return ids.indexOf(id)===-1;}))){pendingItem=null;revealList(item.id);feedback.textContent='سبد ذخیره شد؛ علاقه‌مندی‌ها به‌دلیل خطای مرورگر حفظ شدند.';return;}
             pendingItem=null;revealList(item.id);feedback.textContent='علاقه‌مندی‌ها به «'+item.name+'» منتقل شدند؛ سبد خرید فعلی تغییر نکرد.';
         }
         function renderProducts(){
