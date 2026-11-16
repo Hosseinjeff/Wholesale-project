@@ -1,5 +1,19 @@
 # Session handoff: staging owner-workflow `Failed to fetch`
 
+## Current checkpoint — 2026-11-17
+
+The Staging credentials are now present and native owner sign-in/page reads pass.
+The former missing-credential blocker below is historical. Backend release `466c71d`
+is deployed as `622f5bb8-e8ea-425e-b8ef-1b43649a1b26` and its health check passes.
+The updated WordPress asset matches the committed source. A direct authenticated
+backend preview returns HTTP 200 and confirms image extraction disabled, but the
+same-origin WordPress preview proxy returns HTTP 502. No proxy preview reached the
+inspected Railway HTTP log. Continue with the WordPress-to-Railway transport path;
+do not repeat sign-in guesses or undo the WordPress state migration. No actual
+owner decision or reprocessing action was submitted. Full evidence and remaining
+work: [Staging release](free-google-staging-release.md).
+
+
 Updated 2026-11-13 (Asia/Tehran). This is the current operational handoff for the
 WordPress owner-workflow browser error. The broader business and pipeline decisions
 remain in [`project-handoff.md`](project-handoff.md); the staging-first development and

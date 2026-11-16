@@ -1,5 +1,16 @@
 # MolaviSale — whole-workflow handoff
 
+## Latest Staging release — 2026-11-17
+
+Code reference matching, per-model free-quota routing capability and text-only
+supplier intake are deployed at `466c71d`; OCR/image extraction is removed, with
+photos retained as attachments. The current Staging UI, WordPress-hosted state and
+on-demand runtime are preserved. Free routing activation and optional semantic
+matching integration remain pending. Authenticated backend preview works; the
+WordPress owner proxy still returns 502 and remains the active transport issue.
+See [release evidence and remaining work](free-google-staging-release.md).
+
+
 Snapshot 4.82. Updated 2026-11-16, Asia/Tehran. The canonical roleplay decisions are in
 `roleplay-state.json`; current live evidence and release gates are in
 `pipeline-readiness.md` and `pipeline-readiness-evidence.json`.
