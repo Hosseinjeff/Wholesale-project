@@ -1011,7 +1011,7 @@ class Handoffs:
         return {**dict(row),'result':json.loads(row['result']) if row['result'] else None} if row else None
 
     def run_one(self, *, finalize, publish, order_write, notify=None, job_id=None,
-                publish_with_payload=None, reextract=None, worker_id=None):
+                publish_with_payload=None, reextract=None, worker_id=None, runtime_task=None):
         job=self.claim(job_id)
         if not job:return False
         self._worker_job_started(worker_id,job['id'])
@@ -1051,6 +1051,10 @@ class Handoffs:
                     self.finish(job,result,state='cancelled',error='recipient_not_allowlisted')
                     return True
                 if result.get('delivered') is not True:raise RuntimeError('notice_not_delivered')
+            elif job['kind']=='maintenance':
+                if runtime_task is None:raise RuntimeError('runtime_task_unconfigured')
+                result=runtime_task(job['payload'])
+                if result.get('ok') is not True:raise RuntimeError('runtime_task_failed')
             elif job['kind']=='reextract':
                 if reextract is None:raise RuntimeError('re-extraction_worker_unconfigured')
                 result=reextract(job['payload'])

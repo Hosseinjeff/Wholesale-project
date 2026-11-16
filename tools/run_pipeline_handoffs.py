@@ -23,6 +23,9 @@ import requests
 
 def run_worker(stop_event: threading.Event | None = None, *, once: bool = False) -> None:
     """Run the durable queue loop until asked to stop or one pass completes."""
+    from catalog.runtime_host import on_demand
+    if on_demand():
+        return run_on_demand_worker(stop_event,once=once)
     stop_event = stop_event or threading.Event()
     queue = handoff_queue()
     if queue is None:
@@ -224,6 +227,37 @@ def run_worker(stop_event: threading.Event | None = None, *, once: bool = False)
             pass
         outbox_session.close()
         heartbeat_thread.join(timeout=2)
+
+
+def run_on_demand_worker(stop_event=None, *, once=False):
+    """Drain runnable durable jobs, then stop all periodic network activity."""
+    from catalog.runtime_host import next_work_at,schedule_on_wordpress
+    from catalog.sync import release_idle_memory
+    stop_event=stop_event or threading.Event()
+    queue=handoff_queue()
+    if queue is None:raise RuntimeError('persistent queue required')
+    worker_id='on-demand:'+uuid.uuid4().hex
+    queue.start_worker(worker_id)
+    heartbeat_stop=threading.Event()
+    def heartbeat():
+        while not heartbeat_stop.wait(10):
+            try:queue.heartbeat_worker(worker_id)
+            except Exception:pass
+    heartbeat_thread=threading.Thread(target=heartbeat,daemon=True,name='active-worker-heartbeat');heartbeat_thread.start()
+    try:
+        while not stop_event.is_set():
+            queue.batch()
+            worked=run_durable_handoff(queue,worker_id=worker_id)
+            if once:break
+            if not worked:
+                due=next_work_at(queue)
+                if due is None or due-time.time()>20:break
+                stop_event.wait(2)
+    finally:
+        heartbeat_stop.set();heartbeat_thread.join(timeout=2)
+        queue.set_worker_state(worker_id,'stopped')
+        if not schedule_on_wordpress(queue):print('WordPress wake schedule unconfirmed; host watchdog will retry',file=sys.stderr)
+        release_idle_memory()
 
 
 def main() -> None:
