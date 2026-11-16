@@ -2,6 +2,24 @@
 
 Updated: 2026-11-11, Asia/Tehran
 
+## 2026-11-16 Staging cart and favorites update
+
+Requested customer-facing changes default to Staging unless the user explicitly
+requests a mockup/preview or Production. The update uses the current Staging
+customer storefront, preserved in baseline commit `77bc944`, rather than the older
+standalone PHP shop in the initial workspace checkout.
+
+Saved-cart rename controls sit beside the name and edit it in place. A single
+new-cart action sits above the library tabs and preserves a nonempty current cart
+before clearing it. Saved carts can add their items to favorites; the current cart
+can move its items to favorites. Favorites leave the list only after a confirmed
+successful cart increase. Cart badges overlap rounded square cart buttons. The
+customer palette uses grocery green, warm white, and harvest gold.
+
+Deployment scope is the separate `staging.molavisale.ir` installation, using
+`tools/deploy_wordpress_plugin.py --target staging --since 77bc944`. Private
+runtime configuration, products, orders, and Production are outside this release.
+
 ## 2026-11-11 Staging sticky header mockup alignment
 
 Plugin commits `182ac54`, `62689da`, `737bf43`, and `967fa2e` were pushed to

@@ -15,6 +15,12 @@ track later exports separately. Active triggers/deployments and the external ref
 server remain unverified. Preserve the mockup-first scope and documented business
 decisions; do not silently choose a different inventory or pricing authority.
 
+## Default destination for requested changes
+
+Deploy requested changes to the separate Staging installation by default, unless
+the user explicitly asks for a mockup or preview. Deploy to Production only when
+explicitly requested. Verify the Staging URL after deployment.
+
 ## Source control and live WordPress changes
 
 Treat tracked files in `shop-wp/molavi-shop/` as the source of truth for the live

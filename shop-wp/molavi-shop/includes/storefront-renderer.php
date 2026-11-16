@@ -362,6 +362,7 @@ function molavi_render_favorites_library(): void
     ?>
     <dialog id="molavi-favorites-dialog" class="molavi-favorites-dialog" data-molavi-lists aria-labelledby="molavi-favorites-title">
         <header class="molavi-library-head"><meta charset="utf-8"><div><span class="molavi-library-eyebrow">برای خریدهای بعدی</span><h2 id="molavi-favorites-title">علاقه‌مندی‌ها</h2></div><button type="button" class="molavi-library-close" data-molavi-close-library aria-label="بستن علاقه‌مندی‌ها">×</button></header>
+        <div class="molavi-library-create"><button type="button" data-molavi-new-cart>+ سبد جدید</button><small>سبد فعلی پیش از شروع سبد جدید ذخیره می‌شود.</small></div>
         <div class="molavi-library-tabs" role="tablist" aria-label="نوع علاقه‌مندی">
             <button type="button" id="molavi-favorite-products-tab" role="tab" aria-selected="true" aria-controls="molavi-favorite-products" data-molavi-library-tab="products">کالاها <span data-molavi-favorites-count>۰</span></button>
             <button type="button" id="molavi-saved-carts-tab" role="tab" aria-selected="false" aria-controls="molavi-saved-carts" tabindex="-1" data-molavi-library-tab="carts">سبدهای ذخیره‌شده <span data-molavi-saved-count>۰</span></button>
@@ -471,6 +472,7 @@ function molavi_render_storefront_basket(array $quote): void
                 <p>تخفیف بر اساس جمع قیمت مرجع کالاهای مشمول محاسبه می‌شود. آستانه خانوار <?php echo esc_html(molavi_toman((int) ($quote['household_unlock'] ?? 5000000))); ?> و آستانه فروشگاه <?php echo esc_html(molavi_toman((int) ($quote['shop_unlock'] ?? 20000000))); ?> است. هزینه ارسال جداگانه محاسبه می‌شود.</p>
             </div>
         </details>
+        <button type="button" class="molavi-cart-favorites" data-molavi-cart-favorites<?php echo empty($quote['count']) ? ' hidden' : ''; ?>>انتقال کالاهای سبد به علاقه‌مندی‌ها</button>
         <dl class="molavi-basket-summary">
             <div><dt>جمع قیمت مصرف</dt><dd data-molavi-reference><?php echo esc_html(molavi_toman((int) ($quote['reference_total'] ?? 0))); ?></dd></div>
             <div class="molavi-summary-saving"><dt>صرفه‌جویی فعلی <span data-molavi-savings-rate><?php echo esc_html(molavi_percent((float) ($quote['savings_rate'] ?? 0))); ?></span></dt><dd data-molavi-savings><?php echo esc_html(molavi_toman((int) ($quote['savings'] ?? 0))); ?></dd></div>
