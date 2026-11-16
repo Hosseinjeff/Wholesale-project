@@ -335,7 +335,10 @@ class OwnerWorkflowBrowserAPITests(unittest.TestCase):
         self.assertEqual(response.status_code, 202, response.get_json())
         self.assertEqual(response.get_json()['queued'], 1)
         worker.assert_called_once()
-        self.assertEqual(worker.call_args.kwargs.get('target'), server._drain_reextraction_run)
+        # The protected wrapper owns thread startup so idle reclamation cannot
+        # interrupt work dispatched by the route.
+        self.assertEqual(worker.call_args.kwargs.get('name'), 'owner-saved-message-reextract')
+        self.assertTrue(callable(worker.call_args.kwargs.get('target')))
         worker.return_value.start.assert_called_once()
 
     def test_open_case_reextraction_queues_each_original_supplier_post_once(self):

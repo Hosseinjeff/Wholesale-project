@@ -13,7 +13,7 @@ is distinct from the API project's tier.
 
 Routing is disabled until `GOOGLE_FREE_ROUTING=1`. It additionally requires
 `GOOGLE_QUOTA_PROJECT` (the project identity, not a key), an absolute persistent
-`GOOGLE_QUOTA_DB_PATH`, and `GOOGLE_FREE_MODELS` containing a JSON array. Each entry
+`GOOGLE_QUOTA_DB_PATH` in local-state mode, and `GOOGLE_FREE_MODELS` containing a JSON array. Each entry
 requires:
 
 - `model`, `tasks` (any qualified subset of `extract`, `match`, `embed`).
@@ -24,6 +24,12 @@ requires:
   actual project's free access and evaluating the specified task on reviewed data.
 - Optional `bucket` for aliases/shared quotas (default: model name), and
   `reserve_rpd` to protect foreground work from background indexing.
+
+With `PIPELINE_STATE_HOST=wordpress`, quota tables and the compressed text cache use
+the existing authoritative pipeline store through `catalog.state`. Only its empty
+`/tmp` marker exists on Railway; the separate quota path is not used. No new state
+transfer or competing business database is introduced. Cache parameters use scalar
+text so they work through the WordPress transaction transport.
 
 Different models have independent buckets by default. Aliases that Google counts
 together must share a bucket and identical limits. Only qualified models can receive

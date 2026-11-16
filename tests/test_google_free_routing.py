@@ -194,6 +194,34 @@ class FreeRoutingTests(RoutingFixture):
         router.request('match', {}, session=Session(Response({'usageMetadata': {'promptTokenCount': 25}})), api_key='key')
         self.assertEqual(router.status()[0]['tpm_used'], 25)
 
+    def test_cache_values_are_scalar_text_for_wordpress_transport(self):
+        router = self.router()
+        value = {'name': 'چای', 'vector': [.1, .2]}
+        router.cache('transport-test', value)
+        with router.connect() as db:
+            stored = db.execute('SELECT value,typeof(value) AS kind FROM google_ai_cache').fetchone()
+        self.assertEqual(stored['kind'], 'text')
+        self.assertTrue(stored['value'].startswith('zlib:'))
+        self.assertEqual(router.cached('transport-test'), value)
+
+    def test_quota_ledger_uses_the_shared_connection_provider(self):
+        import sqlite3
+        with patch('catalog.google_quota.connect_state', wraps=sqlite3.connect) as provider:
+            self.router().reserve('extract', 10)
+        self.assertGreaterEqual(provider.call_count, 2)
+
+    def test_wordpress_mode_selects_existing_pipeline_store(self):
+        configuration = dict(model='flash', tasks=['extract'], rpm=10, tpm=10000,
+                             rpd=500, qualified=True, free_tier_verified=True)
+        env = {'GOOGLE_FREE_ROUTING':'1', 'GOOGLE_QUOTA_PROJECT':'project',
+               'PIPELINE_DB_PATH':'/tmp/authoritative-pipeline.sqlite',
+               'GOOGLE_QUOTA_DB_PATH':'/data/forbidden-extra-ledger.sqlite',
+               'GOOGLE_FREE_MODELS':json.dumps([configuration])}
+        with patch.dict(os.environ, env), patch('catalog.google_quota.wordpress_state', return_value=True), \
+                patch('catalog.google_quota.FreeGoogleRouter') as factory:
+            configured_router()
+        self.assertEqual(factory.call_args.args[0], env['PIPELINE_DB_PATH'])
+
     def test_qualified_tasks_and_pinned_models_cannot_be_bypassed(self):
         router = self.router(budget())
         for kwargs in ({'model': 'unlisted'}, {'api': 'embed'}):

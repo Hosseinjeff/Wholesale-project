@@ -640,7 +640,7 @@
 
     const workbenchDismissalTaxonomy = [
         {stage:'intake', label:'دریافت و پردازش', queues:[['operations','صف پردازش Railway']]},
-        {stage:'extract', label:'استخراج و بازبینی', queues:[['ai','پیشنهاد استخراج'],['media_review','پیام/آلبوم نیازمند OCR']]},
+        {stage:'extract', label:'استخراج و بازبینی', queues:[['ai','پیشنهاد استخراج']]},
         {stage:'identity', label:'هویت و تطبیق', queues:[['source_integrity','پیوند Offer و Product'],['references','تطبیق مرجع']]},
         {stage:'evidence', label:'قیمت و شواهد', queues:[['supplier_prices','تازگی قیمت'],['conflicts','تعارض شیت']]},
         {stage:'publish', label:'کاتالوگ و انتشار', queues:[['holds','توقف دسته'],['status','به‌روزرسانی محصول']]},
@@ -2913,7 +2913,7 @@
     async function advancedReextractionTools(panel, dismissalHooks = {}) {
         panel.className = 'card molavi-reextract-panel';
         panel.appendChild(node('h2', 'ابزارهای ویژهٔ استخراج'));
-        panel.appendChild(node('p', 'آلبوم‌ها در انتخاب عادی با OCR همهٔ عکس‌هایشان با هم پردازش می‌شوند. این کارت‌ها مسیر بررسی جداگانهٔ رسانه‌ها هستند؛ بازپردازش با سیاست فعلی هم جداست.'));
+        panel.appendChild(node('p', 'عکس‌ها فقط پیوست هستند؛ استخراج کالا از متن یا کپشن پست انجام می‌شود. بازپردازش با سیاست فعلی جداست.'));
         try {
             const preview = await reextractionRequest('GET', undefined, reextractionUrl('preview'));
             const counts = preview.counts || {};
@@ -3115,7 +3115,7 @@
             scopeFieldset.appendChild(node('legend', 'دامنهٔ پیام‌ها'));
             const scopeInputs = new Map();
             const scopeOptions = [
-                {key:'all',label:'همهٔ پست‌های قابل‌بازاستخراج',hint:'همهٔ متن‌ها و آلبوم‌های واجد شرایط؛ OCR همهٔ عکس‌های آلبوم در همان اجرا انجام می‌شود. کارت‌های رسانه مسیر بررسی جداگانه را هم فراهم می‌کنند.',count:counts.all || 0},
+                {key:'all',label:'همهٔ پست‌های قابل‌بازاستخراج',hint:'همهٔ پست‌های دارای متن یا کپشن که واجد شرایط بازاستخراج هستند؛ تصاویر فقط پیوست می‌مانند.',count:counts.all || 0},
                 {key:'pending',label:'پست‌های منتظر بررسی مالک',hint:'استخراج‌هایی که هنوز در صف بررسی مالک هستند؛ هر آلبوم یک پست محسوب می‌شود.',count:counts.pending || 0},
                 {key:'linked',label:'پیوندشده به محصول کاتالوگ',hint:'شناسهٔ پیشنهاد منبع به یک محصول در کاتالوگ فعلی وصل است.',count:counts.linked || 0}
             ];
@@ -3317,7 +3317,7 @@
                 const dateToValue = dateTo.value;
                 const digest = String(selection.digest || '');
                 const groupSummary = (selection.groups || []).map(group => `${group.label}: ${group.count}`).join('، ');
-                const confirmation = `بازاستخراج ${count} پست با مدل فعلی شروع می‌شود. دامنه: ${scopeOptions.find(item => item.key === scope)?.label || scope}. گروه‌ها: ${groupSummary || 'بدون مورد'}. آلبوم‌ها یک‌جا پردازش می‌شوند و خروجی OCR به بررسی مالک می‌رود. تصمیم‌های نهایی مالک حفظ می‌شوند. ادامه می‌دهید؟`;
+                const confirmation = `بازاستخراج ${count} پست با مدل فعلی شروع می‌شود. دامنه: ${scopeOptions.find(item => item.key === scope)?.label || scope}. گروه‌ها: ${groupSummary || 'بدون مورد'}. فقط متن و کپشن‌ها پردازش می‌شوند. تصمیم‌های نهایی مالک حفظ می‌شوند. ادامه می‌دهید؟`;
                 if (!window.confirm(confirmation)) return;
                 if (!/^[a-f0-9]{64}$/.test(digest)) {
                     previewStatus.textContent = 'پیش‌نمایش معتبر نیست؛ دوباره تازه کنید.';
@@ -3366,7 +3366,7 @@
             const advancedDetails = document.createElement('details');
             advancedDetails.className = 'molavi-advanced-reextract';
             advancedDetails.appendChild(node('summary','مسیرهای ویژهٔ استخراج'));
-            advancedDetails.appendChild(node('p','OCR تصویر، بازپردازش نسخهٔ فعلی سیاست و رسیدگی به کارت‌های باز مسیرهای جداگانه دارند.'));
+            advancedDetails.appendChild(node('p','بازپردازش نسخهٔ فعلی سیاست و رسیدگی به کارت‌های باز مسیرهای جداگانه دارند؛ تصاویر فقط پیوست هستند.'));
             const advancedBody = node('div',null,'molavi-advanced-reextract-body');
             advancedDetails.appendChild(advancedBody);
             let advancedLoaded = false;

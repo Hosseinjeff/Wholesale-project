@@ -4,6 +4,7 @@ Budgets are supplied from the owner's AI Studio project. No model, allowance or
 quality qualification is inferred. Reservations count failures conservatively.
 """
 from contextlib import contextmanager
+import base64
 from dataclasses import dataclass
 from datetime import datetime, time as day_start, timedelta
 import json
@@ -16,6 +17,7 @@ import zlib
 from urllib.parse import quote
 from uuid import uuid4
 from zoneinfo import ZoneInfo
+from catalog.state import connect as connect_state, wordpress_state
 
 
 class QuotaConfigurationError(ValueError):
@@ -104,27 +106,32 @@ class FreeGoogleRouter:
             groups[model.bucket] = limits
         self.database = os.path.realpath(os.fspath(database))
         self.project, self.models, self.clock = project, tuple(models), clock
-        fd = os.open(self.database, os.O_RDWR | os.O_CREAT, 0o600)
-        os.close(fd)
+        if wordpress_state():
+            # The provider validates the known store and creates only its empty
+            # /tmp marker. No quota or cache database is created on the executor.
+            connect_state(self.database).close()
+        else:
+            fd = os.open(self.database, os.O_RDWR | os.O_CREAT, 0o600)
+            os.close(fd)
         os.chmod(self.database, 0o600)
         with self.connect() as db:
-            db.execute('''CREATE TABLE IF NOT EXISTS google_quota_requests (
+            db.executescript('''CREATE TABLE IF NOT EXISTS google_quota_requests (
                 id TEXT PRIMARY KEY, project TEXT NOT NULL, bucket TEXT NOT NULL,
                 model TEXT NOT NULL, task TEXT NOT NULL, started REAL NOT NULL,
-                day TEXT NOT NULL, tokens INTEGER NOT NULL)''')
-            db.execute('CREATE INDEX IF NOT EXISTS google_quota_usage '
-                       'ON google_quota_requests(project,bucket,started)')
-            db.execute('''CREATE TABLE IF NOT EXISTS google_quota_blocks (
+                day TEXT NOT NULL, tokens INTEGER NOT NULL);
+                CREATE INDEX IF NOT EXISTS google_quota_usage
+                ON google_quota_requests(project,bucket,started);
+                CREATE TABLE IF NOT EXISTS google_quota_blocks (
                 project TEXT NOT NULL, bucket TEXT NOT NULL, until REAL NOT NULL,
-                PRIMARY KEY(project,bucket))''')
-            db.execute('''CREATE TABLE IF NOT EXISTS google_ai_cache (
+                PRIMARY KEY(project,bucket));
+                CREATE TABLE IF NOT EXISTS google_ai_cache (
                 project TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL,
-                PRIMARY KEY(project,key))''')
+                PRIMARY KEY(project,key));''')
         os.chmod(self.database, 0o600)
 
     @contextmanager
     def connect(self):
-        db = sqlite3.connect(self.database, timeout=10)
+        db = connect_state(self.database, timeout=10)
         db.row_factory = sqlite3.Row
         try:
             with db:
@@ -272,7 +279,11 @@ class FreeGoogleRouter:
         if not row:
             return None
         value = row['value']
-        return json.loads(zlib.decompress(value) if isinstance(value, bytes) else value)
+        if isinstance(value, str) and value.startswith('zlib:'):
+            value = zlib.decompress(base64.b64decode(value[5:]))
+        elif isinstance(value, bytes):
+            value = zlib.decompress(value)
+        return json.loads(value)
 
     def status(self):
         now = self.clock()
@@ -298,8 +309,8 @@ class FreeGoogleRouter:
         with self.connect() as db:
             db.execute('INSERT INTO google_ai_cache VALUES (?,?,?) '
                        'ON CONFLICT(project,key) DO UPDATE SET value=excluded.value',
-                       (self.project, key, zlib.compress(json.dumps(value,
-                           ensure_ascii=False, allow_nan=False).encode())))
+                       (self.project, key, 'zlib:' + base64.b64encode(zlib.compress(json.dumps(value,
+                           ensure_ascii=False, allow_nan=False).encode())).decode('ascii')))
             # Bounded local cache; older evicted results can be recomputed on demand.
             db.execute('DELETE FROM google_ai_cache WHERE project=? AND rowid NOT IN '
                        '(SELECT rowid FROM google_ai_cache WHERE project=? ORDER BY rowid DESC LIMIT 20000)',
@@ -309,7 +320,8 @@ class FreeGoogleRouter:
 def configured_router():
     if os.getenv('GOOGLE_FREE_ROUTING', '').strip() != '1':
         return None
-    path = os.getenv('GOOGLE_QUOTA_DB_PATH', '').strip()
+    path = (os.getenv('PIPELINE_DB_PATH', '') if wordpress_state()
+            else os.getenv('GOOGLE_QUOTA_DB_PATH', '')).strip()
     project = os.getenv('GOOGLE_QUOTA_PROJECT', '').strip()
     if not path or not os.path.isabs(path):
         raise QuotaConfigurationError('Persistent absolute GOOGLE_QUOTA_DB_PATH required')
