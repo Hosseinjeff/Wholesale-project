@@ -70,6 +70,9 @@ def clear_price_entry(queue,chat_id):
 
 def price_reply_is_current(queue,chat_id,message,prompt,secret):
     reply=message.get('reply_to_message') or {}
+    if not reply and message.get('text'):
+        from catalog.sync import parse_prompt_answer
+        if parse_prompt_answer(message['text']) is None:return True
     try:
         with queue.connect() as db:row=db.execute('SELECT * FROM bot_price_inputs WHERE chat_id=?',(str(chat_id),)).fetchone()
     except sqlite3.OperationalError:row=None
