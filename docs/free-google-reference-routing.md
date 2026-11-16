@@ -1,6 +1,6 @@
 # Free Google quota routing and reference suggestions
 
-2026-11-16, Asia/Tehran. Local implementation; no Google calls, live configuration,
+Updated 2026-11-17, Asia/Tehran. Local implementation; no Google calls, live configuration,
 deployment, reference activation or owner decision was performed for this change.
 
 The owner uses Google's free API tier and wants independent model allowances used
@@ -16,10 +16,10 @@ Routing is disabled until `GOOGLE_FREE_ROUTING=1`. It additionally requires
 `GOOGLE_QUOTA_DB_PATH`, and `GOOGLE_FREE_MODELS` containing a JSON array. Each entry
 requires:
 
-- `model`, `tasks` (any qualified subset of `extract`, `ocr`, `match`, `embed`).
+- `model`, `tasks` (any qualified subset of `extract`, `match`, `embed`).
 - Explicit positive integers `rpm`, `tpm`, `rpd` from the project's quota table.
 - `api`: `generate`, `embed`, or `decide`. Embedding models support `embed`; Decision
-  models support `match`. Generation models can extract, transcribe or match.
+  models support `match`. Generation models can extract text or match.
 - `free_tier_verified: true` and `qualified: true`, set only after verifying the
   actual project's free access and evaluating the specified task on reviewed data.
 - Optional `bucket` for aliases/shared quotas (default: model name), and
@@ -48,9 +48,8 @@ SQLite transactions reserve capacity before HTTP requests across concurrent call
 The ledger survives restarts, groups all task usage for each model, enforces rolling
 minute request/input-token limits and Pacific-calendar daily limits, including DST.
 Text reservations use a conservative UTF-8 byte bound plus framing allowance; successful
-Google input-token usage reconciles the reservation. Image payloads are deliberately
-over-reserved and may need a larger configured TPM budget; do not mark a model OCR
-qualified until this behavior is measured against its allowance.
+Google input-token usage reconciles the reservation. Image extraction is disabled;
+models cannot be configured with an OCR task.
 
 Failed/unknown requests are not refunded. Structured daily 429s block that bucket
 until midnight Pacific; minute/unknown 429s and 503s create a bounded cooldown. Each
@@ -65,14 +64,27 @@ owner re-extraction still makes a new extraction. Cache data stays private on th
 
 `reference_import/ai_matching.py` provides explicit bounded operations:
 
-1. Index Rezvan identity descriptions using one configured embedding model. Price-only
+1. Resolve an exact compatible identity or a supplied approved mapping in code, with
+   zero Google requests. Compare equivalent explicit measurement units in code and
+   respect both `variant` and the catalog's `variation_type` field.
+2. Exclude explicit numeric size/count contradictions in code. If no candidates remain,
+   return review instead of asking a model to guess.
+3. Optionally index Rezvan identity descriptions using one configured embedding model. Price-only
    changes reuse vectors. Indexing stops at the requested count or quota and can resume.
-2. Query cached vectors, keeping only the leading results in memory. Every embedding
+4. For unresolved identities only, query cached vectors, keeping only the leading results in memory. Every embedding
    model/dimension/task format has its own cache namespace; vectors never mix models.
-3. Combine semantic and existing lexical candidates using reciprocal rank fusion.
-4. Ask a qualified Decision or generation model for an existing reference ID or
+5. Combine semantic and existing lexical candidates using reciprocal rank fusion in code.
+6. Ask a qualified Decision or generation model for an existing reference ID or
    no-match result. Invalid, incomplete and invented-ID responses are rejected.
-5. Cache the result against the snapshot, product, shortlist, model pool and policy.
+7. Check the selected candidate's explicit brand, variant, count and measurements in
+   code. A conflict becomes review, never a model override of the stated facts. Brand
+   or flavor aliases that code cannot verify remain for owner review.
+8. Cache the result against the snapshot, product, shortlist, model pool and policy.
+
+Without Google routing/credentials, exact suggestions and the lexical review shortlist
+still work. Approved overrides must come from the existing eligible-snapshot owner
+ledger, never from untrusted product text. Embedding cache format is unchanged by this
+matching change, so existing valid vectors do not need to be regenerated.
 
 Outputs are **suggestions only**. They do not approve products, choose unit/package
 prices, change supplier values, write Sheets or publish Woo products. Existing owner
@@ -95,9 +107,28 @@ python tools/free_google_reference.py index --snapshot work/active-reference.jso
 python tools/free_google_reference.py suggest --snapshot work/active-reference.json --product work/product.json --embedding-model gemini-embedding-001
 ```
 
-`status` makes no Google request. Index/suggest explicitly consume the configured free
-allowance and return a resumable due time on quota exhaustion (exit code 75). Keep
+`status` makes no Google request. `suggest` can run without free routing or a key for
+the code paths above; omit `--embedding-model` in that mode. Ambiguity remains a review
+shortlist. Indexing and unresolved AI suggestions consume the configured free allowance
+and return a resumable due time on quota exhaustion (exit code 75). Keep
 input files and output suggestions private; they can contain supplier data.
+
+## Text-only intake — owner instruction, 2026-11-17
+
+The owner explicitly removed OCR from the workflow. Supplier extraction reads only
+message text and captions. Photos remain available as product/source attachments;
+photo-only messages create no extraction task or media review queue. A message that
+needs product facts must supply them as text or a caption.
+
+The image reader, its download helper, the OCR model task and dashboard controls were
+removed. The retired owner API action returns HTTP 410, and previously queued image
+jobs finish as `image_extraction_disabled` without reading the source or calling a
+model. Old media flags cannot add image text to a caption extraction. Recent-post
+reprocessing excludes photo-only sources. `attachment_only` is a completed intake
+state, separate from product approval and owner rejection.
+
+Historical image transcript columns and owner audit records are retained as evidence;
+new extraction writes no transcript. Rezvan acquisition still uses its Store API.
 
 ## Qualification before enabling
 
@@ -110,12 +141,15 @@ tests use synthetic HTTP responses and cannot establish live Persian accuracy.
 
 ## Local verification
 
-All 26 new tests pass. The combined extraction, quota, reference intake/matching,
-durable handoff, publication, on-demand runtime and AI confirmation run passes
-174 of 177 tests. The three AI confirmation failures also reproduce on unchanged
-baseline `076fee3`: fixed-date supplier posts now trigger the current-source
-verification rule. They are not relaxed by this change. The other 142 focused
-tests pass as a group. Python compilation, CLI help and `git diff --check` pass.
+All 221 focused extraction, quota, code matching, reference intake, durable handoff,
+publication, on-demand runtime, owner API, media and AI confirmation tests pass.
+Coverage includes zero-model exact matches, explicit attribute conflicts, no image
+reader, caption-only extraction, preserved photo attachments, no photo-only model
+request, retired API rejection and old image-job retirement. The owner workbench
+interaction test and JavaScript syntax checks pass. Review fixtures use current
+source evidence or explicit owner price verification; production freshness policy
+is unchanged. The browser transport fixture records each concurrent request's own
+proxy receipt. No Google or live business data was used for verification.
 
 Official references: [active quotas](https://aistudio.google.com/rate-limit),
 [quota rules](https://ai.google.dev/gemini-api/docs/rate-limits),

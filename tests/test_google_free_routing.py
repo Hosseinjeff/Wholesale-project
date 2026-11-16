@@ -76,7 +76,7 @@ class RoutingFixture(unittest.TestCase):
 class FreeRoutingTests(RoutingFixture):
     def test_limits_require_positive_verified_qualified_configuration(self):
         for update in ({'rpd': 0}, {'rpm': True}, {'tpm': -1}, {'qualified': False},
-                       {'free_tier_verified': False}, {'reserve_rpd': 500}):
+                       {'free_tier_verified': False}, {'reserve_rpd': 500}, {'tasks': ['ocr']}):
             value = dict(model='flash', tasks=['extract'], rpm=10, tpm=100, rpd=500,
                          qualified=True, free_tier_verified=True)
             value.update(update)
@@ -246,8 +246,7 @@ class FreeRoutingTests(RoutingFixture):
         import hashlib
         from catalog import gemini
         values = {'revision': gemini._EXTRACTION_POLICY_REVISION, 'model': gemini.gemini_model(),
-            'message_prompt': gemini._MESSAGE_PROMPT,
-            'image_transcription_policy': gemini._IMAGE_TRANSCRIPTION_POLICY}
+            'message_prompt': gemini._MESSAGE_PROMPT}
         expected = 'gemini-' + hashlib.sha256(json.dumps(values, ensure_ascii=False,
             sort_keys=True, separators=(',', ':')).encode()).hexdigest()[:16]
         self.assertEqual(gemini.extraction_policy_version(), expected)
@@ -321,12 +320,12 @@ class ReferenceAITests(RoutingFixture):
         service = ReferenceSuggestions(self.router())
         session = Session(*[generation({'reference_id': 'r1', 'confidence': .95, 'reason': 'same product'})
                             for _ in range(2)])
-        result = service.suggest({'name': 'چای'}, [row()], snapshot_id='snapshot1', session=session, api_key='key')
+        result = service.suggest({'name': 'چای ممتاز'}, [row()], snapshot_id='snapshot1', session=session, api_key='key')
         self.assertEqual(result['state'], 'suggestion_only')
         self.assertEqual(result['reference_id'], 'r1')
-        service.suggest({'name': 'چای'}, [row()], snapshot_id='snapshot1', session=session, api_key='key')
+        service.suggest({'name': 'چای ممتاز'}, [row()], snapshot_id='snapshot1', session=session, api_key='key')
         self.assertEqual(len(session.calls), 1)
-        service.suggest({'name': 'چای'}, [row()], snapshot_id='snapshot2', session=session, api_key='key')
+        service.suggest({'name': 'چای ممتاز'}, [row()], snapshot_id='snapshot2', session=session, api_key='key')
         self.assertEqual(len(session.calls), 2)
 
     def test_unknown_ids_and_untrusted_structures_are_rejected(self):
@@ -334,7 +333,7 @@ class ReferenceAITests(RoutingFixture):
             service = ReferenceSuggestions(self.router())
             session = Session(generation({'reference_id': reference_id, 'confidence': .99, 'reason': 'guess'}))
             with self.subTest(reference_id=reference_id), self.assertRaises(GoogleProviderError):
-                service.suggest({'name': 'چای'}, [row()], snapshot_id='s1', session=session, api_key='key')
+                service.suggest({'name': 'چای ممتاز'}, [row()], snapshot_id='s1', session=session, api_key='key')
 
     def test_decision_model_quota_exhaustion_uses_qualified_generation_pool(self):
         decision = ModelBudget('gemini-decision-1', ('match',), 100, 1000000, 1,
@@ -343,11 +342,89 @@ class ReferenceAITests(RoutingFixture):
         service = ReferenceSuggestions(router)
         session = Session(Response({'answers': {'reference': {'choice': 'c0', 'confidence': .9}}}),
             generation({'reference_id': None, 'confidence': .8, 'reason': 'ambiguous'}))
-        first = service.suggest({'name': 'چای'}, [row()], snapshot_id='s1', session=session, api_key='key')
+        first = service.suggest({'name': 'چای ممتاز'}, [row()], snapshot_id='s1', session=session, api_key='key')
         self.assertEqual(first['model'], 'gemini-decision-1')
-        second = service.suggest({'name': 'چای'}, [row()], snapshot_id='s2', session=session, api_key='key')
+        second = service.suggest({'name': 'چای ممتاز'}, [row()], snapshot_id='s2', session=session, api_key='key')
         self.assertIsNone(second['reference_id'])
         self.assertEqual(second['model'], 'flash-a')
+
+    def test_exact_match_skips_embedding_and_comparison_calls(self):
+        router = self.embed_router()
+        service = ReferenceSuggestions(router, embedding_model='gemini-embedding-001')
+        session = Session()
+        result = service.suggest({'name': 'چای', 'package_count': 12}, [row()],
+            snapshot_id='s1', session=session, api_key='key')
+        self.assertEqual(result['reference_id'], 'r1')
+        self.assertEqual(result['method'], 'code')
+        self.assertIsNone(result['confidence'])
+        self.assertIsNone(result['model'])
+        self.assertEqual(session.calls, [])
+        self.assertEqual(router.status()[0]['rpd_used'], 0)
+
+    def test_exact_match_and_ambiguous_shortlist_work_without_google_configuration(self):
+        service = ReferenceSuggestions(None)
+        exact = service.suggest({'name': 'چای'}, [row()], snapshot_id='s1')
+        self.assertEqual(exact['reference_id'], 'r1')
+        ambiguous = service.suggest({'name': 'چای'}, [row(), row('r2')], snapshot_id='s1')
+        self.assertEqual(ambiguous['state'], 'needs_review')
+        self.assertIsNone(ambiguous['reference_id'])
+        self.assertEqual(len(ambiguous['candidates']), 2)
+
+    def test_approved_mapping_is_reused_without_ai(self):
+        from reference_import.matching import product_signature
+        product = {'name': 'نام تامین کننده'}
+        overrides = {product_signature(product): {'reference_id': 'r1',
+                     'price_role': 'unit', 'decision_id': 'owner-record'}}
+        result = ReferenceSuggestions(None).suggest(product, [row()], snapshot_id='s1', overrides=overrides)
+        self.assertEqual(result['reference_id'], 'r1')
+        self.assertEqual(result['reason'], 'owner_approved_mapping')
+        self.assertEqual(result['candidates'][0]['owner_decision_id'], 'owner-record')
+
+    def test_explicit_numeric_conflicts_do_not_spend_ai_quota(self):
+        reference = row()
+        reference[8], reference[9] = '1 لیتر', '400 گرم'
+        router = self.router()
+        session = Session()
+        for product in ({'name': 'چای', 'package_count': 24},
+                        {'name': 'چای', 'volume': '500 ml'},
+                        {'name': 'چای', 'weight': '1 kg'}):
+            with self.subTest(product=product):
+                result = ReferenceSuggestions(router).suggest(product, [reference],
+                    snapshot_id='s1', session=session, api_key='key')
+                self.assertIsNone(result['reference_id'])
+                self.assertEqual(result['reason'], 'explicit_attribute_conflicts')
+        self.assertEqual(session.calls, [])
+
+    def test_measurement_conversion_is_code_not_an_ai_comparison(self):
+        reference = row()
+        reference[8], reference[9] = '1 لیتر', '1 kg'
+        result = ReferenceSuggestions(None).suggest({'name': 'چای',
+            'volume': '۱۰۰۰ میلی لیتر', 'weight': '1000 گرم'}, [reference], snapshot_id='s1')
+        self.assertEqual(result['reference_id'], 'r1')
+        self.assertEqual(result['method'], 'code')
+
+    def test_model_cannot_override_explicit_variant_conflict(self):
+        reference = row()
+        reference[11] = 'هلو'
+        session = Session(generation({'reference_id': 'r1', 'confidence': .99, 'reason': 'guess'}))
+        result = ReferenceSuggestions(self.router()).suggest({'name': 'چای ممتاز', 'variation_type': 'انبه'},
+            [reference], snapshot_id='s1', session=session, api_key='key')
+        self.assertEqual(result['state'], 'needs_review')
+        self.assertIsNone(result['reference_id'])
+        self.assertEqual(result['rejected_suggestion_id'], 'r1')
+        self.assertIn('variant', result['conflicts'])
+
+    def test_semantic_search_can_recover_a_candidate_missed_by_text_search(self):
+        router = self.router(ModelBudget('gemini-embedding-001', ('embed',), 100, 1000000, 1000,
+                            api='embed', bucket='embedding'), budget())
+        service = ReferenceSuggestions(router, embedding_model='gemini-embedding-001')
+        session = Session(self.embedding(), self.embedding(),
+            generation({'reference_id': 'r1', 'confidence': .8, 'reason': 'alias'}))
+        service.embeddings.index([row()], session=session, api_key='key')
+        result = service.suggest({'name': 'tea'}, [row()], snapshot_id='s1', session=session, api_key='key')
+        self.assertEqual(result['reference_id'], 'r1')
+        self.assertEqual(result['method'], 'ai')
+        self.assertEqual(len(session.calls), 3)
 
 
 if __name__ == '__main__':

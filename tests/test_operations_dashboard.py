@@ -312,7 +312,7 @@ class OperationsSnapshotTests(unittest.TestCase):
         env={'PIPELINE_DB_PATH':self.path,'REFERENCE_OWNER_IDS':'wp:7',
              'REFERENCE_BRIDGE_TOKEN':'synthetic-bridge-token-0123456789'}
         headers={'X-Molavi-Reference-Token':env['REFERENCE_BRIDGE_TOKEN'],'X-Molavi-Actor':'wp:7'}
-        with patch.dict(os.environ,env):
+        with patch.dict(os.environ,env),patch.object(app,'USE_SHEETS',True):
             client=app.app.test_client()
             self.assertEqual(client.post('/pipeline/reconcile-publication-backlog',json={}).status_code,401)
             options=client.options('/pipeline/reconcile-publication-backlog',headers={'Origin':'https://www.molavisale.ir'})
@@ -336,7 +336,7 @@ class OperationsSnapshotTests(unittest.TestCase):
 
     def test_empty_extraction_and_owner_rejection_are_terminal_batch_states(self):
         import app
-        states=('no_product_candidate','owner_rejected','not_product','needs_media_review')
+        states=('no_product_candidate','owner_rejected','not_product','attachment_only','needs_media_review')
         sources=[{'id':f'source-{index}','channel_username':'@supplier','content':'private source'}
                  for index,_ in enumerate(states)]
         job=self.queue.put('batch','empty-result-batch',{

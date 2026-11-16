@@ -23,15 +23,19 @@ def main():
     parser.add_argument('--limit', type=int, default=100, help='Maximum new embeddings in this invocation')
     args = parser.parse_args()
     router = configured_router()
-    if router is None:
+    if router is None and args.command != 'suggest':
         parser.error('GOOGLE_FREE_ROUTING=1 and verified model budgets are required')
+    if router is None and args.embedding_model:
+        parser.error('Embedding search requires verified free model budgets')
     if args.command == 'status':
         result = router.status()
         for item in result:
             item['reset_tehran'] = datetime.fromtimestamp(item['reset_at'], ZoneInfo('Asia/Tehran')).isoformat()
     else:
-        if not args.snapshot or not google_api_key():
-            parser.error('A trusted snapshot file and configured Google credential are required')
+        if not args.snapshot:
+            parser.error('A trusted snapshot file is required')
+        if args.command == 'index' and not google_api_key():
+            parser.error('Configured Google credential required for embedding generation')
         snapshot = json.loads(args.snapshot.read_text())
         if (not isinstance(snapshot, dict) or not snapshot.get('snapshot_id')
                 or snapshot.get('coverage_verified') is not True):

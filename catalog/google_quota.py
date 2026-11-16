@@ -56,7 +56,7 @@ class ModelBudget:
         tasks = value.get('tasks')
         if (not isinstance(model, str) or not re.fullmatch(r'[A-Za-z0-9._-]{1,100}', model)
                 or not isinstance(tasks, list) or not tasks
-                or any(task not in {'extract', 'ocr', 'match', 'embed'} for task in tasks)):
+                or any(task not in {'extract', 'match', 'embed'} for task in tasks)):
             raise QuotaConfigurationError('Invalid model or task configuration')
         api = value.get('api', 'generate')
         if (api not in {'generate', 'embed', 'decide'}
