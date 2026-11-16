@@ -1753,9 +1753,10 @@
     function setupCartRefresh(){
         if(!molaviShop.quoteEndpoint||document.body._molaviCartReadReady)return;
         document.body._molaviCartReadReady=true;
-        var refreshing=false,timer=null;
+        var refreshing=false,timer=null,queuedRefresh=null;
         async function refresh(initial){
-            if(refreshing||document.hidden)return;
+            if(document.hidden)return;
+            if(refreshing){queuedRefresh=!!initial||!!queuedRefresh;return;}
             if(sending||dirty||buyerChanging||listRestoring||nativeCartUpdating){window.clearTimeout(timer);timer=window.setTimeout(function(){refresh(initial);},500);return;}
             refreshing=true;var revision=pricingRevision,controller=new AbortController(),timeout=window.setTimeout(function(){controller.abort();},20000);
             try{
@@ -1766,7 +1767,7 @@
                 pricingRevision++;Object.assign(catalog,result.data.catalog||{});lastQuote=result.data.quote;serverQtys=Object.assign({},lastQuote.qtys||{});qtys=Object.assign({},serverQtys);paint(lastQuote);
                 document.dispatchEvent(new CustomEvent('molavi:cart',{detail:{remote:true,initial:initial}}));
             }catch(error){/* The current page snapshot stays available; focus or connectivity restoration retries. */}
-            finally{window.clearTimeout(timeout);refreshing=false;}
+            finally{window.clearTimeout(timeout);refreshing=false;if(queuedRefresh!==null){var next=queuedRefresh;queuedRefresh=null;window.clearTimeout(timer);timer=window.setTimeout(function(){refresh(next);},150);}}
         }
         window.addEventListener('focus',function(){refresh(false);});
         window.addEventListener('online',function(){refresh(false);});
@@ -1788,6 +1789,7 @@
         var mobileQuery = window.matchMedia("(max-width: 900px)");
         var lastTrigger = triggers[0];
         var floating=root.querySelector('.molavi-mobile-basket'),peekTimer=null;
+        if(floating)document.body.appendChild(floating);
         var cartSignature=JSON.stringify([serverQtys,lastQuote.subtotal,lastQuote.savings,buyerType]);
         function retract(){if(floating)floating.classList.remove('is-peeking');window.clearTimeout(peekTimer);}
         function peek(event){
