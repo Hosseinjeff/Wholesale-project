@@ -1,0 +1,100 @@
+<?php
+/** Plugin Name: Molavi Runtime Host
+ * Description: WordPress-owned schedules for the sleeping Railway executor. No customer-facing routes.
+ */
+declare(strict_types=1);
+defined('ABSPATH') || exit;
+
+function molavi_runtime_configured(): bool {
+    return defined('MOLAVI_REFERENCE_BRIDGE_TOKEN') && is_string(MOLAVI_REFERENCE_BRIDGE_TOKEN)
+        && strlen(MOLAVI_REFERENCE_BRIDGE_TOKEN)>=32 && defined('MOLAVI_REFERENCE_SERVER_URL')
+        && wp_parse_url((string)MOLAVI_REFERENCE_SERVER_URL,PHP_URL_SCHEME)==='https';
+}
+function molavi_runtime_permission($request) {
+    if(!molavi_runtime_configured())return new WP_Error('runtime_unconfigured','Runtime unavailable',['status'=>503]);
+    $expected=hash_hmac('sha256','molavi-runtime-v1',MOLAVI_REFERENCE_BRIDGE_TOKEN);
+    return hash_equals($expected,(string)$request->get_header('x-molavi-runtime-token'))
+        ? true : new WP_Error('runtime_forbidden','Access denied',['status'=>403]);
+}
+add_filter('cron_schedules',static function(array $schedules):array {
+    $schedules['molavi_runtime_minute']=['interval'=>60,'display'=>'Molavi due work'];return $schedules;
+});
+add_action('init',static function():void {
+    if(molavi_runtime_configured()&&!wp_next_scheduled('molavi_runtime_tick'))
+        wp_schedule_event(time()+60,'molavi_runtime_minute','molavi_runtime_tick');
+});
+function molavi_runtime_state():array {
+    $state=get_option('molavi_runtime_host_v1',[]);
+    $wake=get_option('molavi_runtime_wake_v1',[]);
+    return array_merge(is_array($state)?$state:[],is_array($wake)?$wake:[])+['enabled'=>false,'wake_at'=>null,'sheet_at'=>0,'reference_at'=>0,'housekeeping_at'=>0,'last_tick'=>0,'last_observed'=>0,'last_remote'=>0,'failures'=>0];
+}
+function molavi_runtime_save_state(array $state):void {
+    // Worker callbacks own the wake option; an in-flight cron request must not overwrite their receipt.
+    unset($state['wake_at'],$state['last_observed']);
+    update_option('molavi_runtime_host_v1',$state,false);
+}
+function molavi_runtime_save_wake($wake,float $observed):void {
+    update_option('molavi_runtime_wake_v1',['wake_at'=>$wake,'last_observed'=>$observed],false);
+}
+function molavi_runtime_outbox_due():bool {
+    global $wpdb;
+    $table=$wpdb->prefix.'molavi_workflow_outbox';
+    if($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s',$table))!==$table)return false;
+    return (bool)$wpdb->get_var($wpdb->prepare("SELECT 1 FROM {$table} WHERE state='queued' AND available_at<=%s LIMIT 1",gmdate('Y-m-d H:i:s')));
+}
+function molavi_runtime_tick():void {
+    $state=molavi_runtime_state();$now=time();$state['last_tick']=$now;
+    molavi_runtime_save_state($state);
+    if(!$state['enabled']||!molavi_runtime_configured())return;
+    if(!add_option('molavi_runtime_host_lock',$now,'',false)){
+        $locked=(int)get_option('molavi_runtime_host_lock');
+        if($now-$locked<100)return;delete_option('molavi_runtime_host_lock');
+        if(!add_option('molavi_runtime_host_lock',$now,'',false))return;
+    }
+    try {
+        $tasks=[];
+        if((int)$state['sheet_at']<=$now)$tasks[]='sheet_sync';
+        if((int)$state['reference_at']<=$now)$tasks[]='reference_refresh';
+        if((int)$state['housekeeping_at']<=$now)$tasks[]='housekeeping';
+        if(molavi_runtime_outbox_due())$tasks[]='outbox';
+        $wake=$state['wake_at']!==null&&(float)$state['wake_at']<=$now;
+        if(!$tasks&&!$wake)return;
+        if($now-(int)$state['last_remote']<min(900,30*(2**min((int)$state['failures'],5))))return;
+        $admins=get_users(['role'=>'administrator','number'=>1,'orderby'=>'ID','order'=>'ASC','fields'=>'ID']);
+        $actor='wp:'.(int)($admins[0]??1);
+        // Persist the watchdog BEFORE the call; a worker callback can finish before the HTTP response.
+        $state['last_remote']=$now;molavi_runtime_save_wake($now+180,(float)$state['last_observed']);
+        molavi_runtime_save_state($state);
+        $response=wp_safe_remote_post(rtrim(MOLAVI_REFERENCE_SERVER_URL,'/').'/pipeline/runtime',[
+            'timeout'=>35,'redirection'=>0,'headers'=>['Content-Type'=>'application/json',
+                'X-Molavi-Reference-Token'=>MOLAVI_REFERENCE_BRIDGE_TOKEN,'X-Molavi-Actor'=>$actor],
+            'body'=>wp_json_encode(['tasks'=>array_values(array_unique($tasks))])]);
+        $state=molavi_runtime_state();
+        $body=is_wp_error($response)?null:json_decode(wp_remote_retrieve_body($response),true);
+        if(!is_wp_error($response)&&wp_remote_retrieve_response_code($response)===202&&($body['ok']??false)===true){
+            foreach(['sheet_sync'=>'sheet_at','reference_refresh'=>'reference_at','housekeeping'=>'housekeeping_at'] as $task=>$field)
+                if(in_array($task,$tasks,true))$state[$field]=$now+($task==='sheet_sync'?3600:86400);
+            $state['failures']=0;$state['last_error']='';
+        }else{$state['failures']++;$state['last_error']='runtime_wake_unconfirmed';}
+        molavi_runtime_save_state($state);
+    } finally {delete_option('molavi_runtime_host_lock');}
+}
+add_action('molavi_runtime_tick','molavi_runtime_tick');
+add_action('rest_api_init',static function():void {
+    register_rest_route('molavi-runtime/v1','/status',['methods'=>'GET','permission_callback'=>'molavi_runtime_permission',
+        'callback'=>static function(){return ['ok'=>true,'state'=>molavi_runtime_state(),'next_tick'=>wp_next_scheduled('molavi_runtime_tick'),
+            'php_memory_limit'=>ini_get('memory_limit'),'cron_disabled'=>defined('DISABLE_WP_CRON')&&DISABLE_WP_CRON,'real_cron_at'=>(int)get_option('molavi_runtime_real_cron_at',0)];}]);
+    register_rest_route('molavi-runtime/v1','/configure',['methods'=>'POST','permission_callback'=>'molavi_runtime_permission',
+        'callback'=>static function($request){$body=$request->get_json_params();if(!is_array($body)||!is_bool($body['enabled']??null))return new WP_Error('runtime_config','Invalid configuration',['status'=>400]);
+            $state=molavi_runtime_state();$state['enabled']=$body['enabled'];
+            if($state['enabled']){molavi_runtime_save_wake(time()+60,0.0);$state['sheet_at']=time()+3600;$state['reference_at']=time()+86400;$state['housekeeping_at']=time()+3600;}
+            molavi_runtime_save_state($state);return ['ok'=>true,'state'=>$state];}]);
+    register_rest_route('molavi-runtime/v1','/schedule',['methods'=>'POST','permission_callback'=>'molavi_runtime_permission',
+        'callback'=>static function($request){$body=$request->get_json_params();
+            if(!is_array($body)||!is_numeric($body['observed_at']??null)||!array_key_exists('wake_at',$body)
+                ||($body['wake_at']!==null&&!is_numeric($body['wake_at'])))return new WP_Error('runtime_schedule','Invalid schedule',['status'=>400]);
+            $state=molavi_runtime_state();$observed=(float)$body['observed_at'];
+            if(abs($observed-time())>300)return new WP_Error('runtime_clock','Invalid clock',['status'=>409]);
+            if($observed>=(float)$state['last_observed']){molavi_runtime_save_wake($body['wake_at']===null?null:max(time(),min(time()+604800,(float)$body['wake_at'])),$observed);}
+            return ['ok'=>true,'wake_at'=>molavi_runtime_state()['wake_at']];}]);
+});

@@ -150,11 +150,17 @@ def main() -> int:
     parser.add_argument("--since", default="HEAD^", help="Git ref before the plugin changes to deploy (default: HEAD^)")
     parser.add_argument("--site", choices=sorted(SITE_DOCUMENT_ROOTS), default="staging",
                         help="cPanel WordPress document root to deploy to (default: staging)")
+    parser.add_argument("--component",choices=["shop","runtime"],default="shop",help="Deploy store plugin or independent runtime MU-plugin")
     args = parser.parse_args()
 
     try:
         root, revision = require_synced_git_tree()
         files = changed_plugin_files(root, args.since)
+        if args.component=="runtime":
+            files=[name for name in files if name.startswith(str(PLUGIN_PREFIX / "runtime-host")+"/")]
+        else:
+            files=[name for name in files if not name.startswith(str(PLUGIN_PREFIX / "runtime-host")+"/")]
+        if not files:raise RuntimeError("No changed files for this component")
         base_url = (os.environ.get("MOLAVISALE_CPANEL_URL") or "").strip()
         username = (os.environ.get("MOLAVISALE_CPANEL_USERNAME") or "").strip()
         password = os.environ.get("MOLAVISALE_CPANEL_PASSWORD") or ""
@@ -165,9 +171,17 @@ def main() -> int:
         auth = "Basic " + base64.b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
         remote_dir = f"/home/{username}/{SITE_DOCUMENT_ROOTS[args.site]}/wp-content/plugins/molavi-shop"
 
+        if args.component=="runtime":
+            remote_dir=f"/home/{username}/{SITE_DOCUMENT_ROOTS[args.site]}/wp-content/mu-plugins"
+            # Fileman mkdir is idempotent on the host; verify all file writes below as usual.
+            try:uapi_request(base_url,auth,"mkdir",{"path":f"/home/{username}/{SITE_DOCUMENT_ROOTS[args.site]}/wp-content","name":"mu-plugins"})
+            except RuntimeError:pass
+        def location(name):
+            if args.component=="runtime":return remote_dir,Path(name).name
+            return remote_location(remote_dir,name)
         remote: dict[str, str | None] = {}
         for name in files:
-            directory, filename = remote_location(remote_dir, name)
+            directory, filename = location(name)
             payload = uapi_request(base_url, auth, "get_file_content", {"dir": directory, "file": filename})
             remote[name] = None if payload.get("_missing") else extract_file_content(payload)
             if remote[name] is None and not payload.get("_missing"):
@@ -189,7 +203,7 @@ def main() -> int:
             if remote[name] == local:
                 unchanged.append(name)
                 continue
-            directory, filename = remote_location(remote_dir, name)
+            directory, filename = location(name)
             uapi_request(
                 base_url,
                 auth,

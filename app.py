@@ -48,7 +48,7 @@ app = Flask(__name__)
 WEB_APP_URL = os.getenv('GOOGLE_WEB_APP_URL')
 BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 BALE_BOT_TOKEN = os.getenv('BALE_BOT_TOKEN')
-APP_VERSION = "2026-11-10-inline-pipeline-worker"
+APP_VERSION = "2026-11-16-wordpress-scheduled-runtime"
 setup_logger(logging.INFO, log_file=None)
 logger = logging.getLogger(__name__)
 
@@ -183,6 +183,8 @@ class DurableBatchManager:
 
     def add_message(self, data):
         self.queue.receive(data)  # Commit before returning webhook acknowledgement.
+        from catalog.runtime_host import on_demand
+        if on_demand():_start_pipeline_worker(force=True)
         with self.lock:
             if self.timer is None:
                 self.timer = threading.Timer(BATCH_MAX_WAIT_SEC, self.flush_and_finalize)
@@ -399,7 +401,8 @@ def run_durable_handoff(queue, job_id=None, worker_id=None):
             finally:
                 reference_locks.close()
 
-    return queue.run_one(finalize=finalize, publish=publish_projection,
+    from catalog.runtime_host import run_runtime_task
+    return queue.run_one(runtime_task=lambda payload:run_runtime_task(queue,payload),finalize=finalize, publish=publish_projection,
                          publish_with_payload=publish_projection,
                          order_write=order_write, notify=notify, job_id=job_id,
                          reextract=reextract, worker_id=worker_id)
@@ -465,17 +468,23 @@ def _pipeline_worker_loop(stop_event):
     while not stop_event.is_set():
         try:
             run_worker(stop_event)
-            if stop_event.is_set():
+            from catalog.runtime_host import on_demand
+            if stop_event.is_set() or on_demand():
                 return
             logger.error("Pipeline worker exited unexpectedly; restarting shortly")
         except Exception:
             logger.exception("Pipeline worker exited unexpectedly; restarting shortly")
+        from catalog.runtime_host import on_demand
+        if on_demand():return
         stop_event.wait(5)
 
 
-def _start_pipeline_worker():
+def _start_pipeline_worker(*, force=False):
     """Start one durable worker after Railway begins serving requests."""
     global _pipeline_worker_thread, _pipeline_worker_stop
+    from catalog.runtime_host import on_demand
+    if on_demand() and not force:
+        return
     if (not os.getenv("RAILWAY_ENVIRONMENT") or not os.getenv("PIPELINE_DB_PATH")
             or os.getenv("PIPELINE_HANDOFF_WORKER") == "1"):
         return
@@ -948,6 +957,8 @@ def handle_inbound_update(update_json, channel):
 
 @app.before_request
 def register_webhook_when_serving():
+    if request.path in {'/health','/health/detailed'}:
+        return
     _start_pipeline_worker()
     ensure_telegram_webhook()
 
@@ -955,6 +966,17 @@ def register_webhook_when_serving():
 @app.teardown_request
 def _release_memory_after_request(_exc):
     release_idle_memory()
+
+
+@app.after_request
+def wake_committed_work(response):
+    from catalog.runtime_host import on_demand,next_work_at
+    if on_demand() and request.method=='POST' and response.status_code<400:
+        try:
+            queue=handoff_queue()
+            if queue is not None and next_work_at(queue) is not None:_start_pipeline_worker(force=True)
+        except Exception:logger.exception('Pending work remains durable for the WordPress watchdog')
+    return response
 
 
 @app.route('/webhook', methods=['POST'])
@@ -1157,6 +1179,27 @@ def publication_holds_route():
         result = {"ok": True, "hold_id": body['hold_id'], "batch_resumed": True}
     response = jsonify(result)
     response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
+@app.route('/pipeline/runtime',methods=['GET','POST'])
+def runtime_host_route():
+    token=os.getenv('REFERENCE_BRIDGE_TOKEN') or ''
+    owners={x.strip() for x in (os.getenv('REFERENCE_OWNER_IDS') or '').split(',') if x.strip()}
+    if len(token)<32 or not owners:return jsonify({'ok':False,'error':'unconfigured'}),503
+    actor,error=_owner_api_actor('owner:/pipeline/runtime',token,owners)
+    if error:return jsonify({'ok':False,'error':'unauthorized'}),error
+    from catalog.runtime_host import enqueue_tasks,next_work_at,storage_report
+    queue=handoff_queue()
+    if queue is None:return jsonify({'ok':False,'error':'queue_unavailable'}),503
+    if request.method=='POST':
+        body=request.get_json(silent=True) or {}
+        try:scheduled=enqueue_tasks(queue,body.get('tasks',[]))
+        except (ValueError,TypeError):return jsonify({'ok':False,'error':'invalid_tasks'}),400
+        _start_pipeline_worker(force=True)
+        return jsonify({'ok':True,'scheduled':scheduled,'wake_at':next_work_at(queue)}),202
+    response=jsonify({'ok':True,**storage_report(),'next_work_at':next_work_at(queue),'worker':queue.worker_status()})
+    response.headers['Cache-Control']='no-store'
     return response
 
 

@@ -31,6 +31,5 @@ RUN chown -R app:app /app && chmod 755 /usr/local/bin/molavi-entrypoint
 # Expose port (Railway will override this with $PORT)
 EXPOSE 8080
 
-# Keep the HTTP API and the durable Sheet/reference worker under one supervisor
-# so the shared SQLite database stays on one Railway volume.
+# One Gunicorn worker; WordPress schedules idle work so Railway can sleep.
 CMD ["/usr/local/bin/molavi-entrypoint"]
