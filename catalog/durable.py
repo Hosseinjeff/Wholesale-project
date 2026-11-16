@@ -1004,11 +1004,14 @@ class Handoffs:
                        (lease,now+900,row['id']))
         return {**dict(row),'payload':json.loads(row['payload']),'lease':lease,'attempts':row['attempts']+1}
 
-    def finish(self, job, result, *, state='done', error=None):
+    def finish(self, job, result, *, state='done', error=None, retry_at=None, count_attempt=True):
+        available = (time.time()+min(300,2**min(job['attempts'],8))
+                     if retry_at is None else float(retry_at))
         with self.connect() as db:
-            updated=db.execute('''UPDATE jobs SET state=?,result=?,error=?,available=?,lease=NULL,expires=NULL
+            updated=db.execute('''UPDATE jobs SET state=?,result=?,error=?,available=?,lease=NULL,expires=NULL,
+                attempts=MAX(0,attempts-?)
                 WHERE id=? AND state='running' AND lease=?''',
-                (state,self.encode(result),error,time.time()+min(300,2**min(job['attempts'],8)),
+                (state,self.encode(result),error,available,int(not count_attempt),
                  job['id'],job['lease']))
             if updated.rowcount!=1: raise JobConflict('Worker lease no longer owns this receipt')
 
@@ -1075,7 +1078,13 @@ class Handoffs:
         except BatchRecoveryRequired:
             self.finish(job,{},state='needs_review',error='batch_recovery_requires_owner_review')
         except Exception as error:
-            self.finish(job,{},state='failed' if job['attempts']>=8 else 'queued',error=type(error).__name__)
+            from catalog.google_quota import QuotaDeferred
+            if isinstance(error, QuotaDeferred):
+                # Quota waits are scheduling events, not exhausted failure retries.
+                self.finish(job,{'retry_at':error.retry_at},state='queued',
+                            error=error.reason,retry_at=error.retry_at,count_attempt=False)
+            else:
+                self.finish(job,{},state='failed' if job['attempts']>=8 else 'queued',error=type(error).__name__)
         finally:
             self._worker_job_finished(worker_id,job['id'])
         return True

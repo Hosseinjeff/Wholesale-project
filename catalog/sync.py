@@ -39,6 +39,7 @@ from catalog.extract import (
 )
 from catalog.media import album_media_bundle, share_album_images
 from catalog.gemini import GeminiError, extract_message_products
+from catalog.google_quota import QuotaDeferred
 from catalog.sheet_reconcile import field_values_equal, reconcile_field, stable_conflict_id
 from catalog.pricing import (
     SHOP_FORMULA_ROW,
@@ -700,9 +701,12 @@ def _process_batch_products(store, batch_id: str, messages: list[dict[str, Any]]
         try:
             content = message.get("content") or ""
             prepared_products = (
-                _extract_supplier_products(content, message.get("channel_username") or "")
+                _extract_supplier_products_for_batch(content, message.get("channel_username") or "")
                 if content.strip() else []
             )
+        except QuotaDeferred:
+            _rollback_catalog(store, batch_id)
+            raise
         except Exception as exc:
             detail = (str(exc) if isinstance(exc, GeminiError) else exc.__class__.__name__)[:180]
             logger.warning("AI supplier extraction failed for message %s: %s",
@@ -827,6 +831,26 @@ def refresh_ai_message_status(store, message):
 def _extract_supplier_products(content, channel):
     """Extract supplier listings with Gemini; never switch to a heuristic parser."""
     return extract_message_products(content, channel)
+
+
+def _extract_supplier_products_for_batch(content, channel):
+    """Reuse validated AI results after a rolled-back batch waits for free quota.
+
+    Explicit owner re-extraction still calls the uncached extractor above.
+    """
+    from catalog.google_quota import configured_router
+    from catalog.gemini import extraction_policy_version
+    router = configured_router()
+    if router is None:
+        return _extract_supplier_products(content, channel)
+    key = 'batch-extraction:' + hashlib.sha256(json.dumps(
+        [extraction_policy_version(), channel, content], ensure_ascii=False).encode()).hexdigest()
+    cached = router.cached(key)
+    if cached is not None:
+        return cached
+    products = _extract_supplier_products(content, channel)
+    router.cache(key, products)
+    return products
 
 
 def import_product_data(

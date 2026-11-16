@@ -16,6 +16,9 @@ from catalog.measurements import (
     strip_measurement_tokens,
 )
 from catalog.stock import explicit_stock_status, normalize_stock_status
+from catalog.google_quota import (
+    GoogleProviderError, QuotaDeferred, configured_router,
+)
 
 DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash-lite'
 # Increment when extraction behavior changes outside the prompt/model, such as
@@ -99,12 +102,15 @@ def extraction_policy_version():
         model = gemini_model()
     except GeminiError:
         model = 'invalid-model-configuration'
-    material = json.dumps({
+    values = {
         'revision': _EXTRACTION_POLICY_REVISION,
         'model': model,
         'message_prompt': _MESSAGE_PROMPT,
         'image_transcription_policy': _IMAGE_TRANSCRIPTION_POLICY,
-    }, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
+    }
+    if os.getenv('GOOGLE_FREE_ROUTING', '').strip() == '1':
+        values['free_routing_models'] = os.getenv('GOOGLE_FREE_MODELS', '')
+    material = json.dumps(values, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
     return 'gemini-' + hashlib.sha256(material.encode()).hexdigest()[:16]
 
 
@@ -1198,7 +1204,31 @@ def parse_message_products(response_text, content, channel):
     return products
 
 
+class _RoutedResponse:
+    status_code = 200
+
+    def __init__(self, data):
+        self.data = data
+
+    def json(self):
+        return self.data
+
+
+def _generation_post(session, endpoint, key, payload, *, task, pinned_model):
+    router = configured_router()
+    if router is None:
+        return session.post(endpoint, headers={'x-goog-api-key': key},
+                            timeout=(10, 60), json=payload)
+    try:
+        data, _selected_model = router.request(task, payload, session=session,
+            api_key=key, model=pinned_model)
+    except GoogleProviderError as exc:
+        raise GeminiError(str(exc)) from None
+    return _RoutedResponse(data)
+
+
 def extract_message_products(content, channel, *, session=None, api_key=None, model=None):
+    pinned_model = model
     key = (api_key or google_api_key()).strip()
     model = model or gemini_model()
     if not key:
@@ -1221,7 +1251,7 @@ def extract_message_products(content, channel, *, session=None, api_key=None, mo
                 'array, with correctly escaped strings and no markdown or surrounding text.'
             )
         try:
-            response = session.post(endpoint, headers={'x-goog-api-key': key}, timeout=(10, 60), json={
+            response = _generation_post(session, endpoint, key, {
                 'contents': [{'parts': [{
                     'text': prompt + json.dumps(content, ensure_ascii=False)}]}],
                 'generationConfig':{
@@ -1230,7 +1260,9 @@ def extract_message_products(content, channel, *, session=None, api_key=None, mo
                     'maxOutputTokens': 8192,
                     'responseMimeType': 'application/json',
                 },
-            })
+            }, task='extract', pinned_model=pinned_model)
+        except QuotaDeferred:
+            raise
         except Exception as exc:
             raise GeminiError('Gemini request failed') from exc
         if response.status_code != 200:

@@ -27,6 +27,7 @@ from catalog.media import safe_file_id, stamp_inbound
 from catalog.memory import start_background
 from catalog.state import initialize as initialize_state
 initialize_state()
+from catalog.google_quota import QuotaDeferred
 from catalog.orders import format_order_notice, operator_chat_ids, remember_operator, upsert_shop_order
 from catalog.pricing import catalog_from_records, default_settings, preview_records, resolve_quote
 from catalog.status import command_name, private_chat, reply_for_command
@@ -291,6 +292,10 @@ def run_durable_handoff(queue, job_id=None, worker_id=None):
                 if latest is None or latest['snapshot_id'] != reference['snapshot_id']:
                     queue.hold_publication(payload['batch_id'], 'reference_changed_during_batch')
                     raise ReferenceChanged('reference snapshot changed during intake')
+        except QuotaDeferred:
+            queue.resolve_publication_hold(payload['batch_id'], expected_reason='batch_in_progress',
+                actor_id='system:quota', note='Rolled back batch awaits free Google quota')
+            raise
         except Exception:
             queue.hold_publication(payload['batch_id'], 'batch_write_unverified')
             raise
