@@ -103,7 +103,9 @@ add_action('molavi_runtime_tick','molavi_runtime_tick');
 add_action('rest_api_init',static function():void {
     register_rest_route('molavi-runtime/v1','/status',['methods'=>'GET','permission_callback'=>'molavi_runtime_permission',
         'callback'=>static function(){return ['ok'=>true,'state'=>molavi_runtime_state(),'next_tick'=>wp_next_scheduled('molavi_runtime_tick'),
-            'home_host'=>wp_parse_url(home_url('/'),PHP_URL_HOST),'runtime_host'=>wp_parse_url(MOLAVI_REFERENCE_SERVER_URL,PHP_URL_HOST),'php_memory_limit'=>ini_get('memory_limit'),'cron_disabled'=>defined('DISABLE_WP_CRON')&&DISABLE_WP_CRON,'real_cron_at'=>(int)get_option('molavi_runtime_real_cron_at',0)];}]);
+            'home_host'=>wp_parse_url(home_url('/'),PHP_URL_HOST),'runtime_host'=>wp_parse_url(MOLAVI_REFERENCE_SERVER_URL,PHP_URL_HOST),'php_memory_limit'=>ini_get('memory_limit'),'cron_disabled'=>defined('DISABLE_WP_CRON')&&DISABLE_WP_CRON,'real_cron_at'=>(int)get_option('molavi_runtime_real_cron_at',0),
+            'native_capabilities'=>['sqlite3'=>class_exists('SQLite3'),'subprocess'=>function_exists('proc_open'),
+                'python_paths'=>array_values(array_filter(['/usr/local/bin/python3','/usr/bin/python3','/opt/alt/python311/bin/python3'],static function($path){return is_executable($path);}))]];}]);
     register_rest_route('molavi-runtime/v1','/configure',['methods'=>'POST','permission_callback'=>'molavi_runtime_permission',
         'callback'=>static function($request){$body=$request->get_json_params();if(!is_array($body)||!is_bool($body['enabled']??null))return new WP_Error('runtime_config','Invalid configuration',['status'=>400]);
             $state=molavi_runtime_state();$state['enabled']=$body['enabled'];$state['failures']=0;$state['last_remote']=0;$state['last_error']='';

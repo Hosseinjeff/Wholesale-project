@@ -43,6 +43,37 @@ The container runs Gunicorn directly, dropping worker privileges to the existing
 account. The unused Supervisor process/dependency is removed from the execution path.
 One HTTP worker and one short-lived inline job thread share the existing volume.
 
+## Quiescent memory reclamation — 2026-11-16
+
+The owner further requires no unnecessary retained RAM on either environment.
+`catalog/memory.py` wraps the complete WSGI response lifetime and reserves background
+work before its thread starts. Thirty seconds after the last completed work burst,
+it drops the Sheets connection pool and cached credentials, collects/trims the heap,
+and advises Linux to evict clean pages of the configured database files. The advisory
+does not edit files or discard dirty writes. Gunicorn then gracefully replaces only
+the idle worker, releasing Python arenas, lazy imports and other transient state.
+The master keeps the listening socket; new requests in the retiring process receive
+503 with Retry-After rather than starting work that could be interrupted. Durable
+intake/outbox retries remain authoritative. Health-only workers do not arm a reset,
+and health checks do not extend an existing deadline. There is one bounded timer
+after real work and no idle polling/restart loop. `PIPELINE_IDLE_RESET_SECONDS=0`
+disables this additional reset for rollback.
+
+Pipeline, re-extraction and webhook-registration threads share this work tracking;
+new asynchronous work must use `start_background`. The old redundant five-second
+batch timer is skipped in on-demand mode because its durable worker already batches.
+The owner-only runtime report distinguishes process RSS, anonymous memory and file
+cache, and reports the process ID/reset interval. Process reset tests exercise a real
+Gunicorn worker, a large retained allocation, an active background task and idle health
+reads; transient-state cleanup also verifies pending database records survive.
+
+The owner's latest target is stronger than this RAM guard: WordPress must own all
+persistent data and all work it can execute, and Railway should receive inputs only
+for stateless processing. Existing SQLite ledgers have NOT yet become disposable.
+They require verified WordPress transfer/read-back and a single-writer cutover before
+removal. The private WordPress runtime status reports native execution capabilities
+to check whether the existing Python rules can run on the WP host without a rewrite.
+
 ## Checks and rollout
 
 The focused Python tests cover idle/held queues, retry/intake wake times, maintenance

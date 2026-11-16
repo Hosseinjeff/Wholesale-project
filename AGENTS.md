@@ -34,6 +34,12 @@ runtime's execution mode. See `docs/railway-on-demand-runtime.md`; verify resour
 measurements and actual sleep through control-plane reads, not HTTP probes that wake
 it. Keep storefront/quote work in WordPress. Code releases are scoped by environment
 and pinned to reviewed backend commits; frontend/docs commits must not redeploy it.
+The owner's latest target is WordPress ownership of all persistent data and all
+locally feasible work; Railway should be a stateless executor receiving only its task
+inputs. Do not confuse that target with the current SQLite-ledger migration status.
+Keep verified receipts and one writer before removing old state. Background threads
+must use `catalog.memory.start_background` so idle heap reclamation cannot interrupt
+them. Health probes must neither arm reset loops nor postpone pending reclamation.
 
 ## Source control and live WordPress changes
 

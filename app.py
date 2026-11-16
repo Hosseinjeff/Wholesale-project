@@ -24,6 +24,7 @@ from catalog.durable import (
     compact_pipeline_payloads,
 )
 from catalog.media import safe_file_id, stamp_inbound
+from catalog.memory import start_background
 from catalog.orders import format_order_notice, operator_chat_ids, remember_operator, upsert_shop_order
 from catalog.pricing import catalog_from_records, default_settings, preview_records, resolve_quote
 from catalog.status import command_name, private_chat, reply_for_command
@@ -48,7 +49,7 @@ app = Flask(__name__)
 WEB_APP_URL = os.getenv('GOOGLE_WEB_APP_URL')
 BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 BALE_BOT_TOKEN = os.getenv('BALE_BOT_TOKEN')
-APP_VERSION = "2026-11-16-on-demand-button-bot"
+APP_VERSION = "2026-11-16-idle-memory-reset"
 setup_logger(logging.INFO, log_file=None)
 logger = logging.getLogger(__name__)
 
@@ -185,7 +186,9 @@ class DurableBatchManager:
     def add_message(self, data):
         self.queue.receive(data)  # Commit before returning webhook acknowledgement.
         from catalog.runtime_host import on_demand
-        if on_demand():_start_pipeline_worker(force=True)
+        if on_demand():
+            _start_pipeline_worker(force=True)
+            return  # The durable worker owns batching; no duplicate timer/runner.
         with self.lock:
             if self.timer is None:
                 self.timer = threading.Timer(BATCH_MAX_WAIT_SEC, self.flush_and_finalize)
@@ -495,13 +498,11 @@ def _start_pipeline_worker(*, force=False):
         if _pipeline_worker_thread is not None and _pipeline_worker_thread.is_alive():
             return
         _pipeline_worker_stop = threading.Event()
-        _pipeline_worker_thread = threading.Thread(
-            target=_pipeline_worker_loop,
+        _pipeline_worker_thread = start_background(
+            _pipeline_worker_loop,
             args=(_pipeline_worker_stop,),
             name="pipeline-worker",
-            daemon=True,
         )
-        _pipeline_worker_thread.start()
 
 
 def _stop_pipeline_worker():
@@ -717,7 +718,7 @@ def ensure_telegram_webhook():
         with _webhook_lock:
             _webhook_registered = False
 
-    threading.Thread(target=_run, name="telegram-webhook", daemon=True).start()
+    start_background(_run, name="telegram-webhook")
 
 
 
@@ -771,7 +772,7 @@ def _queue_prompt_publication(queue,store):
     if queue is not None:
         from catalog.sheet_projection import sheet_projection_digest
         queue.enqueue_sheet_projection(sheet_projection_digest(store))
-    else:threading.Thread(target=_publish_shop_quietly,daemon=True).start()
+    else:start_background(_publish_shop_quietly)
 
 
 def handle_telegram_button(callback):
@@ -2735,8 +2736,8 @@ def ai_confirmations_route():
                 if str(exc).startswith('re-extraction run already active:'):
                     return jsonify({'ok':False,'error':'reextraction_active'}),409
                 return jsonify({'ok':False,'error':'reextraction_conflict'}),409
-            threading.Thread(target=_drain_reextraction_run,args=(queue,run_id),
-                name='owner-open-case-reextract',daemon=True).start()
+            start_background(_drain_reextraction_run,args=(queue,run_id),
+                name='owner-open-case-reextract')
             response=jsonify({'ok':True,'run_id':run_id,'queued':queued,
                 'case_count':expected_cases,'message_count':expected_messages,'scope':'open_cases'})
             response.headers['Cache-Control']='no-store'
@@ -2768,8 +2769,8 @@ def ai_confirmations_route():
                 if str(exc).startswith('re-extraction run already active:'):
                     return jsonify({'ok':False,'error':'reextraction_active'}),409
                 return jsonify({'ok':False,'error':'reextraction_conflict'}),409
-            threading.Thread(target=_drain_reextraction_run,args=(queue,run_id),
-                name='owner-media-reextract',daemon=True).start()
+            start_background(_drain_reextraction_run,args=(queue,run_id),
+                name='owner-media-reextract')
             response=jsonify({'ok':True,'run_id':run_id,'queued':queued,
                 'message_key':message_key,'scope':'media_review',
                 'image_count':int(item.get('image_count') or 0),
@@ -2971,8 +2972,8 @@ def ai_confirmations_route():
                 if str(exc).startswith('re-extraction run already active:'):
                     return jsonify({'ok':False,'error':'reextraction_active'}),409
                 return jsonify({'ok':False,'error':'reextraction_conflict'}),409
-            threading.Thread(target=_drain_reextraction_run,args=(queue,run_id),
-                             name='owner-saved-message-reextract',daemon=True).start()
+            start_background(_drain_reextraction_run,args=(queue,run_id),
+                             name='owner-saved-message-reextract')
             response=jsonify({'ok':True,'run_id':run_id,'queued':queued,'scope':body['scope']})
             response.headers['Cache-Control']='no-store'
             return response,202
@@ -3028,8 +3029,8 @@ def ai_confirmations_route():
                 if str(exc).startswith('re-extraction run already active:'):
                     return jsonify({'ok':False,'error':'reextraction_active'}),409
                 return jsonify({'ok':False,'error':'reextraction_conflict'}),409
-            threading.Thread(target=_drain_reextraction_run,args=(queue,run_id),
-                name='owner-recent-policy-reextract',daemon=True).start()
+            start_background(_drain_reextraction_run,args=(queue,run_id),
+                name='owner-recent-policy-reextract')
             response=jsonify({'ok':True,'run_id':run_id,'queued':queued,
                 'scope':'recent_policy','policy_version':current_policy_version,
                 'digest':current_inventory['digest']})
