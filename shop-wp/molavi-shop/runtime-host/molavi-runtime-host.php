@@ -3,6 +3,16 @@
  * Description: WordPress-owned schedules for the sleeping Railway executor. No customer-facing routes.
  */
 declare(strict_types=1);
+// A plain PHP-file cron command avoids shell expressions and runs only this scheduler.
+if(PHP_SAPI==='cli'&&realpath((string)($_SERVER['SCRIPT_FILENAME']??''))===__FILE__&&!defined('ABSPATH')){
+    $lock=fopen(sys_get_temp_dir().'/molavi-runtime-'.md5(__DIR__).'.lock','c');
+    if(!$lock||!flock($lock,LOCK_EX|LOCK_NB))exit;
+    define('DISABLE_WP_CRON',true);define('DOING_CRON',true);
+    require dirname(__DIR__,2).'/wp-load.php';
+    update_option('molavi_runtime_real_cron_at',time(),false);
+    molavi_runtime_tick();
+    exit;
+}
 defined('ABSPATH') || exit;
 
 function molavi_runtime_configured(): bool {
