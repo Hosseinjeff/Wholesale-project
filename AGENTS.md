@@ -7,6 +7,10 @@ read-only checks for the next session. The broader project history remains in
 [`docs/project-handoff.md`](docs/project-handoff.md).
 
 For the business workflow and migration audit, start with `docs/project-handoff.md`.
+For the active state migration, first read `docs/wordpress-state-executor.md`'s
+current cutover checkpoint. Staging uses WordPress state; production has NOT switched.
+Its inactive WordPress transfer copies may be stale after the temporary freeze was
+released. Never enable those copies or remove live data without a fresh comparison.
 The user-provided GAS export is preserved in `legacy-gas/recovered-2026-10-25/`;
 `legacy-gas/README.md` explains its authority and limits. The root
 `google_apps_script.js` is an older implementation, not the recovered snapshot.
