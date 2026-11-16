@@ -21,7 +21,7 @@ body.molavi-site-page .molavi-header-actions {display:flex;gap:10px;align-items:
 body.molavi-site-page :is(.molavi-header-icon,.molavi-header-cart) {position:relative;display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;min-width:40px;border:0;border-radius:12px;background:transparent;color:var(--molavi-ink);padding:8px;cursor:pointer;text-decoration:none;}
 body.molavi-site-page :is(.molavi-header-icon,.molavi-header-cart):hover {background:#edf2e9;}
 body.molavi-site-page :is(.molavi-header-icon,.molavi-header-cart) svg {width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.65;}
-body.molavi-site-page .molavi-header-cart [data-molavi-count] {position:absolute;inset:auto;top:0;right:0;min-width:17px;height:17px;padding:0 3px;border:2px solid #fff;border-radius:9px;font-size:9px;line-height:13px;background:var(--molavi-accent);color:#fff;}
+body.molavi-site-page .molavi-header-cart [data-molavi-count] {display:none;}
 body.molavi-site-page .molavi-search {flex:1 1 260px;max-width:370px;margin:0;border:1px solid var(--molavi-line);border-radius:10px;background:#f6f7f2;box-shadow:none;min-width:100px;}
 body.molavi-site-page .molavi-search input {font-size:13px;background:transparent;}
 body.molavi-site-page .molavi-site-footer {margin:44px 0 0;padding:0;background:#fff;border:0;border-top:1px solid var(--molavi-line);color:var(--molavi-muted);}
@@ -365,9 +365,6 @@ body.molavi-site-page .molavi-product-grid:not(.is-list-view) .molavi-current-pr
 @media(max-width:360px){body.molavi-site-page .molavi-mobile-total {display:none;}}
 
 /* Cart controls and saved-list names stay directly beside their content. */
-body.molavi-site-page .molavi-header-cart {background:var(--molavi-accent);color:#fff;border-radius:12px;overflow:visible;}
-body.molavi-site-page .molavi-header-cart:hover {background:var(--molavi-orange-dark);}
-body.molavi-site-page .molavi-header-cart [data-molavi-count] {top:-6px;right:-6px;min-width:21px;height:21px;line-height:17px;background:#966d23;}
 body.molavi-site-page .molavi-mobile-basket {border-radius:16px;overflow:visible;}
 body.molavi-site-page .molavi-mobile-cart-icon {position:static;}
 body.molavi-site-page .molavi-mobile-count {top:-7px;right:-7px;min-width:24px;height:24px;line-height:20px;border:2px solid var(--molavi-bg);background:#966d23;color:#fff;font-size:11px;}
@@ -380,6 +377,3 @@ body.molavi-site-page .molavi-mobile-count {top:-7px;right:-7px;min-width:24px;h
 .molavi-inline-rename {display:flex;align-items:center;flex-wrap:wrap;gap:5px;max-width:100%;}
 .molavi-inline-rename input {font:inherit;font-size:14px;min-width:80px;width:180px;max-width:100%;border:1px solid var(--molavi-accent);border-radius:8px;padding:6px 8px;}
 @media(max-width:520px){.molavi-library-create {padding:12px 18px;}.molavi-inline-rename input {width:140px;}}
-/* Keep the floating cart a rounded square, including after an add or keyboard focus. */
-body.molavi-site-page .molavi-mobile-basket:is(.is-peeking,:focus-visible) {width:58px;}
-body.molavi-site-page .molavi-mobile-basket :is(.molavi-mobile-copy,.molavi-mobile-total) {display:none;}
