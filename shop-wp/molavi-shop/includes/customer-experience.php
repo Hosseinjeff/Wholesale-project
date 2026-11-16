@@ -221,3 +221,112 @@ function molavi_render_shopping_help(): void {
     echo '<form method="dialog"><button class="button" type="submit">متوجه شدم</button></form></dialog>';
 }
 add_action('wp_footer',static function (): void { if(molavi_is_customer_request()) { molavi_render_shopping_help(); \Molavi\Elementor\molavi_render_favorites_library(); } },15);
+
+/** Account-owned favorites and named lists; active WooCommerce carts remain separate. */
+function molavi_library_empty(): array {
+    return ['revision'=>0, 'favorites'=>[], 'carts'=>[], 'receipts'=>[]];
+}
+function molavi_library_public(array $state): array {
+    return ['revision'=>(int)$state['revision'], 'favorites'=>array_values($state['favorites']), 'carts'=>array_values($state['carts'])];
+}
+function molavi_library_ids($ids) {
+    if (!is_array($ids) || count($ids)>1000) return new WP_Error('invalid', 'فهرست علاقه‌مندی‌ها معتبر نیست.');
+    $out=[];
+    foreach ($ids as $id) {
+        if (!is_scalar($id) || !preg_match('/^[1-9][0-9]{0,17}$/', (string)$id)) return new WP_Error('invalid', 'شناسهٔ کالا معتبر نیست.');
+        $out[(string)$id]=(string)$id;
+    }
+    return array_values($out);
+}
+function molavi_library_cart($cart) {
+    if (!is_array($cart) || !is_string($cart['id']??null) || !preg_match('/^[a-zA-Z0-9_-]{1,80}$/',$cart['id'])
+        || !is_string($cart['name']??null) || !is_array($cart['items']??null)) return new WP_Error('invalid','سبد ذخیره‌شده معتبر نیست.');
+    $name=trim(sanitize_text_field($cart['name']));
+    if ($name==='' || mb_strlen($name)>60 || !$cart['items'] || count($cart['items'])>40) return new WP_Error('invalid','نام یا تعداد کالاهای سبد معتبر نیست؛ هر سبد حداکثر ۴۰ کالا دارد.');
+    $items=[];
+    foreach ($cart['items'] as $id=>$qty) {
+        if (!preg_match('/^[1-9][0-9]{0,17}$/',(string)$id) || !is_int($qty) || $qty<1 || $qty>999) return new WP_Error('invalid','تعداد کالاهای سبد معتبر نیست.');
+        $items[(string)$id]=$qty;
+    }
+    return ['id'=>$cart['id'],'name'=>$name,'items'=>$items];
+}
+function molavi_library_apply(array $state, array $ops) {
+    foreach ($ops as $op) {
+        if (!is_array($op)) return new WP_Error('invalid','درخواست معتبر نیست.');
+        $type=$op['type']??'';
+        if ($type==='favorites_add' || $type==='favorites_remove') {
+            $ids=molavi_library_ids($op['ids']??null);if(is_wp_error($ids))return $ids;
+            $state['favorites']=$type==='favorites_add'
+                ? array_values(array_unique(array_merge($state['favorites'],$ids)))
+                : array_values(array_diff($state['favorites'],$ids));
+            if(count($state['favorites'])>1000)return new WP_Error('limit','حداکثر ۱۰۰۰ علاقه‌مندی می‌توانید ذخیره کنید.');
+        } elseif ($type==='cart_save') {
+            $cart=molavi_library_cart($op['cart']??null);if(is_wp_error($cart))return $cart;
+            $found=false;
+            foreach($state['carts'] as $existing){if($existing['id']===$cart['id']){$found=true;break;}}
+            if(!$found){
+                if(count($state['carts'])>=10)return new WP_Error('limit','۱۰ سبد ذخیره دارید؛ پیش از ذخیرهٔ سبد جدید، یکی را حذف کنید. هیچ سبدی خودکار حذف نمی‌شود.');
+                array_unshift($state['carts'],$cart);
+            }
+        } elseif ($type==='cart_delete' || $type==='cart_rename') {
+            $id=$op['id']??null;
+            if(!is_string($id)||!preg_match('/^[a-zA-Z0-9_-]{1,80}$/',$id))return new WP_Error('invalid','شناسهٔ سبد معتبر نیست.');
+            if($type==='cart_delete')$state['carts']=array_values(array_filter($state['carts'],static fn($cart)=>$cart['id']!==$id));
+            else{
+                $name=is_string($op['name']??null)?trim(sanitize_text_field($op['name'])):'';
+                if($name===''||mb_strlen($name)>60)return new WP_Error('invalid','نام سبد باید بین ۱ تا ۶۰ نویسه باشد.');
+                foreach($state['carts'] as &$cart){if($cart['id']===$id)$cart['name']=$name;}unset($cart);
+            }
+        } else return new WP_Error('invalid','عملیات فهرست خرید معتبر نیست.');
+    }
+    return $state;
+}
+function molavi_account_library(): void {
+    nocache_headers();
+    $userId=get_current_user_id();
+    if(!$userId)wp_send_json_error(['message'=>'برای همگام‌سازی وارد حساب خود شوید.'],401);
+    check_ajax_referer('molavi-qty','nonce');
+    $key='_molavi_library_v1';
+    if($_SERVER['REQUEST_METHOD']==='GET'){
+        $state=get_user_meta($userId,$key,true);
+        wp_send_json_success(molavi_library_public(is_array($state)?$state:molavi_library_empty()));
+    }
+    if($_SERVER['REQUEST_METHOD']!=='POST')wp_send_json_error(['message'=>'روش درخواست معتبر نیست.'],405);
+    $raw=isset($_POST['operations'])&&is_string($_POST['operations'])?wp_unslash($_POST['operations']):'';
+    $ops=strlen($raw)<=80000?json_decode($raw,true):null;
+    $requestId=isset($_POST['request_id'])&&is_string($_POST['request_id'])?$_POST['request_id']:'';
+    if(!is_array($ops)||!$ops||count($ops)>30||!preg_match('/^[a-f0-9]{32}$/',$requestId))wp_send_json_error(['message'=>'درخواست همگام‌سازی معتبر نیست.'],400);
+    $fingerprint=hash('sha256',$raw);
+    // Compare-and-swap retries apply each operation to the latest account state.
+    for($attempt=0;$attempt<5;$attempt++){
+        $previous=get_user_meta($userId,$key,true);
+        $state=is_array($previous)?$previous:molavi_library_empty();
+        if(isset($state['receipts'][$requestId])){
+            if($state['receipts'][$requestId]!==$fingerprint)wp_send_json_error(['message'=>'شناسهٔ درخواست با تغییر دیگری استفاده شده است.'],409);
+            wp_send_json_success(molavi_library_public($state));
+        }
+        $next=molavi_library_apply($state,$ops);
+        if(is_wp_error($next))wp_send_json_error(['message'=>$next->get_error_message(),'library'=>molavi_library_public($state)],$next->get_error_code()==='limit'?409:400);
+        $next['revision']=(int)$state['revision']+1;
+        $next['receipts'][$requestId]=$fingerprint;
+        $next['receipts']=array_slice($next['receipts'],-20,null,true);
+        if(is_array($previous))$saved=update_user_meta($userId,$key,$next,$previous);
+        else{
+            // WordPress usermeta has no unique key: serialize first creation with an option's unique name.
+            $guard='molavi_library_init_'.$userId;
+            if(!add_option($guard,time(),'',false)){
+                if((int)get_option($guard,0)<time()-30)delete_option($guard);
+                wp_cache_delete($userId,'user_meta');continue;
+            }
+            try{
+                wp_cache_delete($userId,'user_meta');
+                $saved=is_array(get_user_meta($userId,$key,true))?false:add_user_meta($userId,$key,$next,true);
+            }finally{delete_option($guard);}
+        }
+        if($saved)wp_send_json_success(molavi_library_public($next));
+        wp_cache_delete($userId,'user_meta');
+    }
+    wp_send_json_error(['message'=>'حساب هم‌زمان در حال تغییر است. دوباره تلاش کنید.'],409);
+}
+add_action('wc_ajax_molavi_library','molavi_account_library');
+add_action('wc_ajax_nopriv_molavi_library','molavi_account_library');

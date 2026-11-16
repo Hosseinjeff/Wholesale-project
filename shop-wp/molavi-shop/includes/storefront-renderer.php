@@ -368,14 +368,23 @@ function molavi_render_favorites_library(): void
             <button type="button" id="molavi-saved-carts-tab" role="tab" aria-selected="false" aria-controls="molavi-saved-carts" tabindex="-1" data-molavi-library-tab="carts">سبدهای ذخیره‌شده <span data-molavi-saved-count>۰</span></button>
         </div>
         <section id="molavi-favorite-products" class="molavi-library-panel" role="tabpanel" aria-labelledby="molavi-favorite-products-tab" data-molavi-library-panel="products">
-            <div class="molavi-library-toolbar"><p>کالاهایی که با قلب انتخاب کرده‌اید.</p><button type="button" data-molavi-save-favorites>ذخیرهٔ همه به‌صورت سبد</button></div>
+            <div class="molavi-library-toolbar"><p>با انتقال همه، کالاها از علاقه‌مندی‌ها به یک سبد ذخیره‌شدهٔ جدید می‌روند.</p><button type="button" data-molavi-save-favorites>انتقال همه به سبد جدید</button></div>
             <div class="molavi-library-products" data-molavi-favorite-products></div>
         </section>
         <section id="molavi-saved-carts" class="molavi-library-panel" role="tabpanel" aria-labelledby="molavi-saved-carts-tab" data-molavi-library-panel="carts" hidden>
             <div class="molavi-library-toolbar"><p>انتخاب‌های آماده برای خرید دوباره.</p><button type="button" data-molavi-save-list>ذخیرهٔ سبد خرید فعلی</button></div>
             <div class="molavi-library-carts" data-molavi-saved-carts></div>
         </section>
-        <footer class="molavi-library-footer"><p data-molavi-lists-status role="status" aria-live="polite"></p><button type="button" class="molavi-library-retry" data-molavi-library-retry hidden>تلاش دوباره</button><small>روی همین مرورگر ذخیره می‌شود. قیمت و امکان خرید هنگام افزودن به سبد بررسی می‌شود.</small></footer>
+        <footer class="molavi-library-footer">
+            <p data-molavi-lists-status role="status" aria-live="polite"></p>
+            <button type="button" class="molavi-library-retry" data-molavi-undo-delete hidden>بازگرداندن سبد حذف‌شده</button>
+            <button type="button" class="molavi-library-retry" data-molavi-library-retry hidden>تلاش دوباره</button>
+            <p data-molavi-account-status role="status" aria-live="polite"><?php echo is_user_logged_in() ? 'در حال دریافت انتخاب‌های حساب…' : 'انتخاب‌های مهمان روی همین مرورگر ذخیره می‌شوند.'; ?></p>
+            <button type="button" class="molavi-library-retry" data-molavi-sync-retry<?php echo is_user_logged_in() ? '' : ' hidden'; ?>>همگام‌سازی حساب</button>
+            <button type="button" class="molavi-library-retry" data-molavi-import-library hidden>افزودن انتخاب‌های این مرورگر به حساب</button>
+            <?php if (!is_user_logged_in()): ?><a class="molavi-library-account-link" href="<?php echo esc_url(wc_get_page_permalink('myaccount')); ?>">ورود برای دسترسی در دستگاه‌های دیگر</a><?php endif; ?>
+            <small>حداکثر ۱۰ سبد؛ هیچ سبدی خودکار حذف نمی‌شود. قیمت و امکان خرید هنگام افزودن به سبد بررسی می‌شود.</small>
+        </footer>
     </dialog>
     <?php
 }

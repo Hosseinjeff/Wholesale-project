@@ -30,8 +30,17 @@ consumer/reference price, current server-calculated unit price, current discount
 maximum possible discount. Basket progress counts only discountable products; savings
 and product subtotal are shown separately.
 
-Favorites are saved in the visitor's current browser and can filter the visible catalog;
-they are not synchronized to a customer account.
+Guest favorites and saved lists stay in the current browser. Signed-in customers
+store them in their own WordPress user metadata and can retrieve them on other
+devices. A separate import action merges browser guest selections into the account.
+Account changes use validated, authenticated operations with idempotent retries and
+compare-and-swap updates so one device does not overwrite unrelated changes.
+
+Adding to the active WooCommerce cart preserves favorites. The bulk “انتقال همه به
+سبد جدید” action creates a new saved list and removes the transferred favorites;
+signed-in transfers are committed together. Saved lists are capped at ten: saving
+an eleventh is rejected without evicting an older list. Deletion has a session Undo
+button that restores the list and quantities.
 
 ## Product and order work in WooCommerce
 
