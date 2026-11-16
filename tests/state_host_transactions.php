@@ -40,4 +40,19 @@ check(molavi_state_lease($lease)['acquired'],'WordPress grants single-writer pub
 $competitor=$lease;$competitor['owner']=str_repeat('f',32);check(!molavi_state_lease($competitor)['acquired'],'competing executor cannot publish under another lease');
 $lease['action']='release';molavi_state_lease($lease);check(molavi_state_lease($competitor)['acquired'],'released lease can be acquired by another executor');
 $inventory=molavi_state_inventory('pipeline');check(!isset($inventory['tables']['molavi_state_commits'])&&$inventory['tables']['data']['rows']===2,'inventory separates transport metadata from business records');
+$now=time();$message=['id'=>'synthetic','content'=>'کالای نمونه','url'=>'https://example.invalid/post/1'];
+$payload=molavi_state_json(['batch_id'=>'old','messages'=>[$message],'expected_count'=>1,'transmission_complete'=>true]);
+$db=molavi_state_open('pipeline');$db->exec('CREATE TABLE jobs (id TEXT PRIMARY KEY,kind TEXT,state TEXT,updated_at REAL,payload TEXT)');
+$db->exec('CREATE TABLE inbox (id TEXT PRIMARY KEY,batch_id TEXT,payload TEXT)');
+foreach(['done','needs_review'] as $status){
+ $s=$db->prepare('INSERT INTO jobs VALUES (?,?,?,?,?)');foreach([$status,'batch',$status,$now-31*86400,$payload] as $i=>$value)$s->bindValue($i+1,$value,is_int($value)?SQLITE3_INTEGER:SQLITE3_TEXT);$s->execute();$s->close();
+ $s=$db->prepare('INSERT INTO inbox VALUES (?,?,?)');$s->bindValue(1,$status);$s->bindValue(2,$status);$s->bindValue(3,molavi_state_json($message));$s->execute();$s->close();
+}$db->close();
+update_option('molavi_pipeline_payload_retention_days','30',false);
+check(molavi_state_retention_days()===30,'retention accepts the string returned by WordPress option storage');
+$compacted=molavi_state_housekeeping($now);check($compacted===['jobs_compacted'=>1,'inbox_compacted'=>1],'WordPress performs completed-payload housekeeping locally');
+$db=molavi_state_open('pipeline');$summary=json_decode($db->querySingle("SELECT payload FROM inbox WHERE id='done'"),true);
+check($summary['content_sha256']===hash('sha256',$message['content'])&&$summary['content_length']===11&&$summary['url']===$message['url'],'compaction retains source hash, Unicode length and source link');
+check($db->querySingle("SELECT payload FROM jobs WHERE id='needs_review'")===$payload,'review-needed business payloads remain intact');$db->close();
+check(molavi_state_housekeeping($now)===['jobs_compacted'=>0,'inbox_compacted'=>0],'native housekeeping retries are idempotent');
 foreach(glob($root.'/*') as $file)unlink($file);rmdir($root);

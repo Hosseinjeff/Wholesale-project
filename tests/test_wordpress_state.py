@@ -120,6 +120,21 @@ class WordPressStateTests(unittest.TestCase):
             with sqlite3.connect(backup) as db:
                 self.assertEqual(db.execute('SELECT state FROM jobs').fetchone()[0], 'needs_review')
 
+    def test_review_reads_fetch_decisions_in_groups_without_per_offer_calls(self):
+        from catalog.ai_confirmations import AIConfirmationLedger, review_cases
+        from catalog.extract import OFFER_HEADERS
+        from catalog.sync import MemoryStore, _row_from_map
+        with tempfile.TemporaryDirectory() as root:
+            ledger = AIConfirmationLedger(str(Path(root)/'reviews.sqlite3'))
+            store = MemoryStore()
+            store.ensure('Offers', OFFER_HEADERS)
+            store.append('Offers', [_row_from_map(OFFER_HEADERS, {'Offer ID': 'offer-'+str(i),
+                'Product Name': 'Synthetic', 'Status': 'approved'}) for i in range(650)])
+            with patch.object(ledger, 'latest', side_effect=AssertionError('per-offer query')), \
+                    patch.object(ledger, 'connect', wraps=ledger.connect) as calls:
+                self.assertEqual(review_cases(store, ledger), [])
+            self.assertEqual(calls.call_count, 4, 'one source receipt read plus three bounded decision groups')
+
 
 class StateTransportTests(unittest.TestCase):
     def test_lost_commit_response_retries_the_same_identity(self):

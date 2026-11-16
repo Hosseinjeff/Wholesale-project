@@ -16,6 +16,7 @@ from urllib.parse import urlsplit
 from catalog.stock import normalize_stock_status
 
 _OCR_MEDIA_TYPES = frozenset({'image','photo','document','image_document','document_image'})
+_DECISION_UNSET = object()
 
 
 class ConfirmationConflict(ValueError):
@@ -93,6 +94,20 @@ class AIConfirmationLedger:
     def latest(self, case_id):
         rows = self.history(case_id, 1)
         return rows[0] if rows else None
+
+    def latest_for_cases(self, case_ids):
+        identifiers = list(dict.fromkeys(str(value) for value in case_ids if value))
+        output = {}
+        for start in range(0, len(identifiers), 300):
+            group = identifiers[start:start+300]
+            placeholders = ','.join('?' for _ in group)
+            with self.connect() as db:
+                rows = db.execute(f'''SELECT d.* FROM ai_confirmation_decisions d
+                    WHERE d.case_id IN ({placeholders}) AND d.rowid=(
+                        SELECT p.rowid FROM ai_confirmation_decisions p WHERE p.case_id=d.case_id
+                        ORDER BY p.created_at DESC,p.rowid DESC LIMIT 1)''', group).fetchall()
+            output.update((str(row['case_id']), self._decode(row)) for row in rows)
+        return output
 
     def dismissed_message_keys(self):
         with self.connect() as db:
@@ -256,7 +271,7 @@ def _source_current_check_required(offer):
     return stamp is None or stamp > now or now - stamp >= BLOCKING_AGE
 
 
-def _as_case(offer, ledger, *, include_decided=False):
+def _as_case(offer, ledger, *, include_decided=False, latest_decision=_DECISION_UNSET):
     offer_id = str(offer.get('Offer ID') or '')
     if not offer_id:
         return None
@@ -265,7 +280,7 @@ def _as_case(offer, ledger, *, include_decided=False):
         return None
     signature = hashlib.sha256(_stable(offer)).hexdigest()
     case_id = review_case_id(offer_id)
-    latest = ledger.latest(case_id)
+    latest = ledger.latest(case_id) if latest_decision is _DECISION_UNSET else latest_decision
     if latest and latest['signature'] == signature and not include_decided:
         return None
     stock_status = normalize_stock_status(offer.get('Stock Status'))
@@ -423,6 +438,12 @@ def review_cases(store, ledger, *, include_history=False, limit=200, reference_s
     source_duplicates = {}
     all_by_offer = {}
     source_results = ledger.source_reextractions()
+    latest_decisions = ledger.latest_for_cases(review_case_id(str(offer.get('Offer ID') or '')) for offer in offers)
+    reference_decisions = {}
+    if reference_item_ledger and active_reference_snapshot_id:
+        from reference_import.item_reviews import review_case_id as reference_review_case_id
+        reference_decisions = reference_item_ledger.get_for_cases(
+            reference_review_case_id(str(offer.get('Offer ID') or ''), active_reference_snapshot_id) for offer in offers)
     reextracted_messages={
         (str(offer.get('Message ID') or ''),str(offer.get('Channel Username') or ''))
         for offer in offers if str(offer.get('Batch ID') or '').startswith('reextract:')
@@ -442,7 +463,7 @@ def review_cases(store, ledger, *, include_history=False, limit=200, reference_s
         if not offer_id:
             continue
         case_id = review_case_id(offer_id)
-        latest = ledger.latest(case_id)
+        latest = latest_decisions.get(case_id)
         marker=(str(offer.get('Message ID') or ''),str(offer.get('Channel Username') or ''))
         source_key = reextraction_source_key(
             source_url=offer.get('Source Post URL'), channel=offer.get('Channel Username'),
@@ -459,7 +480,7 @@ def review_cases(store, ledger, *, include_history=False, limit=200, reference_s
             superseded = superseded or batch_id != latest_reextract_batch_by_source.get(source_key)
         elif source_key in latest_reextract_batch_by_source:
             superseded = True
-        case = None if superseded else _as_case(offer, ledger, include_decided=True)
+        case = None if superseded else _as_case(offer, ledger, include_decided=True, latest_decision=latest)
         if case:
             case['reference_match_name'] = reference_lookup.get(str(case.get('reference_match_id') or ''), '')
             case['reference_candidates'] = []
@@ -469,7 +490,7 @@ def review_cases(store, ledger, *, include_history=False, limit=200, reference_s
                 from reference_import.item_reviews import (offer_attributes, product_signature,
                     review_case_id as reference_review_case_id)
                 attributes = offer_attributes(offer)
-                reference_decision = reference_item_ledger.get(
+                reference_decision = reference_decisions.get(
                     reference_review_case_id(offer_id, active_reference_snapshot_id))
                 if (reference_decision
                         and reference_decision.get('snapshot_id') == active_reference_snapshot_id
@@ -492,7 +513,7 @@ def review_cases(store, ledger, *, include_history=False, limit=200, reference_s
                     'weight': case.get('weight'), 'package_count': case.get('package_count'),
                     'supplier_price': case.get('detected_price') or case.get('sale_price'),
                 }, limit=12)
-            latest_decision = ledger.latest(case['case_id'])
+            latest_decision = latest
             decided = bool(latest_decision and latest_decision['signature'] == case['signature'])
             duplicate_key = _duplicate_source_offer_key(offer)
             if duplicate_key:
@@ -529,7 +550,8 @@ def review_cases(store, ledger, *, include_history=False, limit=200, reference_s
             if (marker in reextracted_messages
                     and not str(source.get('Batch ID') or '').startswith('reextract:')):
                 continue
-            case = _as_case(pair[0], ledger, include_decided=True)
+            case = _as_case(pair[0], ledger, include_decided=True,
+                            latest_decision=latest_decisions.get(review_case_id(str(pair[0].get('Offer ID') or ''))))
             if case:
                 recent.append({**case, 'decision': decision})
     histories = ledger.history_for_cases(

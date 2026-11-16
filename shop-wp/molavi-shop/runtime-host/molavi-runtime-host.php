@@ -73,7 +73,12 @@ function molavi_runtime_tick():void {
         $tasks=[];
         if((int)$state['sheet_at']<=$now)$tasks[]='sheet_sync';
         if((int)$state['reference_at']<=$now)$tasks[]='reference_refresh';
-        if((int)$state['housekeeping_at']<=$now)$tasks[]='housekeeping';
+        if((int)$state['housekeeping_at']<=$now){
+            if(function_exists('molavi_state_housekeeping')&&get_option('molavi_state_active',false)
+                &&molavi_state_retention_days()!==null){
+                molavi_state_housekeeping($now);$state['housekeeping_at']=$now+86400;molavi_runtime_save_state($state);
+            }else $tasks[]='housekeeping';
+        }
         if(molavi_runtime_outbox_due())$tasks[]='outbox';
         $wake=($state['wake_at']!==null&&(float)$state['wake_at']<=$now)
             ||(function_exists('molavi_state_due_work')&&molavi_state_due_work());
@@ -119,5 +124,7 @@ add_action('rest_api_init',static function():void {
             $state=molavi_runtime_state();$observed=(float)$body['observed_at'];
             if(abs($observed-time())>300)return new WP_Error('runtime_clock','Invalid clock',['status'=>409]);
             if($observed>=(float)$state['last_observed']){molavi_runtime_save_wake($body['wake_at']===null?null:max(time(),min(time()+604800,(float)$body['wake_at'])),$observed);}
+            $retention=$body['retention_days']??null;
+            if(is_int($retention)&&$retention>=30&&$retention<=365)update_option('molavi_pipeline_payload_retention_days',$retention,false);
             return ['ok'=>true,'wake_at'=>molavi_runtime_state()['wake_at']];}]);
 });
