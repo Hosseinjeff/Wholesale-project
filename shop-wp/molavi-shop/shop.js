@@ -198,8 +198,9 @@
         var switchSuggestion = quote && quote.switch_suggestion;
         var storeRoot = document.querySelector("[data-molavi-storefront]");
         var basket = document.querySelector("#molavi-basket-dialog");
-        var cartVisible = basket && (!storeRoot || window.matchMedia("(min-width: 901px)").matches
-            || basket.classList.contains("is-open"));
+        var standaloneBasket=basket&&basket.closest('.molavi-global-basket-shell');
+        var cartVisible = basket && (basket.classList.contains("is-open")
+            || (!standaloneBasket && window.matchMedia("(min-width: 901px)").matches));
         var feedbackNodes = document.querySelectorAll("[data-molavi-buyer-feedback]");
         feedbackNodes.forEach(function (node) {
             node.replaceChildren();
@@ -207,7 +208,8 @@
         });
         var globalFeedback = cartVisible && basket
             ? basket.querySelector("[data-molavi-buyer-feedback]")
-            : storeRoot && storeRoot.querySelector(".molavi-product-area [data-molavi-buyer-feedback]");
+            : storeRoot ? storeRoot.querySelector(".molavi-product-area [data-molavi-buyer-feedback]")
+                : Array.from(feedbackNodes).find(function(node){return !basket||!basket.contains(node);});
         if (!globalFeedback) globalFeedback = feedbackNodes[0];
         if (globalFeedback) {
             if (switchSuggestion && switchSuggestion.buyer_type) {
