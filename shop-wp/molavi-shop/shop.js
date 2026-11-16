@@ -738,7 +738,7 @@
             host.querySelector('[data-molavi-save-list]').disabled=busy()||!Object.keys(currentItems()).length;
             host.querySelector('[data-molavi-new-cart]').disabled=busy();
             document.querySelectorAll('[data-molavi-cart-favorites]').forEach(function(button){button.hidden=!Object.keys(currentItems()).length;button.disabled=busy();});
-            host.querySelector('[data-molavi-save-favorites]').disabled=busy()||loading||!favorites.length;
+            host.querySelector('[data-molavi-save-favorites]').disabled=busy()||!favorites.length;
             host.querySelectorAll('[data-molavi-load-list],[data-molavi-replace-list],[data-molavi-delete-list],[data-molavi-rename-list],[data-molavi-list-favorites]').forEach(function(button){button.disabled=busy();});
             document.querySelectorAll('[data-molavi-favorite]').forEach(function(button){button.disabled=accountBusy||!accountReady;});
             undo.hidden=!deletedCart;undo.disabled=busy();
@@ -941,7 +941,7 @@
         });
         host.querySelector('[data-molavi-save-list]').addEventListener('click',async function(){if(busy())return;var item=await saveItems(currentItems());if(item)feedback.textContent='«'+item.name+'» ذخیره شد. نام آن را هر وقت خواستید تغییر دهید.';});
         host.querySelector('[data-molavi-save-favorites]').addEventListener('click',async function(){
-            if(busy()||loading)return;
+            if(busy())return;
             var ids=readFavoriteIds(),items={};ids.forEach(function(id){var row=rowOf(id);items[id]=row?row.min:1;});
             var item=makeItem(items);if(!item)return;
             if(customerId){
