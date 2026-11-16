@@ -2,6 +2,42 @@
 
 Updated: 2026-11-11, Asia/Tehran
 
+## 2026-11-16 Favorites transfer, cart protection and account sync
+
+This supersedes the earlier favorites-removal behavior: adding individual products
+or a saved list to the active WooCommerce cart preserves favorites. The explicit
+“انتقال همه به سبد جدید” action moves all favorites into a new saved list. Guest
+transfers save the list before clearing favorites; signed-in transfers save both
+changes together. Saving an eleventh list is rejected without evicting an older
+list. The latest deletion can be undone during the current library session.
+
+Signed-in libraries are stored in each customer's private WordPress user metadata.
+Authenticated, nonce-protected operations merge with current account state using
+compare-and-swap retries and idempotent request receipts. First creation is guarded
+by an atomic option name. No client-supplied user ID selects the storage owner.
+Guest libraries keep their existing browser keys; signed-in cache keys are scoped
+to the user. An explicit import button merges guest selections into the account.
+The active WooCommerce cart and guest checkout policy are unchanged.
+
+Plugin revisions `e2cb2bb5d8aef5f999af49e19f5a6b17443b35f7` and
+`2b90660899d486667b7958df0c4ef137d72ac8df` were pushed and uploaded only to
+Staging from baseline `b056b647ffbc8f4f565623b47e9bb58d9c82d8cd`. The protected
+deployer kept pre-deployment backups and verified all changed files by cPanel
+read-back. Public `shop.js` and `customer.css` matched the committed source.
+
+The focused PHP harness passed authentication, nonce, ownership, concurrent merge,
+idempotent retry, atomic transfer, capacity and Undo checks. Deployed Chromium
+checks passed guest current-cart preservation, bulk transfer, the 10-cart limit,
+Undo with quantities, and a simulated storage failure preserving favorites.
+Two independent authenticated browser contexts verified explicit guest import,
+cross-device favorites, list rename, atomic bulk transfer, saved-list merge
+preserving favorites, deletion/Undo persistence and reload persistence. A separate
+test account saw an empty private library; anonymous storage access returned 401.
+A real server-side eleventh-cart transfer returned 409 and preserved the entire
+prior library. No page JavaScript errors occurred, and no order was created.
+Both temporary customer accounts were deleted. The token-protected Staging test
+fixture self-deleted, and its URL returned HTTP 404. Production was not changed.
+
 ## 2026-11-16 Header cart and floating expansion correction
 
 Revision `be9b0f1aaadcec9f230834c0262f4468a285a86e` restores the header cart's
