@@ -58,3 +58,20 @@ version, worker/storage report and resource metrics. After verification, stop HT
 probes and observe sleeping via Railway's control-plane status/metrics; repeated health
 checks would themselves wake the service. Preserve rollback and storage backups before
 any later data compaction or authority cutover.
+
+## Scheduler isolation and Telegram UX
+
+The Staging safety MU-plugin blocks external HTTP by default. The runtime host uses
+a temporary exception only for HTTPS POST to the exact staging Railway host and
+`/pipeline/runtime`; production targets, other paths/methods and unrelated errors
+remain blocked. Focused PHP cases cover this exception. The enabled host resets its
+retry throttle after an explicit configuration change.
+
+The Telegram button workflow in `bot-button-workflow.md` adds no polling or resident
+worker. Reports are read-on-click, price choices are prompt-bound signed callbacks,
+and corrections require only a numeric reply.
+
+A broader legacy catalog suite was also examined with deterministic extraction
+mocked: 40/41 cases pass; its old `Batch ID == sheet` expectation fails in unchanged
+`catalog/sync.py`. An initial run inherited the workspace AI configuration and was
+stopped; verification uses mocked extraction rather than live model requests.

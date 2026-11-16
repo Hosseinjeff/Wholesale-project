@@ -52,6 +52,14 @@ function molavi_runtime_outbox_due():bool {
     if($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s',$table))!==$table)return false;
     return (bool)$wpdb->get_var($wpdb->prepare("SELECT 1 FROM {$table} WHERE state='queued' AND available_at<=%s LIMIT 1",gmdate('Y-m-d H:i:s')));
 }
+function molavi_runtime_staging_http_exception($pre,array $args,string $url) {
+    if(!is_wp_error($pre)||$pre->get_error_code()!=='molavi_staging_external_blocked')return $pre;
+    if(strtolower((string)wp_parse_url(home_url('/'),PHP_URL_HOST))==='staging.molavisale.ir'
+        &&strtolower((string)wp_parse_url($url,PHP_URL_HOST))==='wholesale-project-staging-staging.up.railway.app'
+        &&wp_parse_url($url,PHP_URL_SCHEME)==='https'&&wp_parse_url($url,PHP_URL_PATH)==='/pipeline/runtime'
+        &&strtoupper((string)($args['method']??''))==='POST')return false;
+    return $pre;
+}
 function molavi_runtime_tick():void {
     $state=molavi_runtime_state();$now=time();$state['last_tick']=$now;
     molavi_runtime_save_state($state);
@@ -75,17 +83,19 @@ function molavi_runtime_tick():void {
         // Persist the watchdog BEFORE the call; a worker callback can finish before the HTTP response.
         $state['last_remote']=$now;molavi_runtime_save_wake($now+180,(float)$state['last_observed']);
         molavi_runtime_save_state($state);
-        $response=wp_safe_remote_post(rtrim(MOLAVI_REFERENCE_SERVER_URL,'/').'/pipeline/runtime',[
+        add_filter('pre_http_request','molavi_runtime_staging_http_exception',PHP_INT_MAX,3);
+        try {$response=wp_safe_remote_post(rtrim(MOLAVI_REFERENCE_SERVER_URL,'/').'/pipeline/runtime',[
             'timeout'=>35,'redirection'=>0,'headers'=>['Content-Type'=>'application/json',
                 'X-Molavi-Reference-Token'=>MOLAVI_REFERENCE_BRIDGE_TOKEN,'X-Molavi-Actor'=>$actor],
             'body'=>wp_json_encode(['tasks'=>array_values(array_unique($tasks))])]);
+        } finally {remove_filter('pre_http_request','molavi_runtime_staging_http_exception',PHP_INT_MAX);}
         $state=molavi_runtime_state();
         $body=is_wp_error($response)?null:json_decode(wp_remote_retrieve_body($response),true);
         if(!is_wp_error($response)&&wp_remote_retrieve_response_code($response)===202&&($body['ok']??false)===true){
             foreach(['sheet_sync'=>'sheet_at','reference_refresh'=>'reference_at','housekeeping'=>'housekeeping_at'] as $task=>$field)
                 if(in_array($task,$tasks,true))$state[$field]=$now+($task==='sheet_sync'?3600:86400);
             $state['failures']=0;$state['last_error']='';
-        }else{$state['failures']++;$state['last_error']='runtime_wake_unconfirmed';}
+        }else{$state['failures']++;$state['last_error']=is_wp_error($response)?sanitize_key($response->get_error_code()):'http_'.wp_remote_retrieve_response_code($response);}
         molavi_runtime_save_state($state);
     } finally {delete_option('molavi_runtime_host_lock');}
 }
@@ -96,7 +106,7 @@ add_action('rest_api_init',static function():void {
             'php_memory_limit'=>ini_get('memory_limit'),'cron_disabled'=>defined('DISABLE_WP_CRON')&&DISABLE_WP_CRON,'real_cron_at'=>(int)get_option('molavi_runtime_real_cron_at',0)];}]);
     register_rest_route('molavi-runtime/v1','/configure',['methods'=>'POST','permission_callback'=>'molavi_runtime_permission',
         'callback'=>static function($request){$body=$request->get_json_params();if(!is_array($body)||!is_bool($body['enabled']??null))return new WP_Error('runtime_config','Invalid configuration',['status'=>400]);
-            $state=molavi_runtime_state();$state['enabled']=$body['enabled'];
+            $state=molavi_runtime_state();$state['enabled']=$body['enabled'];$state['failures']=0;$state['last_remote']=0;$state['last_error']='';
             if($state['enabled']){molavi_runtime_save_wake(time()+60,0.0);$state['sheet_at']=time()+3600;$state['reference_at']=time()+86400;$state['housekeeping_at']=time()+3600;}
             molavi_runtime_save_state($state);return ['ok'=>true,'state'=>$state];}]);
     register_rest_route('molavi-runtime/v1','/schedule',['methods'=>'POST','permission_callback'=>'molavi_runtime_permission',

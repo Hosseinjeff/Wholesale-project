@@ -21,6 +21,20 @@ track later exports separately. Active triggers/deployments and the external ref
 server remain unverified. Preserve the mockup-first scope and documented business
 decisions; do not silently choose a different inventory or pricing authority.
 
+## Railway free-plan resource baseline
+
+The owner requires minimum Railway RAM and idle sleep on both live and Staging.
+Use WordPress for schedules, due-work checks and wake bookkeeping. Railway is an
+on-demand Python executor: health/GET reads must not launch workers, and idle loops
+must not poll Sheets, WordPress or reference APIs. Keep one HTTP worker, drain leased
+work, persist the next due time to WordPress, and release idle memory. Do not restore
+an always-running worker, Supervisor, keepalive monitor or periodic outbound poll.
+Preserve the durable queue/leases and prove real WordPress cron before changing a
+runtime's execution mode. See `docs/railway-on-demand-runtime.md`; verify resource
+measurements and actual sleep through control-plane reads, not HTTP probes that wake
+it. Keep storefront/quote work in WordPress. Code releases are scoped by environment
+and pinned to reviewed backend commits; frontend/docs commits must not redeploy it.
+
 ## Source control and live WordPress changes
 
 Target Staging for development, validation, and deployments by default. Use Railway's

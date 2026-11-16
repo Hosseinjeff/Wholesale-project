@@ -48,7 +48,7 @@ app = Flask(__name__)
 WEB_APP_URL = os.getenv('GOOGLE_WEB_APP_URL')
 BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 BALE_BOT_TOKEN = os.getenv('BALE_BOT_TOKEN')
-APP_VERSION = "2026-11-16-wordpress-scheduled-runtime"
+APP_VERSION = "2026-11-16-on-demand-button-bot"
 setup_logger(logging.INFO, log_file=None)
 logger = logging.getLogger(__name__)
 
@@ -173,7 +173,8 @@ class BatchManager:
             targets.append(chat_id)
         for chat_id in targets:
             chat_prompts = [prompt for prompt in prompts if str(prompt.get("chat_id") or "") == str(chat_id)]
-            send_chat_text(chat_id, format_batch_reply({**data, "prompts": chat_prompts}))
+            from catalog.bot_ui import prompt_keyboard
+            send_chat_text(chat_id,format_batch_reply({**data,'prompts':chat_prompts}),reply_markup=prompt_keyboard(chat_prompts[0] if chat_prompts else None,chat_id,BOT_TOKEN))
 
 class DurableBatchManager:
     def __init__(self, queue):
@@ -236,13 +237,13 @@ def run_durable_handoff(queue, job_id=None, worker_id=None):
     if not USE_SHEETS:
         raise RuntimeError("Durable pipeline requires the server Sheets writer")
 
-    def notice(key, chat_id, text, channel="telegram"):
+    def notice(key, chat_id, text, channel="telegram", reply_markup=None):
         if (channel not in {'telegram', 'bale'}
                 or str(chat_id or '').strip() not in _notice_chat_allowlists(queue)[channel]):
             logger.warning("Skipped operational notice for a non-allowlisted recipient")
             return False
         queue.put("notice", key + ":" + str(chat_id) + ":" + channel,
-                  {"chat_id": chat_id, "text": text, "channel": channel})
+                  {"chat_id": chat_id, "text": text, "channel": channel, **({"reply_markup":reply_markup} if reply_markup else {})})
         return True
 
     def finalize(payload):
@@ -295,8 +296,10 @@ def run_durable_handoff(queue, job_id=None, worker_id=None):
                        for m in payload["messages"] if m.get("chat_id")}
             for chat, channel in targets:
                 selected = [p for p in prompts if str(p.get("chat_id")) == chat]
-                notice(payload["batch_id"], chat,
-                       format_batch_reply({**result, "prompts": selected}), channel)
+                from catalog.bot_ui import prompt_keyboard,button_text
+                keyboard=prompt_keyboard(selected[0] if selected else None,chat,BOT_TOKEN) if channel=='telegram' else None
+                text=format_batch_reply({**result,"prompts":selected})
+                notice(payload['batch_id'],chat,button_text(text,keyboard) if keyboard else text,channel,keyboard)
         if result.get('status') == 'success' and result.get('extraction_status') == 'success' and not result.get('rollback'):
             queue.resolve_publication_hold(payload['batch_id'], expected_reason='batch_in_progress',
                                            actor_id='system:batch', note='Batch and reference checks completed')
@@ -342,7 +345,7 @@ def run_durable_handoff(queue, job_id=None, worker_id=None):
         if not token:
             return {"delivered": False}
         response = requests.post(host + "/bot" + token + "/sendMessage",
-                                 json={"chat_id": payload["chat_id"], "text": payload["text"]}, timeout=10)
+                                 json={"chat_id": payload["chat_id"], "text": payload["text"], **({"reply_markup":payload["reply_markup"]} if channel=="telegram" and payload.get("reply_markup") else {})}, timeout=10)
         return {"delivered": response.status_code == 200 and response.json().get("ok") is True}
 
     def publish_projection(payload):
@@ -647,7 +650,7 @@ def register_telegram_webhook():
             f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook",
             json={
                 "url": url,
-                "allowed_updates": ["message", "edited_message", "channel_post", "edited_channel_post"],
+                "allowed_updates": ["message", "edited_message", "channel_post", "edited_channel_post", "callback_query"],
                 "drop_pending_updates": False,
                 "secret_token": secret,
             },
@@ -741,28 +744,79 @@ def format_batch_reply(data):
     return "\n".join(lines)
 
 
-def send_chat_text(chat_id, text):
-    if not chat_id or not text:
-        return
-    try:
-        if BOT_TOKEN:
-            response = requests.post(
-                f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-                json={"chat_id": chat_id, "text": text},
-                timeout=10,
-            )
-            if response.status_code != 200:
-                logger.error("Telegram sendMessage failed: %s %s", response.status_code, response.text[:200])
-        if BALE_BOT_TOKEN:
-            response = requests.post(
-                f"https://tapi.bale.ai/bot{BALE_BOT_TOKEN}/sendMessage",
-                json={"chat_id": chat_id, "text": text},
-                timeout=10,
-            )
-            if response.status_code != 200:
-                logger.error("Bale sendMessage failed: %s %s", response.status_code, response.text[:200])
-    except Exception:
-        logger.exception("Error sending status update")
+def send_chat_text(chat_id,text,*,channel=None,reply_markup=None):
+    if not chat_id or not text:return None
+    result=None
+    from catalog.bot_ui import menu_keyboard,button_text
+    for target,token,host in [('telegram',BOT_TOKEN,'https://api.telegram.org'),('bale',BALE_BOT_TOKEN,'https://tapi.bale.ai')]:
+        if not token or channel is not None and channel!=target:continue
+        keyboard=(reply_markup if reply_markup is not None else menu_keyboard()) if target=='telegram' else None
+        body={'chat_id':chat_id,'text':button_text(text,keyboard) if keyboard and 'inline_keyboard' in keyboard else text}
+        if keyboard:body['reply_markup']=keyboard
+        try:
+            response=requests.post(host+'/bot'+token+'/sendMessage',json=body,timeout=10)
+            if response.status_code==200:
+                value=response.json();result=value.get('result') if value.get('ok') else None
+            else:logger.error('Bot sendMessage failed status=%s',response.status_code)
+        except Exception:logger.error('Bot sendMessage failed')
+    return result
+
+
+def _prompt_keyboard_for(store,chat_id):
+    from catalog.bot_ui import current_prompt,prompt_keyboard
+    return prompt_keyboard(current_prompt(store,chat_id) if store else None,chat_id,BOT_TOKEN)
+
+
+def _queue_prompt_publication(queue,store):
+    if queue is not None:
+        from catalog.sheet_projection import sheet_projection_digest
+        queue.enqueue_sheet_projection(sheet_projection_digest(store))
+    else:threading.Thread(target=_publish_shop_quietly,daemon=True).start()
+
+
+def handle_telegram_button(callback):
+    from contextlib import nullcontext
+    from catalog.bot_ui import current_prompt,valid_button,public_prompt,prompt_keyboard,remember_price_entry,clear_price_entry,PRICE_ENTRY_PREFIX
+    message=callback.get('message') or {};chat=message.get('chat') or {};chat_id=str(chat.get('id') or '')
+    queue=handoff_queue();allowed=_notice_chat_allowlists(queue).get('telegram',set())
+    def ack(text,alert=False):
+        if BOT_TOKEN and callback.get('id'):
+            try:requests.post('https://api.telegram.org/bot'+BOT_TOKEN+'/answerCallbackQuery',json={'callback_query_id':callback['id'],'text':text,'show_alert':alert},timeout=5)
+            except requests.RequestException:pass
+    if chat.get('type')!='private' or str((callback.get('from') or {}).get('id') or '')!=chat_id or chat_id not in allowed:
+        ack('این حساب اجازهٔ دسترسی ندارد.',True);return jsonify({'status':'ignored'})
+    data=str(callback.get('data') or '')
+    if data.startswith('mv:menu:'):
+        command=data.removeprefix('mv:menu:')
+        if command not in {'help','store','orders','products','review'}:return jsonify({'status':'ignored'})
+        ack('در حال دریافت…')
+        store=build_store() if USE_SHEETS and command!='help' else None
+        if command=='review':
+            prompt=current_prompt(store,chat_id) if store else None
+            send_chat_text(chat_id,public_prompt(prompt)['question'] if prompt else 'پرسش باز قیمتی ندارید.',channel='telegram',reply_markup=prompt_keyboard(prompt,chat_id,BOT_TOKEN))
+            return jsonify({'status':'command','command':command})
+        text='پیام کالا را بفرستید یا فوروارد کنید. برای گزارش‌ها از دکمه‌های زیر استفاده کنید.' if command=='help' else reply_for_command(command,store)
+        send_chat_text(chat_id,text,channel='telegram');return jsonify({'status':'command','command':command})
+    ack('در حال بررسی…')
+    if not USE_SHEETS:return jsonify({'status':'unavailable'}),503
+    with queue.publication_lock() if queue is not None else nullcontext():
+        store=build_store();prompt=current_prompt(store,chat_id);action=valid_button(data,prompt,chat_id,BOT_TOKEN)
+        if not action:
+            send_chat_text(chat_id,'این پرسش تغییر کرده یا قبلاً پاسخ داده شده است. از جدیدترین دکمه‌ها استفاده کنید.'+("\n\n"+public_prompt(prompt)['question'] if prompt else ''),channel='telegram',reply_markup=prompt_keyboard(prompt,chat_id,BOT_TOKEN))
+            return jsonify({'status':'stale'})
+        if action=='edit':
+            if queue is None:return jsonify({'status':'unavailable'}),503
+            sent=send_chat_text(chat_id,PRICE_ENTRY_PREFIX+' برای '+public_prompt(prompt)['name']+' را فقط به عدد و به تومان بفرستید.',channel='telegram',reply_markup={'force_reply':True,'selective':True,'input_field_placeholder':'قیمت واحد به تومان'})
+            if not sent or not sent.get('message_id'):return jsonify({'status':'delivery_failed'}),503
+            remember_price_entry(queue,chat_id,prompt,BOT_TOKEN,sent['message_id']);return jsonify({'status':'needs_price'})
+        outcome=resolve_prompt(store,chat_id,'باشه' if action=='ok' else 'رد')
+        if outcome.get('understood'):
+            clear_price_entry(queue,chat_id);_queue_prompt_publication(queue,store)
+        keyboard=_prompt_keyboard_for(store,chat_id)
+    try:requests.post('https://api.telegram.org/bot'+BOT_TOKEN+'/editMessageReplyMarkup',json={'chat_id':chat_id,'message_id':message.get('message_id'),'reply_markup':{'inline_keyboard':[]}},timeout=5)
+    except requests.RequestException:pass
+    send_chat_text(chat_id,outcome.get('reply') or 'ثبت شد.',channel='telegram',reply_markup=keyboard)
+    return jsonify({'status':'resolved' if outcome.get('understood') else 'needs_answer'})
 
 
 def enqueue_message(data):
@@ -893,6 +947,8 @@ def _remember_quiet(data):
 
 
 def handle_inbound_update(update_json, channel):
+    if channel=='telegram' and isinstance(update_json.get('callback_query'),dict):
+        return handle_telegram_button(update_json['callback_query'])
     message = update_message(update_json)
     if not message:
         return jsonify({'status': 'ignored'})
@@ -937,19 +993,26 @@ def handle_inbound_update(update_json, channel):
             except Exception:
                 logger.exception("Status store failed")
                 store = None
-        send_chat_text(data.get("chat_id"), reply_for_command(command, store))
+        send_chat_text(data.get("chat_id"), "پیام کالا را بفرستید یا فوروارد کنید. گزارش‌ها با دکمه‌های زیر در دسترس‌اند." if command=="help" and channel=="telegram" else reply_for_command(command, store),channel=channel)
         return jsonify({"status": "command", "command": command})
     _remember_quiet(data)
     if source == "direct" and USE_SHEETS:
         try:
-            outcome = resolve_prompt(build_store(), data.get("chat_id"), data.get("content") or "")
+            store=build_store()
+            if channel=='telegram' and handoff_queue() is not None:
+                from catalog.bot_ui import current_prompt,price_reply_is_current
+                if not price_reply_is_current(handoff_queue(),data.get('chat_id'),message,current_prompt(store,data.get('chat_id')),BOT_TOKEN):
+                    send_chat_text(data.get('chat_id'),'این درخواست قیمت قدیمی شده است؛ «اصلاح قیمت» را روی پرسش فعلی بزنید.',channel=channel,reply_markup=_prompt_keyboard_for(store,data.get('chat_id')))
+                    return jsonify({'status':'stale'})
+            outcome=resolve_prompt(store,data.get('chat_id'),data.get('content') or '')
         except Exception:
             logger.exception("Prompt reply failed")
             outcome = {"matched": False}
         if outcome.get("matched"):
             if outcome.get("understood"):
-                threading.Thread(target=_publish_shop_quietly, daemon=True).start()
-            send_chat_text(data.get("chat_id"), outcome.get("reply") or "")
+                from catalog.bot_ui import clear_price_entry
+                clear_price_entry(handoff_queue(),data.get("chat_id"));_queue_prompt_publication(handoff_queue(),store)
+            send_chat_text(data.get("chat_id"), outcome.get("reply") or "",channel=channel,reply_markup=_prompt_keyboard_for(store,data.get("chat_id")) if channel=="telegram" else None)
             return jsonify({"status": "resolved" if outcome.get("understood") else "needs_answer"})
     success = enqueue_message(data)
     return jsonify({'status': 'success' if success else 'error', 'source': source}), 200 if success else 503
