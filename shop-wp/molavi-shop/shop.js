@@ -809,13 +809,13 @@
                 var response=await fetch(url,options),result=await response.json();
                 if(!response.ok||!result.success){
                     if(result.data&&result.data.library)applyAccount(result.data.library);
-                    throw new Error(result.data&&result.data.message||'همگام‌سازی انجام نشد. دوباره تلاش کنید.');
+                    var failure=new Error(result.data&&result.data.message||'همگام‌سازی انجام نشد. دوباره تلاش کنید.');failure.hasLibrary=!!(result.data&&result.data.library);throw failure;
                 }
                 pendingAccount=null;accountReady=true;accountFailed=false;lastAccountRead=Date.now();if(ops||accountRevision!==Number(result.data.revision))applyAccount(result.data);
                 if(ops)document.dispatchEvent(new CustomEvent('molavi:library'));
                 if(announce)syncStatus.textContent='در حساب شما ذخیره شد؛ در دستگاه‌های دیگر هم در دسترس است.';
                 return true;
-            }catch(error){accountFailed=true;feedback.textContent=/[\u0600-\u06ff]/.test(error.message||'')?error.message:'همگام‌سازی انجام نشد. دوباره تلاش کنید.';syncStatus.textContent='اتصال به حساب کامل نشد؛ دوباره تلاش کنید.';return false;}
+            }catch(error){accountFailed=!error.hasLibrary;feedback.textContent=/[\u0600-\u06ff]/.test(error.message||'')?error.message:'همگام‌سازی انجام نشد. دوباره تلاش کنید.';syncStatus.textContent=error.hasLibrary?'فهرست حساب تازه شد؛ مقدار تازه را بررسی کنید.':'اتصال به حساب کامل نشد؛ دوباره تلاش کنید.';return false;}
             finally{window.clearTimeout(requestTimer);accountBusy=false;display();if(host.open&&accountReady)loadFacts();}
         }
         async function persist(next){
@@ -887,12 +887,12 @@
             var opened=Array.from(saved.querySelectorAll('details[open]')).map(function(node){return node.getAttribute('data-molavi-saved-cart');});
             saved.innerHTML=lists.length?lists.map(function(item){
                 var id=escapeHtml(item.id),count=Object.keys(item.items).length,origin=Array.from(new Set(item.favorite_ids||[])).length;
-                return '<details class="molavi-saved-cart" data-molavi-saved-cart="'+id+'"'+(opened.indexOf(item.id)>=0?' open':'')+'><summary><span><span class="molavi-saved-title"><strong data-molavi-list-name>'+escapeHtml(item.name.slice(0,60))+'</strong><button type="button" class="molavi-icon-button molavi-rename-button" data-molavi-rename-list="'+id+'" aria-label="ویرایش نام '+escapeHtml(item.name.slice(0,60))+'" title="ویرایش نام">'+uiIcon('edit')+'</button></span><small data-molavi-list-count>'+digits(count)+' کالا'+(origin?' · '+digits(origin)+' مورد از علاقه‌مندی‌ها':'')+'</small></span><span class="molavi-saved-chevron" aria-hidden="true">⌄</span></summary>'
+                return '<details class="molavi-saved-cart" data-molavi-saved-cart="'+id+'"'+(opened.indexOf(item.id)>=0?' open':'')+'><summary><span><span class="molavi-saved-title"><strong data-molavi-list-name>'+escapeHtml(item.name.slice(0,60))+'</strong><button type="button" class="molavi-icon-button molavi-rename-button" data-molavi-rename-list="'+id+'" aria-label="ویرایش نام '+escapeHtml(item.name.slice(0,60))+'" title="ویرایش نام">'+uiIcon('edit')+'</button><button type="button" class="molavi-icon-button molavi-text-danger" data-molavi-delete-list="'+id+'" aria-label="حذف سبد" title="حذف سبد">'+uiIcon('trash')+'</button></span><small data-molavi-list-count>'+digits(count)+' کالا'+(origin?' · '+digits(origin)+' مورد از علاقه‌مندی‌ها':'')+'</small></span><span class="molavi-saved-chevron" aria-hidden="true">⌄</span></summary>'
                     +'<div class="molavi-saved-cart-body"><div data-molavi-saved-preview>'+preview(item)+'</div><div class="molavi-saved-actions">'
                     +'<button type="button" data-molavi-load-list="'+id+'" title="افزودن اقلام این فهرست به سبد خرید فعلی">'+uiIcon('cart')+'<span>به سبد خرید</span></button>'
                     +'<button type="button" data-molavi-list-favorites="'+id+'" title="افزودن کالاهای این فهرست به علاقه‌مندی‌ها">'+uiIcon('heart')+'<span>علاقه‌مندی‌ها</span></button>'
                     +'<button type="button" data-molavi-edit-items="'+id+'" title="ویرایش تعداد کالاهای این فهرست">'+uiIcon('edit')+'<span>تعدادها</span></button>'
-                    +'<button type="button" class="molavi-icon-button molavi-text-danger" data-molavi-delete-list="'+id+'" aria-label="حذف سبد" title="حذف سبد">'+uiIcon('trash')+'</button></div></div></details>';
+                    +'</div></div></details>';
             }).join(''):'<div class="molavi-library-empty"><strong>سبدهای خریدتان را اینجا نگه دارید</strong><p>با «+ سبد جدید» سبد خرید فعلی را به یک فهرست تبدیل کنید، یا علاقه‌مندی‌ها را به سبد جدید منتقل کنید.</p></div>';
             saved.querySelectorAll('details[open]').forEach(function(node){node._molaviRestoredOpen=true;});
         }
@@ -1024,7 +1024,7 @@
             if(button.hasAttribute('data-molavi-load-list'))return restore(item,'merge');
             if(button.hasAttribute('data-molavi-list-favorites')){if(await addFavorites(Object.keys(item.items)))feedback.textContent='کالاهای «'+item.name+'» به علاقه‌مندی‌ها اضافه شدند.';return;}
             if(button.hasAttribute('data-molavi-edit-items')){editItems(item,button.closest('details'));return;}
-            if(button.hasAttribute('data-molavi-delete-list')){var confirmed=await ask({title:'حذف سبد «'+item.name+'»؟',message:'این فهرست با '+digits(Object.keys(item.items).length)+' کالا از سبدهای ذخیره‌شده حذف می‌شود. سبد خرید فعلی و علاقه‌مندی‌ها تغییر نمی‌کنند. پس از حذف، دکمهٔ بازگرداندن نیز در دسترس است.',confirm:'حذف سبد',danger:true});if(!confirmed)return;if(await persist(lists.filter(function(row){return row.id!==id;}))){deletedCart=item;display();feedback.textContent='«'+item.name+'» حذف شد. می‌توانید آن را بازگردانید.';}return;}
+            if(button.hasAttribute('data-molavi-delete-list')){var confirmed=await ask({title:'حذف سبد «'+item.name+'»؟',message:'این فهرست با '+digits(Object.keys(item.items).length)+' کالا از سبدهای ذخیره‌شده حذف می‌شود. سبد خرید فعلی و علاقه‌مندی‌ها تغییر نمی‌کنند. پس از حذف، دکمهٔ بازگرداندن نیز در دسترس است.',confirm:'حذف سبد',danger:true});if(!confirmed)return;if(await persist(lists.filter(function(row){return row.id!==id;}))){deletedCart=item;display();undo.focus();feedback.textContent='«'+item.name+'» حذف شد. می‌توانید آن را بازگردانید.';}return;}
             var title=button.closest('.molavi-saved-title'),nameNode=title.querySelector('[data-molavi-list-name]'),editor=document.createElement('span');
             editor.className='molavi-inline-rename';editor.setAttribute('data-molavi-inline-rename','');
             editor.innerHTML='<input aria-label="نام سبد" maxlength="60" autocomplete="off"><button type="button" class="molavi-icon-button" data-save aria-label="ذخیرهٔ نام" title="ذخیره">'+uiIcon('check')+'</button><button type="button" class="molavi-icon-button" data-cancel aria-label="انصراف از ویرایش" title="انصراف">'+uiIcon('close')+'</button>';
