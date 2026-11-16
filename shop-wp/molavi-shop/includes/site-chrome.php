@@ -86,7 +86,7 @@ function molavi_render_site_header(bool $forceStorefront = false): void
                 <a class="molavi-header-icon molavi-library-trigger" href="<?php echo esc_url($favoriteUrl); ?>" data-molavi-open-library aria-label="علاقه‌مندی‌ها و سبدهای ذخیره‌شده" aria-haspopup="dialog" aria-expanded="false" aria-controls="molavi-favorites-dialog">
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.8 8.8c0 4.4-8.8 10-8.8 10s-8.8-5.6-8.8-10a4.6 4.6 0 0 1 8.8-1.9 4.6 4.6 0 0 1 8.8 1.9Z"></path></svg>
                 </a>
-                <?php if ($isStorefront): ?>
+                <?php if ($isStorefront || (function_exists('molavi_is_customer_request') && \molavi_is_customer_request())): ?>
                     <button class="molavi-header-cart" type="button" data-molavi-open-basket aria-controls="molavi-basket-dialog" aria-expanded="false" aria-label="مشاهده سبد خرید">
                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h2l2 11h9l2-8H8"></path><circle cx="10" cy="20" r="1"></circle><circle cx="17" cy="20" r="1"></circle></svg>
                         <span data-molavi-count<?php echo $count > 0 ? '' : ' hidden'; ?>><?php echo esc_html(\molavi_digits($count > 99 ? '99+' : (string) $count)); ?></span>

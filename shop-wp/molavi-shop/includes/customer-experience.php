@@ -220,7 +220,12 @@ function molavi_render_shopping_help(): void {
     echo '<p>خرید به‌صورت مهمان امکان‌پذیر است. نام، شماره همراه و نشانی تحویل لازم است؛ حساب و ایمیل اختیاری‌اند. پس از تأیید پرداخت، آماده‌سازی و تأمین سفارش پیگیری می‌شود.</p>';
     echo '<form method="dialog"><button class="button" type="submit">متوجه شدم</button></form></dialog>';
 }
-add_action('wp_footer',static function (): void { if(molavi_is_customer_request()) { molavi_render_shopping_help(); \Molavi\Elementor\molavi_render_favorites_library(); } },15);
+add_action('wp_footer',static function (): void {
+    if(!molavi_is_customer_request())return;
+    if(!molavi_is_storefront_request()&&function_exists('Molavi\\Elementor\\molavi_render_floating_cart'))\Molavi\Elementor\molavi_render_floating_cart(molavi_quote(),true);
+    molavi_render_shopping_help();
+    \Molavi\Elementor\molavi_render_favorites_library();
+},15);
 
 /** Account-owned favorites and named lists; active WooCommerce carts remain separate. */
 function molavi_library_empty(): array {
@@ -330,3 +335,14 @@ function molavi_account_library(): void {
 }
 add_action('wc_ajax_molavi_library','molavi_account_library');
 add_action('wc_ajax_nopriv_molavi_library','molavi_account_library');
+
+/** Same-session read only refresh for the active customer page. */
+function molavi_cart_ui_quote(): void {
+    nocache_headers();
+    if($_SERVER['REQUEST_METHOD']!=='GET')wp_send_json_error(['message'=>'روش درخواست معتبر نیست.'],405);
+    check_ajax_referer('molavi-qty','nonce');
+    $quote=molavi_quote();
+    wp_send_json_success(['quote'=>$quote,'catalog'=>\Molavi\Elementor\molavi_catalog_public_rows(array_keys($quote['qtys']))]);
+}
+add_action('wc_ajax_molavi_ui_quote','molavi_cart_ui_quote');
+add_action('wc_ajax_nopriv_molavi_ui_quote','molavi_cart_ui_quote');

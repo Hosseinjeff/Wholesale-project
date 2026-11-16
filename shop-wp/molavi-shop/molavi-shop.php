@@ -260,6 +260,7 @@ add_action('wp_enqueue_scripts', static function (): void {
     $quote = molavi_quote();
     wp_localize_script('molavi-shop', 'molaviShop', [
         'qty' => WC_AJAX::get_endpoint('molavi_qty'),
+        'quoteEndpoint' => WC_AJAX::get_endpoint('molavi_ui_quote'),
         'restoreList' => WC_AJAX::get_endpoint('molavi_restore_list'),
         'collections' => WC_AJAX::get_endpoint('molavi_library'),
         'customerId' => get_current_user_id(),
