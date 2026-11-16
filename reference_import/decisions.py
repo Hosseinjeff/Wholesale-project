@@ -1,5 +1,6 @@
 """Local draft of a durable reference exception gate; no network or active catalog writes."""
 import sqlite3
+from catalog.state import connect
 import os
 import math
 from contextlib import contextmanager
@@ -46,7 +47,7 @@ class ReferenceDecisions:
 
     @contextmanager
     def _connect(self):
-        db = sqlite3.connect(self.database, timeout=10)
+        db = connect(self.database, timeout=10)
         db.row_factory = sqlite3.Row
         try:
             with db:

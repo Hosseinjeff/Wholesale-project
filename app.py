@@ -25,6 +25,8 @@ from catalog.durable import (
 )
 from catalog.media import safe_file_id, stamp_inbound
 from catalog.memory import start_background
+from catalog.state import initialize as initialize_state
+initialize_state()
 from catalog.orders import format_order_notice, operator_chat_ids, remember_operator, upsert_shop_order
 from catalog.pricing import catalog_from_records, default_settings, preview_records, resolve_quote
 from catalog.status import command_name, private_chat, reply_for_command
@@ -49,7 +51,7 @@ app = Flask(__name__)
 WEB_APP_URL = os.getenv('GOOGLE_WEB_APP_URL')
 BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 BALE_BOT_TOKEN = os.getenv('BALE_BOT_TOKEN')
-APP_VERSION = "2026-11-16-idle-memory-reset"
+APP_VERSION = "2026-11-16-wordpress-state-executor"
 setup_logger(logging.INFO, log_file=None)
 logger = logging.getLogger(__name__)
 
@@ -488,6 +490,8 @@ def _pipeline_worker_loop(stop_event):
 def _start_pipeline_worker(*, force=False):
     """Start one durable worker after Railway begins serving requests."""
     global _pipeline_worker_thread, _pipeline_worker_stop
+    from catalog.state_transfer import frozen
+    if frozen():return
     from catalog.runtime_host import on_demand
     if on_demand() and not force:
         return
@@ -1023,6 +1027,9 @@ def handle_inbound_update(update_json, channel):
 def register_webhook_when_serving():
     if request.path in {'/health','/health/detailed'}:
         return
+    from catalog.state_transfer import frozen
+    if request.path!='/pipeline/state-transfer' and frozen():
+        return jsonify({'ok':False,'error':'state_transfer_in_progress'}),503,{'Retry-After':'30'}
     _start_pipeline_worker()
     ensure_telegram_webhook()
 
@@ -1265,6 +1272,18 @@ def runtime_host_route():
     response=jsonify({'ok':True,**storage_report(),'next_work_at':next_work_at(queue),'worker':queue.worker_status()})
     response.headers['Cache-Control']='no-store'
     return response
+
+
+@app.route('/pipeline/state-transfer',methods=['GET','POST'])
+def state_transfer_route():
+    token=os.getenv('REFERENCE_BRIDGE_TOKEN') or ''
+    owners={x.strip() for x in (os.getenv('REFERENCE_OWNER_IDS') or '').split(',') if x.strip()}
+    if len(token)<32 or not owners:return jsonify({'ok':False,'error':'unconfigured'}),503
+    actor,error=_owner_api_actor('owner:/pipeline/state-transfer',token,owners)
+    if error:return jsonify({'ok':False,'error':'unauthorized'}),error
+    from catalog.state_transfer import transfer_response
+    return transfer_response(request.get_json(silent=True) if request.method=='POST' else None,
+                             store=request.args.get('store') if request.method=='GET' else None)
 
 
 @app.route('/pipeline/operations-dashboard', methods=['GET'])

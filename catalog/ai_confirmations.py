@@ -6,6 +6,7 @@ import json
 import os
 import re
 import sqlite3
+from catalog.state import connect
 import time
 import unicodedata
 from contextlib import contextmanager
@@ -52,7 +53,7 @@ class AIConfirmationLedger:
 
     @contextmanager
     def connect(self):
-        db = sqlite3.connect(self.path, timeout=15)
+        db = connect(self.path, timeout=15)
         db.row_factory = sqlite3.Row
         try:
             with db:

@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import sqlite3
+from catalog.state import connect
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
@@ -32,7 +33,7 @@ class ProductStatusLedger:
 
     @contextmanager
     def connect(self):
-        db = sqlite3.connect(self.database, timeout=15)
+        db = connect(self.database, timeout=15)
         db.row_factory = sqlite3.Row
         try:
             with db:

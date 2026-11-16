@@ -4,6 +4,7 @@ from __future__ import annotations
 import fcntl
 import os
 import sqlite3
+from catalog.state import connect
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -28,7 +29,7 @@ class ReferenceRefreshScheduler:
 
     @contextmanager
     def _connect(self):
-        db=sqlite3.connect(self.database,timeout=15)
+        db=connect(self.database,timeout=15)
         db.row_factory=sqlite3.Row
         try:
             with db: yield db
@@ -36,6 +37,11 @@ class ReferenceRefreshScheduler:
 
     @contextmanager
     def _lock(self):
+        from catalog.state import wordpress_state, state_lock
+        if wordpress_state():
+            with state_lock(self.database, 'refresh'):
+                yield
+            return
         filename=self.database+'.refresh.lock'
         fd=os.open(filename,os.O_CREAT|os.O_RDWR,0o600)
         try:

@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import os
 import sqlite3
+from catalog.state import connect
 import time
 from pathlib import Path
 import requests
@@ -76,7 +77,9 @@ def run_runtime_task(queue,payload):
 
 def storage_report():
     from catalog.memory import memory_report
-    report={'mode':os.getenv('PIPELINE_RUNTIME_MODE','continuous'),'databases':[],'memory':memory_report()}
+    from catalog.state import wordpress_state,state_call
+    report={'mode':os.getenv('PIPELINE_RUNTIME_MODE','continuous'),'state_host':'wordpress' if wordpress_state() else 'local',
+            'databases':[],'memory':memory_report()}
     try:report['container_memory_bytes']=int(Path('/sys/fs/cgroup/memory.current').read_text())
     except (OSError,ValueError):pass
     data_root=Path('/data')
@@ -90,6 +93,9 @@ def storage_report():
                 except OSError:pass
             if len(files)>5000:break
         report['files']=sorted(files,key=lambda item:item['bytes'],reverse=True)[:20]
+    if wordpress_state():
+        report['wordpress_state']=state_call('inventory')
+        return report
     paths=set(filter(None,[os.getenv('PIPELINE_DB_PATH'),os.getenv('REFERENCE_STORE_PATH')]))
     for root in list(paths):
         if Path(root).is_dir():paths.update(str(p) for p in Path(root).glob('*.sqlite*') if p.is_file() and not p.name.endswith(('-wal','-shm')))
@@ -98,7 +104,7 @@ def storage_report():
         if not path.is_file():continue
         item={'name':path.name,'file_bytes':path.stat().st_size,'wal_bytes':Path(str(path)+'-wal').stat().st_size if Path(str(path)+'-wal').exists() else 0}
         try:
-            with sqlite3.connect('file:'+str(path)+'?mode=ro',uri=True) as db:
+            with connect('file:'+str(path)+'?mode=ro',uri=True) as db:
                 item['page_size']=db.execute('PRAGMA page_size').fetchone()[0]
                 item['free_pages']=db.execute('PRAGMA freelist_count').fetchone()[0]
                 item['tables']=[{'name':name,'bytes':size} for name,size in db.execute('SELECT name,sum(pgsize) FROM dbstat GROUP BY name ORDER BY sum(pgsize) DESC LIMIT 12')]
