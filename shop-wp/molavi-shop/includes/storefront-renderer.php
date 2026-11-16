@@ -380,14 +380,13 @@ function molavi_render_favorites_library(): void
         </header>
         <div class="molavi-library-tabs" role="tablist" aria-label="نوع علاقه‌مندی">
             <button type="button" id="molavi-favorite-products-tab" role="tab" aria-selected="true" aria-controls="molavi-favorite-products" data-molavi-library-tab="products">کالاها <span data-molavi-favorites-count>۰</span></button>
-            <button type="button" id="molavi-saved-carts-tab" role="tab" aria-selected="false" aria-controls="molavi-saved-carts" tabindex="-1" data-molavi-library-tab="carts">سبدهای ذخیره‌شده <span data-molavi-saved-count>۰</span></button>
+            <button type="button" id="molavi-saved-carts-tab" role="tab" aria-selected="false" aria-controls="molavi-saved-carts" tabindex="-1" data-molavi-library-tab="carts" title="حداکثر ۱۰ سبد ذخیره‌شده">سبدهای ذخیره‌شده <span data-molavi-saved-count>۰</span></button>
         </div>
         <section id="molavi-favorite-products" class="molavi-library-panel" role="tabpanel" aria-labelledby="molavi-favorite-products-tab" data-molavi-library-panel="products">
             <div class="molavi-library-toolbar"><p class="screen-reader-text">انتقال همه، علاقه‌مندی‌ها را در یک سبد جدید ذخیره می‌کند.</p><div class="molavi-transfer-actions"><button type="button" data-molavi-save-favorites>انتقال همه به سبد جدید</button><button type="button" data-molavi-move-existing>به سبد موجود</button></div></div>
             <div class="molavi-library-products" data-molavi-favorite-products></div>
         </section>
         <section id="molavi-saved-carts" class="molavi-library-panel" role="tabpanel" aria-labelledby="molavi-saved-carts-tab" data-molavi-library-panel="carts" hidden>
-            <div class="molavi-library-toolbar"><span class="molavi-library-capacity">حداکثر ۱۰ سبد</span></div>
             <?php /* Retain a hidden legacy hook while older cached scripts finish loading. */ ?><button type="button" data-molavi-save-list hidden></button>
             <div class="molavi-library-carts" data-molavi-saved-carts></div>
         </section>
