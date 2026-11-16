@@ -21,6 +21,8 @@ Deploy requested changes to the separate Staging installation by default, unless
 the user explicitly asks for a mockup or preview. Deploy to Production only when
 explicitly requested. Verify the Staging URL after deployment.
 Use image-generation tools only when the user explicitly requests them.
+Keep floating-cart refresh and expansion on the current active page; do not
+broadcast cart updates or animations to inactive tabs.
 
 ## Source control and live WordPress changes
 

@@ -1,6 +1,56 @@
 # Site changes and preservation workflow
 
-Updated: 2026-11-11, Asia/Tehran
+Updated: 2026-11-17, Asia/Tehran
+
+## 2026-11-17 Customer controls and active-page cart refresh
+
+Customer editing now uses thin-line pencil, check, cancel, save and delete icons
+with explicit accessible labels and titles. The favorites library has a compact
+header and footer with a dedicated scrollable item area; notifications overlay the
+list temporarily and dismiss after eight seconds, pausing during pointer or keyboard
+interaction. Undo remains available in the compact header after a deletion.
+
+Account writes remain automatic. Account reads now refresh on initialization,
+library opening, focus/reconnection, and every 30 seconds while the library is
+visible. Unchanged reads preserve the existing list DOM. The ordinary manual sync
+button is removed; a retry icon appears only after an account refresh failure.
+
+A shared floating cart is rendered on storefront, product, account, cart and checkout
+pages. A nonce-protected read-only quote endpoint refreshes the current session's
+cart UI. Nonempty carts expand briefly on page opening and update; the button is
+positioned above ordinary page content. Per the user's clarification, updates and
+animations stay on the current active page. Inactive tabs do not receive broadcasts;
+a tab refreshes when it becomes active. Pending reads are coalesced without replacing
+in-progress cart edits. Native buyer guidance remains in the visible native controls
+while the floating drawer is closed.
+
+The sticky toolbar uses a consistent grouped surface, and quantity steps use a
+contrasting label with an information icon. Step-help opening and Escape dismissal
+are synchronous. Buyer-type suggestions explain the reference-value threshold,
+price/discount recalculation, preservation of existing quantities, and the explicit
+quantity-adjustment action. Pricing and quantity policies are unchanged.
+
+Plugin revisions `366c79a`, `68b3b92`, `05ef526`, and `4d9f5f9` were committed,
+pushed and deployed only to Staging from baseline `6051996`. The protected uploader
+kept pre-deployment backups and verified changed plugin files by read-back, allowing
+the host's documented inserted charset meta tag in the renderer.
+
+Chromium checks passed expanded and sticky layouts at 320, 390, 760, 1024 and 1440px,
+search, menus, grid/list switching, and step-info interactions. At 390px, the list
+panel occupied more than 65 percent of the library height; icon editing and transient
+notice dismissal passed. Account, product, cart and checkout pages refreshed,
+expanded and opened the floating cart above page content. Buyer suggestions showed
+threshold reasoning and explicit quantity confirmation. Two independent signed-in
+contexts verified automatic account refresh on reconnection and the visible-library
+poll without using a sync button. No page JavaScript errors occurred.
+
+A separate same-context two-tab check verified that an inactive tab neither updated
+nor expanded; after activation it refreshed and expanded. Native buyer guidance was
+visible outside the closed drawer, and the guest test cart was cleared. JavaScript
+syntax, focused PHP account-library tests and PHP syntax checks passed. No order was
+created and Production was not changed.
+Temporary test customer accounts were deleted; the protected test fixture removed
+itself and its URL returned HTTP 404.
 
 ## 2026-11-16 Favorites transfer, cart protection and account sync
 
