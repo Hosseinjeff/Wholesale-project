@@ -2004,10 +2004,9 @@
                 return;
             }
             var details = summary.parentElement;
-            window.requestAnimationFrame(function () {
-                if (details.open) openHelp(details);
-                else closeHelp(details);
-            });
+            event.preventDefault();
+            if(details.open&&activeHelp===details)closeHelp(details,true);
+            else{details.open=true;openHelp(details);}
         }, true);
 
         document.addEventListener("keydown", function (event) {
