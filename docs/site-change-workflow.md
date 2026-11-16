@@ -2,6 +2,21 @@
 
 Updated: 2026-11-11, Asia/Tehran
 
+## 2026-11-16 Header cart and floating expansion correction
+
+Revision `be9b0f1aaadcec9f230834c0262f4468a285a86e` restores the header cart's
+transparent icon appearance and hides its count bubble. Only the floating cart
+rests as a rounded square with an overlapping count. Its existing update-driven
+expansion and summary display are restored; it retracts after 4.2 seconds.
+The cPanel staging deployer uploaded and read back `customer.css`, and the public
+HTTPS stylesheet matched the committed source. Production was not changed.
+The user requested improvement recommendations in the summary only.
+Chromium verified expansion after both adding and removing a product, visible
+summary text, automatic retraction to 58×58px, and no header count bubble.
+At 320, 390, 760, and 1440px the page had no horizontal overflow. The test guest
+cart was emptied and no JavaScript errors occurred. A read-only storefront check
+also found only the all-categories option and two placeholder product images.
+
 ## 2026-11-16 Staging cart and favorites update
 
 Requested customer-facing changes default to Staging unless the user explicitly
