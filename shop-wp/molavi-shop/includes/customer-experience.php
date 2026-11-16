@@ -253,7 +253,8 @@ function molavi_library_cart($cart) {
         if (!preg_match('/^[1-9][0-9]{0,17}$/',(string)$id) || !is_int($qty) || $qty<1 || $qty>999) return new WP_Error('invalid','تعداد کالاهای سبد معتبر نیست.');
         $items[(string)$id]=$qty;
     }
-    return ['id'=>$cart['id'],'name'=>$name,'items'=>$items];
+    $origin=molavi_library_ids($cart['favorite_ids']??[]);if(is_wp_error($origin))return $origin;
+    return ['id'=>$cart['id'],'name'=>$name,'items'=>$items,'favorite_ids'=>$origin];
 }
 function molavi_library_apply(array $state, array $ops) {
     foreach ($ops as $op) {
@@ -273,6 +274,32 @@ function molavi_library_apply(array $state, array $ops) {
                 if(count($state['carts'])>=10)return new WP_Error('limit','۱۰ سبد ذخیره دارید؛ پیش از ذخیرهٔ سبد جدید، یکی را حذف کنید. هیچ سبدی خودکار حذف نمی‌شود.');
                 array_unshift($state['carts'],$cart);
             }
+        } elseif ($type==='cart_edit' || $type==='cart_merge_favorites') {
+            $id=$op['id']??null;
+            if(!is_string($id)||!preg_match('/^[a-zA-Z0-9_-]{1,80}$/',$id))return new WP_Error('invalid','شناسهٔ سبد معتبر نیست.');
+            $index=null;
+            foreach($state['carts'] as $i=>$cart){if($cart['id']===$id){$index=$i;break;}}
+            if($index===null)return new WP_Error('conflict','این سبد دیگر در حساب نیست. فهرست را تازه کنید.');
+            $cart=$state['carts'][$index];
+            if($type==='cart_merge_favorites'){
+                $additions=$op['items']??null;
+                $validated=molavi_library_cart(['id'=>$id,'name'=>$cart['name'],'items'=>$additions]);
+                if(is_wp_error($validated))return $validated;
+                foreach($validated['items'] as $product=>$qty){if(!isset($cart['items'][$product]))$cart['items'][$product]=$qty;}
+                if(count($cart['items'])>40)return new WP_Error('limit','سبد مقصد نمی‌تواند بیش از ۴۰ کالا داشته باشد؛ علاقه‌مندی‌ها حفظ شدند.');
+                $cart['favorite_ids']=array_values(array_unique(array_merge($cart['favorite_ids']??[],array_map('strval',array_keys($validated['items'])))));
+            }else{
+                $changes=$op['changes']??null;$expected=$op['expected']??null;
+                if(!is_array($changes)||!$changes||count($changes)>40||!is_array($expected))return new WP_Error('invalid','تغییر تعدادها معتبر نیست.');
+                foreach($changes as $product=>$qty){
+                    if(!preg_match('/^[1-9][0-9]{0,17}$/',(string)$product)||!is_int($qty)||$qty<0||$qty>999
+                        ||!isset($expected[$product])||!is_int($expected[$product])||$expected[$product]<0||$expected[$product]>999)return new WP_Error('invalid','تعداد باید یک عدد صحیح بین صفر و ۹۹۹ باشد.');
+                    if((int)($cart['items'][$product]??0)!==$expected[$product])return new WP_Error('conflict','تعداد این کالا در دستگاه دیگری تغییر کرده است. مقدار تازه را بررسی و دوباره ویرایش کنید.');
+                    if($qty===0)unset($cart['items'][$product]);else $cart['items'][$product]=$qty;
+                }
+            }
+            $validated=molavi_library_cart($cart);if(is_wp_error($validated))return $validated;
+            $state['carts'][$index]=$validated;
         } elseif ($type==='cart_delete' || $type==='cart_rename') {
             $id=$op['id']??null;
             if(!is_string($id)||!preg_match('/^[a-zA-Z0-9_-]{1,80}$/',$id))return new WP_Error('invalid','شناسهٔ سبد معتبر نیست.');
@@ -311,7 +338,7 @@ function molavi_account_library(): void {
             wp_send_json_success(molavi_library_public($state));
         }
         $next=molavi_library_apply($state,$ops);
-        if(is_wp_error($next))wp_send_json_error(['message'=>$next->get_error_message(),'library'=>molavi_library_public($state)],$next->get_error_code()==='limit'?409:400);
+        if(is_wp_error($next))wp_send_json_error(['message'=>$next->get_error_message(),'library'=>molavi_library_public($state)],in_array($next->get_error_code(),['limit','conflict'],true)?409:400);
         $next['revision']=(int)$state['revision']+1;
         $next['receipts'][$requestId]=$fingerprint;
         $next['receipts']=array_slice($next['receipts'],-20,null,true);

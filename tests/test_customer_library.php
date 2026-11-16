@@ -62,4 +62,26 @@ $r=callLibrary([['type'=>'cart_rename','id'=>'weekly','name'=>'خرید هفتگ
 check(callLibrary([['type'=>'cart_save','cart'=>['id'=>'bad','name'=>'bad','items'=>['70'=>-1]]]])->status===400,'Invalid quantities are rejected');
 $GLOBALS['user']=202;check(callLibrary()->data['favorites']===[],'Other accounts cannot read this library');
 check(count($GLOBALS['meta'][101]['carts'])===10,'Other account reads preserve the original library');
-echo "customer library: auth, ownership, merge, retries, atomic transfer, capacity and undo passed\n";
+// Saved-list quantities and origin metadata survive merges and device-level edits.
+$GLOBALS['user']=303;
+$origin=cart('origin');$origin['favorite_ids']=['70'];
+check(callLibrary([['type'=>'cart_save','cart'=>$origin]])->success,'Origin list saved');
+$r=callLibrary([['type'=>'cart_edit','id'=>'origin','changes'=>['70'=>5],'expected'=>['70'=>2]]]);
+check($r->data['carts'][0]['items']['70']===5&&$r->data['carts'][0]['favorite_ids']===['70'],'Quantity editing preserves source history');
+callLibrary([['type'=>'favorites_add','ids'=>['70','68']]]);
+$r=callLibrary([['type'=>'cart_merge_favorites','id'=>'origin','items'=>['70'=>1,'68'=>1]],['type'=>'favorites_remove','ids'=>['70','68']]]);
+check($r->success&&$r->data['favorites']===[],'Existing-list transfer clears favorites only after merge');
+check($r->data['carts'][0]['items']['70']===5&&$r->data['carts'][0]['items']['68']===3,'Duplicate products retain existing quantities');
+check($r->data['carts'][0]['favorite_ids']===['70','68'],'Origin count records unique transferred products');
+callLibrary([['type'=>'cart_edit','id'=>'origin','changes'=>['70'=>6],'expected'=>['70'=>5]]]);
+$r=callLibrary([['type'=>'cart_edit','id'=>'origin','changes'=>['68'=>8],'expected'=>['68'=>3]]]);
+check($r->data['carts'][0]['items']['70']===6&&$r->data['carts'][0]['items']['68']===8,'Nonoverlapping edits from two devices merge');
+$before=$GLOBALS['meta'][303];
+check(callLibrary([['type'=>'cart_edit','id'=>'origin','changes'=>['70'=>9],'expected'=>['70'=>5]]])->status===409,'Conflicting quantity edits are rejected');
+check($GLOBALS['meta'][303]===$before,'Conflict does not overwrite newer quantities');
+check(callLibrary([['type'=>'cart_edit','id'=>'origin','changes'=>['70'=>1000],'expected'=>['70'=>6]]])->status===400,'Quantity limits are enforced');
+$full=cart('full');$full['items']=[];for($i=1000;$i<1040;$i++)$full['items'][(string)$i]=1;
+callLibrary([['type'=>'cart_save','cart'=>$full],['type'=>'favorites_add','ids'=>['1040']]]);$before=$GLOBALS['meta'][303];
+$r=callLibrary([['type'=>'cart_merge_favorites','id'=>'full','items'=>['1040'=>1]],['type'=>'favorites_remove','ids'=>['1040']]]);
+check($r->status===409&&$GLOBALS['meta'][303]===$before,'A full target rejects the complete transfer without losing favorites');
+echo "customer library: auth, ownership, merge, retries, atomic transfer, capacity, undo, editable quantities and origin-aware transfers passed\n";

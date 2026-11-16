@@ -270,6 +270,7 @@ add_action('wp_enqueue_scripts', static function (): void {
         'unlock' => (int) $quote['unlock'],
         'buyerType' => molavi_buyer_type(),
         'checkout' => wc_get_checkout_url(),
+        'shopUrl' => wc_get_page_permalink('shop'),
         'qtys' => $quote['qtys'] === [] ? new stdClass() : $quote['qtys'],
         'initial' => $quote,
         'catalog' => $catalog === [] ? new stdClass() : $catalog,

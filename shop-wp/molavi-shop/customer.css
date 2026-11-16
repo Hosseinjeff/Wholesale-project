@@ -418,13 +418,6 @@ body.molavi-site-page .molavi-library-account-link {font-size:10px;text-align:ce
 body.molavi-site-page .molavi-library-toast {position:absolute;inset-inline:12px;bottom:12px;z-index:8;display:flex;align-items:center;gap:8px;background:var(--molavi-ink);color:#fff;padding:10px 12px;border-radius:10px;box-shadow:0 4px 18px #20382e25;pointer-events:auto;}
 body.molavi-site-page .molavi-library-toast p {margin:0;font-size:12px;line-height:1.8;color:inherit;flex:1;}
 body.molavi-site-page .molavi-library-toast .molavi-library-retry {background:transparent;color:#fff;border-color:#ffffff60;white-space:nowrap;}
-/* A visible order-step label includes its information control. */
-body.molavi-site-page .molavi-step-label {display:inline-flex;align-items:center;gap:6px;max-width:100%;padding:4px 7px;border:1px solid #cadbc7;border-radius:8px;background:#edf4e8;color:#27553b;}
-body.molavi-site-page .molavi-step-label .molavi-order-units {font-size:11px;font-weight:600;line-height:1.6;margin:0;color:inherit;white-space:nowrap;}
-body.molavi-site-page .molavi-step-label .molavi-card-step-help {display:block;margin:0;}
-body.molavi-site-page .molavi-step-label .molavi-card-step-help>summary {display:grid;place-items:center;border:0;background:transparent;color:inherit;width:20px;height:20px;min-height:20px;padding:0;list-style:none;}
-body.molavi-site-page .molavi-step-label summary svg {width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;}
-body.molavi-site-page .molavi-card-facts {gap:6px;}
 .molavi-suggestion-title {display:block;font-size:13px;color:var(--molavi-ink);}
 body.molavi-site-page [data-molavi-buyer-feedback] p {margin:6px 0;font-size:12px;line-height:1.9;}
 body.molavi-site-page .molavi-product-area>[data-molavi-buyer-feedback]:not([hidden]) {border:1px solid #d8dfc8;background:#f4f6e9;border-radius:12px;padding:12px 14px;margin:0 0 16px;}
@@ -468,6 +461,45 @@ body.molavi-site-page .molavi-global-basket-shell .molavi-store-basket.is-open {
  body.molavi-site-page .molavi-store-controls .molavi-toolbar-meta {gap:3px;}
  body.molavi-site-page .molavi-store-controls .molavi-view-toggle button {width:26px;}
  body.molavi-site-page .molavi-store-controls .molavi-buyer-compact {min-width:67px;padding-inline:5px;}
- body.molavi-site-page .molavi-step-label {gap:3px;padding:3px 5px;}
- body.molavi-site-page .molavi-step-label .molavi-order-units {font-size:10px;}
 }
+
+/* Plain step text; only the value after the colon is emphasized. */
+body.molavi-site-page .molavi-step-note {display:inline-flex;align-items:center;gap:5px;max-width:100%;padding:0;border:0;background:transparent;border-radius:0;}
+body.molavi-site-page .molavi-step-note .molavi-order-units,body.molavi-site-page .molavi-order-step {font-size:11px;font-weight:400;color:var(--molavi-muted);margin:0;line-height:1.7;}
+body.molavi-site-page .molavi-order-units strong,body.molavi-site-page .molavi-order-step strong {font-weight:700;color:var(--molavi-ink);white-space:nowrap;}
+body.molavi-site-page .molavi-step-note .molavi-card-step-help {display:block;margin:0;}
+body.molavi-site-page .molavi-step-note .molavi-card-step-help>summary {display:grid;place-items:center;width:18px;height:18px;min-height:18px;border:0;background:transparent;padding:0;color:var(--molavi-muted);list-style:none;}
+body.molavi-site-page .molavi-step-note summary svg {width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;}
+/* Reserve a safe strip above the modal for the actual expanding cart summary. */
+body.molavi-site-page .molavi-favorites-dialog {--molavi-library-top:max(88px,calc(env(safe-area-inset-top) + 76px));top:var(--molavi-library-top);bottom:auto;margin:0 auto;height:min(780px,calc(100dvh - var(--molavi-library-top) - 20px));max-height:calc(100dvh - var(--molavi-library-top) - 20px);}
+.molavi-cart-over-library {position:fixed;inset:auto;margin:0;padding:0;border:0;background:transparent;overflow:visible;width:fit-content;height:58px;max-width:calc(100vw - 32px);}
+.molavi-cart-over-library::backdrop {display:none;}
+body.molavi-site-page .molavi-cart-over-library .molavi-mobile-basket {position:relative;inset:auto;left:auto;right:auto;top:auto;bottom:auto;margin:0;max-width:calc(100vw - 32px);}
+.molavi-library-prompt {width:min(460px,calc(100vw - 32px));max-height:85dvh;border:1px solid var(--molavi-line);border-radius:16px;padding:22px;color:var(--molavi-ink);background:#fff;font:inherit;direction:rtl;box-shadow:0 18px 70px #20382e30;}
+.molavi-library-prompt::backdrop {background:#20382e70;}
+.molavi-library-prompt h2 {font-size:18px;margin:0 0 12px;line-height:1.7;}
+.molavi-library-prompt p {font-size:13px;line-height:1.9;margin:0 0 16px;color:var(--molavi-muted);white-space:normal;}
+.molavi-library-prompt label {display:grid;gap:6px;margin-bottom:18px;font-size:12px;}
+.molavi-library-prompt input,.molavi-library-prompt select {font:inherit;min-width:0;width:100%;padding:9px 10px;border:1px solid var(--molavi-line);border-radius:8px;background:var(--molavi-bg);color:var(--molavi-ink);box-sizing:border-box;}
+.molavi-prompt-actions {display:flex;gap:8px;justify-content:flex-end;}
+.molavi-prompt-actions button,.molavi-item-editor-actions button {font:inherit;font-size:12px;border:1px solid var(--molavi-line);border-radius:8px;min-height:36px;padding:7px 12px;background:#fff;color:var(--molavi-ink);cursor:pointer;}
+.molavi-prompt-actions [type=submit],.molavi-item-editor-actions [type=submit] {background:var(--molavi-accent);border-color:var(--molavi-accent);color:#fff;}
+.molavi-prompt-actions .is-danger {background:#a33d36;border-color:#a33d36;}
+body.molavi-site-page .molavi-transfer-actions {display:flex;flex-wrap:wrap;gap:6px;align-items:center;}
+body.molavi-site-page .molavi-transfer-actions button {font-size:11px;padding:5px 8px;min-height:32px;}
+body.molavi-site-page .molavi-saved-actions button {display:inline-flex;align-items:center;gap:5px;padding:6px 8px;font-size:11px;min-height:32px;}
+body.molavi-site-page .molavi-saved-actions svg,.molavi-item-editor-actions svg {width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none;}
+body.molavi-site-page .molavi-saved-items li {display:flex;align-items:center;justify-content:flex-start;gap:8px;}
+body.molavi-site-page .molavi-saved-items li>span:not(.molavi-list-thumb) {flex:1;min-width:0;}
+body.molavi-site-page .molavi-list-thumb {display:grid;place-items:center;width:34px;height:34px;border-radius:7px;object-fit:contain;background:var(--molavi-bg);flex:0 0 34px;}
+.molavi-list-thumb svg {width:20px;height:20px;fill:none;stroke:var(--molavi-muted);stroke-width:1.7;}
+.molavi-items-editor {margin:0;}
+.molavi-items-editor>p {font-size:11px;line-height:1.8;color:var(--molavi-muted);margin:0 0 10px;}
+.molavi-list-edit-row {display:grid;grid-template-columns:34px minmax(0,1fr) 68px;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--molavi-line);font-size:12px;}
+.molavi-list-edit-row input {box-sizing:border-box;width:100%;min-width:0;font:inherit;padding:6px;border:1px solid var(--molavi-line);border-radius:7px;text-align:center;}
+.molavi-item-editor-actions {display:flex;gap:8px;margin-top:12px;}
+.molavi-item-editor-actions button {display:inline-flex;gap:6px;align-items:center;}
+@media(max-width:360px){body.molavi-site-page .molavi-saved-actions {gap:4px;}body.molavi-site-page .molavi-saved-actions button {padding:5px 6px;font-size:10px;}body.molavi-site-page .molavi-transfer-actions {gap:4px;}}
+body.molavi-site-page .molavi-library-prompt {box-sizing:border-box;}
+body.molavi-site-page .molavi-library-toolbar .molavi-transfer-actions button {font-size:11px;padding:5px 8px;}
+@media(max-width:360px){body.molavi-site-page .molavi-library-toolbar .molavi-transfer-actions button {font-size:10px;padding:5px 6px;}}
