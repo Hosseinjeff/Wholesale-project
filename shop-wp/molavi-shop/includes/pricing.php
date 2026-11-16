@@ -605,6 +605,7 @@ function molavi_quote(): array
         'kinds' => count($qtys),
         'units' => $units,
         'qtys' => $qtys,
+        'delivery' => function_exists('molavi_delivery_preview') ? molavi_delivery_preview($subtotal) : null,
     ];
 }
 
@@ -613,7 +614,7 @@ function molavi_render_buyer_profile_selector(string $context = 'shop'): void
     $selected = molavi_buyer_type();
     $compact = $context !== 'shop';
     $label = $compact ? 'نوع خرید' : 'قیمت برای';
-    $buyerHelp = 'انتخاب «خانوار» یا «فروشگاه» قیمت و گام سفارش کالاها را به‌روز می‌کند. تعداد سبد خودکار تغییر نمی‌کند؛ اگر تعداد با گام تازه سازگار نباشد، پیش از ادامه می‌توانید آن را اصلاح کنید.';
+    $buyerHelp = '«خانوار» برای مصرف خانه و «فروشگاه» برای خرید مغازه است. هرکدام قیمت و گام سفارش خود را دارد. با تغییر نوع خرید، تعداد سبد حفظ می‌شود؛ اگر لازم باشد، دکمهٔ «اصلاح تعداد» نشان داده می‌شود.';
     ?>
     <?php if ($compact): ?>
     <details class="molavi-buyer-choice-disclosure" data-molavi-buyer-disclosure>
