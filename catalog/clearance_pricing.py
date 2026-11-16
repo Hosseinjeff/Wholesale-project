@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import sqlite3
+from catalog.state import connect
 from contextlib import contextmanager
 from datetime import date
 
@@ -114,7 +115,7 @@ class ClearanceLedger:
 
     @contextmanager
     def _connect(self):
-        db=sqlite3.connect(self.path,timeout=15)
+        db=connect(self.path,timeout=15)
         db.row_factory=sqlite3.Row
         try:
             with db:yield db

@@ -289,22 +289,19 @@ class ReferenceStore(ReferenceDecisions):
                        (snapshot_id, payload))
             if source_products is not None:
                 db.execute('DELETE FROM reference_snapshot_source_products WHERE snapshot_id=?',(snapshot_id,))
-                for product in source_products:
-                    source_id=str(product['id'])
-                    product_code=self._source_code(product)
-                    db.execute('INSERT INTO reference_snapshot_source_products VALUES (?,?,?,?)',
-                        (snapshot_id,source_id,product_code,
-                         json.dumps(product,ensure_ascii=False,sort_keys=True,allow_nan=False)))
+                db.executemany('INSERT INTO reference_snapshot_source_products VALUES (?,?,?,?)',
+                    [(snapshot_id,str(product['id']),self._source_code(product),
+                      json.dumps(product,ensure_ascii=False,sort_keys=True,allow_nan=False))
+                     for product in source_products])
         return {'state':'staged','snapshot_id':snapshot_id,
                 'change_summary':candidate.get('change_summary') or {},'row_count':len(rows),
                 'automatic_update':bool(candidate.get('automatic_update'))}
 
     def _replace_source_products(self, db, products):
         db.execute('DELETE FROM reference_source_products')
-        for product in products:
-            db.execute('INSERT INTO reference_source_products VALUES (?,?,?)',
-                (str(product['id']),self._source_code(product),
-                 json.dumps(product,ensure_ascii=False,sort_keys=True,allow_nan=False)))
+        db.executemany('INSERT INTO reference_source_products VALUES (?,?,?)',
+            [(str(product['id']),self._source_code(product),
+              json.dumps(product,ensure_ascii=False,sort_keys=True,allow_nan=False)) for product in products])
 
     @staticmethod
     def _record_source_check(db,snapshot_id,checked_at):
@@ -404,6 +401,11 @@ class ReferenceStore(ReferenceDecisions):
 
     @contextmanager
     def activation_lock(self):
+        from catalog.state import wordpress_state, state_lock
+        if wordpress_state():
+            with state_lock(self.database, 'activation'):
+                yield
+            return
         fd = os.open(self.database + '.activation.lock', os.O_CREAT | os.O_RDWR, 0o600)
         try:
             fcntl.flock(fd, fcntl.LOCK_EX)

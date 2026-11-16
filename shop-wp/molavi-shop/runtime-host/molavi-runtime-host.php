@@ -75,7 +75,8 @@ function molavi_runtime_tick():void {
         if((int)$state['reference_at']<=$now)$tasks[]='reference_refresh';
         if((int)$state['housekeeping_at']<=$now)$tasks[]='housekeeping';
         if(molavi_runtime_outbox_due())$tasks[]='outbox';
-        $wake=$state['wake_at']!==null&&(float)$state['wake_at']<=$now;
+        $wake=($state['wake_at']!==null&&(float)$state['wake_at']<=$now)
+            ||(function_exists('molavi_state_due_work')&&molavi_state_due_work());
         if(!$tasks&&!$wake)return;
         if($now-(int)$state['last_remote']<min(900,30*(2**min((int)$state['failures'],5))))return;
         $admins=get_users(['role'=>'administrator','number'=>1,'orderby'=>'ID','order'=>'ASC','fields'=>'ID']);

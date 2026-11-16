@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import sqlite3
+from catalog.state import connect
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -33,7 +34,7 @@ class ProductStatusLedger:
 
     @contextmanager
     def connect(self):
-        db = sqlite3.connect(self.database, timeout=15)
+        db = connect(self.database, timeout=15)
         db.row_factory = sqlite3.Row
         try:
             with db:
@@ -210,7 +211,7 @@ def _current_product_status_inputs(store, database, *, now=None):
     if database_path.exists():
         database_uri = database_path.as_uri() + '?mode=ro'
         try:
-            with sqlite3.connect(database_uri, uri=True, timeout=15) as db:
+            with connect(database_uri, uri=True, timeout=15) as db:
                 for row in db.execute('SELECT offer_id,source_revision,verified_at,method '
                                       'FROM supplier_price_evidence'):
                     evidence_rows[str(row[0])] = {

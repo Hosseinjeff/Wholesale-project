@@ -7,6 +7,7 @@ import math
 import os
 import re
 import sqlite3
+from catalog.state import connect
 import time
 import uuid
 from contextlib import contextmanager
@@ -112,7 +113,7 @@ class Handoffs:
 
     @contextmanager
     def connect(self):
-        db = sqlite3.connect(self.path, timeout=15)
+        db = connect(self.path, timeout=15)
         db.row_factory = sqlite3.Row
         try:
             with db: yield db
@@ -184,6 +185,11 @@ class Handoffs:
 
     @contextmanager
     def publication_lock(self):
+        from catalog.state import wordpress_state, state_lock
+        if wordpress_state():
+            with state_lock(self.path, 'publication'):
+                yield
+            return
         """Serialize batch writes and every application publication across processes."""
         lockpath = self.path + '.publication.lock'
         fd = os.open(lockpath, os.O_CREAT | os.O_RDWR, 0o600)

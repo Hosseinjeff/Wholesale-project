@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import os
 import sqlite3
+from catalog.state import connect
 from urllib.parse import quote
 
 
@@ -23,7 +24,7 @@ def sqlite_shadow_summary(path: str | None) -> dict:
         return {'available': False, 'file_bytes': 0, 'tables': {}, 'error': 'database_unavailable'}
     absolute = os.path.realpath(path)
     uri = 'file:' + quote(absolute, safe='/') + '?mode=ro'
-    connection = sqlite3.connect(uri, uri=True, timeout=5)
+    connection = connect(uri, uri=True, timeout=5)
     connection.row_factory = sqlite3.Row
     try:
         connection.execute('PRAGMA query_only=ON')
