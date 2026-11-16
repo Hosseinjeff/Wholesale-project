@@ -94,8 +94,8 @@ function molavi_runtime_tick():void {
         if(!is_wp_error($response)&&wp_remote_retrieve_response_code($response)===202&&($body['ok']??false)===true){
             foreach(['sheet_sync'=>'sheet_at','reference_refresh'=>'reference_at','housekeeping'=>'housekeeping_at'] as $task=>$field)
                 if(in_array($task,$tasks,true))$state[$field]=$now+($task==='sheet_sync'?3600:86400);
-            $state['failures']=0;$state['last_error']='';
-        }else{$state['failures']++;$state['last_error']=is_wp_error($response)?sanitize_key($response->get_error_code()):'http_'.wp_remote_retrieve_response_code($response);}
+            $state['failures']=0;$state['last_error']='';$state['last_error_detail']='';
+        }else{$state['failures']++;$state['last_error']=is_wp_error($response)?sanitize_key($response->get_error_code()):'http_'.wp_remote_retrieve_response_code($response);$state['last_error_detail']=is_wp_error($response)?substr($response->get_error_message(),0,300):'';}
         molavi_runtime_save_state($state);
     } finally {delete_option('molavi_runtime_host_lock');}
 }
@@ -103,7 +103,7 @@ add_action('molavi_runtime_tick','molavi_runtime_tick');
 add_action('rest_api_init',static function():void {
     register_rest_route('molavi-runtime/v1','/status',['methods'=>'GET','permission_callback'=>'molavi_runtime_permission',
         'callback'=>static function(){return ['ok'=>true,'state'=>molavi_runtime_state(),'next_tick'=>wp_next_scheduled('molavi_runtime_tick'),
-            'php_memory_limit'=>ini_get('memory_limit'),'cron_disabled'=>defined('DISABLE_WP_CRON')&&DISABLE_WP_CRON,'real_cron_at'=>(int)get_option('molavi_runtime_real_cron_at',0)];}]);
+            'home_host'=>wp_parse_url(home_url('/'),PHP_URL_HOST),'runtime_host'=>wp_parse_url(MOLAVI_REFERENCE_SERVER_URL,PHP_URL_HOST),'php_memory_limit'=>ini_get('memory_limit'),'cron_disabled'=>defined('DISABLE_WP_CRON')&&DISABLE_WP_CRON,'real_cron_at'=>(int)get_option('molavi_runtime_real_cron_at',0)];}]);
     register_rest_route('molavi-runtime/v1','/configure',['methods'=>'POST','permission_callback'=>'molavi_runtime_permission',
         'callback'=>static function($request){$body=$request->get_json_params();if(!is_array($body)||!is_bool($body['enabled']??null))return new WP_Error('runtime_config','Invalid configuration',['status'=>400]);
             $state=molavi_runtime_state();$state['enabled']=$body['enabled'];$state['failures']=0;$state['last_remote']=0;$state['last_error']='';

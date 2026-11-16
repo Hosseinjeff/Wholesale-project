@@ -30,6 +30,11 @@ class BotButtonTests(unittest.TestCase):
             self.assertTrue(price_reply_is_current(q,'123',message,P,SECRET));self.assertFalse(price_reply_is_current(q,'123',message,{**P,'prompt_id':'p:next'},SECRET))
             with q.connect() as db:db.execute('UPDATE bot_price_inputs SET expires=0')
             self.assertFalse(price_reply_is_current(q,'123',message,P,SECRET));clear_price_entry(q,'123');self.assertFalse(price_reply_is_current(q,'123',message,P,SECRET))
+    def test_expired_price_entry_does_not_block_a_new_supplier_post(self):
+        with tempfile.TemporaryDirectory() as temp:
+            q=Handoffs(str(Path(temp)/'q.sqlite'));remember_price_entry(q,'123',P,SECRET,99)
+            with q.connect() as db:db.execute('UPDATE bot_price_inputs SET expires=0')
+            self.assertTrue(price_reply_is_current(q,'123',{'text':'کالای تازه با قیمت 75000'},None,SECRET))
     def test_reply_to_old_button_message_is_refused(self):
         with tempfile.TemporaryDirectory() as temp:
             q=Handoffs(str(Path(temp)/'q.sqlite'));message={'reply_to_message':{'reply_markup':prompt_keyboard(P,'123',SECRET)}}
