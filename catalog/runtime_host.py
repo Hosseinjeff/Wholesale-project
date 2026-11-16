@@ -75,7 +75,8 @@ def run_runtime_task(queue,payload):
     return {'ok':True,'task':task}
 
 def storage_report():
-    report={'mode':os.getenv('PIPELINE_RUNTIME_MODE','continuous'),'databases':[]}
+    from catalog.memory import memory_report
+    report={'mode':os.getenv('PIPELINE_RUNTIME_MODE','continuous'),'databases':[],'memory':memory_report()}
     try:report['container_memory_bytes']=int(Path('/sys/fs/cgroup/memory.current').read_text())
     except (OSError,ValueError):pass
     data_root=Path('/data')
