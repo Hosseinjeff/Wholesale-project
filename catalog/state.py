@@ -43,6 +43,7 @@ def state_call(route, body=None):
         headers['Content-Type'] = 'application/json'
         if len(data) > 32768:
             data = gzip.compress(data)
+            headers['Content-Type'] = 'application/octet-stream'
             headers['X-Molavi-State-Encoding'] = 'gzip'
     # Retried commits retain their transaction ID; WordPress returns its receipt.
     for attempt in range(3):

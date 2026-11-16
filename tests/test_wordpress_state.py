@@ -137,6 +137,18 @@ class WordPressStateTests(unittest.TestCase):
 
 
 class StateTransportTests(unittest.TestCase):
+    def test_compressed_program_is_binary_so_wordpress_does_not_parse_gzip_as_json(self):
+        import gzip
+        response = Mock(status_code=200)
+        response.json.return_value = {'ok': True}
+        body = {'value': 'synthetic '*5000}
+        with patch.dict(os.environ, {'SHOP_SITE_URL': 'https://wp.invalid', 'REFERENCE_BRIDGE_TOKEN': 's'*40}), \
+                patch('catalog.state.requests.request', return_value=response) as request:
+            state.state_call('transaction', body)
+        wire = request.call_args.kwargs
+        self.assertEqual(wire['headers']['Content-Type'], 'application/octet-stream')
+        self.assertEqual(json.loads(gzip.decompress(wire['data']))['value'], body['value'])
+
     def test_lost_commit_response_retries_the_same_identity(self):
         import requests
         response = Mock(status_code=200)
