@@ -20,6 +20,20 @@ Deployment scope is the separate `staging.molavisale.ir` installation, using
 `tools/deploy_wordpress_plugin.py --target staging --since 77bc944`. Private
 runtime configuration, products, orders, and Production are outside this release.
 
+Plugin revision `bd252795a22b57d6af874d18c0239c7b9ed8813c` was uploaded only to
+Staging. The deployment tool verified all three changed plugin files by cPanel
+read-back and kept a pre-deployment source backup in `/tmp`. Public HTTPS copies
+of `shop.js` and `customer.css` matched the committed files byte-for-byte.
+
+The deployed page passed fresh-guest Chromium checks for successful-add favorites
+removal, inline rename save/cancel, a single global new-cart action, preservation
+of the previous cart, saved-cart-to-favorites, and current-cart-to-favorites. All
+cart and list-restore mutations returned HTTP 200; the test guest cart was emptied
+before the session closed. At 320, 390, 760, and 1440px the page had no horizontal
+overflow. The floating cart stayed square while peeking and its count overlapped
+the top edge. No page JavaScript errors occurred. PHP/JavaScript syntax and
+whitespace checks passed. No order was created or Production file changed.
+
 ## 2026-11-11 Staging sticky header mockup alignment
 
 Plugin commits `182ac54`, `62689da`, `737bf43`, and `967fa2e` were pushed to

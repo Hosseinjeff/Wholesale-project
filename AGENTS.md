@@ -20,6 +20,7 @@ decisions; do not silently choose a different inventory or pricing authority.
 Deploy requested changes to the separate Staging installation by default, unless
 the user explicitly asks for a mockup or preview. Deploy to Production only when
 explicitly requested. Verify the Staging URL after deployment.
+Use image-generation tools only when the user explicitly requests them.
 
 ## Source control and live WordPress changes
 
