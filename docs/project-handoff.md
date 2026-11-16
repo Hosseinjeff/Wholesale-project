@@ -1,9 +1,38 @@
 # MolaviSale — whole-workflow handoff
 
-Snapshot 4.81. Updated 2026-11-16, Asia/Tehran. The canonical roleplay decisions are in
+Snapshot 4.82. Updated 2026-11-16, Asia/Tehran. The canonical roleplay decisions are in
 `roleplay-state.json`; current live evidence and release gates are in
 `pipeline-readiness.md` and `pipeline-readiness-evidence.json`.
 The product intake and shelf policy is documented in `products-streamline-integrity.md`.
+
+## Current Railway resource policy and bot workflow — 2026-11-16
+
+The owner explicitly authorized the low-memory/sleep fix on both production and
+Staging. Continue from [`railway-on-demand-runtime.md`](railway-on-demand-runtime.md).
+Both services use `PIPELINE_RUNTIME_MODE=on_demand`, one Gunicorn worker and no
+Supervisor or idle external polling. WordPress owns real minute-cron due checks,
+hourly Sheet observation, daily reference refresh/housekeeping and retry wake times.
+The independent runtime MU-plugin preserves each site's existing storefront plugin.
+Both real cron timestamps and worker completion receipts were verified, with no
+scheduler failures and no outstanding wake. Both services were observed sleeping;
+subsequent release verification wakes them. Most recent Railway RAM samples were
+approximately 55 MB Staging and 65 MB production, versus approximately 130–150 MB
+before. No business records were deleted. The separate FollowUP-bot is unchanged.
+
+Railway backend releases are now pinned: Staging `c189e8e` (deployment
+`9b144a39-bd75-4448-866d-7dd83e91c7ed`) and production `076fee3` (deployment
+`44e30aca-11cf-49ea-8ed0-f1a833455283`) both reached `SUCCESS`. Future code pushes
+alone will not deploy: use a reviewed environment-scoped source pin and release.
+Frontend/docs edits must not rebuild or keep Railway awake.
+
+Both Telegram bots now offer buttons for reports, help, opening pending questions,
+confirming/rejecting/correcting prices, and opening the existing owner dashboard.
+Correction needs only a numeric toman reply. Prompt-bound signed callbacks and
+expiring input context reuse the existing review/publication path and durable queue;
+there is no new polling worker. See [`bot-button-workflow.md`](bot-button-workflow.md).
+The most recent pending Staging sender was approved through the owner endpoint with
+an accepted WordPress audit receipt; resend the previously blocked post because it
+was not retained. Personal identifiers and receipts remain outside Git.
 
 ## Current Staging customer storefront — 2026-11-16
 

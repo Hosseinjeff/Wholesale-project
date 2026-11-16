@@ -2,6 +2,50 @@
 
 Updated: 2026-11-16, Asia/Tehran
 
+## 2026-11-16 WordPress-owned scheduling, Railway idle sleep and bot buttons
+
+The owner authorized resource fixes on both live and Staging, approval of the most
+recent pending Staging sender, and routine bot choices without typing. Resource code
+is isolated from the earlier Staging storefront changes. The MU-plugin at
+`runtime-host/molavi-runtime-host.php` deploys separately with
+`python3 tools/deploy_wordpress_plugin.py --component runtime --site SITE --since REF`
+into `wp-content/mu-plugins`; the default shop deployment excludes this directory.
+The protected bridge config is reused and is never committed. Real cPanel minute
+cron runs only this scheduler through its plain PHP file, with a nonblocking file
+lock. Both cron timestamps and successful worker completion receipts were read back;
+empty ticks stay inside WordPress. Exactly one runtime cron command exists per site.
+
+Both Railway services run on demand with one Gunicorn worker, preserving the durable
+volume, leases, retry times and existing business authorities. Source pins prevent
+unrelated frontend/docs pushes from rebuilding them. Final Staging source
+`c189e8e6c15d8f62edc1356de3a80d9e54c2a71e`, deployment
+`9b144a39-bd75-4448-866d-7dd83e91c7ed`, and production source
+`076fee3d52d974f4a986879d0a010d09d71b63bb`, deployment
+`44e30aca-11cf-49ea-8ed0-f1a833455283`, reached `SUCCESS`. Control-plane checks
+reported no pending changes, warnings or failed deployments. Resource-mode deployments
+on both sites were observed `sleeping` before later button releases. Most recent RAM
+samples after the final releases were approximately 55 MB Staging and 65 MB production;
+earlier protected runtime reports measured approximately 58/61 MB. No data was deleted
+or storage limit reduced. The separate FollowUP-bot remains unchanged.
+
+The Staging sender was approved with optimistic revision checking and the existing
+WordPress prepared/accepted audit workflow. Its blocked original posts were not saved;
+the sender must resend. No personal chat IDs or receipts are in Git. Telegram replies
+offer reports/help/review buttons and signed prompt-specific price choices. Numeric-only
+correction uses a short-lived forced-reply context. Existing typed input remains valid.
+Callback delivery registration preserves pending updates; no test messages were sent
+to real operator chats. Bot behavior uses the existing price rules/publication queue.
+
+Focused verification passed: runtime 10, pipeline 26, WordPress outbox 5, inbound 14,
+Telegram UI 16 and synthetic PHP scheduler 13 checks. Python compilation, PHP lint
+and whitespace checks passed. Legacy catalog verification has one unchanged Batch ID
+expectation failure; see `railway-on-demand-runtime.md`. This release does not claim
+an end-to-end real operator price approval or any payment/fulfillment verification.
+
+See [`railway-on-demand-runtime.md`](railway-on-demand-runtime.md) and
+[`bot-button-workflow.md`](bot-button-workflow.md) before future backend work. Keep
+on-demand resource behavior as a baseline; do not restore an idle poller or keepalive.
+
 ## 2026-11-16 Heart library and new customer visual direction
 
 The owner clarified that favorite products and saved carts belong behind the header
