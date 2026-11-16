@@ -100,6 +100,19 @@ class ItemReviewLedger:
                              'ORDER BY sequence DESC LIMIT 1', (case_id,)).fetchone()
         return dict(row) if row else None
 
+    def get_for_cases(self, case_ids):
+        identifiers = list(dict.fromkeys(str(value) for value in case_ids if value))
+        output = {}
+        for start in range(0, len(identifiers), 300):
+            group = identifiers[start:start+300]
+            placeholders = ','.join('?' for _ in group)
+            with self.connect() as db:
+                rows = db.execute(f'''SELECT d.* FROM reference_item_decisions d
+                    WHERE d.case_id IN ({placeholders}) AND d.sequence=(
+                        SELECT MAX(p.sequence) FROM reference_item_decisions p WHERE p.case_id=d.case_id)''', group).fetchall()
+            output.update((str(row['case_id']), dict(row)) for row in rows)
+        return output
+
     def get_by_decision_id(self, decision_id):
         if not decision_id:
             return None
@@ -303,6 +316,8 @@ def review_cases(sheet_store, snapshot, ledger, *, include_decided=False, includ
     _, products = _records(_fresh_read(sheet_store, 'Products'))
     _, offers = _records(_fresh_read(sheet_store, 'Offers'))
     offers_by_id = {str(row.get('Offer ID') or ''): row for row in offers if row.get('Offer ID')}
+    decisions = ledger.get_for_cases(review_case_id(str(product.get('Latest Offer ID') or ''), snapshot_id)
+                                    for product in products)
     cases = []
     for product in products:
         offer_id = str(product.get('Latest Offer ID') or '')
@@ -319,7 +334,7 @@ def review_cases(sheet_store, snapshot, ledger, *, include_decided=False, includ
         elif match_state in {'exact_compatible_identity', 'owner_approved_mapping'} and role_hint in {'unit', 'package'}:
             continue
         case_id = review_case_id(offer_id, snapshot_id)
-        decision = ledger.get(case_id)
+        decision = decisions.get(case_id)
         decision_marker_matches = bool(
             decision and str(product.get('Reference Decision ID') or '') == str(decision.get('decision_id') or '')
         )

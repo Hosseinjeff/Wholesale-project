@@ -139,6 +139,52 @@ function molavi_state_due_work():bool {
         return (bool)$db->querySingle("SELECT 1 FROM inbox WHERE batch_id IS NULL UNION ALL SELECT 1 FROM jobs WHERE (state='queued' AND available<=".time().") OR (state='running' AND expires<=".time().") LIMIT 1");
     } finally {$db->close();}
 }
+function molavi_state_source_summary(array $source):array {
+    $content=(string)($source['content']??'');$summary=['compacted'=>true];
+    foreach(['id','channel','channel_username','timestamp','source_timestamp_basis','source_created_at','source_update_at','url','media_type'] as $key)
+        $summary[$key]=(string)($source[$key]??'');
+    $summary['has_media']=(bool)($source['has_media']??false);
+    $summary['content_length']=preg_match_all('/./us',$content);
+    $summary['content_sha256']=$content!==''?hash('sha256',$content):'';
+    return $summary;
+}
+function molavi_state_retention_days():?int {
+    $days=filter_var(get_option('molavi_pipeline_payload_retention_days',null),FILTER_VALIDATE_INT,
+        ['options'=>['min_range'=>30,'max_range'=>365]]);
+    return $days===false?null:$days;
+}
+function molavi_state_housekeeping(?int $clock=null):array {
+    $days=molavi_state_retention_days();
+    if($days===null)throw new RuntimeException('Verified retention configuration required');
+    $now=$clock??time();$cutoff=$now-$days*86400;$jobs=0;$inbox=0;$db=molavi_state_open('pipeline');
+    try {
+        $db->exec('BEGIN IMMEDIATE');
+        $select=$db->prepare("SELECT id,payload FROM jobs WHERE kind='batch' AND state='done' AND updated_at<? ORDER BY updated_at LIMIT 1000");
+        $select->bindValue(1,$cutoff,SQLITE3_INTEGER);$rows=$select->execute();$candidates=[];
+        while(($row=$rows->fetchArray(SQLITE3_ASSOC))!==false)$candidates[]=$row;
+        $rows->finalize();$select->close();
+        foreach($candidates as $row){
+            $payload=json_decode($row['payload']?:'{}',false,128,JSON_THROW_ON_ERROR);
+            if(!is_object($payload)||!empty($payload->compacted))continue;
+            $messages=is_array($payload->messages??null)?$payload->messages:[];$summaries=[];
+            foreach($messages as $message)if(is_object($message))$summaries[]=molavi_state_source_summary((array)$message);
+            $compact=['batch_id'=>(string)($payload->batch_id??''),'expected_count'=>(int)($payload->expected_count??count($messages)),
+                'transmission_complete'=>(bool)($payload->transmission_complete??false),'mode'=>(string)($payload->mode??'batch_ingest'),
+                'compacted'=>true,'messages'=>$summaries];
+            $s=$db->prepare('UPDATE jobs SET payload=? WHERE id=?');$s->bindValue(1,molavi_state_json($compact));$s->bindValue(2,$row['id']);$s->execute();$s->close();$jobs++;
+            $s=$db->prepare('SELECT id,payload FROM inbox WHERE batch_id=?');$s->bindValue(1,$row['id']);$result=$s->execute();$sources=[];
+            while(($entry=$result->fetchArray(SQLITE3_ASSOC))!==false)$sources[]=$entry;
+            $result->finalize();$s->close();
+            foreach($sources as $entry){
+                $source=json_decode($entry['payload']?:'{}',false,128,JSON_THROW_ON_ERROR);
+                if(!is_object($source)||!empty($source->compacted))continue;
+                $s=$db->prepare('UPDATE inbox SET payload=? WHERE id=?');$s->bindValue(1,molavi_state_json(molavi_state_source_summary((array)$source)));$s->bindValue(2,$entry['id']);$s->execute();$s->close();$inbox++;
+            }
+        }
+        $db->exec('DELETE FROM molavi_state_commits WHERE created_at<'.($now-7*86400));
+        $db->exec('COMMIT');return ['jobs_compacted'=>$jobs,'inbox_compacted'=>$inbox];
+    } finally {try{$db->exec('ROLLBACK');}catch(Throwable $ignored){}$db->close();}
+}
 function molavi_state_import(array $body):array {
     $store=(string)($body['store']??'');$target=molavi_state_path($store);
     $id=(string)($body['id']??'');$expected=(string)($body['sha256']??'');$size=$body['size']??0;$offset=$body['offset']??-1;

@@ -27,7 +27,8 @@ def schedule_on_wordpress(queue):
     if not site.startswith('https://') or len(secret)<32:return False
     due=next_work_at(queue)
     try:
-        response=requests.post(site+'/wp-json/molavi-runtime/v1/schedule',json={'observed_at':time.time(),'wake_at':due},
+        from catalog.durable import pipeline_payload_retention_days
+        response=requests.post(site+'/wp-json/molavi-runtime/v1/schedule',json={'observed_at':time.time(),'wake_at':due,'retention_days':pipeline_payload_retention_days()},
             headers={'X-Molavi-Runtime-Token':hmac.new(secret.encode(),b'molavi-runtime-v1',hashlib.sha256).hexdigest()},timeout=(5,15))
         return response.status_code==200 and response.json().get('ok') is True
     except (requests.RequestException,ValueError):return False
