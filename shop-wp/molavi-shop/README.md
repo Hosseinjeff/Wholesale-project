@@ -42,6 +42,21 @@ signed-in transfers are committed together. Saved lists are capped at ten: savin
 an eleventh is rejected without evicting an older list. Deletion has a session Undo
 button that restores the list and quantities.
 
+The favorites header's “+ سبد جدید” copies the current purchase cart into a named
+saved list after an explanatory prompt. It never empties or replaces the active
+cart; an empty purchase cart instead shows the next useful action. Favorites can
+also move into an existing list, retaining quantities for duplicate products.
+New transfers record unique originating favorite IDs; previews show current
+catalog thumbnails and the recorded source count. Quantity edits update the saved
+list only, with per-product expected values detecting conflicting account edits.
+Deletion requires confirmation, followed by optional Undo. The purchase-cart drawer
+has no transfer-to-favorites control.
+
+While the favorites dialog is open, the actual floating cart sits in a manual
+popover above it, separated by a 12px gap. The same control expands and retracts
+there and returns to its normal page position when the dialog closes. Successful
+purchase-cart updates no longer duplicate the summary with an items-added toast.
+
 ## Product and order work in WooCommerce
 
 Owners can review MolaviSale context from the existing WooCommerce screens. On

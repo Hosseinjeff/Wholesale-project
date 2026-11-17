@@ -2,6 +2,69 @@
 
 Updated: 2026-11-17, Asia/Tehran
 
+## 2026-11-17 Explicit saved-list creation, editing and transfers
+
+Order steps are plain text again; only the value after “گام سفارش:” is bold,
+including after live price/profile repaint. The purchase-cart drawer's transfer-to-
+favorites button is removed. Saved-list actions use short labels and SVGs, with
+rename/delete in the heading and quantity editing in the list body.
+
+“+ سبد جدید” now explains copying the current purchase cart into a named saved
+list and asks for the name. It does not empty, replace or open an empty purchase
+cart. An empty current cart receives an explanation with a useful next action.
+The ambiguous disk-save control is gone. Deleting a saved list requires a named
+confirmation; cancel preserves it, and confirmed deletion moves keyboard focus to
+Undo. Undo preserves quantities and provenance.
+
+Favorites can move into a new list or a selected existing list. Duplicate products
+retain their saved quantity. The destination list is saved before guest favorites
+are cleared; signed-in list merge and favorite removal are one atomic operation.
+A rejected full-target transfer preserves favorites and the existing list. Partial
+browser-storage failure preserves the saved copy and favorites without reusing the
+saved-list ID on a later new transfer.
+
+Previews show small catalog thumbnails, quantity values and the recorded number of
+unique products transferred from favorites. New transfers record `favorite_ids`;
+legacy lists without provenance are not assigned invented historical counts.
+Quantity editing updates only the saved list, with whole-number values from 1 to
+999. Account writes compare the original quantity of each changed product before
+applying it, preserving unrelated device edits and rejecting conflicting updates
+with HTTP 409 and the latest account snapshot. Actual purchase-cart loading still
+uses the existing product availability and order-step checks.
+
+While favorites is open, the actual floating cart is docked in a manual top-layer
+popover above the window with a 12px gap. It uses the same 4.2-second expansion and
+retraction as the ordinary floating button. The favorites window reserves headroom;
+clicking the docked cart closes favorites and opens/scrolls to the purchase cart.
+Successful list-to-purchase-cart updates no longer produce a duplicate items-added
+notice. Partial availability/quantity adjustment messages remain available. The
+active-page-only refresh policy is unchanged.
+
+The release was committed, pushed and deployed only to Staging from baseline
+`6e6edbc`, ending at plugin revision
+`b84acc51df8c7eabd904236a1e09b8270bf4ff03`. The protected deployer kept source
+backups and verified all changed plugin files by read-back, including the host's
+supported charset-meta normalization in the renderer.
+
+Focused PHP tests passed authenticated ownership, quantity limits, atomic merging,
+provenance, duplicate preservation, concurrent nonoverlapping edits, conflicting
+edits, capacity and Undo. Deployed Chromium checks passed explained named-list
+creation, an empty-cart guide, quantity edits without altering the purchase cart,
+new/existing list transfers, thumbnails, provenance counts, cancellation and
+confirmation of deletion, and Undo. Separate authenticated browser contexts
+verified persistence and that a stale quantity edit cannot overwrite a newer value.
+
+The actual docked cart passed pointer hit testing above the native favorites dialog,
+expanded and retracted together, opened the real purchase cart, and retained safe
+spacing at 320, 390, 760 and 1440px. Compact controls, partial browser-storage failure,
+unique list IDs and aligned transfer buttons passed; no horizontal overflow or page
+JavaScript errors occurred. PHP and JavaScript syntax checks passed. The final CSS
+alignment check was rerun after restoring the browser runtime following a workspace
+restart; unchanged backend test evidence was reused. No order was created.
+
+Temporary test customers were deleted. The protected test fixture self-deleted,
+and its URL returned HTTP 404. Production was not changed.
+
 ## 2026-11-17 Customer controls and active-page cart refresh
 
 Customer editing now uses thin-line pencil, check, cancel, save and delete icons
