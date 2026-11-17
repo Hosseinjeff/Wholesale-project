@@ -13,7 +13,7 @@ class RuntimeHostTests(unittest.TestCase):
         from catalog.runtime_host import bot_capabilities
         with patch('catalog.gemini.ai_extraction_configured',return_value=True), \
                 patch('catalog.gemini.extraction_policy_version',return_value='gemini-'+'a'*16), \
-                patch('reference_import.suggestion_tasks.policy_version',return_value='b'*64):
+                patch('catalog.runtime_host._suggestion_policy_version',return_value='b'*64):
             receipt=bot_capabilities()
         self.assertEqual(set(receipt),{'schema_version','ai_configured','extraction_policy_version',
             'suggestion_policy_version','image_extraction_enabled'})
@@ -21,6 +21,11 @@ class RuntimeHostTests(unittest.TestCase):
         self.assertEqual(receipt['extraction_policy_version'],'gemini-'+'a'*16)
         self.assertEqual(receipt['suggestion_policy_version'],'b'*64)
         self.assertIs(receipt['ai_configured'],True)
+
+    def test_absent_suggestion_executor_is_explicitly_unavailable(self):
+        from catalog.runtime_host import bot_capabilities
+        with patch('catalog.runtime_host._suggestion_policy_version',return_value=None):
+            self.assertIsNone(bot_capabilities()['suggestion_policy_version'])
 
     def test_native_jobs_are_not_claimed_or_scheduled_on_railway(self):
         job=self.queue.put('publish','native-synthetic',{'synthetic':True})
