@@ -13,6 +13,8 @@ require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-inventory.ph
 require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-orders.php';
 require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-read-models.php';
 require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-gateway.php';
+require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-reference-parser.php';
+require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-reference-store.php';
 $root=molavi_state_root();$initial=new SQLite3($root.'/pipeline.sqlite3');$initial->exec('PRAGMA user_version=1');$initial->close();
 $fixtures=json_decode(file_get_contents(__DIR__.'/fixtures/native-domain-parity.json'),true,128,JSON_THROW_ON_ERROR);$count=0;
 function compare_native($actual,$expected,string $name):void {
@@ -60,4 +62,20 @@ compare_native(molavi_domain_dispatch('POST','/reference/snapshots',[],[], 'wp:7
 compare_native(molavi_domain_dispatch('POST','/pipeline/stock-lots',[],['lot_id'=>'synthetic'], 'wp:7')['status'],400,'gateway strict body');
 try{molavi_domain_operations(['cursor'=>'invalid'],1000.0);$invalid=false;}catch(MolaviWorkflowError $e){$invalid=$e->status===400;}
 compare_native($invalid,true,'gateway cursor guard');
+$parser=json_decode(file_get_contents(__DIR__.'/fixtures/native-reference-parser-parity.json'),true,128,JSON_THROW_ON_ERROR);
+foreach($parser['rows'] as $index=>$case)compare_native(molavi_domain_reference_row($case['product'],$index+1,'2026-11-17T00:00:00+00:00'),$case['expected'],'reference parser/'.$index);
+foreach($parser['float_json'] as $index=>$case)compare_native(molavi_domain_json($case['value']),$case['expected'],'hash float encoding/'.$index);
+$incremental=json_decode(file_get_contents(__DIR__.'/fixtures/native-reference-store-parity.json'),true,128,JSON_THROW_ON_ERROR);
+foreach($incremental as $case){$db=molavi_domain_db('reference');
+    foreach(molavi_domain_rows($db,"SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'molavi_state_%'") as $table)$db->exec('DELETE FROM '.$table['name']);
+    foreach($case['seed'] as $seed)molavi_domain_sql($db,$seed['sql'],$seed['params']);$db->close();
+    compare_native(molavi_domain_reference_stage($case['candidate']),$case['expected'],'incremental reference/'.$case['name']);
+    if($case['expected']['state']==='staged'){
+        $id=$case['expected']['snapshot_id'];$previous=molavi_domain_reference_active()['snapshot_id']??null;$automatic=$case['expected']['automatic_update'];
+        if(!$automatic)molavi_domain_reference_review($id,'wp:7','Synthetic owner review');
+        molavi_domain_reference_activate($id,$previous,$automatic?'system:reference-refresh':'wp:7',$automatic);
+        compare_native(molavi_domain_reference_active()['snapshot_id'],$id,'reference activation/'.$case['name']);
+        compare_native(molavi_domain_read('reference',static fn($db)=>molavi_domain_row($db,'SELECT COUNT(*) AS n FROM reference_source_products')['n']),count($case['candidate']['_source_products']),'raw custody/'.$case['name']);
+    }
+}
 foreach(glob($root.'/*') as $file)unlink($file);rmdir($root);echo 'PASS native domain parity '.$count." cases\n";

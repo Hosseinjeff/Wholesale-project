@@ -43,8 +43,21 @@ function molavi_domain_json($value,bool $spaces=false,bool $ascii=false,bool $so
             $parts[]=$object?molavi_domain_json((string)$key,false,$ascii,false).($spaces?': ':':').$encoded:$encoded;}
         return ($object?'{':'[').implode($spaces?', ':',',$parts).($object?'}':']');
     }
-    return json_encode($value,JSON_THROW_ON_ERROR|JSON_UNESCAPED_SLASHES|JSON_PRESERVE_ZERO_FRACTION
+    $encoded=json_encode($value,JSON_THROW_ON_ERROR|JSON_UNESCAPED_SLASHES|JSON_PRESERVE_ZERO_FRACTION
         |($ascii?0:JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_LINE_TERMINATORS));
+    if(!is_float($value)||$value==0.0)return $encoded;
+    // Python and PHP use the same shortest decimal digits, with different
+    // scientific-notation thresholds and exponent padding.
+    preg_match('/^(-?)(\d+)(?:\.(\d+))?(?:e([+-]?\d+))?$/i',$encoded,$m);
+    $fraction=$m[3]??'';$digits=$m[2].$fraction;$leading=strlen($digits)-strlen(ltrim($digits,'0'));
+    $exponent=strlen($m[2])-$leading-1+(int)($m[4]??0);$digits=rtrim(substr($digits,$leading),'0');
+    if($exponent>=16||$exponent< -4){$coefficient=$digits[0].(strlen($digits)>1?'.'.substr($digits,1):'');
+        return $m[1].$coefficient.'e'.($exponent<0?'-':'+').str_pad((string)abs($exponent),2,'0',STR_PAD_LEFT);}
+    if(!isset($m[4])||$m[4]==='')return $encoded;
+    $point=$exponent+1;
+    if($point<=0)return $m[1].'0.'.str_repeat('0',-$point).$digits;
+    if($point>=strlen($digits))return $m[1].$digits.str_repeat('0',$point-strlen($digits)).'.0';
+    return $m[1].substr($digits,0,$point).'.'.substr($digits,$point);
 }
 function molavi_domain_hash($value,bool $spaces=false,bool $ascii=false):string {return hash('sha256',molavi_domain_json($value,$spaces,$ascii));}
 function molavi_domain_decode($value,$default=[]){if(!is_string($value)||$value==='')return $default;return json_decode($value,true,128,JSON_THROW_ON_ERROR);}

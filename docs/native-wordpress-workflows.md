@@ -39,6 +39,30 @@ Deployment and activation are separate. Record actual per-site receipts below;
 source presence does not mean a route has switched. Production's old inactive
 state candidates must never be used without fresh transfer verification.
 
+## Verified rollout
+
+`d0e4390`'s seven native MU-files were uploaded and read back on both sites. Both
+hosts run PHP 8.3.36. Six Staging native GET responses matched their existing
+Railway counterparts: operations, reference snapshots, reference exceptions,
+stock lots, stock events and clearance proposals. Native requests took 0.69–1.67
+seconds versus 5.78–16.04 seconds for the existing Railway reads. The real signed-in
+owner dashboard's same-origin AJAX queue request returned 200 in 0.949 seconds.
+
+Both sites now enable those six GETs and the five POSTs for stock receipt, purchase
+date correction, stock actions, clearance proposals and sender enrollment. No real
+inventory decision or proposal was submitted during verification. Production was
+enabled only after its fresh state cutover, atomic commit/replay and six native read
+checks. Private result bodies, import proofs and rollback copies stay outside Git.
+
+The next source checkpoint also contains the native structured-reference parser,
+field-aware incremental store, coverage checks, review/activation and matching
+Python-compatible float/hash encoding. These functions are not yet activated for
+reference refresh or writes. Synthetic Python/PHP parity now covers 292 cases,
+including unchanged source, price-only/title-only changes, stable ID/SKU changes,
+reordering/removal, snapshot IDs, activation and raw-source custody. A protected
+server-to-WordPress connector handoff is implemented and has three focused tests;
+it still needs its own scoped backend deployment before use.
+
 Remaining migration domains: reference fetch/incremental activation and matching;
 catalog/Sheet reconciliation and guarded publication; current product and AI review
 read models/commands; supplier freshness and publication recovery; order workflow

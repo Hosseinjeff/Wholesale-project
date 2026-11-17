@@ -11,6 +11,33 @@ import requests
 
 TASKS=frozenset({'sheet_sync','reference_refresh','outbox','housekeeping'})
 
+def configure_wordpress_connectors():
+    """Hand service credentials directly to the protected WordPress host once.
+
+    This owner-only migration operation never returns credential material to its
+    caller and never writes a local copy on Railway.
+    """
+    from urllib.parse import urlparse
+    from catalog.sync import load_service_account_info
+    site=(os.getenv('SHOP_SITE_URL') or '').rstrip('/')
+    parsed=urlparse(site)
+    secret=os.getenv('REFERENCE_BRIDGE_TOKEN') or ''
+    sheet_id=os.getenv('GOOGLE_SHEET_ID') or ''
+    if (parsed.scheme!='https' or parsed.hostname not in {'molavisale.ir','staging.molavisale.ir'}
+            or parsed.port not in {None,443} or parsed.username or parsed.password
+            or parsed.path or parsed.query or parsed.fragment or len(secret)<32 or not sheet_id):
+        raise ValueError('WordPress connector destination is unconfigured')
+    payload={'sheet_id':sheet_id,'google_service_account':load_service_account_info()}
+    response=requests.post(site+'/wp-json/molavi-workflow/v1/connectors',json=payload,
+        headers={'X-Molavi-Connector-Token':hmac.new(secret.encode(),b'molavi-connectors-v1',hashlib.sha256).hexdigest()},timeout=(5,30))
+    response.raise_for_status()
+    data=response.json()
+    if (data.get('ok') is not True or data.get('configured')!=['google_sheets']
+            or not isinstance(data.get('configuration_digest'),str)
+            or len(data['configuration_digest'])!=64):
+        raise ValueError('WordPress connector receipt is invalid')
+    return {'ok':True,'configured':['google_sheets'],'configuration_digest':data['configuration_digest']}
+
 def on_demand():
     return os.getenv('PIPELINE_RUNTIME_MODE','continuous')=='on_demand'
 

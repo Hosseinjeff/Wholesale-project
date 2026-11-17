@@ -9,7 +9,9 @@ function molavi_domain_text($value, int $limit): string {
         : implode('', array_slice(preg_split('//u', $value, -1, PREG_SPLIT_NO_EMPTY), 0, $limit));
 }
 function molavi_domain_rounded($value): int {
-    return (int)round(molavi_domain_number($value), 0, PHP_ROUND_HALF_EVEN);
+    if(is_bool($value))return (int)$value;
+    if(is_string($value))$value=trim(molavi_domain_digits($value));
+    return is_numeric($value)&&is_finite((float)$value)?(int)round((float)$value,0,PHP_ROUND_HALF_EVEN):0;
 }
 function molavi_domain_normalize_order(array $order): array {
     $lines = [];
