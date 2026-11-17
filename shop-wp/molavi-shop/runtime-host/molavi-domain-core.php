@@ -99,9 +99,15 @@ function molavi_domain_tx(string $store,callable $write){
     catch(Throwable $e){try{$db->exec('ROLLBACK');}catch(Throwable $ignored){}throw $e;}finally{$db->close();}
 }
 function molavi_domain_lock(string $name,callable $work,string $store='pipeline'){
+    $key=$store.':'.$name;
+    if(isset($GLOBALS['molavi_domain_locks'][$key])){
+        if(!molavi_state_lease($GLOBALS['molavi_domain_locks'][$key])['acquired'])molavi_domain_fail('workflow_busy_retry',409);
+        return $work();
+    }
     $lease=['store'=>$store,'name'=>$name,'owner'=>bin2hex(random_bytes(16)),'action'=>'acquire'];
     if(!molavi_state_lease($lease)['acquired'])molavi_domain_fail('workflow_busy_retry',409);
-    try{return $work();}finally{$lease['action']='release';molavi_state_lease($lease);}
+    $GLOBALS['molavi_domain_locks'][$key]=$lease;
+    try{return $work();}finally{unset($GLOBALS['molavi_domain_locks'][$key]);$lease['action']='release';molavi_state_lease($lease);}
 }
 function molavi_domain_actor():string {
     $id=function_exists('get_current_user_id')?(int)get_current_user_id():0;
