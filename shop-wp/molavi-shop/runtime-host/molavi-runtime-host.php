@@ -88,6 +88,10 @@ function molavi_runtime_tick():void {
                     update_option('molavi_native_sheet_receipt_v1',['at'=>$now,'ok'=>false,'error'=>'sheet_observation_failed'],false);}
                 molavi_runtime_save_state($state);
             }
+            if(molavi_domain_job_host('publish')==='wordpress'&&function_exists('molavi_domain_ai_publish_completed_runs')
+                &&molavi_domain_route_enabled('POST','/pipeline/ai-confirmations')){
+                try{molavi_domain_ai_publish_completed_runs();}catch(Throwable $e){error_log('[molavi-native] reextraction_publication_pending');}
+            }
             $nativeJobs=molavi_domain_run_jobs();
             if($nativeJobs['claimed']||$nativeJobs['error'])update_option('molavi_native_jobs_receipt_v1',[
                 'at'=>$now,'claimed'=>$nativeJobs['claimed'],'completed'=>$nativeJobs['completed'],'error'=>$nativeJobs['error']],false);

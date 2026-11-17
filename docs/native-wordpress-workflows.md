@@ -387,3 +387,16 @@ suggestion module: its capability is null and no Staging bot features were copie
 Each environment keeps its original image/text extraction behavior and on-demand
 settings. Future bot scheduling callbacks refresh the local policy receipt without
 an additional HTTP request. Frontend/PHP-only commits must leave these pins fixed.
+
+Both stores now handle Sheet conflict reads and decisions inside WordPress. The
+local queue returned the same empty conflict list as the original implementation.
+The reference item review read also matched on both stores, including two open
+Staging cases. It returned in 4.375 seconds on Staging and 6.983 seconds on live.
+The WordPress routes were enabled after these checks.
+
+The AI review migration handles case reads, owner decisions, dismissals, extraction
+previews, progress, cancellation and queue creation in WordPress. The bot processes
+the existing extraction jobs when WordPress sees work due. WordPress queues the
+existing publication receipt after a run finishes with written offers. Synthetic
+tests cover the original text and image policies, source revision checks, publication
+holds and retries. This checkpoint records the implementation before live verification.
