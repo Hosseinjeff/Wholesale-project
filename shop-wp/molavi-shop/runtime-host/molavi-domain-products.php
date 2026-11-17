@@ -3,6 +3,9 @@
 declare(strict_types=1);
 defined('ABSPATH') || exit;
 
+function molavi_domain_product_headers(): array {
+    return ["Channel ID", "Product ID", "Product Name", "Variation Type", "Sale Price", "Actual Price", "Price Type", "Price", "Currency", "Consumer Price", "Double Pack Price", "Double Pack Consumer Price", "Packaging", "Volume", "Category", "Description", "Stock Status", "Location", "Contact Info", "Original Message", "Channel", "Channel Username", "Message Timestamp", "Source Timestamp Basis", "Forwarded By", "Import Timestamp", "Last Updated", "Extraction Confidence Score", "Confidence", "Status", "Batch ID", "Previous Sale Price", "Previous Consumer Price", "Price Changed At", "Latest Offer ID", "Offer Count", "Min Qty", "Image File ID", "Image File Unique ID", "Brand", "Weight", "Package Count", "Reference Snapshot ID", "Reference Match ID", "Reference Price Role", "Reference Decision ID", "Source Post URL", "Reference Approval State", "Reference Price Change Percent", "Reference Price Checked At", "Reference Review Reason", "Source Post Created At", "Source Post Updated At"];
+}
 function molavi_domain_source_revision(array $record): string {
     $offer=trim((string)($record['Latest Offer ID']??''));
     if($offer===''){$id=trim((string)($record['Product ID']??''));$offer=$id!==''?'sheet:'.$id:'';}

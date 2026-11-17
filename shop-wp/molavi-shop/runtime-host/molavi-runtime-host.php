@@ -94,7 +94,19 @@ function molavi_runtime_tick():void {
         }
         $tasks=[];
         if((int)$state['sheet_at']<=$now)$tasks[]='sheet_sync';
-        if((int)$state['reference_at']<=$now)$tasks[]='reference_refresh';
+        if((int)$state['reference_at']<=$now){
+            if(function_exists('molavi_domain_route_enabled')&&molavi_domain_route_enabled('POST','/reference/snapshots')){
+                try{
+                    $refresh=molavi_domain_reference_refresh();molavi_domain_reference_finish_refresh($refresh);
+                    $ok=!in_array($refresh['state']??null,['failed','running'],true);
+                    $wait=(int)($refresh['next_check_seconds']??86400);$state['reference_at']=$now+max(60,$wait);
+                    update_option('molavi_native_reference_receipt_v1',['at'=>$now,'ok'=>$ok,'state'=>$refresh['state']??'unknown',
+                        'error'=>$refresh['error_code']??''],false);
+                }catch(Throwable $e){$state['reference_at']=$now+60;
+                    update_option('molavi_native_reference_receipt_v1',['at'=>$now,'ok'=>false,'state'=>'retry','error'=>'reference_refresh_incomplete'],false);}
+                molavi_runtime_save_state($state);
+            }else $tasks[]='reference_refresh';
+        }
         if((int)$state['housekeeping_at']<=$now){
             if(function_exists('molavi_state_housekeeping')&&get_option('molavi_state_active',false)
                 &&molavi_state_retention_days()!==null){

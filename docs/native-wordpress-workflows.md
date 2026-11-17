@@ -14,6 +14,11 @@ Native writes require active WordPress state custody and an existing explicit
 WordPress business-owner identity. Config/status/shadow requests use the existing
 runtime HMAC, remain private and never return connector credentials.
 
+Current execution: both sites use WordPress state, 15 native dashboard methods,
+local supplier outbox processing and WordPress-owned publication. Both Railway
+publication filters are deployed. The reference refresh port below is the next
+activation checkpoint; order and catalog-conflict workflows remain incomplete.
+
 Implemented in source as of 2026-11-17:
 
 - Existing SQLite schemas and local transactions, shared cross-runtime leases,
@@ -160,3 +165,24 @@ porting these domains. Do not claim the whole migration is complete yet.
 The source incorporates `466c71d`/`7b87352`, preserving Staging's deployed text-only
 bot and free Google routing work. Its Railway source pin must not be rolled back to
 the earlier checkpoint in `wordpress-state-executor.md`.
+
+The native reference lifecycle now includes bounded public-source fetches, strict
+pagination/currency/ID coverage, raw node comparison, unchanged-source checks,
+immutable staging, existing initial review and incremental activation, ReferencePrices
+cell projection, approval inheritance, affected-product reconciliation, durable failure
+incidents and owner exception decisions. The existing minute cron can run the daily
+refresh locally once its POST route is enabled. Activated work never falls back to
+Railway. Interrupted activation/projection can resume without a second source fetch.
+
+Validation: 411 native domain parity cases, 40 reference runtime cases (including six
+Python projection fixtures, receipts, cooldown, source revision, concurrent lease and
+interrupted-fetch recovery), and 20 scheduler checks. The private reference/check
+endpoint fetches and compares in memory without changing raw records, snapshots,
+Sheets or decisions. This source checkpoint has not yet enabled either new POST
+route. Confirm live source coverage and record per-site activation separately.
+
+Production publication also reached terminal SUCCESS (deployment
+`113a2b6a-46a1-45cc-ba44-44f49600d9ed`) with filter version 1 and WordPress state.
+Its executor is assigned to WordPress and real cron observed the unchanged Sheet
+locally. Staging's real cron preserved the first publication job's existing review hold.
+Both Railway data directories were verified empty.

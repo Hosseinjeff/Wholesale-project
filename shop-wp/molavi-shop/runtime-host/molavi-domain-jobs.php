@@ -71,6 +71,10 @@ function molavi_domain_run_jobs(int $limit=2,float $budget=40.0): array {
     $summary=['claimed'=>0,'completed'=>0,'error'=>''];$until=microtime(true)+$budget;$worker='wordpress:'.bin2hex(random_bytes(12));$now=microtime(true);
     if($limit<1||$budget<=0)return $summary;
     if(molavi_domain_job_host('publish')!=='wordpress')return $summary;
+    // Match the legacy worker's restart recovery. A hold can be cleared after
+    // a publisher reads it but before the waiting receipt is committed.
+    molavi_domain_tx('pipeline',static fn(SQLite3 $db)=>molavi_domain_sql($db,
+        "UPDATE jobs SET state='queued',available=?,lease=NULL,expires=NULL,error=NULL WHERE kind='publish' AND state='waiting_publication' AND NOT EXISTS (SELECT 1 FROM publication_holds)",[microtime(true)]));
     $job=molavi_domain_claim_job();if(!$job)return $summary;
     molavi_domain_tx('pipeline',static function(SQLite3 $db)use($worker,$now):void {
         molavi_domain_sql($db,"DELETE FROM pipeline_workers WHERE worker_id LIKE 'wordpress:%' AND started_at<?",[$now-30*86400]);
@@ -106,6 +110,7 @@ add_action('rest_api_init',static function():void {
         'callback'=>static fn()=>['ok'=>true,'hosts'=>['publish'=>molavi_domain_job_host('publish')],
             'last_publication_tick'=>get_option('molavi_native_jobs_receipt_v1',null),
             'last_sheet_observation'=>get_option('molavi_native_sheet_receipt_v1',null),
+            'last_reference_refresh'=>get_option('molavi_native_reference_receipt_v1',null),
             'last_owner_outbox'=>get_option('molavi_native_outbox_receipt_v1',null)]]);
     register_rest_route('molavi-workflow/v1','/executors',['methods'=>'POST','permission_callback'=>'molavi_runtime_permission','callback'=>static function($request){
         try{$body=$request->get_json_params();$hosts=$body['hosts']??null;

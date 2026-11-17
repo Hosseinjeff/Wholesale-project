@@ -548,6 +548,50 @@
         "https://rezvanpakhsh.com/wp-json/wc/store/v1/products",
         "2026-11-17T00:00:00+00:00"
       ]
+    },
+    {
+      "product": {
+        "id": 12,
+        "sku": "0",
+        "name": "Synthetic literal zero SKU",
+        "categories": [
+          {
+            "id": 12,
+            "name": "نوشیدنی"
+          }
+        ],
+        "attributes": [],
+        "prices": {
+          "price": "480000",
+          "regular_price": "500000",
+          "sale_price": "480000",
+          "currency_code": "IRT",
+          "currency_minor_unit": 0
+        }
+      },
+      "expected": [
+        "Synthetic literal zero SKU",
+        "Synthetic literal zero SKU",
+        "synthetic literal zero sku",
+        480000,
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "نوشیدنی",
+        "",
+        "12",
+        "0",
+        "TOMAN",
+        "rezvanpakhsh_woocommerce_store_api",
+        "https://rezvanpakhsh.com/wp-json/wc/store/v1/products",
+        "2026-11-17T00:00:00+00:00"
+      ]
     }
   ],
   "float_json": [
