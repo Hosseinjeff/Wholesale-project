@@ -45,7 +45,9 @@ def next_work_at(queue, *, now=None):
     now=time.time() if now is None else now
     with queue.connect() as db:
         if db.execute('SELECT 1 FROM inbox WHERE batch_id IS NULL LIMIT 1').fetchone():return now
-        row=db.execute("SELECT MIN(CASE WHEN state='queued' THEN available ELSE expires END) AS due FROM jobs WHERE state IN ('queued','running')").fetchone()
+        row=db.execute("""SELECT MIN(CASE WHEN state='queued' THEN available ELSE expires END) AS due FROM jobs
+            WHERE state IN ('queued','running') AND kind NOT IN
+            (SELECT kind FROM molavi_state_executors WHERE host='wordpress')""").fetchone()
     return float(row['due']) if row and row['due'] is not None else None
 
 def schedule_on_wordpress(queue):
@@ -107,6 +109,7 @@ def storage_report():
     from catalog.memory import memory_report
     from catalog.state import wordpress_state,state_call
     report={'mode':os.getenv('PIPELINE_RUNTIME_MODE','continuous'),'state_host':'wordpress' if wordpress_state() else 'local',
+            'native_execution_filter_version':1,
             'databases':[],'memory':memory_report()}
     try:report['container_memory_bytes']=int(Path('/sys/fs/cgroup/memory.current').read_text())
     except (OSError,ValueError):pass

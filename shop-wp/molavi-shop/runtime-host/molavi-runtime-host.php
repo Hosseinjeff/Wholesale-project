@@ -78,6 +78,20 @@ function molavi_runtime_tick():void {
                 'at'=>$now,'claimed'=>$nativeOutbox['claimed'],'delivered'=>$nativeOutbox['delivered'],
                 'retried'=>$nativeOutbox['retried'],'failed'=>$nativeOutbox['failed'],'error'=>$nativeOutbox['error']],false);
         }
+        if(function_exists('molavi_domain_job_host')&&get_option('molavi_state_active',false)
+            &&molavi_domain_job_host('publish')==='wordpress'){
+            if((int)$state['sheet_at']<=$now){
+                try{
+                    molavi_domain_observe_projection(molavi_domain_projection_digest(molavi_domain_sheets(['Products','Shop'],true)));
+                    $state['sheet_at']=$now+3600;update_option('molavi_native_sheet_receipt_v1',['at'=>$now,'ok'=>true,'error'=>''],false);
+                }catch(Throwable $e){$state['sheet_at']=$now+60;
+                    update_option('molavi_native_sheet_receipt_v1',['at'=>$now,'ok'=>false,'error'=>'sheet_observation_failed'],false);}
+                molavi_runtime_save_state($state);
+            }
+            $nativeJobs=molavi_domain_run_jobs();
+            if($nativeJobs['claimed']||$nativeJobs['error'])update_option('molavi_native_jobs_receipt_v1',[
+                'at'=>$now,'claimed'=>$nativeJobs['claimed'],'completed'=>$nativeJobs['completed'],'error'=>$nativeJobs['error']],false);
+        }
         $tasks=[];
         if((int)$state['sheet_at']<=$now)$tasks[]='sheet_sync';
         if((int)$state['reference_at']<=$now)$tasks[]='reference_refresh';

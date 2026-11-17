@@ -19,6 +19,7 @@ require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-products.php
 require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-supplier-prices.php';
 require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-outbox.php';
 require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-publisher.php';
+require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-jobs.php';
 $root=molavi_state_root();$initial=new SQLite3($root.'/pipeline.sqlite3');$initial->exec('PRAGMA user_version=1');$initial->close();
 $fixtures=json_decode(file_get_contents(__DIR__.'/fixtures/native-domain-parity.json'),true,128,JSON_THROW_ON_ERROR);$count=0;
 function compare_native($actual,$expected,string $name):void {
@@ -125,4 +126,34 @@ foreach($publication['scenarios'] as $case)compare_native(molavi_domain_site_pro
 foreach($publication['settings'] as $index=>$case)compare_native(molavi_domain_site_settings($case['rows']),$case['expected'],'shop settings/'.$index);
 foreach($publication['stock'] as $index=>$case)compare_native(molavi_domain_stock_status($case['raw']),$case['expected'],'supplier availability/'.$index);
 foreach($publication['skus'] as $index=>$case)compare_native(molavi_domain_woo_sku($case['record']),$case['expected'],'published SKU/'.$index);
+function molavi_apply_catalog($payload){$GLOBALS['native_catalog_calls'][]=$payload;return ['ok'=>true,'images_left'=>0,'pending'=>[],'attached'=>0];}
+function molavi_receive_images($payload){$GLOBALS['native_image_calls'][]=$payload;return ['ok'=>true,'images_left'=>0,'pending'=>[],'attached'=>0];}
+$GLOBALS['native_catalog_calls']=[];$GLOBALS['native_image_calls']=[];
+$db=molavi_domain_db();foreach(['jobs','inbox','pipeline_workers','molavi_state_executors','sheet_projection_state','publication_holds'] as $table)$db->exec('DELETE FROM '.$table);$db->close();
+compare_native(molavi_domain_job_host('publish'),'railway','default queue executor is preserved');
+molavi_domain_tx('pipeline',static fn($db)=>molavi_domain_sql($db,"INSERT INTO molavi_state_executors VALUES ('publish','wordpress',0)"));
+$pub=molavi_domain_queue('publish','synthetic-native-job',['images_only'=>true]);$bot=molavi_domain_queue('notice','synthetic-bot-job',['synthetic'=>true]);
+$job=molavi_domain_claim_job($pub);compare_native($job['id'],$pub,'native job lease claims assigned work');
+compare_native(molavi_domain_claim_job($bot),null,'native executor never claims bot work');
+try{$stale=$job;$stale['lease']=str_repeat('x',32);molavi_domain_finish_job($stale,['ok'=>true]);$rejected=false;}catch(MolaviWorkflowError $e){$rejected=true;}
+compare_native($rejected,true,'job receipt rejects another lease');
+molavi_domain_finish_job($job,['ok'=>true]);
+compare_native(molavi_domain_read('pipeline',static fn($db)=>molavi_domain_row($db,'SELECT state FROM jobs WHERE id=?',[$pub])['state']),'done','native lease receipt commits once');
+molavi_domain_tx('pipeline',static function($db)use($pub,$bot){molavi_domain_sql($db,"UPDATE jobs SET state='running',expires=0 WHERE id=?",[$pub]);molavi_domain_sql($db,'UPDATE jobs SET available=0 WHERE id=?',[$bot]);molavi_domain_sql($db,"INSERT INTO pipeline_workers (worker_id,started_at,heartbeat_at,progress_at,state) VALUES ('wordpress:synthetic',?,?,?,'processing')",[microtime(true),microtime(true),microtime(true)]);});
+compare_native(molavi_state_due_work(),true,'local worker does not suppress a pending bot wake');
+$reclaimed=molavi_domain_claim_job($pub);compare_native($reclaimed['id'],$pub,'native executor recovers expired native lease');molavi_domain_finish_job($reclaimed,['ok'=>true]);
+molavi_domain_tx('pipeline',static fn($db)=>molavi_domain_sql($db,'DELETE FROM jobs WHERE id=?',[$bot]));
+$onlyNative=molavi_domain_queue('publish','only-native-pending',['images_only'=>true]);molavi_domain_tx('pipeline',static fn($db)=>molavi_domain_sql($db,'UPDATE jobs SET available=0 WHERE id=?',[$onlyNative]));compare_native(molavi_state_due_work(),false,'native pending jobs do not wake Railway');
+compare_native(molavi_domain_run_jobs()['completed'],1,'native job runs local image workflow');
+compare_native(count($GLOBALS['native_catalog_calls']),0,'image-only work never rewrites catalog');
+$workerCount=molavi_domain_read('pipeline',static fn($db)=>molavi_domain_row($db,'SELECT COUNT(*) AS n FROM pipeline_workers')['n']);molavi_domain_run_jobs();
+compare_native(molavi_domain_read('pipeline',static fn($db)=>molavi_domain_row($db,'SELECT COUNT(*) AS n FROM pipeline_workers')['n']),$workerCount,'idle minute creates no worker record');
+molavi_domain_tx('pipeline',static fn($db)=>molavi_domain_sql($db,'INSERT INTO publication_holds VALUES (?,?,?)',['synthetic-held','synthetic-review',microtime(true)]));
+compare_native(molavi_domain_publish_shop([],true),['ok'=>false,'pushed'=>false,'reason'=>'publication_held_for_review'],'native publisher preserves review holds');
+molavi_domain_tx('pipeline',static fn($db)=>molavi_domain_sql($db,'DELETE FROM publication_holds'));
+$first=molavi_domain_observe_projection(str_repeat('a',64));compare_native(molavi_domain_observe_projection(str_repeat('a',64)),$first,'unchanged sheet reuses publication receipt');
+compare_native(molavi_domain_observe_projection(str_repeat('b',64)),$first,'new sheet replaces queued payload without extra job');
+$running=molavi_domain_claim_job($first);$next=molavi_domain_observe_projection(str_repeat('c',64));compare_native($next!==$first,true,'changed sheet queues separately from active lease');
+molavi_domain_projection_published(str_repeat('c',64));
+compare_native(molavi_domain_read('pipeline',static fn($db)=>molavi_domain_row($db,'SELECT state FROM jobs WHERE id=?',[$next])['state']),'done','verified projection closes superseded queued job');
 foreach(glob($root.'/*') as $file)unlink($file);rmdir($root);echo 'PASS native domain parity '.$count." cases\n";

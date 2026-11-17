@@ -13,6 +13,7 @@ function molavi_domain_outbox_domains(): array {
 function molavi_domain_drain_outbox(int $limit=3,float $budget=15.0): array {
     $result=['claimed'=>0,'delivered'=>0,'retried'=>0,'failed'=>0,'error'=>''];$domains=molavi_domain_outbox_domains();
     if(!$domains||!function_exists('molavi_owner_review_store_pending_commands')||!function_exists('molavi_owner_review_outbox_store_receipt'))return $result;
+    if(!get_option('molavi_state_active',false)){$result['error']='native_state_inactive';return $result;}
     global $wpdb;$until=microtime(true)+$budget;
     for($index=0;$index<max(1,min(20,$limit));$index++){
         if(microtime(true)>=$until)break;

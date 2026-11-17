@@ -9,6 +9,38 @@ from catalog.durable import Handoffs
 from catalog.runtime_host import enqueue_tasks,next_work_at,schedule_on_wordpress
 
 class RuntimeHostTests(unittest.TestCase):
+    def test_native_jobs_are_not_claimed_or_scheduled_on_railway(self):
+        job=self.queue.put('publish','native-synthetic',{'synthetic':True})
+        with self.queue.connect() as db:
+            db.execute("INSERT INTO molavi_state_executors VALUES ('publish','wordpress',0)")
+            db.execute('UPDATE jobs SET available=0 WHERE id=?',(job,))
+        self.assertEqual(self.queue.job_host('publish'),'wordpress')
+        self.assertIsNone(self.queue.claim())
+        self.assertIsNone(self.queue.claim(job))
+        self.assertIsNone(next_work_at(self.queue))
+        self.assertEqual(self.queue.get(job)['state'],'queued')
+
+    def test_bot_work_remains_claimable_beside_native_work(self):
+        native=self.queue.put('publish','native-synthetic',{'synthetic':True})
+        bot=self.queue.put('notice','bot-synthetic',{'synthetic':True})
+        with self.queue.connect() as db:
+            db.execute("INSERT INTO molavi_state_executors VALUES ('publish','wordpress',0)")
+            db.execute('UPDATE jobs SET available=0')
+        self.assertEqual(next_work_at(self.queue),0)
+        self.assertEqual(self.queue.claim()['id'],bot)
+        self.assertEqual(self.queue.get(native)['state'],'queued')
+
+    def test_expired_native_leases_are_recovered_by_the_native_executor(self):
+        job=self.queue.put('publish','native-expired',{'synthetic':True})
+        with self.queue.connect() as db:
+            db.execute("INSERT INTO molavi_state_executors VALUES ('publish','wordpress',0)")
+            db.execute("UPDATE jobs SET state='running',lease='synthetic-old',expires=0 WHERE id=?",(job,))
+        self.assertIsNone(self.queue.claim(job))
+        self.assertIsNone(next_work_at(self.queue))
+        with self.queue.connect() as db:
+            db.execute("UPDATE molavi_state_executors SET host='railway' WHERE kind='publish'")
+        self.assertEqual(self.queue.claim(job)['id'],job)
+
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
         self.queue=Handoffs(str(Path(self.temp.name)/'queue.sqlite3'))

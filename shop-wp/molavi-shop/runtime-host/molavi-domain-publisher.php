@@ -85,3 +85,50 @@ function molavi_domain_site_settings(array $rows): array {
         $settings[$field]=in_array($field,['min_profit','unlock_target'],true)?(int)round($number,0,PHP_ROUND_HALF_EVEN):(float)$number;
     }return $settings;
 }
+function molavi_domain_publish_shop(array $tables,bool $imagesOnly=false,int $maxRounds=8): array {
+    return molavi_domain_lock('publication',static function()use($tables,$imagesOnly,$maxRounds):array {
+        $held=molavi_domain_read('pipeline',static fn(SQLite3 $db)=>molavi_domain_row($db,'SELECT 1 FROM publication_holds LIMIT 1'));
+        if($held)return ['ok'=>false,'pushed'=>false,'reason'=>'publication_held_for_review'];
+        if(!function_exists('molavi_apply_catalog')||!function_exists('molavi_receive_images'))molavi_domain_fail('native_publisher_unavailable',503);
+        if($imagesOnly){$products=[];$result=molavi_receive_images([]);}
+        else{
+            $products=molavi_domain_site_products($tables);if($products===null)return ['ok'=>false,'pushed'=>false,'reason'=>'sheet unread'];
+            $payload=['products'=>$products,'catalog_complete'=>true];if(!empty($tables['Shop']))$payload['settings']=molavi_domain_site_settings($tables['Shop']);
+            $result=molavi_apply_catalog($payload);
+        }
+        if(empty($result['ok'])){$result['pushed']=false;return $result;}
+        $pending=is_array($result['pending']??null)?$result['pending']:[];$rounds=0;
+        while($pending&&$rounds<max(0,min(40,$maxRounds))){
+            molavi_domain_worker_progress($GLOBALS['molavi_native_job_current']??null);
+            $item=is_array($pending[0])?$pending[0]:[];$file=(string)($item['file']??'');$photo=null;$mime='image/jpeg';
+            if(preg_match('/^[A-Za-z0-9_-]{8,300}$/D',$file)){
+                try{$response=molavi_domain_http('GET',rtrim(MOLAVI_REFERENCE_SERVER_URL,'/').'/media/file/'.rawurlencode($file),['timeout'=>30,'limit_response_size'=>4000001]);
+                    $body=wp_remote_retrieve_body($response);$type=(string)wp_remote_retrieve_header($response,'content-type');
+                    if(wp_remote_retrieve_response_code($response)===200&&strlen($body)>0&&strlen($body)<=4000000){$photo=$body;
+                        if(str_starts_with($type,'image/png'))$mime='image/png';elseif(str_starts_with($type,'image/webp'))$mime='image/webp';}
+                }catch(MolaviWorkflowError $e){$photo=null;}
+            }
+            $payload=$photo===null?['skip'=>[$item]]:['images'=>[['product'=>$item['product']??null,'file'=>$file,'mime'=>$mime,'data'=>base64_encode($photo)]]];
+            $next=molavi_receive_images($payload);if(empty($next['ok']))break;
+            $result['attached']=(int)($result['attached']??0)+(int)($next['attached']??0);$result['images_left']=(int)($next['images_left']??0);
+            $pending=is_array($next['pending']??null)?$next['pending']:[];$rounds++;
+            if($photo!==null&&(int)($next['attached']??0)<=0)break;
+        }
+        $result['pushed']=true;$result['count']=count($products);return $result;
+    });
+}
+function molavi_domain_publish_job(array $payload): array {
+    if(!empty($payload['images_only']))return molavi_domain_publish_shop([],true,(int)($payload['max_rounds']??8));
+    $tables=molavi_domain_sheets(['Products','Offers','Shop'],true);$before=molavi_domain_projection_digest($tables);$expected=$payload['sheet_digest']??null;
+    if($expected&&$expected!==$before){
+        $state=molavi_domain_read('pipeline',static fn(SQLite3 $db)=>molavi_domain_row($db,'SELECT * FROM sheet_projection_state WHERE singleton=1'));
+        if($before!==($state['published_digest']??null))molavi_domain_observe_projection($before);
+        return ['ok'=>true,'pushed'=>true,'images_left'=>0,'superseded'=>true];
+    }
+    $result=molavi_domain_publish_shop($tables,false,(int)($payload['max_rounds']??8));
+    if(!empty($result['ok'])&&!empty($result['pushed'])&&(int)($result['images_left']??0)===0){
+        $after=molavi_domain_projection_digest(molavi_domain_sheets(['Products','Shop'],true));
+        if($before!==$after){molavi_domain_observe_projection($after);return ['ok'=>true,'pushed'=>true,'images_left'=>0,'superseded'=>true];}
+        molavi_domain_projection_published($after);
+    }return $result;
+}
