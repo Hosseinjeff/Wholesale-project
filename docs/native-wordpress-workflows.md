@@ -346,3 +346,21 @@ cover pure calculations, review inheritance and 23 complete controller scenarios
 18 original Sheet tests and the prior 411 native-domain checks pass. No actual
 review was submitted. Deployment/read comparison and activation are tracked next;
 bot source pins remain unchanged.
+
+Sheet conflict GET/POST are enabled on both sites (25 native methods). Current
+open lists matched the original implementation against atomic, read-only WordPress
+snapshots: both contain zero conflicts, with native reads taking 1.815 / 1.222
+seconds and zero Railway calls. Positive decisions/concurrency remain synthetic
+parity tests; no real review was resolved. Both first cPanel uploads encountered
+transient errors; identical bounded retries uploaded/read back all four MU-files
+from `642c4bf` / live `a7b449d`. The existing local outbox now includes Sheet
+conflict commands automatically.
+
+The bot now includes a bounded, nonsensitive capability receipt in its existing
+schedule callback and owner runtime report. It identifies the actual extraction
+and suggestion policies plus configured/image flags, so native review reads need
+no bot HTTP calls. The authenticated WordPress receiver validates exact fields;
+older scheduling observations cannot overwrite a newer receipt. This is a bot
+boundary change and must be cherry-picked onto each environment's separately
+pinned bot source, preserving live image extraction and Staging text-only behavior.
+No extra HTTP request, model call or polling loop is introduced.
