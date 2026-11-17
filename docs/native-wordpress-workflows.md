@@ -102,6 +102,16 @@ the scheduler has 16 checks, including no Railway wake for local outbox work.
 These new supplier/outbox handlers still need their own Staging deployment and
 read comparison before activation. No pending review was automatically approved.
 
+The supplier/outbox MU-files were read back on both sites from `afacc17` (live
+source `52d2859`). Activation remains off: the Staging comparison found 23 cells
+whose literal string `"0"` had become blank through PHP truthiness. A shared
+Python-compatible fallback helper and a synthetic zero-price/zero-percent case
+correct that representation. The new publication projection functions preserve
+the existing SKU, source-link, freshness, conflict, supplier-availability and Shop
+settings behavior; they do not publish or change execution ownership yet. Native
+parity now has 379 checks. Finish the corrected supplier comparison before enabling
+its two methods and local outbox processing.
+
 Remaining migration domains: reference fetch/incremental activation and matching;
 catalog/Sheet reconciliation and guarded publication; current product and AI review
 read models/commands; supplier freshness and publication recovery; order workflow

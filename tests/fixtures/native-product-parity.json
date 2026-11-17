@@ -53,6 +53,13 @@
       "Channel Username": "@Synthetic",
       "Sale Price": "12500",
       "Latest Offer ID": "offer-syn1"
+    },
+    {
+      "Product ID": "synthetic-zero-price",
+      "Product Name": "Synthetic zero price",
+      "Latest Offer ID": "synthetic-zero-offer",
+      "Sale Price": "0",
+      "Reference Price Change Percent": "0"
     }
   ],
   "offers": [
@@ -135,6 +142,14 @@
       "",
       "",
       "0"
+    ],
+    [
+      "",
+      "synthetic zero price",
+      "",
+      "",
+      "",
+      "0"
     ]
   ],
   "revisions": [
@@ -143,7 +158,8 @@
     "b807a0a93ec8b65a437901a79ede8230b14bd99236cbebddee5cfba6d1f3715d",
     "e5c51f71394edfc536ccdfdce455943f7691c797d1b2aad1fa6fe4893f5fb086",
     "2eef4e1c93c82777877a8aaddb0404e2d877e40f7ed6689358d0e523bc9bffb7",
-    "b8308daa4fd4b3237da908b48da1ca74a9ead0435d89bad56429f2c8941ce71b"
+    "b8308daa4fd4b3237da908b48da1ca74a9ead0435d89bad56429f2c8941ce71b",
+    ""
   ],
   "source_issues": [
     {
@@ -219,6 +235,19 @@
         "Source Timestamp Basis",
         "Source Post URL"
       ]
+    },
+    {
+      "row_number": 8,
+      "product_id": "synthetic-zero-price",
+      "product_name": "Synthetic zero price",
+      "channel": "",
+      "status": "",
+      "latest_offer_id": "synthetic-zero-offer",
+      "source_post_url": "",
+      "codes": [
+        "offer_not_found"
+      ],
+      "mismatched_fields": []
     }
   ],
   "freshness": [
@@ -294,6 +323,18 @@
       "source_timestamp_trusted": false,
       "state": "needs_review",
       "verified_at": "2026-11-15T00:00:00+00:00"
+    },
+    {
+      "product_id": "synthetic-zero-price",
+      "name": "Synthetic zero price",
+      "channel": "",
+      "sale_price": "0",
+      "source_revision": "",
+      "source_timestamp": null,
+      "source_timestamp_basis": "legacy_unknown",
+      "source_timestamp_trusted": false,
+      "state": "needs_review",
+      "verified_at": null
     }
   ],
   "clock": 1794873600.0,
@@ -323,6 +364,33 @@
         "source_integrity_issues": [
           "duplicate_product_id",
           "source_provenance_mismatch"
+        ],
+        "source_integrity_update_due": true,
+        "update_needed": true,
+        "review_reason": ""
+      },
+      {
+        "status_schema_version": 2,
+        "product_id": "synthetic-zero-price",
+        "product_name": "Synthetic zero price",
+        "channel": "",
+        "status": "",
+        "latest_offer_id": "synthetic-zero-offer",
+        "source_post_url": "",
+        "reference_snapshot_id": "",
+        "reference_match_id": "",
+        "reference_price_role": "",
+        "reference_approval_state": "",
+        "reference_price_change_percent": "0",
+        "reference_price_checked_at": "",
+        "reference_review_due": false,
+        "reference_review_result": "not_checked",
+        "reference_update_needed": false,
+        "supplier_price_state": "needs_review",
+        "supplier_price_verified_at": "",
+        "supplier_price_update_due": true,
+        "source_integrity_issues": [
+          "offer_not_found"
         ],
         "source_integrity_update_due": true,
         "update_needed": true,
@@ -484,6 +552,7 @@
         "Packaging",
         "Product ID",
         "Product Name",
+        "Reference Price Change Percent",
         "Sale Price",
         "Source Post URL",
         "Source Timestamp Basis",
@@ -501,6 +570,7 @@
         "",
         "syn1",
         "شیر ۱لیتری ، کارتن ۶ عددی",
+        "",
         "۱۲٬۵۰۰",
         "https://t.me/Synthetic/1",
         "supplier_channel_forward",
@@ -518,6 +588,7 @@
         "",
         "syn2",
         "شیر 1000 ml",
+        "",
         "15000.50",
         "",
         "",
@@ -535,6 +606,7 @@
         "بسته ۲۵ عدد و کارتن ۲۴ بسته",
         "syn3",
         "چای بهار 250گرم",
+        "",
         "2.5e4",
         "",
         "",
@@ -552,6 +624,7 @@
         "",
         "syn4",
         "شیر 1 liter 1000 ml",
+        "",
         "10000",
         "",
         "",
@@ -569,6 +642,7 @@
         "",
         "syn5",
         "شیر ۱لیتری ، کارتن ۶ عددی",
+        "",
         "12500",
         "",
         "",
@@ -586,7 +660,26 @@
         "",
         "syn1",
         "Synthetic duplicate ID",
+        "",
         "12500",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+      ],
+      [
+        "",
+        "",
+        "synthetic-zero-offer",
+        "",
+        "",
+        "synthetic-zero-price",
+        "Synthetic zero price",
+        "0",
+        "0",
         "",
         "",
         "",
@@ -1476,26 +1569,53 @@
     }
   ],
   "capture": {
-    "snapshot_id": "cf7a0a6e12f16d0962b38f6c29049f459607d0cb1ec91d4dde3ec9f897dc1b09",
+    "snapshot_id": "f96993b92fd9bb42104e6e13c6d888d775afadb8fa9d054b5ae7ba9a91bf2733",
     "captured_at": "2026-11-17T00:00:00+00:00",
     "reason": "synthetic-native-parity",
-    "product_count": 6,
-    "changed_count": 6
+    "product_count": 7,
+    "changed_count": 7
   },
   "history": {
     "snapshots": [
       {
-        "snapshot_id": "cf7a0a6e12f16d0962b38f6c29049f459607d0cb1ec91d4dde3ec9f897dc1b09",
+        "snapshot_id": "f96993b92fd9bb42104e6e13c6d888d775afadb8fa9d054b5ae7ba9a91bf2733",
         "captured_at": "2026-11-17T00:00:00+00:00",
         "reason": "synthetic-native-parity",
-        "product_count": 6,
-        "changed_count": 6,
+        "product_count": 7,
+        "changed_count": 7,
         "schema_version": 2
       }
     ],
-    "latest_snapshot_id": "cf7a0a6e12f16d0962b38f6c29049f459607d0cb1ec91d4dde3ec9f897dc1b09",
-    "selected_snapshot_id": "cf7a0a6e12f16d0962b38f6c29049f459607d0cb1ec91d4dde3ec9f897dc1b09",
+    "latest_snapshot_id": "f96993b92fd9bb42104e6e13c6d888d775afadb8fa9d054b5ae7ba9a91bf2733",
+    "selected_snapshot_id": "f96993b92fd9bb42104e6e13c6d888d775afadb8fa9d054b5ae7ba9a91bf2733",
     "products": [
+      {
+        "channel": "",
+        "latest_offer_id": "synthetic-zero-offer",
+        "product_id": "synthetic-zero-price",
+        "product_name": "Synthetic zero price",
+        "reference_approval_state": "",
+        "reference_match_id": "",
+        "reference_price_change_percent": "0",
+        "reference_price_checked_at": "",
+        "reference_price_role": "",
+        "reference_review_due": false,
+        "reference_review_result": "not_checked",
+        "reference_snapshot_id": "",
+        "reference_update_needed": false,
+        "review_reason": "",
+        "source_integrity_issues": [
+          "offer_not_found"
+        ],
+        "source_integrity_update_due": true,
+        "source_post_url": "",
+        "status": "",
+        "status_schema_version": 2,
+        "supplier_price_state": "needs_review",
+        "supplier_price_update_due": true,
+        "supplier_price_verified_at": "",
+        "update_needed": true
+      },
       {
         "channel": "@Synthetic",
         "latest_offer_id": "missing",

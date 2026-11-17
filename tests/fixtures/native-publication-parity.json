@@ -1,0 +1,917 @@
+{
+  "scenarios": [
+    {
+      "name": "complete",
+      "tables": {
+        "Products": [
+          [
+            "Channel Username",
+            "Consumer Price",
+            "Image File ID",
+            "Latest Offer ID",
+            "Message Timestamp",
+            "Packaging",
+            "Product ID",
+            "Product Name",
+            "Reference Price Change Percent",
+            "Sale Price",
+            "Source Post URL",
+            "Source Timestamp Basis",
+            "Status",
+            "Stock Status"
+          ],
+          [
+            "@bonakdarjavan",
+            "20000",
+            "SyntheticPhoto_12345",
+            "synthetic-offer-1",
+            "2026-11-15T00:00:00+00:00",
+            "کارتن ۶ عددی",
+            "p_11c93412a807fd5732d0147e",
+            "روغن نمونه ۱/۵لیتری ، کارتن ۶ عددی",
+            "3.25",
+            "10000",
+            "https://t.me/bonakdarjavan/11",
+            "supplier_channel_forward",
+            "approved",
+            "موجود است"
+          ],
+          [
+            "@nobelshop118",
+            "20000",
+            "SyntheticPhoto_12345",
+            "synthetic-offer-2",
+            "2026-11-15T00:00:00+00:00",
+            "",
+            "p_c2bccc73e5b5e201f5d1d1e4",
+            "چای نمونه 250گرم",
+            "-2",
+            "15000",
+            "https://t.me/bonakdarjavan/11",
+            "supplier_channel_forward",
+            "approved",
+            "ناموجود نیست"
+          ],
+          [
+            "@bonakdarjavan",
+            "20000",
+            "SyntheticPhoto_12345",
+            "missing",
+            "2026-11-15T00:00:00+00:00",
+            "کارتن ۶ عددی",
+            "synthetic-no-offer",
+            "Synthetic missing evidence",
+            "3.25",
+            "1,000",
+            "https://t.me/bonakdarjavan/11",
+            "supplier_channel_forward",
+            "approved",
+            "Unavailable"
+          ],
+          [
+            "@bonakdarjavan",
+            "20000",
+            "SyntheticPhoto_12345",
+            "synthetic-offer-4",
+            "2026-11-15T00:00:00+00:00",
+            "کارتن ۶ عددی",
+            "synthetic-conflict",
+            "Synthetic conflict",
+            "3.25",
+            "10000",
+            "https://t.me/bonakdarjavan/11",
+            "supplier_channel_forward",
+            "approved",
+            "موجود است"
+          ]
+        ],
+        "Offers": [
+          [
+            "Batch ID",
+            "Channel",
+            "Channel Username",
+            "Message Timestamp",
+            "Offer ID",
+            "Product ID",
+            "Source Post URL",
+            "Source Timestamp Basis"
+          ],
+          [
+            "",
+            "",
+            "@bonakdarjavan",
+            "2026-11-15T00:00:00+00:00",
+            "synthetic-offer-1",
+            "p_11c93412a807fd5732d0147e",
+            "https://t.me/bonakdarjavan/11",
+            "supplier_channel_forward"
+          ],
+          [
+            "",
+            "",
+            "@nobelshop118",
+            "2026-11-15T00:00:00+00:00",
+            "synthetic-offer-2",
+            "p_c2bccc73e5b5e201f5d1d1e4",
+            "https://t.me/bonakdarjavan/11",
+            "supplier_channel_forward"
+          ],
+          [
+            "",
+            "",
+            "@bonakdarjavan",
+            "2026-11-15T00:00:00+00:00",
+            "synthetic-offer-4",
+            "synthetic-conflict",
+            "https://t.me/bonakdarjavan/11",
+            "supplier_channel_forward"
+          ]
+        ]
+      },
+      "freshness": {
+        "p_11c93412a807fd5732d0147e": {
+          "product_id": "p_11c93412a807fd5732d0147e",
+          "name": "روغن نمونه ۱/۵لیتری ، کارتن ۶ عددی",
+          "channel": "@bonakdarjavan",
+          "sale_price": "10000",
+          "source_revision": "d6c0c213c12bef87a8c7c98f4b2a7c63c66130cc8f24dd532de49b0fb2d06692",
+          "source_timestamp": "2026-11-15T00:00:00+00:00",
+          "source_timestamp_basis": "supplier_channel_forward",
+          "source_timestamp_trusted": true,
+          "state": "current",
+          "verified_at": "2026-11-15T00:00:00+00:00",
+          "method": "source"
+        },
+        "p_c2bccc73e5b5e201f5d1d1e4": {
+          "product_id": "p_c2bccc73e5b5e201f5d1d1e4",
+          "name": "چای نمونه 250گرم",
+          "channel": "@nobelshop118",
+          "sale_price": "15000",
+          "source_revision": "57f812bfb30ac45234dc1ba00cbb88e178f8a2a6930948486f6bd66117be41c2",
+          "source_timestamp": "2026-11-15T00:00:00+00:00",
+          "source_timestamp_basis": "supplier_channel_forward",
+          "source_timestamp_trusted": true,
+          "state": "current",
+          "verified_at": "2026-11-15T00:00:00+00:00",
+          "method": "source"
+        },
+        "synthetic-no-offer": {
+          "product_id": "synthetic-no-offer",
+          "name": "Synthetic missing evidence",
+          "channel": "@bonakdarjavan",
+          "sale_price": "1,000",
+          "source_revision": "8a230261d2aab36e167d0e29086e2fd1bc7cb5e24761a8298b45ae7455d2083a",
+          "source_timestamp": "2026-11-15T00:00:00+00:00",
+          "source_timestamp_basis": "supplier_channel_forward",
+          "source_timestamp_trusted": true,
+          "state": "current",
+          "verified_at": "2026-11-15T00:00:00+00:00",
+          "method": "source"
+        },
+        "synthetic-conflict": {
+          "product_id": "synthetic-conflict",
+          "name": "Synthetic conflict",
+          "channel": "@bonakdarjavan",
+          "sale_price": "10000",
+          "source_revision": "87e06c058984ef51dd1ccd276c518e23856783e304110709bd880e6d19023994",
+          "source_timestamp": "2026-11-15T00:00:00+00:00",
+          "source_timestamp_basis": "supplier_channel_forward",
+          "source_timestamp_trusted": true,
+          "state": "current",
+          "verified_at": "2026-11-15T00:00:00+00:00",
+          "method": "source"
+        }
+      },
+      "conflicts": [
+        "synthetic-conflict"
+      ],
+      "expected": [
+        {
+          "id": "a0d518974d02",
+          "name": "Synthetic conflict",
+          "key": "synthetic conflict",
+          "channel": "@bonakdarjavan",
+          "supplier": "بنکدار جوان",
+          "packaging": "کارتن ۶ عددی",
+          "category": "",
+          "sale": 10000,
+          "shelf": 20000,
+          "min": 6,
+          "pack_size": 6,
+          "source_post_url": "https://t.me/bonakdarjavan/11",
+          "reference_snapshot_id": "",
+          "reference_match_id": "",
+          "reference_price_role": "",
+          "reference_approval_state": "",
+          "reference_price_change_percent": 3,
+          "reference_price_checked_at": "",
+          "reference_review_reason": "",
+          "image_file_id": "SyntheticPhoto_12345",
+          "status": "hold",
+          "supplier_availability": "instock",
+          "source_integrity_state": "verified",
+          "source_integrity_issues": [],
+          "source_record_id": "synthetic-conflict",
+          "supplier_price_state": "current",
+          "supplier_price_verified_at": "2026-11-15T00:00:00+00:00"
+        },
+        {
+          "id": "da30e40dab2c",
+          "name": "Synthetic missing evidence",
+          "key": "synthetic missing evidence",
+          "channel": "@bonakdarjavan",
+          "supplier": "بنکدار جوان",
+          "packaging": "کارتن ۶ عددی",
+          "category": "",
+          "sale": 0,
+          "shelf": 20000,
+          "min": 6,
+          "pack_size": 6,
+          "source_post_url": "https://t.me/bonakdarjavan/11",
+          "reference_snapshot_id": "",
+          "reference_match_id": "",
+          "reference_price_role": "",
+          "reference_approval_state": "",
+          "reference_price_change_percent": 3,
+          "reference_price_checked_at": "",
+          "reference_review_reason": "",
+          "image_file_id": "SyntheticPhoto_12345",
+          "status": "hold",
+          "supplier_availability": "outofstock",
+          "source_integrity_state": "blocked",
+          "source_integrity_issues": [
+            "offer_not_found"
+          ],
+          "source_record_id": "synthetic-no-offer",
+          "supplier_price_state": "current",
+          "supplier_price_verified_at": "2026-11-15T00:00:00+00:00"
+        },
+        {
+          "id": "90da58e4b96a",
+          "name": "روغن نمونه ۱/۵لیتری ، کارتن ۶ عددی",
+          "key": "روغن نمونه ۱/۵لیتری",
+          "channel": "@bonakdarjavan",
+          "supplier": "بنکدار جوان",
+          "packaging": "کارتن ۶ عددی",
+          "category": "",
+          "sale": 10000,
+          "shelf": 20000,
+          "min": 6,
+          "pack_size": 6,
+          "source_post_url": "https://t.me/bonakdarjavan/11",
+          "reference_snapshot_id": "",
+          "reference_match_id": "",
+          "reference_price_role": "",
+          "reference_approval_state": "",
+          "reference_price_change_percent": 3,
+          "reference_price_checked_at": "",
+          "reference_review_reason": "",
+          "image_file_id": "SyntheticPhoto_12345",
+          "status": "sell",
+          "supplier_availability": "instock",
+          "source_integrity_state": "verified",
+          "source_integrity_issues": [],
+          "source_record_id": "p_11c93412a807fd5732d0147e",
+          "supplier_price_state": "current",
+          "supplier_price_verified_at": "2026-11-15T00:00:00+00:00"
+        },
+        {
+          "id": "c2bccc73e5b5",
+          "name": "چای نمونه 250گرم",
+          "key": "چای نمونه 250گرم",
+          "channel": "@nobelshop118",
+          "supplier": "نوبل",
+          "packaging": "",
+          "category": "",
+          "sale": 15000,
+          "shelf": 20000,
+          "min": 1,
+          "pack_size": 1,
+          "source_post_url": "https://t.me/bonakdarjavan/11",
+          "reference_snapshot_id": "",
+          "reference_match_id": "",
+          "reference_price_role": "",
+          "reference_approval_state": "",
+          "reference_price_change_percent": 0,
+          "reference_price_checked_at": "",
+          "reference_review_reason": "",
+          "image_file_id": "SyntheticPhoto_12345",
+          "status": "sell",
+          "supplier_availability": "unknown",
+          "source_integrity_state": "verified",
+          "source_integrity_issues": [],
+          "source_record_id": "p_c2bccc73e5b5e201f5d1d1e4",
+          "supplier_price_state": "current",
+          "supplier_price_verified_at": "2026-11-15T00:00:00+00:00"
+        }
+      ]
+    },
+    {
+      "name": "duplicate-id",
+      "tables": {
+        "Products": [
+          [
+            "Channel Username",
+            "Consumer Price",
+            "Image File ID",
+            "Latest Offer ID",
+            "Message Timestamp",
+            "Packaging",
+            "Product ID",
+            "Product Name",
+            "Reference Price Change Percent",
+            "Sale Price",
+            "Source Post URL",
+            "Source Timestamp Basis",
+            "Status",
+            "Stock Status"
+          ],
+          [
+            "@bonakdarjavan",
+            "20000",
+            "SyntheticPhoto_12345",
+            "synthetic-offer-1",
+            "2026-11-15T00:00:00+00:00",
+            "کارتن ۶ عددی",
+            "p_11c93412a807fd5732d0147e",
+            "روغن نمونه ۱/۵لیتری ، کارتن ۶ عددی",
+            "3.25",
+            "10000",
+            "https://t.me/bonakdarjavan/11",
+            "supplier_channel_forward",
+            "approved",
+            "موجود است"
+          ],
+          [
+            "@nobelshop118",
+            "20000",
+            "SyntheticPhoto_12345",
+            "synthetic-offer-2",
+            "2026-11-15T00:00:00+00:00",
+            "",
+            "p_c2bccc73e5b5e201f5d1d1e4",
+            "چای نمونه 250گرم",
+            "-2",
+            "15000",
+            "https://t.me/bonakdarjavan/11",
+            "supplier_channel_forward",
+            "approved",
+            "ناموجود نیست"
+          ],
+          [
+            "@bonakdarjavan",
+            "20000",
+            "SyntheticPhoto_12345",
+            "missing",
+            "2026-11-15T00:00:00+00:00",
+            "کارتن ۶ عددی",
+            "synthetic-no-offer",
+            "Synthetic missing evidence",
+            "3.25",
+            "1,000",
+            "https://t.me/bonakdarjavan/11",
+            "supplier_channel_forward",
+            "approved",
+            "Unavailable"
+          ],
+          [
+            "@bonakdarjavan",
+            "20000",
+            "SyntheticPhoto_12345",
+            "synthetic-offer-4",
+            "2026-11-15T00:00:00+00:00",
+            "کارتن ۶ عددی",
+            "synthetic-conflict",
+            "Synthetic conflict",
+            "3.25",
+            "10000",
+            "https://t.me/bonakdarjavan/11",
+            "supplier_channel_forward",
+            "approved",
+            "موجود است"
+          ],
+          [
+            "@bonakdarjavan",
+            "20000",
+            "SyntheticPhoto_12345",
+            "synthetic-offer-1",
+            "2026-11-15T00:00:00+00:00",
+            "کارتن ۶ عددی",
+            "p_11c93412a807fd5732d0147e",
+            "روغن نمونه ۱/۵لیتری ، کارتن ۶ عددی",
+            "3.25",
+            "10000",
+            "https://t.me/bonakdarjavan/11",
+            "supplier_channel_forward",
+            "approved",
+            "موجود است"
+          ]
+        ],
+        "Offers": [
+          [
+            "Batch ID",
+            "Channel",
+            "Channel Username",
+            "Message Timestamp",
+            "Offer ID",
+            "Product ID",
+            "Source Post URL",
+            "Source Timestamp Basis"
+          ],
+          [
+            "",
+            "",
+            "@bonakdarjavan",
+            "2026-11-15T00:00:00+00:00",
+            "synthetic-offer-1",
+            "p_11c93412a807fd5732d0147e",
+            "https://t.me/bonakdarjavan/11",
+            "supplier_channel_forward"
+          ],
+          [
+            "",
+            "",
+            "@nobelshop118",
+            "2026-11-15T00:00:00+00:00",
+            "synthetic-offer-2",
+            "p_c2bccc73e5b5e201f5d1d1e4",
+            "https://t.me/bonakdarjavan/11",
+            "supplier_channel_forward"
+          ],
+          [
+            "",
+            "",
+            "@bonakdarjavan",
+            "2026-11-15T00:00:00+00:00",
+            "synthetic-offer-4",
+            "synthetic-conflict",
+            "https://t.me/bonakdarjavan/11",
+            "supplier_channel_forward"
+          ]
+        ]
+      },
+      "freshness": {
+        "p_11c93412a807fd5732d0147e": {
+          "product_id": "p_11c93412a807fd5732d0147e",
+          "name": "روغن نمونه ۱/۵لیتری ، کارتن ۶ عددی",
+          "channel": "@bonakdarjavan",
+          "sale_price": "10000",
+          "source_revision": "d6c0c213c12bef87a8c7c98f4b2a7c63c66130cc8f24dd532de49b0fb2d06692",
+          "source_timestamp": "2026-11-15T00:00:00+00:00",
+          "source_timestamp_basis": "supplier_channel_forward",
+          "source_timestamp_trusted": true,
+          "state": "current",
+          "verified_at": "2026-11-15T00:00:00+00:00",
+          "method": "source"
+        },
+        "p_c2bccc73e5b5e201f5d1d1e4": {
+          "product_id": "p_c2bccc73e5b5e201f5d1d1e4",
+          "name": "چای نمونه 250گرم",
+          "channel": "@nobelshop118",
+          "sale_price": "15000",
+          "source_revision": "57f812bfb30ac45234dc1ba00cbb88e178f8a2a6930948486f6bd66117be41c2",
+          "source_timestamp": "2026-11-15T00:00:00+00:00",
+          "source_timestamp_basis": "supplier_channel_forward",
+          "source_timestamp_trusted": true,
+          "state": "current",
+          "verified_at": "2026-11-15T00:00:00+00:00",
+          "method": "source"
+        },
+        "synthetic-no-offer": {
+          "product_id": "synthetic-no-offer",
+          "name": "Synthetic missing evidence",
+          "channel": "@bonakdarjavan",
+          "sale_price": "1,000",
+          "source_revision": "8a230261d2aab36e167d0e29086e2fd1bc7cb5e24761a8298b45ae7455d2083a",
+          "source_timestamp": "2026-11-15T00:00:00+00:00",
+          "source_timestamp_basis": "supplier_channel_forward",
+          "source_timestamp_trusted": true,
+          "state": "current",
+          "verified_at": "2026-11-15T00:00:00+00:00",
+          "method": "source"
+        },
+        "synthetic-conflict": {
+          "product_id": "synthetic-conflict",
+          "name": "Synthetic conflict",
+          "channel": "@bonakdarjavan",
+          "sale_price": "10000",
+          "source_revision": "87e06c058984ef51dd1ccd276c518e23856783e304110709bd880e6d19023994",
+          "source_timestamp": "2026-11-15T00:00:00+00:00",
+          "source_timestamp_basis": "supplier_channel_forward",
+          "source_timestamp_trusted": true,
+          "state": "current",
+          "verified_at": "2026-11-15T00:00:00+00:00",
+          "method": "source"
+        }
+      },
+      "conflicts": [],
+      "expected": null
+    },
+    {
+      "name": "broken-provenance",
+      "tables": {
+        "Products": [
+          [
+            "Channel Username",
+            "Consumer Price",
+            "Image File ID",
+            "Latest Offer ID",
+            "Message Timestamp",
+            "Packaging",
+            "Product ID",
+            "Product Name",
+            "Reference Price Change Percent",
+            "Sale Price",
+            "Source Post URL",
+            "Source Timestamp Basis",
+            "Status",
+            "Stock Status"
+          ],
+          [
+            "@bonakdarjavan",
+            "20000",
+            "SyntheticPhoto_12345",
+            "synthetic-offer-1",
+            "2026-11-16T00:00:00+00:00",
+            "کارتن ۶ عددی",
+            "p_11c93412a807fd5732d0147e",
+            "روغن نمونه ۱/۵لیتری ، کارتن ۶ عددی",
+            "3.25",
+            "10000",
+            "https://t.me/bonakdarjavan/11",
+            "supplier_channel_forward",
+            "approved",
+            "موجود است"
+          ],
+          [
+            "@nobelshop118",
+            "20000",
+            "SyntheticPhoto_12345",
+            "synthetic-offer-2",
+            "2026-11-15T00:00:00+00:00",
+            "",
+            "p_c2bccc73e5b5e201f5d1d1e4",
+            "چای نمونه 250گرم",
+            "-2",
+            "15000",
+            "https://t.me/bonakdarjavan/11",
+            "supplier_channel_forward",
+            "approved",
+            "ناموجود نیست"
+          ]
+        ],
+        "Offers": [
+          [
+            "Batch ID",
+            "Channel",
+            "Channel Username",
+            "Message Timestamp",
+            "Offer ID",
+            "Product ID",
+            "Source Post URL",
+            "Source Timestamp Basis"
+          ],
+          [
+            "",
+            "",
+            "@bonakdarjavan",
+            "2026-11-15T00:00:00+00:00",
+            "synthetic-offer-1",
+            "p_11c93412a807fd5732d0147e",
+            "https://t.me/bonakdarjavan/11",
+            "supplier_channel_forward"
+          ],
+          [
+            "",
+            "",
+            "@nobelshop118",
+            "2026-11-15T00:00:00+00:00",
+            "synthetic-offer-2",
+            "p_c2bccc73e5b5e201f5d1d1e4",
+            "https://t.me/bonakdarjavan/11",
+            "supplier_channel_forward"
+          ],
+          [
+            "",
+            "",
+            "@bonakdarjavan",
+            "2026-11-15T00:00:00+00:00",
+            "synthetic-offer-4",
+            "synthetic-conflict",
+            "https://t.me/bonakdarjavan/11",
+            "supplier_channel_forward"
+          ]
+        ]
+      },
+      "freshness": {
+        "p_11c93412a807fd5732d0147e": {
+          "product_id": "p_11c93412a807fd5732d0147e",
+          "name": "روغن نمونه ۱/۵لیتری ، کارتن ۶ عددی",
+          "channel": "@bonakdarjavan",
+          "sale_price": "10000",
+          "source_revision": "d6c0c213c12bef87a8c7c98f4b2a7c63c66130cc8f24dd532de49b0fb2d06692",
+          "source_timestamp": "2026-11-16T00:00:00+00:00",
+          "source_timestamp_basis": "supplier_channel_forward",
+          "source_timestamp_trusted": true,
+          "state": "current",
+          "verified_at": "2026-11-16T00:00:00+00:00",
+          "method": "source"
+        },
+        "p_c2bccc73e5b5e201f5d1d1e4": {
+          "product_id": "p_c2bccc73e5b5e201f5d1d1e4",
+          "name": "چای نمونه 250گرم",
+          "channel": "@nobelshop118",
+          "sale_price": "15000",
+          "source_revision": "57f812bfb30ac45234dc1ba00cbb88e178f8a2a6930948486f6bd66117be41c2",
+          "source_timestamp": "2026-11-15T00:00:00+00:00",
+          "source_timestamp_basis": "supplier_channel_forward",
+          "source_timestamp_trusted": true,
+          "state": "current",
+          "verified_at": "2026-11-15T00:00:00+00:00",
+          "method": "source"
+        }
+      },
+      "conflicts": [],
+      "expected": [
+        {
+          "id": "90da58e4b96a",
+          "name": "روغن نمونه ۱/۵لیتری ، کارتن ۶ عددی",
+          "key": "روغن نمونه ۱/۵لیتری",
+          "channel": "@bonakdarjavan",
+          "supplier": "بنکدار جوان",
+          "packaging": "کارتن ۶ عددی",
+          "category": "",
+          "sale": 10000,
+          "shelf": 20000,
+          "min": 6,
+          "pack_size": 6,
+          "source_post_url": "https://t.me/bonakdarjavan/11",
+          "reference_snapshot_id": "",
+          "reference_match_id": "",
+          "reference_price_role": "",
+          "reference_approval_state": "",
+          "reference_price_change_percent": 3,
+          "reference_price_checked_at": "",
+          "reference_review_reason": "",
+          "image_file_id": "SyntheticPhoto_12345",
+          "status": "hold",
+          "supplier_availability": "instock",
+          "source_integrity_state": "blocked",
+          "source_integrity_issues": [
+            "source_provenance_mismatch"
+          ],
+          "source_record_id": "p_11c93412a807fd5732d0147e",
+          "supplier_price_state": "current",
+          "supplier_price_verified_at": "2026-11-16T00:00:00+00:00"
+        },
+        {
+          "id": "c2bccc73e5b5",
+          "name": "چای نمونه 250گرم",
+          "key": "چای نمونه 250گرم",
+          "channel": "@nobelshop118",
+          "supplier": "نوبل",
+          "packaging": "",
+          "category": "",
+          "sale": 15000,
+          "shelf": 20000,
+          "min": 1,
+          "pack_size": 1,
+          "source_post_url": "https://t.me/bonakdarjavan/11",
+          "reference_snapshot_id": "",
+          "reference_match_id": "",
+          "reference_price_role": "",
+          "reference_approval_state": "",
+          "reference_price_change_percent": 0,
+          "reference_price_checked_at": "",
+          "reference_review_reason": "",
+          "image_file_id": "SyntheticPhoto_12345",
+          "status": "sell",
+          "supplier_availability": "unknown",
+          "source_integrity_state": "verified",
+          "source_integrity_issues": [],
+          "source_record_id": "p_c2bccc73e5b5e201f5d1d1e4",
+          "supplier_price_state": "current",
+          "supplier_price_verified_at": "2026-11-15T00:00:00+00:00"
+        }
+      ]
+    }
+  ],
+  "settings": [
+    {
+      "rows": [
+        [
+          "Min Margin",
+          "12%"
+        ],
+        [
+          "Min Profit",
+          "5000.5"
+        ],
+        [
+          "Profit Share Low",
+          "70%"
+        ],
+        [
+          "Unlock Target",
+          "2,000,000"
+        ]
+      ],
+      "expected": {
+        "min_margin": 0.12,
+        "min_profit": 5000,
+        "spread_low": 0.1,
+        "spread_high": 0.6,
+        "profit_share_low": 0.7,
+        "profit_share_high": 0.35,
+        "opening_share_low": 0.2,
+        "opening_share_high": 0.25,
+        "unlock_target": 2000000
+      }
+    },
+    {
+      "rows": [],
+      "expected": {
+        "min_margin": 0.12,
+        "min_profit": 5000,
+        "spread_low": 0.1,
+        "spread_high": 0.6,
+        "profit_share_low": 0.7,
+        "profit_share_high": 0.35,
+        "opening_share_low": 0.2,
+        "opening_share_high": 0.25,
+        "unlock_target": 2000000
+      }
+    },
+    {
+      "rows": [
+        [
+          "Spread High",
+          "60"
+        ],
+        [
+          "Spread Low",
+          "bad"
+        ],
+        [
+          "Unlock Target",
+          false
+        ],
+        [
+          "Min Profit",
+          "12.5"
+        ]
+      ],
+      "expected": {
+        "min_margin": 0.12,
+        "min_profit": 12,
+        "spread_low": 0.1,
+        "spread_high": 0.6,
+        "profit_share_low": 0.7,
+        "profit_share_high": 0.35,
+        "opening_share_low": 0.2,
+        "opening_share_high": 0.25,
+        "unlock_target": 2000000
+      }
+    }
+  ],
+  "stock": [
+    {
+      "raw": "",
+      "expected": "Unknown"
+    },
+    {
+      "raw": "موجود",
+      "expected": "Available"
+    },
+    {
+      "raw": "ناموجود",
+      "expected": "Out of Stock"
+    },
+    {
+      "raw": "موجود نیست",
+      "expected": "Out of Stock"
+    },
+    {
+      "raw": "ناموجود نیست",
+      "expected": "Unknown"
+    },
+    {
+      "raw": "در انبار موجود است",
+      "expected": "Available"
+    },
+    {
+      "raw": "فعلا نداریم",
+      "expected": "Out of Stock"
+    },
+    {
+      "raw": "موجودی تمام شد",
+      "expected": "Out of Stock"
+    },
+    {
+      "raw": "تمام شده",
+      "expected": "Out of Stock"
+    },
+    {
+      "raw": "قابل سفارش",
+      "expected": "Available"
+    },
+    {
+      "raw": "not in stock",
+      "expected": "Out of Stock"
+    },
+    {
+      "raw": "available",
+      "expected": "Available"
+    },
+    {
+      "raw": "stock unknown",
+      "expected": "Unknown"
+    },
+    {
+      "raw": "موجود نیست نیست",
+      "expected": "Unknown"
+    },
+    {
+      "raw": "شلغم موجود شد",
+      "expected": "Available"
+    }
+  ],
+  "skus": [
+    {
+      "record": {
+        "Product Name": "روغن نمونه ۱/۵لیتری ، کارتن ۶ عددی",
+        "Channel Username": "@bonakdarjavan",
+        "Sale Price": "10000",
+        "Consumer Price": "20000",
+        "Status": "approved",
+        "Latest Offer ID": "synthetic-offer-1",
+        "Source Timestamp Basis": "supplier_channel_forward",
+        "Message Timestamp": "2026-11-15T00:00:00+00:00",
+        "Source Post URL": "https://t.me/bonakdarjavan/11",
+        "Packaging": "کارتن ۶ عددی",
+        "Stock Status": "موجود است",
+        "Reference Price Change Percent": "3.25",
+        "Image File ID": "SyntheticPhoto_12345",
+        "Product ID": "p_11c93412a807fd5732d0147e"
+      },
+      "expected": "90da58e4b96a"
+    },
+    {
+      "record": {
+        "Product Name": "چای نمونه 250گرم",
+        "Channel Username": "@nobelshop118",
+        "Sale Price": "15000",
+        "Consumer Price": "20000",
+        "Status": "approved",
+        "Latest Offer ID": "synthetic-offer-2",
+        "Source Timestamp Basis": "supplier_channel_forward",
+        "Message Timestamp": "2026-11-15T00:00:00+00:00",
+        "Source Post URL": "https://t.me/bonakdarjavan/11",
+        "Packaging": "",
+        "Stock Status": "ناموجود نیست",
+        "Reference Price Change Percent": "-2",
+        "Image File ID": "SyntheticPhoto_12345",
+        "Product ID": "p_c2bccc73e5b5e201f5d1d1e4"
+      },
+      "expected": "c2bccc73e5b5"
+    },
+    {
+      "record": {
+        "Product Name": "Synthetic missing evidence",
+        "Channel Username": "@bonakdarjavan",
+        "Sale Price": "1,000",
+        "Consumer Price": "20000",
+        "Status": "approved",
+        "Latest Offer ID": "missing",
+        "Source Timestamp Basis": "supplier_channel_forward",
+        "Message Timestamp": "2026-11-15T00:00:00+00:00",
+        "Source Post URL": "https://t.me/bonakdarjavan/11",
+        "Packaging": "کارتن ۶ عددی",
+        "Stock Status": "Unavailable",
+        "Reference Price Change Percent": "3.25",
+        "Image File ID": "SyntheticPhoto_12345",
+        "Product ID": "synthetic-no-offer"
+      },
+      "expected": "da30e40dab2c"
+    },
+    {
+      "record": {
+        "Product Name": "Synthetic conflict",
+        "Channel Username": "@bonakdarjavan",
+        "Sale Price": "10000",
+        "Consumer Price": "20000",
+        "Status": "approved",
+        "Latest Offer ID": "synthetic-offer-4",
+        "Source Timestamp Basis": "supplier_channel_forward",
+        "Message Timestamp": "2026-11-15T00:00:00+00:00",
+        "Source Post URL": "https://t.me/bonakdarjavan/11",
+        "Packaging": "کارتن ۶ عددی",
+        "Stock Status": "موجود است",
+        "Reference Price Change Percent": "3.25",
+        "Image File ID": "SyntheticPhoto_12345",
+        "Product ID": "synthetic-conflict"
+      },
+      "expected": "a0d518974d02"
+    }
+  ]
+}
