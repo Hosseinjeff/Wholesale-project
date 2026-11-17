@@ -103,6 +103,8 @@ function molavi_domain_reference_api(array $body,string $actor): array {
         $outcome=molavi_domain_reference_refresh(true,null,null,$expected,true);
         if($outcome['state']==='cooldown')molavi_domain_fail('refresh_cooldown',429,['retry_after_seconds'=>$outcome['retry_after_seconds']]);
         if($outcome['state']==='not_due')molavi_domain_fail('refresh_not_retryable');
+        // Real cron repairs any remaining projection work after this dashboard request.
+        if(function_exists('molavi_runtime_state')){$host=molavi_runtime_state();$host['reference_at']=time()+60;molavi_runtime_save_state($host);}
         $completed=molavi_domain_reference_finish_refresh($outcome);$state=molavi_domain_reference_refresh_state()??[];
         $result=['ok'=>true,'action'=>'refresh','state'=>$state['state']??null,'last_attempt_at'=>$state['last_attempt_at']??null,
             'error_code'=>$state['error_code']??null,'change_summary'=>$state['change_summary']??null,

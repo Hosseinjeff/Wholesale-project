@@ -6,7 +6,7 @@ define('MOLAVI_REFERENCE_OWNER_IDS',[7]);$GLOBALS['options']=['molavi_state_acti
 function add_action(...$args){}function add_filter(...$args){}
 function get_option($key,$default=false){return $GLOBALS['options'][$key]??$default;}
 function update_option($key,$value,$autoload=false){$GLOBALS['options'][$key]=$value;return true;}
-foreach(['state-host','domain-core','domain-schemas','domain-read-models','domain-reference-parser','domain-reference-store','domain-reference-workflow','domain-reference-scheduler','domain-gateway'] as $file)
+foreach(['state-host','domain-core','domain-schemas','domain-read-models','domain-reference-parser','domain-reference-store','domain-reference-fetch','domain-reference-workflow','domain-reference-scheduler','domain-gateway'] as $file)
  require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-'.$file.'.php';
 $count=0;function same($actual,$expected,string $name):void{global $count;
  if(molavi_domain_json($actual)!==molavi_domain_json($expected))throw new RuntimeException($name.' '.molavi_domain_json(['actual'=>$actual,'expected'=>$expected]));$count++;}
@@ -82,4 +82,17 @@ molavi_domain_tx('reference',static function($db)use($staged){molavi_domain_sql(
 $GLOBALS['sheet']=[];$completion=molavi_domain_reference_finish_refresh(['state'=>'not_due']);
 same($completion['product_reconciliation_state'],'complete','activation committed before interruption resumes without reactivation');
 same(molavi_domain_reference_refresh_state()['state'],'updated','interrupted activation finishes its existing refresh receipt');
+function wp_remote_retrieve_headers($response){return $response['headers'];}
+function wp_remote_retrieve_response_code($response){return $response['status'];}
+function wp_remote_retrieve_body($response){return $response['body'];}
+function molavi_domain_http($method,$url,$args){parse_str((string)parse_url($url,PHP_URL_QUERY),$query);$page=(int)$query['page'];$GLOBALS['source_calls']++;
+ $generation=(int)ceil($GLOBALS['source_calls']/2);$total=$page===2&&($generation===1||!empty($GLOBALS['source_unstable']))?102:101;
+ $all=$GLOBALS['source_products'];$rows=array_slice($all,($page-1)*100,100);
+ return ['status'=>200,'headers'=>['x-wp-total'=>(string)$total,'x-wp-totalpages'=>'2'],'body'=>json_encode($rows)];}
+$GLOBALS['source_products']=[];for($i=0;$i<101;$i++){$raw=$base['_source_products'][0];$raw['id']=60000+$i;$raw['sku']='SYNTH-GENERATION-'.$i;$GLOBALS['source_products'][]=$raw;}
+$GLOBALS['source_calls']=0;$candidate=molavi_domain_reference_fetch_products();
+same(count($candidate['_source_products']),101,'source change retries a complete generation');same($GLOBALS['source_calls'],4,'source retry starts at page one exactly once');
+$GLOBALS['source_calls']=0;$GLOBALS['source_unstable']=true;
+try{molavi_domain_reference_fetch_products();$error=false;}catch(MolaviWorkflowError $e){$error=$e->getMessage()==='woocommerce_pagination_changed';}
+same($error,true,'continuously changing source stays unaccepted');same($GLOBALS['source_calls'],4,'unstable source retry is bounded');
 foreach(glob($root.'/*') as $file)unlink($file);rmdir($root);echo 'PASS native reference runtime '.$count." cases\n";

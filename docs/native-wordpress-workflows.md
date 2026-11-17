@@ -14,7 +14,7 @@ Native writes require active WordPress state custody and an existing explicit
 WordPress business-owner identity. Config/status/shadow requests use the existing
 runtime HMAC, remain private and never return connector credentials.
 
-Current execution: both sites use WordPress state, 15 native dashboard methods,
+Current execution: both sites use WordPress state, 17 native dashboard methods,
 local supplier outbox processing and WordPress-owned publication. Both Railway
 publication filters are deployed. The reference refresh port below is the next
 activation checkpoint; order and catalog-conflict workflows remain incomplete.
@@ -174,7 +174,7 @@ incidents and owner exception decisions. The existing minute cron can run the da
 refresh locally once its POST route is enabled. Activated work never falls back to
 Railway. Interrupted activation/projection can resume without a second source fetch.
 
-Validation: 411 native domain parity cases, 50 reference runtime cases (including six
+Validation: 411 native domain parity cases, 54 reference runtime cases (including six
 Python projection fixtures, receipts, cooldown, source revision, concurrent lease and
 interrupted-fetch recovery), and 21 scheduler checks. The private reference/check
 endpoint fetches and compares in memory without changing raw records, snapshots,
@@ -195,3 +195,18 @@ product in a single atomic request and verifies raw cell receipts before complet
 Activation recovery distinguishes an already committed active ID from a new
 activation; failed projection/reconciliation retries locally without refetching or
 waking Railway. Route activation is still off at this source checkpoint.
+
+Both sites now enable reference snapshots POST and reference decisions POST (17
+native method/path pairs). Enabling local refresh makes the existing real cron
+check due. Staging's first cron attempt correctly rejected changing source totals
+and kept the previous active snapshot; public API checks confirmed the source
+itself grew from 3,372 to 3,394 products. Its subsequent native refresh completed
+with 3,394 raw records, verified projection and complete reconciliation; no main
+product approvals required updates. Production is enabled and awaits its first
+local refresh receipt. The final fetch refinement uses eight bounded requests and
+restarts an inconsistent generation once from page one; four additional synthetic
+checks verify recovery and the retry limit. No partial generation is staged.
+
+Railway control-plane observation during this work: production wholesale was
+Sleeping with no issues; Staging RAM was 0.08275968 GB and disk 0.01081344 GB.
+The separate FollowUP-bot service is outside this repository and remains untouched.
