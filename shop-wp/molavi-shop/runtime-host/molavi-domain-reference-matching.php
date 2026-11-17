@@ -8,9 +8,9 @@ function molavi_domain_match_name($value): string {
     usort($matches,static fn($a,$b)=>$b['start']<=>$a['start']);foreach($matches as $match)$text=substr_replace($text,$match['display'],$match['start'],$match['length']);
     return molavi_domain_normalize_name($text);
 }
-function molavi_domain_match_number($value): float {
-    if(is_bool($value))return 0.0;$raw=molavi_domain_digits(molavi_domain_py_value($value,0));$raw=preg_replace('/(?<=\d)_(?=\d)/u','',$raw);
-    return is_numeric($raw)&&is_finite((float)$raw)&&(float)$raw>0?(float)$raw:0.0;
+function molavi_domain_match_number($value): int|float {
+    if(is_bool($value))return 0;$raw=molavi_domain_digits(molavi_domain_py_value($value,0));$raw=preg_replace('/(?<=\d)_(?=\d)/u','',$raw);
+    return is_numeric($raw)&&is_finite((float)$raw)&&(float)$raw>0?(float)$raw:0;
 }
 function molavi_domain_match_package(array $product): float {
     if($value=molavi_domain_match_number($product['package_count']??null))return $value;
@@ -54,8 +54,17 @@ function molavi_domain_match_values(array $product): array {
 function molavi_domain_matching_index(array $rows): array {
     // One request-scoped snapshot, shared by every card in this response.
     static $lastRows=null,$prepared=[];if($lastRows!==null&&$rows===$lastRows)return $prepared;
-    $lastRows=$rows;$prepared=[];foreach($rows as $row){if(!is_array($row)||count($row)!==21)continue;$reference=molavi_domain_matching_reference($row);
-        if($reference['reference_id']!=='')$prepared[]=[$reference,molavi_domain_match_values($reference)];}return $prepared;
+    $lastRows=$rows;$prepared=[];
+    foreach($rows as $row){
+        if(!is_array($row)||count($row)!==21)continue;
+        $reference=molavi_domain_matching_reference($row);
+        if($reference['reference_id']==='')continue;
+        $values=molavi_domain_match_values($reference);
+        // The reference side uses the structured count. Title inference is for supplier offers.
+        $values['package_count']=$reference['package_count']?molavi_domain_cell_text($reference['package_count']):'';
+        $prepared[]=[$reference,$values];
+    }
+    return $prepared;
 }
 function molavi_domain_reference_candidates(array $product,array $rows,int $limit=10): array {
     $weights=['name'=>.45,'brand'=>.14,'category'=>.12,'variant'=>.10,'package_count'=>.07,'volume'=>.06,'weight'=>.06];$incoming=molavi_domain_match_values($product);if($incoming['name']==='')return [];
