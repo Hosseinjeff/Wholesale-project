@@ -1,0 +1,63 @@
+<?php
+declare(strict_types=1);
+define('ABSPATH','/synthetic/');define('MOLAVI_REFERENCE_BRIDGE_TOKEN',str_repeat('s',40));
+define('MOLAVI_STATE_ROOT',sys_get_temp_dir().'/molavi-domain-parity-'.bin2hex(random_bytes(6)));
+define('MOLAVI_REFERENCE_OWNER_IDS',[7]);
+$GLOBALS['options']=['molavi_state_active'=>true];function add_action(...$args){}function add_filter(...$args){}
+function get_option($key,$default=false){return $GLOBALS['options'][$key]??$default;}
+function update_option($key,$value,$autoload=false){$GLOBALS['options'][$key]=$value;return true;}
+require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-state-host.php';
+require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-core.php';
+require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-schemas.php';
+require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-inventory.php';
+require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-orders.php';
+require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-read-models.php';
+require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-gateway.php';
+$root=molavi_state_root();$initial=new SQLite3($root.'/pipeline.sqlite3');$initial->exec('PRAGMA user_version=1');$initial->close();
+$fixtures=json_decode(file_get_contents(__DIR__.'/fixtures/native-domain-parity.json'),true,128,JSON_THROW_ON_ERROR);$count=0;
+function compare_native($actual,$expected,string $name):void {
+    global $count;if(molavi_domain_json($actual)!==molavi_domain_json($expected)){
+        echo molavi_domain_json(['case'=>$name,'actual'=>$actual,'expected'=>$expected])."\n";
+        throw new RuntimeException('Native domain parity failed: '.$name);
+    }$count++;
+}
+foreach($fixtures['inventory'] as $case){
+    $db=molavi_domain_db();foreach(['stock_allocations','stock_reservation_requests','stock_lot_events','stock_lot_receipt_audit','stock_lots'] as $table)$db->exec('DELETE FROM '.$table);$db->close();
+    foreach($case['operations'] as $index=>$step){$a=$step['arguments'];try{
+        switch($step['operation']){
+            case 'receive':$actual=molavi_domain_receive_lot($a);break;
+            case 'get_lot':$actual=molavi_domain_lot($a['lot_id']);break;
+            case 'list_lots':$actual=molavi_domain_lots($a['today']);break;
+            case 'apply_operator_event':$actual=molavi_domain_lot_action($a,$a['actor_id'],$a['today'],$a['created_at']);break;
+            case 'reserve':$actual=molavi_domain_reserve($a['order_id'],$a['sku'],$a['units'],$a['today']);break;
+            case 'release_order':$actual=molavi_domain_release_order($a['order_id']);break;
+            case 'record_receipt':molavi_domain_receipt_audit($a['lot_id'],$a['actor_id'],$a['note'],$a['created_at']);$actual=null;break;
+            case 'add_missing_purchase_date':$actual=molavi_domain_lot_purchase_date($a['lot_id'],$a['expected_receipt_hash'],$a['purchase_date']);break;
+            case 'change_reservation':$actual=molavi_domain_reservation_state($a['order_id'],$a['sku'],$a['from_state'],$a['to_state']);break;
+            default:throw new RuntimeException('Unknown fixture operation');
+        }
+    }catch(MolaviWorkflowError|TypeError $e){$actual=['error'=>true];}
+    compare_native($actual,$step['expected'],$case['name'].'/'.$index);}
+}
+foreach($fixtures['clearance'] as $index=>$case)compare_native(molavi_domain_clearance($case['arguments']),$case['expected'],'clearance/'.$index);
+foreach($fixtures['packs'] as $index=>$case)compare_native(molavi_domain_plan_packs(...$case['arguments']),$case['expected'],'packs/'.$index);
+$planning=json_decode(file_get_contents(__DIR__.'/fixtures/native-paid-plan-parity.json'),true,128,JSON_THROW_ON_ERROR);
+$db=molavi_domain_db();foreach(['stock_allocations','stock_reservation_requests','stock_lot_events','stock_lot_receipt_audit','stock_lots','paid_order_plans','paid_order_decisions'] as $table)$db->exec('DELETE FROM '.$table);$db->close();
+molavi_domain_receive_lot($planning['lot']);
+foreach($planning['steps'] as $index=>$step){$a=$step['arguments'];try{
+    $actual=molavi_domain_order_plan($a['order'],$a['today'],$a['supplier_terms']??[],$a['actor_id']??'system',$a['note']??'');
+}catch(MolaviWorkflowError|TypeError $e){$actual=['error'=>true];}
+compare_native($actual,$step['expected'],'paid-plan/'.$index);}
+$reads=json_decode(file_get_contents(__DIR__.'/fixtures/native-read-parity.json'),true,128,JSON_THROW_ON_ERROR);
+$initial=new SQLite3($root.'/reference.sqlite3');$initial->exec('PRAGMA user_version=1');$initial->close();
+foreach($reads['seed'] as $store=>$seeds){$db=molavi_domain_db($store);
+    if($store==='pipeline')$db->exec('DELETE FROM jobs');
+    foreach($seeds as $seed)molavi_domain_sql($db,$seed['sql'],$seed['params']);$db->close();}
+foreach($reads['operations'] as $index=>$case)compare_native(molavi_domain_operations($case['query'],1000.0),$case['expected'],'operations/'.$index);
+foreach($reads['reference'] as $index=>$case)compare_native(molavi_domain_reference_snapshots($case['query']),$case['expected'],'references/'.$index);
+compare_native(molavi_domain_dispatch('GET','/pipeline/stock-lots',[],null,'wp:99')['status'],403,'gateway owner guard');
+compare_native(molavi_domain_dispatch('POST','/reference/snapshots',[],[], 'wp:7')['status'],404,'gateway method guard');
+compare_native(molavi_domain_dispatch('POST','/pipeline/stock-lots',[],['lot_id'=>'synthetic'], 'wp:7')['status'],400,'gateway strict body');
+try{molavi_domain_operations(['cursor'=>'invalid'],1000.0);$invalid=false;}catch(MolaviWorkflowError $e){$invalid=$e->status===400;}
+compare_native($invalid,true,'gateway cursor guard');
+foreach(glob($root.'/*') as $file)unlink($file);rmdir($root);echo 'PASS native domain parity '.$count." cases\n";

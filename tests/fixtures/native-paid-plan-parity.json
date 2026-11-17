@@ -1,0 +1,341 @@
+{
+  "lot": {
+    "lot_id": "synthetic-lot",
+    "sku": "synthetic-sku",
+    "supplier": "Synthetic",
+    "purchase_date": "2026-11-01",
+    "received_at": "2026-11-02",
+    "production_date": "2026-10-01",
+    "expiry_date": "2027-01-01",
+    "units": 6,
+    "unit_cost": 1000
+  },
+  "steps": [
+    {
+      "arguments": {
+        "order": {
+          "id": "native-test-order",
+          "payment_status": "verified",
+          "total": 120000,
+          "lines": [
+            {
+              "name": "Synthetic product",
+              "sku": "synthetic-sku",
+              "qty": 12,
+              "total": 120000,
+              "supplier_offer_id": "synthetic-offer"
+            }
+          ]
+        },
+        "today": "2026-11-17"
+      },
+      "expected": {
+        "order_id": "native-test-order",
+        "state": "needs_owner_review",
+        "lines": [
+          {
+            "sku": "synthetic-sku",
+            "customer_units": 12,
+            "owned_units_reserved": 6,
+            "shortfall_units": 6,
+            "lots": [
+              {
+                "lot_id": "synthetic-lot",
+                "units": 6,
+                "state": "reserved"
+              }
+            ]
+          }
+        ],
+        "source_lines": [
+          {
+            "sku": "synthetic-sku",
+            "supplier_offer_id": "synthetic-offer"
+          }
+        ],
+        "procurement": [
+          {
+            "sku": "synthetic-sku",
+            "state": "needs_supplier_terms",
+            "shortfall_units": 6,
+            "purchase_authorized": false
+          }
+        ],
+        "purchase_authorized": false,
+        "terms_hash": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+      }
+    },
+    {
+      "arguments": {
+        "order": {
+          "id": "native-test-order",
+          "payment_status": "verified",
+          "total": 120000,
+          "lines": [
+            {
+              "name": "Synthetic product",
+              "sku": "synthetic-sku",
+              "qty": 12,
+              "total": 120000,
+              "supplier_offer_id": "synthetic-offer"
+            }
+          ]
+        },
+        "today": "2026-11-17"
+      },
+      "expected": {
+        "lines": [
+          {
+            "customer_units": 12,
+            "lots": [
+              {
+                "lot_id": "synthetic-lot",
+                "state": "reserved",
+                "units": 6
+              }
+            ],
+            "owned_units_reserved": 6,
+            "shortfall_units": 6,
+            "sku": "synthetic-sku"
+          }
+        ],
+        "order_id": "native-test-order",
+        "procurement": [
+          {
+            "purchase_authorized": false,
+            "shortfall_units": 6,
+            "sku": "synthetic-sku",
+            "state": "needs_supplier_terms"
+          }
+        ],
+        "purchase_authorized": false,
+        "source_lines": [
+          {
+            "sku": "synthetic-sku",
+            "supplier_offer_id": "synthetic-offer"
+          }
+        ],
+        "state": "needs_owner_review",
+        "terms_hash": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+      }
+    },
+    {
+      "arguments": {
+        "order": {
+          "id": "native-test-order",
+          "payment_status": "verified",
+          "total": 120000,
+          "lines": [
+            {
+              "name": "Synthetic product",
+              "sku": "synthetic-sku",
+              "qty": 12,
+              "total": 120000,
+              "supplier_offer_id": "synthetic-offer"
+            }
+          ]
+        },
+        "today": "2026-11-17",
+        "supplier_terms": {
+          "synthetic-sku": {
+            "supplier": "Synthetic",
+            "units_per_pack": 5,
+            "pack_price_toman": 5000,
+            "minimum_packs": 2,
+            "pack_multiple": 3,
+            "source_offer_id": "synthetic-offer"
+          }
+        },
+        "actor_id": "wp:1",
+        "note": "Synthetic terms"
+      },
+      "expected": {
+        "order_id": "native-test-order",
+        "state": "procurement_proposed",
+        "lines": [
+          {
+            "sku": "synthetic-sku",
+            "customer_units": 12,
+            "owned_units_reserved": 6,
+            "shortfall_units": 6,
+            "lots": [
+              {
+                "lot_id": "synthetic-lot",
+                "units": 6,
+                "state": "reserved"
+              }
+            ]
+          }
+        ],
+        "source_lines": [
+          {
+            "sku": "synthetic-sku",
+            "supplier_offer_id": "synthetic-offer"
+          }
+        ],
+        "procurement": [
+          {
+            "sku": "synthetic-sku",
+            "supplier": "Synthetic",
+            "customer_units": 6,
+            "owned_units_allocated": 0,
+            "shortfall": 6,
+            "supplier_packs": 3,
+            "purchase_cost_toman": 15000,
+            "supplier_units": 15,
+            "expected_surplus_units": 9,
+            "state": "proposed",
+            "purchase_authorized": false,
+            "source_offer_id": "synthetic-offer"
+          }
+        ],
+        "purchase_authorized": false,
+        "terms_hash": "6642fe4c05c87dbb4ba8d454d6f2eac537242040a1d2c06e031c5bfc6b8ae83f"
+      }
+    },
+    {
+      "arguments": {
+        "order": {
+          "id": "native-test-order",
+          "payment_status": "verified",
+          "total": 120000,
+          "lines": [
+            {
+              "name": "Synthetic product",
+              "sku": "synthetic-sku",
+              "qty": 12,
+              "total": 120000,
+              "supplier_offer_id": "synthetic-offer"
+            }
+          ]
+        },
+        "today": "2026-11-17",
+        "supplier_terms": {
+          "synthetic-sku": {
+            "supplier": "Synthetic",
+            "units_per_pack": 5,
+            "pack_price_toman": 5000,
+            "minimum_packs": 2,
+            "pack_multiple": 3,
+            "source_offer_id": "synthetic-offer"
+          }
+        },
+        "actor_id": "wp:1",
+        "note": "Synthetic terms"
+      },
+      "expected": {
+        "lines": [
+          {
+            "customer_units": 12,
+            "lots": [
+              {
+                "lot_id": "synthetic-lot",
+                "state": "reserved",
+                "units": 6
+              }
+            ],
+            "owned_units_reserved": 6,
+            "shortfall_units": 6,
+            "sku": "synthetic-sku"
+          }
+        ],
+        "order_id": "native-test-order",
+        "procurement": [
+          {
+            "customer_units": 6,
+            "expected_surplus_units": 9,
+            "owned_units_allocated": 0,
+            "purchase_authorized": false,
+            "purchase_cost_toman": 15000,
+            "shortfall": 6,
+            "sku": "synthetic-sku",
+            "source_offer_id": "synthetic-offer",
+            "state": "proposed",
+            "supplier": "Synthetic",
+            "supplier_packs": 3,
+            "supplier_units": 15
+          }
+        ],
+        "purchase_authorized": false,
+        "source_lines": [
+          {
+            "sku": "synthetic-sku",
+            "supplier_offer_id": "synthetic-offer"
+          }
+        ],
+        "state": "procurement_proposed",
+        "terms_hash": "6642fe4c05c87dbb4ba8d454d6f2eac537242040a1d2c06e031c5bfc6b8ae83f"
+      }
+    },
+    {
+      "arguments": {
+        "order": {
+          "id": "native-test-order",
+          "payment_status": "verified",
+          "total": 130000,
+          "lines": [
+            {
+              "name": "Synthetic product",
+              "sku": "synthetic-sku",
+              "qty": 12,
+              "total": 120000,
+              "supplier_offer_id": "synthetic-offer"
+            }
+          ]
+        },
+        "today": "2026-11-17"
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "arguments": {
+        "order": {
+          "id": "native-test-order",
+          "payment_status": "verified",
+          "total": 120000,
+          "lines": [
+            {
+              "name": "Synthetic product",
+              "sku": "synthetic-sku",
+              "qty": 12,
+              "total": 120000,
+              "supplier_offer_id": "synthetic-offer"
+            }
+          ],
+          "woo_status": "cancelled"
+        },
+        "today": "2026-11-17"
+      },
+      "expected": {
+        "order_id": "native-test-order",
+        "state": "released",
+        "released_units": 6,
+        "purchase_authorized": false
+      }
+    },
+    {
+      "arguments": {
+        "order": {
+          "id": "native-test-order",
+          "payment_status": "verified",
+          "total": 120000,
+          "lines": [
+            {
+              "name": "Synthetic product",
+              "sku": "synthetic-sku",
+              "qty": 12,
+              "total": 120000,
+              "supplier_offer_id": "synthetic-offer"
+            }
+          ]
+        },
+        "today": "2026-11-17"
+      },
+      "expected": {
+        "error": true
+      }
+    }
+  ]
+}

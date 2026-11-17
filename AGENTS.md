@@ -37,6 +37,10 @@ and pinned to reviewed backend commits; frontend/docs commits must not redeploy 
 The owner's latest target is WordPress ownership of all persistent data and all
 locally feasible work; Railway should be a stateless executor receiving only its task
 inputs. Do not confuse that target with the current SQLite-ledger migration status.
+The latest explicit boundary keeps bot-related functions on Railway and moves all
+other functions to WordPress. See `docs/native-wordpress-workflows.md` for the native
+port, route activation and parity checkpoint. Preserve the newer Staging text-only
+bot/free Google routing release when changing backend source pins.
 Keep verified receipts and one writer before removing old state. Background threads
 must use `catalog.memory.start_background` so idle heap reclamation cannot interrupt
 them. Health probes must neither arm reset loops nor postpone pending reclamation.

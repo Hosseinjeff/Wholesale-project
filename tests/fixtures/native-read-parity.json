@@ -1,0 +1,442 @@
+{
+  "seed": {
+    "pipeline": [
+      {
+        "sql": "INSERT OR REPLACE INTO jobs (id,kind,payload,state,attempts,available,lease,expires,result,error,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        "params": [
+          "batch:synthetic-0",
+          "batch",
+          "{\"private\": \"synthetic\"}",
+          "queued",
+          0,
+          200.0,
+          null,
+          900.0,
+          null,
+          null,
+          100.0,
+          1794903730.9229896
+        ]
+      },
+      {
+        "sql": "INSERT OR REPLACE INTO jobs (id,kind,payload,state,attempts,available,lease,expires,result,error,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        "params": [
+          "publish:synthetic-1",
+          "publish",
+          "{\"private\": \"synthetic\"}",
+          "failed",
+          0,
+          200.0,
+          null,
+          900.0,
+          null,
+          null,
+          101.0,
+          1794903730.9239955
+        ]
+      },
+      {
+        "sql": "INSERT OR REPLACE INTO jobs (id,kind,payload,state,attempts,available,lease,expires,result,error,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        "params": [
+          "batch:synthetic-2",
+          "batch",
+          "{\"private\": \"synthetic\"}",
+          "waiting_reference",
+          0,
+          200.0,
+          null,
+          900.0,
+          null,
+          null,
+          102.0,
+          1794903730.9239955
+        ]
+      },
+      {
+        "sql": "INSERT OR REPLACE INTO jobs (id,kind,payload,state,attempts,available,lease,expires,result,error,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        "params": [
+          "publish:synthetic-3",
+          "publish",
+          "{\"private\": \"synthetic\"}",
+          "running",
+          0,
+          200.0,
+          null,
+          900.0,
+          null,
+          null,
+          103.0,
+          1794903730.9250011
+        ]
+      },
+      {
+        "sql": "INSERT OR REPLACE INTO jobs (id,kind,payload,state,attempts,available,lease,expires,result,error,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        "params": [
+          "batch:synthetic-4",
+          "batch",
+          "{\"private\": \"synthetic\"}",
+          "needs_review",
+          0,
+          200.0,
+          null,
+          900.0,
+          null,
+          null,
+          104.0,
+          1794903730.9250011
+        ]
+      },
+      {
+        "sql": "INSERT OR REPLACE INTO jobs (id,kind,payload,state,attempts,available,lease,expires,result,error,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        "params": [
+          "publish:synthetic-5",
+          "publish",
+          "{\"private\": \"synthetic\"}",
+          "done",
+          0,
+          200.0,
+          null,
+          900.0,
+          null,
+          null,
+          105.0,
+          1794903730.926007
+        ]
+      },
+      {
+        "sql": "INSERT OR REPLACE INTO pipeline_workers (worker_id,started_at,heartbeat_at,progress_at,state,current_job_id,last_claimed_job_id,last_claimed_at,last_completed_job_id,last_completed_at,last_error_code) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        "params": [
+          "synthetic-worker",
+          990.0,
+          990.0,
+          990.0,
+          "starting",
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ]
+      }
+    ],
+    "reference": [
+      {
+        "sql": "INSERT OR REPLACE INTO reference_snapshots (snapshot_id,payload,reviewed_by,review_note,reviewed_at) VALUES (?,?,?,?,?)",
+        "params": [
+          "6d08bd02024035e16e6a38a1961bcdb79ef2cd3b3763639359748c77b02ca1c0",
+          "{\"automatic_update\": false, \"change_summary\": {\"added\": [{\"product_code\": \"TEA-12\", \"source_product_id\": \"86163\"}], \"added_count\": 1, \"changed\": [], \"has_changes\": true, \"metadata_upgrade\": false, \"order_changed\": false, \"reconcile_reference_ids\": [], \"removed\": [], \"removed_count\": 0, \"updated_count\": 0}, \"coverage_verified\": true, \"extracted_at\": \"2026-11-17T00:00:00+00:00\", \"first_source_row_number\": 1, \"headers\": [\"Product Name\", \"Clean Product Name\", \"Normalized Key\", \"Reference Package Price\", \"Reference Unit Price\", \"Consumer Unit Price\", \"Package Count\", \"Unit Label\", \"Volume\", \"Weight\", \"Set Count\", \"Variant\", \"Brand\", \"Category\", \"Raw Name Details\", \"Source Row Number\", \"Product Code\", \"Currency\", \"Source\", \"Source URL\", \"Last Updated\"], \"last_source_row_number\": 1, \"model\": null, \"previous_snapshot_id\": null, \"processed_page_count\": 1, \"requires_review\": true, \"row_count\": 1, \"rows\": [[\"چای نمونه ۱۲ عددی (۴۵ف) ۲۵۰گرم ۵۰۰میل\", \"چای نمونه 250 گرم 500 میل\", \"چای نمونه 250 گرم 500 میل\", 480000, 40000, 45000, 12, \"عدد\", \"500 میل\", \"250 گرم\", \"\", \"\", \"\", \"نوشیدنی\", \"\", \"1\", \"TEA-12\", \"TOMAN\", \"rezvanpakhsh_woocommerce_store_api\", \"https://rezvanpakhsh.com/wp-json/wc/store/v1/products\", \"2026-11-17T00:00:00+00:00\"]], \"schema_version\": 1, \"source_currency\": \"IRT\", \"source_page_count\": 1, \"source_product_ids\": [\"86163\"], \"source_total\": 1, \"source_type\": \"woocommerce_store_api\", \"source_url\": \"https://rezvanpakhsh.com/wp-json/wc/store/v1/products\", \"status\": \"staged\"}",
+          "wp:7",
+          "Synthetic reviewed source",
+          "2026-11-17T08:22:10.938226+00:00"
+        ]
+      },
+      {
+        "sql": "INSERT OR REPLACE INTO reference_active (singleton,snapshot_id) VALUES (?,?)",
+        "params": [
+          1,
+          "6d08bd02024035e16e6a38a1961bcdb79ef2cd3b3763639359748c77b02ca1c0"
+        ]
+      },
+      {
+        "sql": "INSERT OR REPLACE INTO reference_activations (activation_id,snapshot_id,previous_snapshot_id,actor_id,activated_at) VALUES (?,?,?,?,?)",
+        "params": [
+          1,
+          "6d08bd02024035e16e6a38a1961bcdb79ef2cd3b3763639359748c77b02ca1c0",
+          null,
+          "wp:7",
+          "2026-11-17T08:22:10.938798+00:00"
+        ]
+      },
+      {
+        "sql": "INSERT OR REPLACE INTO reference_source_products (source_product_id,product_code,payload) VALUES (?,?,?)",
+        "params": [
+          "86163",
+          "TEA-12",
+          "{\"attributes\": [], \"categories\": [{\"id\": 12, \"name\": \"نوشیدنی\"}], \"id\": 86163, \"name\": \"چای نمونه ۱۲ عددی (۴۵ف) ۲۵۰گرم ۵۰۰میل\", \"prices\": {\"currency_code\": \"IRT\", \"currency_minor_unit\": 0, \"price\": \"480000\", \"regular_price\": \"500000\", \"sale_price\": \"480000\"}, \"sku\": \"TEA-12\"}"
+        ]
+      },
+      {
+        "sql": "INSERT OR REPLACE INTO reference_source_check (singleton,snapshot_id,checked_at) VALUES (?,?,?)",
+        "params": [
+          1,
+          "6d08bd02024035e16e6a38a1961bcdb79ef2cd3b3763639359748c77b02ca1c0",
+          "2026-11-17T00:00:00+00:00"
+        ]
+      },
+      {
+        "sql": "INSERT OR REPLACE INTO reference_refresh_state (singleton,last_attempt_at,state,occurrence_id,snapshot_id,error_code,change_summary) VALUES (?,?,?,?,?,?,?)",
+        "params": [
+          1,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ]
+      }
+    ]
+  },
+  "operations": [
+    {
+      "query": {
+        "limit": "2"
+      },
+      "expected": {
+        "ok": true,
+        "operations": {
+          "snapshot_time": 1000.0,
+          "by_state": {
+            "done": 1,
+            "failed": 1,
+            "needs_review": 1,
+            "queued": 1,
+            "running": 1,
+            "waiting_reference": 1
+          },
+          "actionable_count": 5,
+          "attention_count": 3,
+          "items": [
+            {
+              "id": "batch:synthetic-0",
+              "kind": "batch",
+              "state": "queued",
+              "attempts": 0,
+              "available": 200.0,
+              "error": null,
+              "created_at": 100.0,
+              "lease_expired": false,
+              "age_seconds": 900,
+              "next_action": "automatic_retry"
+            },
+            {
+              "id": "publish:synthetic-1",
+              "kind": "publish",
+              "state": "failed",
+              "attempts": 0,
+              "available": 200.0,
+              "error": null,
+              "created_at": 101.0,
+              "lease_expired": false,
+              "age_seconds": 899,
+              "next_action": "inspect_failure_and_reconcile"
+            }
+          ],
+          "page_count": 2,
+          "has_more": true,
+          "next_cursor": "eyJ2IjoxLCJzbmFwc2hvdF90aW1lIjoxMDAwLjAsImxhc3RfY3JlYXRlZF9hdCI6MTAxLjAsImxhc3RfaWQiOiJwdWJsaXNoOnN5bnRoZXRpYy0xIn0",
+          "items_truncated": true,
+          "publication_holds": 0,
+          "sheet_conflicts": 0,
+          "worker": {
+            "worker_id": "synthetic-worker",
+            "started_at": 990.0,
+            "heartbeat_at": 990.0,
+            "state": "starting",
+            "current_job_id": null,
+            "progress_at": 990.0,
+            "last_claimed_job_id": null,
+            "last_claimed_at": null,
+            "last_completed_job_id": null,
+            "last_completed_at": null,
+            "last_error_code": null,
+            "status": "alive",
+            "heartbeat_age_seconds": 10.0,
+            "progress_status": "active",
+            "progress_age_seconds": 10.0
+          },
+          "pending_telegram_chats": [],
+          "failed_publication_ids": [
+            "publish:synthetic-1"
+          ],
+          "failed_batch_ids": []
+        }
+      }
+    },
+    {
+      "query": {
+        "limit": "2",
+        "cursor": "eyJ2IjoxLCJzbmFwc2hvdF90aW1lIjoxMDAwLjAsImxhc3RfY3JlYXRlZF9hdCI6MTAxLjAsImxhc3RfaWQiOiJwdWJsaXNoOnN5bnRoZXRpYy0xIn0"
+      },
+      "expected": {
+        "ok": true,
+        "operations": {
+          "snapshot_time": 1000.0,
+          "by_state": {
+            "done": 1,
+            "failed": 1,
+            "needs_review": 1,
+            "queued": 1,
+            "running": 1,
+            "waiting_reference": 1
+          },
+          "actionable_count": 5,
+          "attention_count": 3,
+          "items": [
+            {
+              "id": "batch:synthetic-2",
+              "kind": "batch",
+              "state": "waiting_reference",
+              "attempts": 0,
+              "available": 200.0,
+              "error": null,
+              "created_at": 102.0,
+              "lease_expired": false,
+              "age_seconds": 898,
+              "next_action": "resolve_reference_decision"
+            },
+            {
+              "id": "publish:synthetic-3",
+              "kind": "publish",
+              "state": "running",
+              "attempts": 0,
+              "available": 200.0,
+              "error": null,
+              "created_at": 103.0,
+              "lease_expired": true,
+              "age_seconds": 897,
+              "next_action": "recover_expired_lease"
+            }
+          ],
+          "page_count": 2,
+          "has_more": true,
+          "next_cursor": "eyJ2IjoxLCJzbmFwc2hvdF90aW1lIjoxMDAwLjAsImxhc3RfY3JlYXRlZF9hdCI6MTAzLjAsImxhc3RfaWQiOiJwdWJsaXNoOnN5bnRoZXRpYy0zIn0",
+          "items_truncated": true,
+          "publication_holds": 0,
+          "sheet_conflicts": 0,
+          "worker": {
+            "worker_id": "synthetic-worker",
+            "started_at": 990.0,
+            "heartbeat_at": 990.0,
+            "state": "starting",
+            "current_job_id": null,
+            "progress_at": 990.0,
+            "last_claimed_job_id": null,
+            "last_claimed_at": null,
+            "last_completed_job_id": null,
+            "last_completed_at": null,
+            "last_error_code": null,
+            "status": "alive",
+            "heartbeat_age_seconds": 10.0,
+            "progress_status": "active",
+            "progress_age_seconds": 10.0
+          },
+          "pending_telegram_chats": [],
+          "failed_publication_ids": [
+            "publish:synthetic-1"
+          ],
+          "failed_batch_ids": []
+        }
+      }
+    }
+  ],
+  "reference": [
+    {
+      "query": {},
+      "expected": {
+        "ok": true,
+        "active_snapshot_id": "6d08bd02024035e16e6a38a1961bcdb79ef2cd3b3763639359748c77b02ca1c0",
+        "snapshots": [
+          {
+            "snapshot_id": "6d08bd02024035e16e6a38a1961bcdb79ef2cd3b3763639359748c77b02ca1c0",
+            "extracted_at": "2026-11-17T00:00:00+00:00",
+            "row_count": 1,
+            "pdf_sha256": null,
+            "source_type": "woocommerce_store_api",
+            "automatic_update": false,
+            "previous_snapshot_id": null,
+            "change_summary": {
+              "added_count": 1,
+              "updated_count": 0,
+              "removed_count": 0,
+              "has_changes": true,
+              "metadata_upgrade": false,
+              "order_changed": false
+            },
+            "source_total": 1,
+            "source_currency": "IRT",
+            "model": null,
+            "source_url": "https://rezvanpakhsh.com/wp-json/wc/store/v1/products",
+            "source_page_count": 1,
+            "processed_page_count": 1,
+            "first_source_row_number": 1,
+            "last_source_row_number": 1,
+            "coverage_verified": true,
+            "preview": [
+              {
+                "source_product_id": "86163",
+                "product_name": "چای نمونه ۱۲ عددی (۴۵ف) ۲۵۰گرم ۵۰۰میل",
+                "clean_name": "چای نمونه 250 گرم 500 میل",
+                "normalized_key": "چای نمونه 250 گرم 500 میل",
+                "package_price": 480000,
+                "unit_price": 40000,
+                "consumer_unit_price": 45000,
+                "package_count": 12,
+                "unit_label": "عدد",
+                "volume": "500 میل",
+                "weight": "250 گرم",
+                "set_count": "",
+                "variant": "",
+                "brand": "",
+                "category": "نوشیدنی",
+                "raw_name_details": "",
+                "source_row_number": "1",
+                "product_code": "TEA-12"
+              }
+            ],
+            "preview_total": 1,
+            "reviewed_by": "wp:7",
+            "review_note": "Synthetic reviewed source",
+            "reviewed_at": "2026-11-17T08:22:10.938226+00:00",
+            "active": true,
+            "last_checked_at": "2026-11-17T00:00:00+00:00"
+          }
+        ],
+        "refresh_state": {
+          "singleton": 1,
+          "last_attempt_at": null,
+          "state": null,
+          "occurrence_id": null,
+          "snapshot_id": null,
+          "error_code": null,
+          "change_summary": null
+        }
+      }
+    },
+    {
+      "query": {
+        "include_rows": "1",
+        "snapshot_id": "6d08bd02024035e16e6a38a1961bcdb79ef2cd3b3763639359748c77b02ca1c0"
+      },
+      "expected": {
+        "ok": true,
+        "snapshot_id": "6d08bd02024035e16e6a38a1961bcdb79ef2cd3b3763639359748c77b02ca1c0",
+        "row_count": 1,
+        "coverage_verified": true,
+        "rows": [
+          {
+            "source_product_id": "86163",
+            "product_name": "چای نمونه ۱۲ عددی (۴۵ف) ۲۵۰گرم ۵۰۰میل",
+            "clean_name": "چای نمونه 250 گرم 500 میل",
+            "normalized_key": "چای نمونه 250 گرم 500 میل",
+            "package_price": 480000,
+            "unit_price": 40000,
+            "consumer_unit_price": 45000,
+            "package_count": 12,
+            "unit_label": "عدد",
+            "volume": "500 میل",
+            "weight": "250 گرم",
+            "set_count": "",
+            "variant": "",
+            "brand": "",
+            "category": "نوشیدنی",
+            "raw_name_details": "",
+            "source_row_number": "1",
+            "product_code": "TEA-12"
+          }
+        ]
+      }
+    }
+  ]
+}
