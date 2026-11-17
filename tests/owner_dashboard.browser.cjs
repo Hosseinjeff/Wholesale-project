@@ -19,7 +19,7 @@ const fixtures={
 (async()=>{
  const browser=await chromium.launch({executablePath:'/usr/bin/chromium',headless:true,args:['--no-sandbox']});
  const page=await browser.newPage({viewport:{width:1365,height:1000}});const errors=[];const writes=[];let failPrices=false;let acceptPrice=false;
- let activeReads=0,maxActiveReads=0;
+ let activeReads=0,maxActiveReads=0,transientStatusOnce=true,statusReads=0;
  page.on('pageerror',e=>errors.push(e.message));
  await page.route('**/*',async route=>{
   const req=route.request();if(req.url().includes('/admin-ajax.php')){
@@ -49,6 +49,10 @@ const fixtures={
    activeReads++;maxActiveReads=Math.max(maxActiveReads,activeReads);
    try{
     await new Promise(resolve=>setTimeout(resolve,10));
+    if(path==='/pipeline/product-status-snapshots'){
+     statusReads++;
+     if(transientStatusOnce){transientStatusOnce=false;return await route.fulfill({status:503,json:{ok:false,error:'request_failed'}});}
+    }
     if(failPrices&&path==='/pipeline/supplier-price-evidence')return await route.fulfill({status:503,json:{ok:false,error:'upstream_unavailable'}});
     return await route.fulfill({json:{ok:true,...(fixtures[path]||{})}});
    }finally{activeReads--;}
@@ -67,6 +71,7 @@ const fixtures={
  await mount();
  assert.equal(await page.locator('.md-product-card').count(),3);assert.equal(writes.length,0);assert.deepEqual(errors,[]);
  assert.equal(maxActiveReads,1,'owner reads leave WordPress workers free for state callbacks');
+ assert.equal(statusReads,2,'one temporary read failure gets one bounded retry');
  const first=page.locator('.md-product-card').filter({hasText:'نودل سبزیجات'});
  await first.getByRole('button',{name:'رسیدگی',exact:true}).click();
  await first.getByRole('button',{name:'منبع فعلی را دیدم؛ قیمت تأیید است'}).waitFor({state:'visible'});

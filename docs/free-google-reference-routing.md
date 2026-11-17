@@ -72,6 +72,10 @@ Owner-workflow reads are serialized in the browser because each Railway request
 calls back to WordPress for state. Parallel proxy requests can occupy the hosting
 PHP workers and starve these callbacks until the 45-second proxy timeout. Writes
 retain their explicit action path. This preserves one Railway worker and idle sleep.
+Read-only gateway failures (502/503/504) receive one serial retry after one second;
+subsequent failure remains visible. Owner writes are never automatically retried by
+this browser path. AI-confirmation and price-ledger schema setup use the existing
+schema cache rather than replaying unchanged DDL on every owner read.
 Supplier-price evidence also loads and observes sources in bounded groups of 300,
 preserving manual verification, source revisions and original timestamps. It no
 longer makes separate remote state transactions for every product.

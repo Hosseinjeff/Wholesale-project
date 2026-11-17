@@ -317,7 +317,16 @@
         let release;
         workflowReadQueue = new Promise(resolve => { release = resolve; });
         await previous;
-        try { return await workflowRequest(method, payload, url, apiKey); }
+        try {
+            try { return await workflowRequest(method, payload, url, apiKey); }
+            catch (error) {
+                if (![502,503,504].includes(error.requestStatus)) throw error;
+                // One bounded retry covers a sleeping executor or a temporary
+                // host limit. The read queue remains serial throughout.
+                await new Promise(resolve => setTimeout(resolve,1000));
+                return await workflowRequest(method, payload, url, apiKey);
+            }
+        }
         finally { release(); }
     }
 

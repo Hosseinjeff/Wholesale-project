@@ -28,25 +28,25 @@ class AIConfirmationLedger:
         self.path = os.path.realpath(os.fspath(path))
         Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as db:
-            db.execute('''CREATE TABLE IF NOT EXISTS ai_confirmation_decisions (
+            db.executescript('''CREATE TABLE IF NOT EXISTS ai_confirmation_decisions (
                 decision_id TEXT PRIMARY KEY, case_id TEXT NOT NULL, offer_id TEXT NOT NULL,
                 signature TEXT NOT NULL, choice TEXT NOT NULL, fields_json TEXT NOT NULL,
-                actor_id TEXT NOT NULL, note TEXT NOT NULL, created_at REAL NOT NULL)''')
-            db.execute('''CREATE INDEX IF NOT EXISTS ai_confirmation_case_history
-                ON ai_confirmation_decisions(case_id,created_at)''')
-            db.execute('''CREATE TABLE IF NOT EXISTS ai_message_dismissals (
+                actor_id TEXT NOT NULL, note TEXT NOT NULL, created_at REAL NOT NULL);
+                CREATE INDEX IF NOT EXISTS ai_confirmation_case_history
+                ON ai_confirmation_decisions(case_id,created_at);
+                CREATE TABLE IF NOT EXISTS ai_message_dismissals (
                 message_key TEXT PRIMARY KEY, message_id TEXT NOT NULL, batch_id TEXT NOT NULL,
                 channel_username TEXT NOT NULL, source_timestamp TEXT NOT NULL,
                 content_sha256 TEXT NOT NULL, media_unique_id TEXT NOT NULL DEFAULT '',
                 actor_id TEXT NOT NULL, note TEXT NOT NULL,
-                created_at REAL NOT NULL)''')
+                created_at REAL NOT NULL);
+                CREATE TABLE IF NOT EXISTS ai_source_reextractions (
+                source_key TEXT PRIMARY KEY, batch_id TEXT NOT NULL, outcome TEXT NOT NULL,
+                run_id TEXT NOT NULL, actor_id TEXT NOT NULL, completed_at REAL NOT NULL,
+                policy_version TEXT NOT NULL DEFAULT '');''')
             columns={str(row['name']) for row in db.execute('PRAGMA table_info(ai_message_dismissals)')}
             if 'media_unique_id' not in columns:
                 db.execute("ALTER TABLE ai_message_dismissals ADD COLUMN media_unique_id TEXT NOT NULL DEFAULT ''")
-            db.execute('''CREATE TABLE IF NOT EXISTS ai_source_reextractions (
-                source_key TEXT PRIMARY KEY, batch_id TEXT NOT NULL, outcome TEXT NOT NULL,
-                run_id TEXT NOT NULL, actor_id TEXT NOT NULL, completed_at REAL NOT NULL,
-                policy_version TEXT NOT NULL DEFAULT '')''')
             columns={str(row['name']) for row in db.execute('PRAGMA table_info(ai_source_reextractions)')}
             if 'policy_version' not in columns:
                 db.execute("ALTER TABLE ai_source_reextractions ADD COLUMN policy_version TEXT NOT NULL DEFAULT ''")

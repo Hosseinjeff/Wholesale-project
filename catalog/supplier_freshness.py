@@ -22,19 +22,19 @@ class PriceFreshness:
     def __init__(self, path):
         self.path=str(path)
         with self._connect() as db:
-            db.execute('''CREATE TABLE IF NOT EXISTS supplier_price_evidence (
+            db.executescript('''CREATE TABLE IF NOT EXISTS supplier_price_evidence (
                 offer_id TEXT PRIMARY KEY, source_revision TEXT NOT NULL,
-                verified_at TEXT NOT NULL, method TEXT NOT NULL, verified_by TEXT)''')
-            db.execute('''CREATE TABLE IF NOT EXISTS supplier_price_evidence_history (
+                verified_at TEXT NOT NULL, method TEXT NOT NULL, verified_by TEXT);
+                CREATE TABLE IF NOT EXISTS supplier_price_evidence_history (
                 id INTEGER PRIMARY KEY, offer_id TEXT NOT NULL, source_revision TEXT NOT NULL,
                 verified_at TEXT NOT NULL, method TEXT NOT NULL, verified_by TEXT,
-                note TEXT NOT NULL DEFAULT '')''')
+                note TEXT NOT NULL DEFAULT '');
+                CREATE TABLE IF NOT EXISTS supplier_price_verification_commands (
+                command_id TEXT PRIMARY KEY, offer_id TEXT NOT NULL, source_revision TEXT NOT NULL,
+                verified_at TEXT NOT NULL, verified_by TEXT NOT NULL, note TEXT NOT NULL);''')
             columns={row['name'] for row in db.execute('PRAGMA table_info(supplier_price_evidence_history)')}
             if 'note' not in columns:
                 db.execute("ALTER TABLE supplier_price_evidence_history ADD COLUMN note TEXT NOT NULL DEFAULT ''")
-            db.execute('''CREATE TABLE IF NOT EXISTS supplier_price_verification_commands (
-                command_id TEXT PRIMARY KEY, offer_id TEXT NOT NULL, source_revision TEXT NOT NULL,
-                verified_at TEXT NOT NULL, verified_by TEXT NOT NULL, note TEXT NOT NULL)''')
         os.chmod(self.path,0o600)
 
     @contextmanager
