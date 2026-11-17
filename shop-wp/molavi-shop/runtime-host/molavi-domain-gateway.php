@@ -156,6 +156,7 @@ add_filter('pre_http_request',static function($pre,array $args,string $url){
 add_action('rest_api_init',static function():void {
     register_rest_route('molavi-workflow/v1','/status',['methods'=>'GET','permission_callback'=>'molavi_runtime_permission','callback'=>static function(){
         return ['ok'=>true,'php_version'=>PHP_VERSION,'state_active'=>(bool)get_option('molavi_state_active',false),
+            'unicode_capabilities'=>['normalizer'=>class_exists('Normalizer'),'casefold'=>function_exists('mb_convert_case')],
             'native_routes'=>get_option('molavi_native_routes_v1',[]),'available_routes'=>molavi_domain_routes()];}]);
     register_rest_route('molavi-workflow/v1','/configure',['methods'=>'POST','permission_callback'=>'molavi_runtime_permission','callback'=>static function($request){
         $body=$request->get_json_params();$routes=$body['routes']??null;

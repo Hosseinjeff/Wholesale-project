@@ -1,0 +1,630 @@
+{
+  "catalogs": [
+    {
+      "tables": {
+        "Products": [
+          [
+            "Category",
+            "Consumer Price",
+            "Product ID",
+            "Product Name",
+            "Sale Price",
+            "Status",
+            "Stock Status"
+          ],
+          [
+            "canned fish",
+            100000,
+            "syn-a",
+            "Tuna Premium 180g",
+            50000,
+            "approved",
+            ""
+          ],
+          [
+            "",
+            100000,
+            "0",
+            "Zero SKU",
+            90000,
+            "",
+            ""
+          ],
+          [
+            "",
+            100000,
+            "syn-b",
+            "No discount",
+            99000,
+            "",
+            ""
+          ],
+          [
+            "",
+            200,
+            "syn-out",
+            "Unavailable",
+            100,
+            "",
+            "out_of_stock"
+          ]
+        ],
+        "Shop": []
+      },
+      "expected": [
+        {
+          "product_id": "syn-a",
+          "name": "Tuna Premium 180g",
+          "channel": "",
+          "category": "canned fish",
+          "regular": 100000,
+          "floor": 71000,
+          "ceiling": 88000,
+          "opening_rate": 0.12,
+          "depth_rate": 0.17,
+          "max_discount": 0.29,
+          "spread": 0.5,
+          "stock_status": "Unknown"
+        },
+        {
+          "product_id": "0",
+          "name": "Zero SKU",
+          "channel": "",
+          "category": "",
+          "regular": 100000,
+          "floor": 100000,
+          "ceiling": 100000,
+          "opening_rate": 0.0,
+          "depth_rate": 0.0,
+          "max_discount": 0.0,
+          "spread": 0.0,
+          "stock_status": "Unknown"
+        },
+        {
+          "product_id": "syn-b",
+          "name": "No discount",
+          "channel": "",
+          "category": "",
+          "regular": 100000,
+          "floor": 100000,
+          "ceiling": 100000,
+          "opening_rate": 0.0,
+          "depth_rate": 0.0,
+          "max_discount": 0.0,
+          "spread": 0.0,
+          "stock_status": "Unknown"
+        }
+      ]
+    },
+    {
+      "tables": {
+        "Products": [
+          [
+            "Category",
+            "Consumer Price",
+            "Product ID",
+            "Product Name",
+            "Sale Price",
+            "Status",
+            "Stock Status"
+          ],
+          [
+            "canned fish",
+            100000,
+            "syn-a",
+            "Tuna Premium 180g",
+            50000,
+            "approved",
+            ""
+          ],
+          [
+            "",
+            100000,
+            "0",
+            "Zero SKU",
+            90000,
+            "",
+            ""
+          ],
+          [
+            "",
+            100000,
+            "syn-b",
+            "No discount",
+            99000,
+            "",
+            ""
+          ],
+          [
+            "",
+            200,
+            "syn-out",
+            "Unavailable",
+            100,
+            "",
+            "out_of_stock"
+          ]
+        ],
+        "Shop": [
+          [
+            "Min Profit",
+            10
+          ],
+          [
+            "Min Margin",
+            0.1
+          ]
+        ]
+      },
+      "expected": [
+        {
+          "product_id": "syn-a",
+          "name": "Tuna Premium 180g",
+          "channel": "",
+          "category": "canned fish",
+          "regular": 100000,
+          "floor": 71000,
+          "ceiling": 88000,
+          "opening_rate": 0.12,
+          "depth_rate": 0.17,
+          "max_discount": 0.29,
+          "spread": 0.5,
+          "stock_status": "Unknown"
+        },
+        {
+          "product_id": "0",
+          "name": "Zero SKU",
+          "channel": "",
+          "category": "",
+          "regular": 100000,
+          "floor": 99000,
+          "ceiling": 99000,
+          "opening_rate": 0.01,
+          "depth_rate": 0.0,
+          "max_discount": 0.01,
+          "spread": 0.1,
+          "stock_status": "Unknown"
+        },
+        {
+          "product_id": "syn-b",
+          "name": "No discount",
+          "channel": "",
+          "category": "",
+          "regular": 100000,
+          "floor": 100000,
+          "ceiling": 100000,
+          "opening_rate": 0.0,
+          "depth_rate": 0.0,
+          "max_discount": 0.0,
+          "spread": 0.0,
+          "stock_status": "Unknown"
+        }
+      ]
+    },
+    {
+      "tables": {
+        "Products": [
+          [
+            "Category",
+            "Consumer Price",
+            "Product ID",
+            "Product Name",
+            "Sale Price",
+            "Status",
+            "Stock Status"
+          ],
+          [
+            "canned fish",
+            100000,
+            "syn-a",
+            "Tuna Premium 180g",
+            50000,
+            "approved",
+            ""
+          ],
+          [
+            "",
+            100000,
+            "0",
+            "Zero SKU",
+            90000,
+            "",
+            ""
+          ],
+          [
+            "",
+            100000,
+            "syn-b",
+            "No discount",
+            99000,
+            "",
+            ""
+          ],
+          [
+            "",
+            200,
+            "syn-out",
+            "Unavailable",
+            100,
+            "",
+            "out_of_stock"
+          ]
+        ],
+        "Shop": [
+          [
+            "Spread High",
+            0
+          ],
+          [
+            "Spread Low",
+            0
+          ]
+        ]
+      },
+      "expected": [
+        {
+          "product_id": "syn-a",
+          "name": "Tuna Premium 180g",
+          "channel": "",
+          "category": "canned fish",
+          "regular": 100000,
+          "floor": 85000,
+          "ceiling": 90000,
+          "opening_rate": 0.1,
+          "depth_rate": 0.05,
+          "max_discount": 0.15,
+          "spread": 0.5,
+          "stock_status": "Unknown"
+        },
+        {
+          "product_id": "0",
+          "name": "Zero SKU",
+          "channel": "",
+          "category": "",
+          "regular": 100000,
+          "floor": 100000,
+          "ceiling": 100000,
+          "opening_rate": 0.0,
+          "depth_rate": 0.0,
+          "max_discount": 0.0,
+          "spread": 0.0,
+          "stock_status": "Unknown"
+        },
+        {
+          "product_id": "syn-b",
+          "name": "No discount",
+          "channel": "",
+          "category": "",
+          "regular": 100000,
+          "floor": 100000,
+          "ceiling": 100000,
+          "opening_rate": 0.0,
+          "depth_rate": 0.0,
+          "max_discount": 0.0,
+          "spread": 0.0,
+          "stock_status": "Unknown"
+        }
+      ]
+    },
+    {
+      "tables": {
+        "Products": [
+          [
+            "Category",
+            "Consumer Price",
+            "Product ID",
+            "Product Name",
+            "Sale Price",
+            "Status",
+            "Stock Status"
+          ],
+          [
+            "canned fish",
+            100000,
+            "syn-a",
+            "Tuna Premium 180g",
+            50000,
+            "approved",
+            ""
+          ],
+          [
+            "",
+            100000,
+            "0",
+            "Zero SKU",
+            90000,
+            "",
+            ""
+          ],
+          [
+            "",
+            100000,
+            "syn-b",
+            "No discount",
+            99000,
+            "",
+            ""
+          ],
+          [
+            "",
+            200,
+            "syn-out",
+            "Unavailable",
+            100,
+            "",
+            "out_of_stock"
+          ]
+        ],
+        "Shop": [
+          [
+            "Min Profit",
+            0
+          ],
+          [
+            "Opening Share Low",
+            "0%"
+          ],
+          [
+            "Profit Share High",
+            "35%"
+          ]
+        ]
+      },
+      "expected": [
+        {
+          "product_id": "syn-a",
+          "name": "Tuna Premium 180g",
+          "channel": "",
+          "category": "canned fish",
+          "regular": 100000,
+          "floor": 71000,
+          "ceiling": 90000,
+          "opening_rate": 0.1,
+          "depth_rate": 0.19,
+          "max_discount": 0.29,
+          "spread": 0.5,
+          "stock_status": "Unknown"
+        },
+        {
+          "product_id": "0",
+          "name": "Zero SKU",
+          "channel": "",
+          "category": "",
+          "regular": 100000,
+          "floor": 100000,
+          "ceiling": 100000,
+          "opening_rate": 0.0,
+          "depth_rate": 0.0,
+          "max_discount": 0.0,
+          "spread": 0.0,
+          "stock_status": "Unknown"
+        },
+        {
+          "product_id": "syn-b",
+          "name": "No discount",
+          "channel": "",
+          "category": "",
+          "regular": 100000,
+          "floor": 100000,
+          "ceiling": 100000,
+          "opening_rate": 0.0,
+          "depth_rate": 0.0,
+          "max_discount": 0.0,
+          "spread": 0.0,
+          "stock_status": "Unknown"
+        }
+      ]
+    }
+  ],
+  "suggestions": [
+    {
+      "args": {
+        "target_line": {
+          "sku": "target",
+          "name": "Tuna 180g",
+          "category": "canned fish"
+        },
+        "shortfall": 4,
+        "products": [
+          {
+            "product_id": "syn-a",
+            "name": "Tuna Premium 180g",
+            "category": "canned fish",
+            "floor": 5000,
+            "ceiling": 6000
+          },
+          {
+            "product_id": "syn-b",
+            "name": "کنسرو تن ماهی ۱۸۰ گرمی",
+            "category": "canned fish",
+            "floor": 8000,
+            "ceiling": 10000
+          }
+        ],
+        "lots": [
+          {
+            "sku": "syn-a",
+            "available_units": 10
+          },
+          {
+            "sku": "syn-b",
+            "available_units": 5
+          }
+        ],
+        "excluded_skus": [
+          "target"
+        ],
+        "limit": 5
+      },
+      "expected": [
+        {
+          "sku": "syn-a",
+          "name": "Tuna Premium 180g",
+          "category": "canned fish",
+          "available_units": 10,
+          "required_units": 4,
+          "price_floor_toman": 5000,
+          "price_ceiling_toman": 6000,
+          "match_score": 0.667,
+          "matched_terms": [
+            "180g",
+            "tuna"
+          ],
+          "review_required": true
+        },
+        {
+          "sku": "syn-b",
+          "name": "کنسرو تن ماهی ۱۸۰ گرمی",
+          "category": "canned fish",
+          "available_units": 5,
+          "required_units": 4,
+          "price_floor_toman": 8000,
+          "price_ceiling_toman": 10000,
+          "match_score": 0.35,
+          "matched_terms": [],
+          "review_required": true
+        }
+      ]
+    },
+    {
+      "args": {
+        "target_line": {
+          "sku": "target",
+          "name": "کنسرو تن ماهی ۱۸۰ گرمی",
+          "category": "canned fish"
+        },
+        "shortfall": 4,
+        "products": [
+          {
+            "product_id": "syn-a",
+            "name": "Tuna Premium 180g",
+            "category": "canned fish",
+            "floor": 5000,
+            "ceiling": 6000
+          },
+          {
+            "product_id": "syn-b",
+            "name": "کنسرو تن ماهی ۱۸۰ گرمی",
+            "category": "canned fish",
+            "floor": 8000,
+            "ceiling": 10000
+          }
+        ],
+        "lots": [
+          {
+            "sku": "syn-a",
+            "available_units": 10
+          },
+          {
+            "sku": "syn-b",
+            "available_units": 5
+          }
+        ],
+        "excluded_skus": [
+          "target"
+        ],
+        "limit": 5
+      },
+      "expected": [
+        {
+          "sku": "syn-b",
+          "name": "کنسرو تن ماهی ۱۸۰ گرمی",
+          "category": "canned fish",
+          "available_units": 5,
+          "required_units": 4,
+          "price_floor_toman": 8000,
+          "price_ceiling_toman": 10000,
+          "match_score": 1.0,
+          "matched_terms": [
+            "تن",
+            "ماهی",
+            "کنسرو",
+            "گرمی",
+            "۱۸۰"
+          ],
+          "review_required": true
+        },
+        {
+          "sku": "syn-a",
+          "name": "Tuna Premium 180g",
+          "category": "canned fish",
+          "available_units": 10,
+          "required_units": 4,
+          "price_floor_toman": 5000,
+          "price_ceiling_toman": 6000,
+          "match_score": 0.35,
+          "matched_terms": [],
+          "review_required": true
+        }
+      ]
+    },
+    {
+      "args": {
+        "target_line": {
+          "sku": "target",
+          "name": "تونا and Tuna",
+          "category": "canned fish"
+        },
+        "shortfall": 4,
+        "products": [
+          {
+            "product_id": "syn-a",
+            "name": "Tuna Premium 180g",
+            "category": "canned fish",
+            "floor": 5000,
+            "ceiling": 6000
+          },
+          {
+            "product_id": "syn-b",
+            "name": "کنسرو تن ماهی ۱۸۰ گرمی",
+            "category": "canned fish",
+            "floor": 8000,
+            "ceiling": 10000
+          }
+        ],
+        "lots": [
+          {
+            "sku": "syn-a",
+            "available_units": 10
+          },
+          {
+            "sku": "syn-b",
+            "available_units": 5
+          }
+        ],
+        "excluded_skus": [
+          "target"
+        ],
+        "limit": 5
+      },
+      "expected": [
+        {
+          "sku": "syn-a",
+          "name": "Tuna Premium 180g",
+          "category": "canned fish",
+          "available_units": 10,
+          "required_units": 4,
+          "price_floor_toman": 5000,
+          "price_ceiling_toman": 6000,
+          "match_score": 0.35,
+          "matched_terms": [
+            "tuna"
+          ],
+          "review_required": true
+        },
+        {
+          "sku": "syn-b",
+          "name": "کنسرو تن ماهی ۱۸۰ گرمی",
+          "category": "canned fish",
+          "available_units": 5,
+          "required_units": 4,
+          "price_floor_toman": 8000,
+          "price_ceiling_toman": 10000,
+          "match_score": 0.35,
+          "matched_terms": [],
+          "review_required": true
+        }
+      ]
+    }
+  ]
+}
