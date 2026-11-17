@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 define('ABSPATH','/synthetic/');define('MOLAVI_STATE_ROOT',sys_get_temp_dir().'/molavi-order-writer-'.bin2hex(random_bytes(6)));
-function add_action(...$args){}function add_filter(...$args){}
+function add_action(...$args){}function add_filter(...$args){$GLOBALS['filters'][$args[0]][]=$args[1];}
 foreach(['state-host','domain-core','domain-schemas','domain-reference-parser','domain-inventory','domain-orders','domain-order-workflows','domain-order-writer','domain-jobs'] as $file)
  require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-'.$file.'.php';
 $count=0;function writer_same($actual,$expected,$name){global $count;if(molavi_domain_json($actual)!==molavi_domain_json($expected))throw new RuntimeException($name.' '.molavi_domain_json(['actual'=>$actual,'expected'=>$expected]));$count++;}
@@ -50,4 +50,12 @@ molavi_domain_tx('pipeline',static fn($db)=>molavi_domain_sql($db,'UPDATE jobs S
 writer_same(molavi_domain_claim_job($new),null,'paid update cannot overtake an older queued order retry');
 molavi_domain_tx('pipeline',static fn($db)=>molavi_domain_sql($db,"UPDATE jobs SET state='done' WHERE id=?",[$old]));
 $claimed=molavi_domain_claim_job($new);writer_same($claimed['id'],$new,'next order update becomes eligible after its predecessor');molavi_domain_finish_job($claimed,['written'=>true]);
+function get_option($key,$default=false){return $key==='molavi_state_active'?true:$default;}
+function molavi_legacy_config(){return ['bot_url'=>'https://bot.synthetic.test','notify_secret'=>str_repeat('s',40)];}
+function wp_json_encode($value){return json_encode($value);}
+function get_status_header_desc($status){return 'Synthetic status';}
+$filter=$GLOBALS['filters']['pre_http_request'][0];$args=['method'=>'POST','headers'=>['X-Shop-Token'=>str_repeat('s',40)],'body'=>'{"order":null}'];$before=$GLOBALS['sheet_reads'];
+$intercepted=$filter(false,$args,'https://bot.synthetic.test/shop/order');writer_same($intercepted['response']['code'],400,'real handoff filter rejects invalid orders locally');
+writer_same($intercepted['headers']['x-molavi-executor'],'wordpress','handoff response identifies WordPress execution');writer_same($GLOBALS['sheet_reads'],$before,'interception check has no Sheet writes or reads');
+$args['headers']['X-Shop-Token']='wrong';writer_same($filter(false,$args,'https://bot.synthetic.test/shop/order'),false,'handoff filter requires the configured shared token');
 foreach(glob($root.'/*') as $file)unlink($file);rmdir($root);echo 'PASS native order writer '.$count." cases\n";

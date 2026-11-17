@@ -94,3 +94,17 @@ add_filter('pre_http_request',static function($pre,array $args,string $url){
     return ['headers'=>['content-type'=>'application/json; charset=utf-8','cache-control'=>'no-store','x-molavi-executor'=>'wordpress'],
         'body'=>wp_json_encode($result['body']),'response'=>['code'=>$result['code'],'message'=>get_status_header_desc($result['code'])],'cookies'=>[],'filename'=>null];
 },1001,3);
+add_action('rest_api_init',static function():void {
+    register_rest_route('molavi-workflow/v1','/orders/check',['methods'=>'GET','permission_callback'=>'molavi_runtime_permission',
+        'callback'=>static function(){
+            if(!get_option('molavi_state_active',false)||molavi_domain_job_host('order')!=='wordpress')return new WP_Error('native_orders_inactive','Native order execution unavailable',['status'=>409]);
+            $config=molavi_legacy_config();$base=rtrim((string)($config['bot_url']??''),'/');$secret=(string)($config['notify_secret']??'');
+            if($secret===''||wp_parse_url($base,PHP_URL_SCHEME)!=='https')return new WP_Error('native_order_config','Order configuration unavailable',['status'=>503]);
+            // An invalid payload proves the real WP HTTP interception without creating an order or task.
+            $response=wp_safe_remote_post($base.'/shop/order',['timeout'=>10,'redirection'=>0,
+                'headers'=>['Content-Type'=>'application/json','X-Shop-Token'=>$secret],'body'=>'{"order":null}']);
+            $local=!is_wp_error($response)&&wp_remote_retrieve_response_code($response)===400&&wp_remote_retrieve_header($response,'x-molavi-executor')==='wordpress';
+            if(!$local)return new WP_Error('native_order_interception_unverified','Native order handoff unavailable',['status'=>503]);
+            return ['ok'=>true,'native_handoff_intercepted'=>true,'writes'=>false];
+        }]);
+});
