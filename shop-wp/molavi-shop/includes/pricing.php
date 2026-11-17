@@ -260,7 +260,7 @@ function molavi_round_half_up(float $value): int
     return $whole;
 }
 
-function molavi_band(int $cost, int $shelf): array
+function molavi_band(int $cost, int $shelf, ?array $settings = null): array
 {
     $blank = [
         'floor' => $shelf > 0 ? $shelf : 0,
@@ -268,7 +268,7 @@ function molavi_band(int $cost, int $shelf): array
         'max' => 0.0,
         'discountable' => false,
     ];
-    $settings = molavi_price_settings();
+    $settings = $settings ?? molavi_price_settings();
     if ($cost <= 0 || $shelf <= 0 || $shelf <= $cost) {
         return $blank;
     }

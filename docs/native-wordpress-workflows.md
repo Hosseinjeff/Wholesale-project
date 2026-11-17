@@ -210,3 +210,23 @@ checks verify recovery and the retry limit. No partial generation is staged.
 Railway control-plane observation during this work: production wholesale was
 Sleeping with no issues; Staging RAM was 0.08275968 GB and disk 0.01081344 GB.
 The separate FollowUP-bot service is outside this repository and remains untouched.
+
+Reference cutover verified on both sites: active, projected and reconciled IDs match;
+each now has 3,394 authoritative raw source records and zero pending raw rows for
+the active snapshot. Live's real cron completed the metadata upgrade and retained
+one affected approval within the existing 5% rule (zero new review cases).
+Staging's native retry completed after its earlier safe pagination rejection. Both
+new reference methods remain enabled locally; the bounded-generation retry source
+was uploaded and read back from `fa6fb71` / live `1d459bd`.
+
+The next order foundation contains native supplier/customer/delivery transitions,
+refund limits, replacement consent and payment receipts, cancellation recovery,
+stock reservation/fulfillment and existing ledger event identities. 42 synthetic
+Python workflow scenarios compare results and all nine related tables (420 checks).
+Four current-Sheet catalog cases and three owned-stock shortlist cases add seven
+checks. The catalog reuses the existing storefront pricing function through an
+optional settings argument; existing storefront callers keep their current behavior
+and all 20 customer runtime checks pass. No order route or order execution ownership
+is activated at this checkpoint; native order Sheet writing and integration are next.
+The protected status endpoint reports Unicode normalization/casefold capabilities
+for checking host dependencies before the order rollout.
