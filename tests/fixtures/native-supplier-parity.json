@@ -1,0 +1,188 @@
+{
+  "verification": [
+    {
+      "arguments": {
+        "offer_id": "synthetic-supplier-product",
+        "source_revision": "synthetic-revision",
+        "actor_id": "wp:7",
+        "note": "Synthetic verification",
+        "now": "2026-11-17T00:00:00+00:00",
+        "command_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      "expected": {
+        "verified_at": "2026-11-17T00:00:00+00:00",
+        "idempotent": false
+      }
+    },
+    {
+      "arguments": {
+        "offer_id": "synthetic-supplier-product",
+        "source_revision": "synthetic-revision",
+        "actor_id": "wp:7",
+        "note": "Synthetic verification",
+        "now": "2026-11-17T00:00:00+00:00",
+        "command_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      "expected": {
+        "verified_at": "2026-11-17T00:00:00+00:00",
+        "idempotent": true
+      }
+    },
+    {
+      "arguments": {
+        "offer_id": "synthetic-supplier-product",
+        "source_revision": "changed",
+        "actor_id": "wp:7",
+        "note": "Synthetic verification",
+        "now": "2026-11-17T00:00:00+00:00",
+        "command_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "arguments": {
+        "offer_id": "synthetic-supplier-product",
+        "source_revision": "synthetic-revision",
+        "actor_id": "wp:7",
+        "note": "Synthetic verification",
+        "now": "2026-11-16T00:00:00+00:00",
+        "command_id": null
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "arguments": {
+        "offer_id": "synthetic-supplier-product",
+        "source_revision": "synthetic-revision",
+        "actor_id": "wp:7",
+        "note": "Synthetic verification",
+        "now": "2026-11-18T00:00:00+00:00",
+        "command_id": null
+      },
+      "expected": {
+        "verified_at": "2026-11-18T00:00:00+00:00",
+        "idempotent": false
+      }
+    }
+  ],
+  "revisions": [
+    {
+      "record": {
+        "Latest Offer ID": "synthetic-offer",
+        "Sale Price": "1000",
+        "Currency": "TOMAN"
+      },
+      "expected": "944a731d7ad73c01ba8ce254c4547ce24d3358fb1922c8b180e8e779e26f9db8"
+    },
+    {
+      "record": {
+        "Latest Offer ID": "synthetic-offer",
+        "Sale Price": "1,000",
+        "Currency": "TOMAN"
+      },
+      "expected": "944a731d7ad73c01ba8ce254c4547ce24d3358fb1922c8b180e8e779e26f9db8"
+    },
+    {
+      "record": {
+        "Latest Offer ID": "synthetic-offer",
+        "Sale Price": "۱٬۰۰۰",
+        "Currency": "TOMAN"
+      },
+      "expected": "944a731d7ad73c01ba8ce254c4547ce24d3358fb1922c8b180e8e779e26f9db8"
+    },
+    {
+      "record": {
+        "Latest Offer ID": "synthetic-offer",
+        "Sale Price": "1000.0000",
+        "Currency": "TOMAN"
+      },
+      "expected": "944a731d7ad73c01ba8ce254c4547ce24d3358fb1922c8b180e8e779e26f9db8"
+    },
+    {
+      "record": {
+        "Latest Offer ID": "synthetic-offer",
+        "Sale Price": "1e3",
+        "Currency": "TOMAN"
+      },
+      "expected": "944a731d7ad73c01ba8ce254c4547ce24d3358fb1922c8b180e8e779e26f9db8"
+    },
+    {
+      "record": {
+        "Latest Offer ID": "synthetic-offer",
+        "Sale Price": "1234.567891234567891",
+        "Currency": "TOMAN"
+      },
+      "expected": "a81376de4f9952faa73d77fc3018e71f295c7fc5a7f6e54dbef8d1bc618b1346"
+    },
+    {
+      "record": {
+        "Latest Offer ID": "synthetic-offer",
+        "Sale Price": "1.234567891234567891e3",
+        "Currency": "TOMAN"
+      },
+      "expected": "a81376de4f9952faa73d77fc3018e71f295c7fc5a7f6e54dbef8d1bc618b1346"
+    },
+    {
+      "record": {
+        "Latest Offer ID": "synthetic-offer",
+        "Sale Price": "1e-300",
+        "Currency": "TOMAN"
+      },
+      "expected": "537e88f8478d21c8dda0f1b9d417d771d0ad1f5773c2a31e61fe3be4d3ec4c81"
+    },
+    {
+      "record": {
+        "Latest Offer ID": "synthetic-offer",
+        "Sale Price": "1_000",
+        "Currency": "TOMAN"
+      },
+      "expected": "944a731d7ad73c01ba8ce254c4547ce24d3358fb1922c8b180e8e779e26f9db8"
+    },
+    {
+      "record": {
+        "Latest Offer ID": "synthetic-offer",
+        "Sale Price": true,
+        "Currency": "TOMAN"
+      },
+      "expected": ""
+    },
+    {
+      "record": {
+        "Latest Offer ID": "synthetic-offer",
+        "Sale Price": "0",
+        "Currency": "TOMAN"
+      },
+      "expected": ""
+    },
+    {
+      "record": {
+        "Latest Offer ID": "synthetic-offer",
+        "Sale Price": "-1",
+        "Currency": "TOMAN"
+      },
+      "expected": ""
+    },
+    {
+      "record": {
+        "Latest Offer ID": "synthetic-offer",
+        "Sale Price": 12345.6789012345,
+        "Currency": "TOMAN"
+      },
+      "expected": "91ad40c95539e9b4e3ab4a18c9b46c0cb7d50f31cfc7aa60ce09e5f168fb0959"
+    }
+  ],
+  "queue": {
+    "kind": "publish",
+    "key": "synthetic-native-queue",
+    "payload": {
+      "source_revision": "synthetic-revision",
+      "product_id": "synthetic-product"
+    },
+    "expected_id": "publish:synthetic-native-queue",
+    "expected_payload": "{\"product_id\": \"synthetic-product\", \"source_revision\": \"synthetic-revision\"}"
+  }
+}

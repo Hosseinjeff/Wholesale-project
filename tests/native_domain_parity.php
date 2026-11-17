@@ -16,6 +16,8 @@ require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-gateway.php'
 require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-reference-parser.php';
 require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-reference-store.php';
 require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-products.php';
+require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-supplier-prices.php';
+require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-outbox.php';
 $root=molavi_state_root();$initial=new SQLite3($root.'/pipeline.sqlite3');$initial->exec('PRAGMA user_version=1');$initial->close();
 $fixtures=json_decode(file_get_contents(__DIR__.'/fixtures/native-domain-parity.json'),true,128,JSON_THROW_ON_ERROR);$count=0;
 function compare_native($actual,$expected,string $name):void {
@@ -92,4 +94,29 @@ foreach($products['states'] as $index=>$case)compare_native(molavi_domain_produc
 $db=molavi_domain_db();$db->exec('DELETE FROM product_status_records');$db->exec('DELETE FROM product_status_snapshots');$db->close();
 compare_native(molavi_domain_status_capture($products['tables'],'synthetic-native-parity',(float)$products['clock']),$products['capture'],'status capture digest');
 compare_native(molavi_domain_status_history(),$products['history'],'status history');
+$supplier=json_decode(file_get_contents(__DIR__.'/fixtures/native-supplier-parity.json'),true,128,JSON_THROW_ON_ERROR);
+foreach($supplier['revisions'] as $index=>$case)compare_native(molavi_domain_source_revision($case['record']),$case['expected'],'source decimal precision/'.$index);
+foreach($supplier['verification'] as $index=>$case){$a=$case['arguments'];try{
+    $actual=molavi_domain_verify_price($a['offer_id'],$a['source_revision'],$a['actor_id'],$a['note'],$a['now'],$a['command_id']);
+}catch(MolaviWorkflowError $e){$actual=['error'=>true];}
+compare_native($actual,$case['expected'],'supplier verification/'.$index);}
+$q=$supplier['queue'];compare_native(molavi_domain_queue($q['kind'],$q['key'],$q['payload']),$q['expected_id'],'shared queue identity');
+compare_native(molavi_domain_read('pipeline',static fn($db)=>molavi_domain_row($db,'SELECT payload FROM jobs WHERE id=?',[$q['expected_id']])['payload']),$q['expected_payload'],'shared queue encoding');
+class NativeOutboxDB {function prepare($sql,...$args){return $sql;}function get_var($sql){return $GLOBALS['outbox_actor']??7;}}
+function molavi_workflow_decisions_table(){return 'synthetic_decisions';}
+function molavi_workflow_outbox_table(){return 'synthetic_outbox';}
+function molavi_owner_review_store_pending_commands($limit,$domains){$GLOBALS['claimed_domains']=$domains;
+    if(!empty($GLOBALS['claim_unavailable']))return null;$item=array_shift($GLOBALS['outbox_commands']);return $item?[$item]:[];}
+function molavi_owner_review_outbox_store_receipt($input){$GLOBALS['outbox_receipts'][]=$input;return empty($GLOBALS['receipt_reject']);}
+$GLOBALS['wpdb']=new NativeOutboxDB();$GLOBALS['options']['molavi_native_routes_v1']=['POST /pipeline/supplier-price-evidence'];
+$command=['command_id'=>str_repeat('c',64),'command_type'=>'supplier_price','event_id'=>'synthetic-event',
+    'payload'=>['product_id'=>'synthetic-supplier-product','expected_revision'=>'synthetic-revision','note'=>'Synthetic verification','command_id'=>str_repeat('c',64)]];
+$GLOBALS['outbox_commands']=[$command];$GLOBALS['outbox_receipts']=[];
+compare_native(molavi_domain_drain_outbox(),['claimed'=>1,'delivered'=>1,'retried'=>0,'failed'=>0,'error'=>''],'native outbox existing command replay');
+compare_native($GLOBALS['claimed_domains'],['supplier_price'],'native outbox leaves unsupported domains');
+compare_native($GLOBALS['outbox_receipts'][0]['receipt']['idempotent'],true,'native outbox keeps prior verification receipt');
+$GLOBALS['outbox_actor']=99;$GLOBALS['outbox_commands']=[$command];
+compare_native(molavi_domain_drain_outbox()['failed'],1,'native outbox respects recorded owner');
+$GLOBALS['outbox_actor']=7;$GLOBALS['receipt_reject']=true;$GLOBALS['outbox_commands']=[$command];
+compare_native(molavi_domain_drain_outbox(),['claimed'=>1,'delivered'=>0,'retried'=>0,'failed'=>0,'error'=>'outbox_receipt_rejected'],'native outbox requires durable acknowledgement');
 foreach(glob($root.'/*') as $file)unlink($file);rmdir($root);echo 'PASS native domain parity '.$count." cases\n";

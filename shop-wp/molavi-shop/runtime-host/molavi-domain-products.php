@@ -6,14 +6,18 @@ defined('ABSPATH') || exit;
 function molavi_domain_source_revision(array $record): string {
     $offer=trim((string)($record['Latest Offer ID']??''));
     if($offer===''){$id=trim((string)($record['Product ID']??''));$offer=$id!==''?'sheet:'.$id:'';}
-    $sale=str_replace([',','٬'],'',trim(molavi_domain_digits($record['Sale Price']??'')));
-    if($offer===''||!is_numeric($sale)||!is_finite((float)$sale)||(float)$sale<=0)return '';
-    // Preserve decimal text rather than introducing floating-point price noise.
-    if(preg_match('/^\+?(\d+)(?:\.(\d*))?$/D',$sale,$m)){
-        $whole=ltrim($m[1],'0');$whole=$whole===''?'0':$whole;$fraction=rtrim($m[2]??'','0');$sale=$whole.($fraction!==''?'.'.$fraction:'');
-    }else{
-        $number=(float)$sale;$sale=$number===floor($number)?sprintf('%.0f',$number):rtrim(rtrim(sprintf('%.14F',$number),'0'),'.');
-    }
+    $raw=$record['Sale Price']??'';if(is_bool($raw)||!is_scalar($raw)||(is_float($raw)&&!is_finite($raw)))return '';
+    $sale=str_replace([',','٬','_'],'',trim(molavi_domain_digits(is_float($raw)?molavi_domain_json($raw):$raw)));
+    // Canonicalize the source decimal as text, including exponent notation.
+    // The revision must change even when a decimal difference is smaller than
+    // floating-point precision; the existing ledger uses Python Decimal.
+    if($offer===''||!preg_match('/^\+?(?:(\d+)(?:\.(\d*))?|\.(\d+))(?:[eE]([+-]?\d+))?$/D',$sale,$m))return '';
+    $whole=($m[1]??'')!==''?$m[1]:'0';$fraction=($m[3]??'')!==''?$m[3]:($m[2]??'');$exponent=(int)($m[4]??0);
+    if(abs($exponent)>10000)return '';$digits=$whole.$fraction;$leading=strlen($digits)-strlen(ltrim($digits,'0'));
+    $point=strlen($whole)+$exponent-$leading;$digits=rtrim(substr($digits,$leading),'0');if($digits==='')return '';
+    if($point<=0)$sale='0.'.str_repeat('0',-$point).$digits;
+    elseif($point>=strlen($digits))$sale=$digits.str_repeat('0',$point-strlen($digits));
+    else $sale=substr($digits,0,$point).'.'.substr($digits,$point);
     $parts=[$offer,$sale,trim((string)($record['Currency']??''))];$basis=trim((string)($record['Source Timestamp Basis']??''));
     if($basis!=='')$parts[]=$basis;return molavi_domain_hash($parts);
 }
