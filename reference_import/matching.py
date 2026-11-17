@@ -8,7 +8,7 @@ from math import isfinite
 import hashlib
 import json
 import re
-from catalog.measurements import normalize_measurement_tokens
+from catalog.measurements import measurement_signature, normalize_measurement_tokens
 from .importer import normalize_name, HEADERS
 
 try:
@@ -186,6 +186,33 @@ def ranked_candidates(product, rows, *, limit=10):
     return RankedCandidateIndex(rows).ranked_candidates(product, limit=limit)
 
 
+def explicit_reference_conflicts(product, reference):
+    """Compare stated identity facts in code; missing facts never establish conflict.
+
+    Brand/variant spelling disagreements require review, rather than an automatic
+    alias assumption. Measurements compare exact base units, including the older
+    parser's use of the volume column for weights.
+    """
+    conflicts = []
+    for key in ('brand', 'variant'):
+        left = product.get(key) or (product.get('variation_type') if key == 'variant' else '')
+        right = reference.get(key)
+        if left and right and _text(left) != _text(right):
+            conflicts.append(key)
+    left_count = _number(product.get('package_count'))
+    right_count = _number(reference.get('package_count'))
+    if left_count and right_count and left_count != right_count:
+        conflicts.append('package_count')
+    left_text = ' '.join(str(product.get(key) or '') for key in ('volume', 'weight'))
+    right_text = ' '.join(str(reference.get(key) or '') for key in ('volume', 'weight'))
+    for kind in ('volume', 'weight'):
+        left = set(measurement_signature(left_text, kind))
+        right = set(measurement_signature(right_text, kind))
+        if left and right and left != right:
+            conflicts.append(kind)
+    return conflicts
+
+
 def candidate_match(product, rows, *, overrides=None):
     """Exact normalized identity plus strict explicit-attribute agreement.
 
@@ -201,13 +228,23 @@ def candidate_match(product, rows, *, overrides=None):
         if _name(row[1] or row[0]) != name:continue
         compatible=True
         for key,index in (('brand',12),('variant',11),('volume',8),('weight',9)):
-            incoming=_text(product.get(key)); reference=_text(row[index])
+            incoming=_text(product.get(key) or (product.get('variation_type') if key == 'variant' else ''))
+            reference=_text(row[index])
             if key in {'volume','weight'}:
                 # The message parser historically places explicit gram/kilo
                 # markers in its `volume` field; compare either measurement
                 # against both source columns while keeping labels separate.
-                alternatives={reference,_text(row[8]),_text(row[9])}-{''}
-                if incoming and incoming not in alternatives:compatible=False;break
+                source_value = str(product.get(key) or '')
+                reference_value = ' '.join(str(row[i] or '') for i in (8, 9))
+                kinds = [kind for kind in ('volume', 'weight')
+                         if measurement_signature(source_value, kind)]
+                if kinds:
+                    if any(set(measurement_signature(source_value, kind)) !=
+                           set(measurement_signature(reference_value, kind)) for kind in kinds):
+                        compatible=False;break
+                else:
+                    alternatives={reference,_text(row[8]),_text(row[9])}-{''}
+                    if incoming and incoming not in alternatives:compatible=False;break
             elif incoming and (not reference or incoming != reference):compatible=False;break
         incoming_count=_number(product.get('package_count'))
         reference_count=_number(row[6])
