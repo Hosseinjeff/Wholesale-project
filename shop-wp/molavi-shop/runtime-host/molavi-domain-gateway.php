@@ -13,6 +13,7 @@ function molavi_domain_routes(): array {
         '/pipeline/reconciliation'=>['GET'],
         '/pipeline/product-status-snapshots'=>['GET','POST'],
         '/pipeline/supplier-price-evidence'=>['GET','POST'],
+        '/pipeline/sheet-conflicts'=>['GET','POST'],
         '/reference/snapshots'=>['GET','POST'],
         '/reference/decisions'=>['GET','POST'],
         '/pipeline/stock-lots'=>['GET','POST'],
@@ -138,6 +139,7 @@ function molavi_domain_dispatch(string $method,string $path,array $query,?array 
         elseif($path==='/pipeline/reconciliation')$result=molavi_domain_reconciliation_api($query);
         elseif($path==='/pipeline/product-status-snapshots')$result=molavi_domain_status_api($method,$query,$body,$actor);
         elseif($path==='/pipeline/supplier-price-evidence')$result=molavi_domain_supplier_prices_api($method,$body,$actor);
+        elseif($path==='/pipeline/sheet-conflicts')$result=molavi_domain_sheet_conflicts_api($method,$body,$actor);
         elseif($path==='/reference/snapshots')$result=$method==='POST'?molavi_domain_reference_api($body,$actor):molavi_domain_reference_snapshots($query);
         elseif($path==='/reference/decisions')$result=$method==='POST'?molavi_domain_reference_decision_api($body,$actor):['ok'=>true,'events'=>molavi_domain_read('reference',static fn(SQLite3 $db)=>molavi_domain_rows($db,
             'SELECT * FROM reference_events e WHERE choice IS NULL AND NOT EXISTS (SELECT 1 FROM reference_retirements r WHERE r.event_id=e.event_id) ORDER BY created_at,event_id'))];

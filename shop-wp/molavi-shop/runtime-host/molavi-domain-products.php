@@ -94,7 +94,7 @@ function molavi_domain_product_identity(array $record): array {
     $weight=molavi_domain_measure_key(($record['Weight']??'')?:($record['weight']??''),$name,'weight');
     $pack=0;if(preg_match('/\d+/u',molavi_domain_identity_text(($record['Package Count']??'')?:($record['package_count']??'')),$m))$pack=(int)$m[0];
     $pack=$pack?:molavi_domain_pack_count((string)(($record['Packaging']??'')?:($record['packaging']??'')),(string)$name);
-    $channel=trim((string)$channel);$channel=function_exists('mb_strtolower')?mb_strtolower($channel,'UTF-8'):strtolower($channel);
+    $channel=trim((string)$channel);$channel=function_exists('mb_convert_case')?mb_convert_case($channel,MB_CASE_FOLD,'UTF-8'):strtolower($channel);
     return [$channel,$key,$variant,$volume,$weight,(string)$pack];
 }
 function molavi_domain_source_issues(array $products,array $offers): array {
