@@ -1,6 +1,6 @@
 # Free Google quota routing and reference suggestions
 
-Updated 2026-11-17, Asia/Tehran. Deployed to Staging at backend commit `466c71d`;
+Updated 2026-11-17, Asia/Tehran. Deployed to Staging at backend commit `cfd6515`;
 see [release verification and remaining work](free-google-staging-release.md).
 Free routing is not activated pending actual quotas and model qualification.
 No live Google inference, reference activation or owner decision was performed.

@@ -2,12 +2,18 @@
 
 ## Latest Staging release — 2026-11-17
 
-Code reference matching, per-model free-quota routing capability and text-only
-supplier intake are deployed at `466c71d`; OCR/image extraction is removed, with
-photos retained as attachments. The current Staging UI, WordPress-hosted state and
-on-demand runtime are preserved. Free routing activation and optional semantic
-matching integration remain pending. Authenticated backend preview works; the
-WordPress owner proxy still returns 502 and remains the active transport issue.
+Owner-requested reference suggestions, code-first matching and text-only supplier
+intake are deployed at `cfd6515`. OCR/image extraction is removed, with photos
+retained as attachments. The current Staging UI, WordPress-hosted state and
+on-demand runtime are preserved. Suggestions run as bounded durable tasks and
+never approve matches. Dashboard reads are serial with one bounded gateway retry;
+supplier evidence uses bulk state transactions, and unchanged review schema setup
+is cached. Actual free quotas, model benchmarks and the optional embedding index
+remain prerequisites for Google routing activation.
+Final authenticated acceptance passed all eight dashboard GETs with no browser
+errors or desktop/mobile overflow. Supplier evidence took 4.9s; AI review still took
+40.4s, so read latency remains a performance task. Concurrent native WordPress work
+through `9234851` is preserved.
 See [release evidence and remaining work](free-google-staging-release.md).
 
 

@@ -2,16 +2,20 @@
 
 ## Current checkpoint — 2026-11-17
 
-The Staging credentials are now present and native owner sign-in/page reads pass.
-The former missing-credential blocker below is historical. Backend release `466c71d`
-is deployed as `622f5bb8-e8ea-425e-b8ef-1b43649a1b26` and its health check passes.
-The updated WordPress asset matches the committed source. A direct authenticated
-backend preview returns HTTP 200 and confirms image extraction disabled, but the
-same-origin WordPress preview proxy returns HTTP 502. No proxy preview reached the
-inspected Railway HTTP log. Continue with the WordPress-to-Railway transport path;
-do not repeat sign-in guesses or undo the WordPress state migration. No actual
-owner decision or reprocessing action was submitted. Full evidence and remaining
-work: [Staging release](free-google-staging-release.md).
+The Staging credentials are present and native owner sign-in/page reads pass.
+The former missing-credential blocker below is historical. Backend release `cfd6515`
+is deployed as `c78e7cf4-c4ce-4677-abf6-5597f4c237dd`, terminal SUCCESS. The matching
+WordPress asset is deployed and read back. The intermittent 502 reproduced as
+45-second upstream cancellations under concurrent dashboard reads. Reads are now
+serial, supplier evidence uses bounded bulk state transactions, unchanged review
+schema setup uses the provider cache, and transient read gateways receive one retry.
+Do not repeat sign-in guesses or undo WordPress state ownership. No actual owner
+approval or reprocessing action was submitted. Current authenticated acceptance
+and remaining work: [Staging release](free-google-staging-release.md).
+The final authenticated dashboard pass returned HTTP 200 for all eight unique GET
+routes, with no JavaScript errors or desktop/mobile overflow. AI review took 40.4s;
+continue performance work and native ports rather than reopening the old credential
+blocker. Owner GETs have a bounded 90-second timeout; POSTs retain 45 seconds.
 
 
 Updated 2026-11-13 (Asia/Tehran). This is the current operational handoff for the
