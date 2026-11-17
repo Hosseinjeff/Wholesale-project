@@ -1,0 +1,158 @@
+[
+  {
+    "name": "first-page",
+    "page": 1,
+    "size": 2,
+    "total": null,
+    "pages": null,
+    "status": 200,
+    "headers": {
+      "X-WP-Total": "3",
+      "X-WP-TotalPages": "2"
+    },
+    "expected": [
+      [
+        {
+          "id": 1,
+          "sku": "SYNTH1",
+          "name": "چای نمونه ۱۲ عددی (۴۵ف) ۲۵۰گرم ۵۰۰میل",
+          "categories": [
+            {
+              "id": 12,
+              "name": "نوشیدنی"
+            }
+          ],
+          "attributes": [],
+          "prices": {
+            "price": "480000",
+            "regular_price": "500000",
+            "sale_price": "480000",
+            "currency_code": "IRT",
+            "currency_minor_unit": 0
+          }
+        },
+        {
+          "id": 2,
+          "sku": "SYNTH2",
+          "name": "چای نمونه ۱۲ عددی (۴۵ف) ۲۵۰گرم ۵۰۰میل",
+          "categories": [
+            {
+              "id": 12,
+              "name": "نوشیدنی"
+            }
+          ],
+          "attributes": [],
+          "prices": {
+            "price": "480000",
+            "regular_price": "500000",
+            "sale_price": "480000",
+            "currency_code": "IRT",
+            "currency_minor_unit": 0
+          }
+        }
+      ],
+      3,
+      2
+    ],
+    "body": "[{\"id\": 1, \"sku\": \"SYNTH1\", \"name\": \"چای نمونه ۱۲ عددی (۴۵ف) ۲۵۰گرم ۵۰۰میل\", \"categories\": [{\"id\": 12, \"name\": \"نوشیدنی\"}], \"attributes\": [], \"prices\": {\"price\": \"480000\", \"regular_price\": \"500000\", \"sale_price\": \"480000\", \"currency_code\": \"IRT\", \"currency_minor_unit\": 0}}, {\"id\": 2, \"sku\": \"SYNTH2\", \"name\": \"چای نمونه ۱۲ عددی (۴۵ف) ۲۵۰گرم ۵۰۰میل\", \"categories\": [{\"id\": 12, \"name\": \"نوشیدنی\"}], \"attributes\": [], \"prices\": {\"price\": \"480000\", \"regular_price\": \"500000\", \"sale_price\": \"480000\", \"currency_code\": \"IRT\", \"currency_minor_unit\": 0}}]"
+  },
+  {
+    "name": "last-page",
+    "page": 2,
+    "size": 2,
+    "total": 3,
+    "pages": 2,
+    "status": 200,
+    "headers": {
+      "X-WP-Total": "3",
+      "X-WP-TotalPages": "2"
+    },
+    "expected": [
+      [
+        {
+          "id": 1,
+          "sku": "SYNTH1",
+          "name": "چای نمونه ۱۲ عددی (۴۵ف) ۲۵۰گرم ۵۰۰میل",
+          "categories": [
+            {
+              "id": 12,
+              "name": "نوشیدنی"
+            }
+          ],
+          "attributes": [],
+          "prices": {
+            "price": "480000",
+            "regular_price": "500000",
+            "sale_price": "480000",
+            "currency_code": "IRT",
+            "currency_minor_unit": 0
+          }
+        }
+      ],
+      3,
+      2
+    ],
+    "body": "[{\"id\": 1, \"sku\": \"SYNTH1\", \"name\": \"چای نمونه ۱۲ عددی (۴۵ف) ۲۵۰گرم ۵۰۰میل\", \"categories\": [{\"id\": 12, \"name\": \"نوشیدنی\"}], \"attributes\": [], \"prices\": {\"price\": \"480000\", \"regular_price\": \"500000\", \"sale_price\": \"480000\", \"currency_code\": \"IRT\", \"currency_minor_unit\": 0}}]"
+  },
+  {
+    "name": "partial-page",
+    "page": 1,
+    "size": 2,
+    "total": null,
+    "pages": null,
+    "status": 200,
+    "headers": {
+      "X-WP-Total": "3",
+      "X-WP-TotalPages": "2"
+    },
+    "expected": {
+      "error": true
+    },
+    "body": "[{\"id\": 1, \"sku\": \"SYNTH1\", \"name\": \"چای نمونه ۱۲ عددی (۴۵ف) ۲۵۰گرم ۵۰۰میل\", \"categories\": [{\"id\": 12, \"name\": \"نوشیدنی\"}], \"attributes\": [], \"prices\": {\"price\": \"480000\", \"regular_price\": \"500000\", \"sale_price\": \"480000\", \"currency_code\": \"IRT\", \"currency_minor_unit\": 0}}]"
+  },
+  {
+    "name": "changed-total",
+    "page": 2,
+    "size": 2,
+    "total": 3,
+    "pages": 2,
+    "status": 200,
+    "headers": {
+      "X-WP-Total": "4",
+      "X-WP-TotalPages": "2"
+    },
+    "expected": {
+      "error": true
+    },
+    "body": "[{\"id\": 1, \"sku\": \"SYNTH1\", \"name\": \"چای نمونه ۱۲ عددی (۴۵ف) ۲۵۰گرم ۵۰۰میل\", \"categories\": [{\"id\": 12, \"name\": \"نوشیدنی\"}], \"attributes\": [], \"prices\": {\"price\": \"480000\", \"regular_price\": \"500000\", \"sale_price\": \"480000\", \"currency_code\": \"IRT\", \"currency_minor_unit\": 0}}, {\"id\": 2, \"sku\": \"SYNTH2\", \"name\": \"چای نمونه ۱۲ عددی (۴۵ف) ۲۵۰گرم ۵۰۰میل\", \"categories\": [{\"id\": 12, \"name\": \"نوشیدنی\"}], \"attributes\": [], \"prices\": {\"price\": \"480000\", \"regular_price\": \"500000\", \"sale_price\": \"480000\", \"currency_code\": \"IRT\", \"currency_minor_unit\": 0}}]"
+  },
+  {
+    "name": "missing-headers",
+    "page": 1,
+    "size": 2,
+    "total": null,
+    "pages": null,
+    "status": 200,
+    "headers": {},
+    "expected": {
+      "error": true
+    },
+    "body": "[{\"id\": 1, \"sku\": \"SYNTH1\", \"name\": \"چای نمونه ۱۲ عددی (۴۵ف) ۲۵۰گرم ۵۰۰میل\", \"categories\": [{\"id\": 12, \"name\": \"نوشیدنی\"}], \"attributes\": [], \"prices\": {\"price\": \"480000\", \"regular_price\": \"500000\", \"sale_price\": \"480000\", \"currency_code\": \"IRT\", \"currency_minor_unit\": 0}}, {\"id\": 2, \"sku\": \"SYNTH2\", \"name\": \"چای نمونه ۱۲ عددی (۴۵ف) ۲۵۰گرم ۵۰۰میل\", \"categories\": [{\"id\": 12, \"name\": \"نوشیدنی\"}], \"attributes\": [], \"prices\": {\"price\": \"480000\", \"regular_price\": \"500000\", \"sale_price\": \"480000\", \"currency_code\": \"IRT\", \"currency_minor_unit\": 0}}]"
+  },
+  {
+    "name": "not-a-list",
+    "page": 1,
+    "size": 2,
+    "total": null,
+    "pages": null,
+    "status": 200,
+    "headers": {
+      "X-WP-Total": "3",
+      "X-WP-TotalPages": "2"
+    },
+    "expected": {
+      "error": true
+    },
+    "body": "{\"invalid\": \"synthetic\"}"
+  }
+]

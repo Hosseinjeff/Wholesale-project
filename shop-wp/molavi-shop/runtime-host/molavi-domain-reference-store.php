@@ -29,7 +29,7 @@ function molavi_domain_reference_incremental(array $candidate): array {
     if(!is_array($activeIds)||count($activeIds)!==count($oldRows)||count(array_unique(array_map('strval',$activeIds)))!==count($activeIds))$activeIds=null;
     $oldById=[];
     if($activeIds){foreach($activeIds as $index=>$id)$oldById[(string)$id]=$oldRows[$index];}
-    else{$oldByCode=[];foreach($oldRows as $row)if(is_array($row)&&count($row)===21)$oldByCode[(string)($row[16]?:'')]=$row;
+    else{$oldByCode=[];foreach($oldRows as $row)if(is_array($row)&&count($row)===21)$oldByCode[(string)molavi_domain_py_value($row[16])]=$row;
         foreach($products as $product){$code=molavi_domain_reference_code($product);if(isset($oldByCode[$code]))$oldById[(string)$product['id']]=$oldByCode[$code];}}
     $cached=molavi_domain_read('reference',static fn(SQLite3 $db)=>molavi_domain_rows($db,'SELECT source_product_id,product_code,payload FROM reference_source_products'));
     $oldRaw=[];$oldCodes=[];foreach($cached as $row){$oldRaw[(string)$row['source_product_id']]=molavi_domain_decode($row['payload']);$oldCodes[(string)$row['source_product_id']]=$row['product_code'];}
@@ -57,10 +57,10 @@ function molavi_domain_reference_incremental(array $candidate): array {
     }
     $removed=[];
     if($activeIds){foreach($activeIds as $id)if(!isset($seen[(string)$id]))$removed[]=['source_product_id'=>(string)$id,
-        'product_code'=>(string)(($oldById[(string)$id][16]??'')?:($oldCodes[(string)$id]??''))];}
+        'product_code'=>(string)molavi_domain_py_value($oldById[(string)$id][16]??'',($oldCodes[(string)$id]??''))];}
     else{$currentCodes=[];foreach($products as $product)$currentCodes[molavi_domain_reference_code($product)]=true;
         foreach($oldCodes as $id=>$code)if(!isset($currentCodes[$code]))$removed[]=['source_product_id'=>(string)$id,'product_code'=>$code];
-        if($oldRows&&!$oldCodes){$previous=[];foreach($oldRows as $row)if(is_array($row)&&count($row)===21)$previous[(string)($row[16]?:'')]=true;
+        if($oldRows&&!$oldCodes){$previous=[];foreach($oldRows as $row)if(is_array($row)&&count($row)===21)$previous[(string)molavi_domain_py_value($row[16])]=true;
             foreach($previous as $code=>$_)if(!isset($currentCodes[$code]))$removed[]=['source_product_id'=>'','product_code'=>(string)$code];}}
     $reconcile=[];foreach($changed as $item)if($item['price_changed']||in_array('sku',$item['nodes'],true))
         foreach([$item['old_product_code'],$item['product_code']] as $code)if($code!=='')$reconcile[$code]=true;

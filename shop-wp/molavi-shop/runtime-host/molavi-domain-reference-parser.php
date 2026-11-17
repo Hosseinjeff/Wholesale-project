@@ -84,7 +84,7 @@ function molavi_domain_reference_price($prices): array {
 function molavi_domain_reference_code(array $product): string {
     $id=$product['id']??null;if(!is_int($id)||$id<1)molavi_domain_fail('woocommerce_product_id_invalid',400);
     $sku=$product['sku']??null;if($sku===null||!is_scalar($sku)||is_bool($sku))molavi_domain_fail('woocommerce_sku_invalid',400);
-    return trim((string)$sku)?:'woo-'.$id;
+    $sku=trim((string)$sku);return $sku!==''?$sku:'woo-'.$id;
 }
 function molavi_domain_reference_row(array $product,int $ordinal,string $timestamp): array {
     $code=molavi_domain_reference_code($product);$name=$product['name']??null;

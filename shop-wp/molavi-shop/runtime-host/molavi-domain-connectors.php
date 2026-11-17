@@ -90,6 +90,19 @@ function molavi_domain_sheet_append(string $name,array $rows):array {
     $result=molavi_domain_google('POST','/values/'.rawurlencode(molavi_domain_sheet_name($name).'!A1').':append?valueInputOption=RAW&insertDataOption=INSERT_ROWS',['values'=>$rows]);
     molavi_domain_sheet_invalidate($name);return $result;
 }
+function molavi_domain_sheet_properties(bool $fresh=false): array {
+    $key='molavi_sheet_meta_'.hash('sha256',molavi_domain_config()['sheet_id']);$cached=$fresh?false:get_transient($key);
+    if(is_array($cached))return $cached;$data=molavi_domain_google('GET','?fields=sheets.properties');$properties=[];
+    foreach($data['sheets']??[] as $sheet){$props=$sheet['properties']??[];if(isset($props['title'],$props['sheetId']))$properties[(string)$props['title']]=$props;}
+    set_transient($key,$properties,60);return $properties;
+}
+function molavi_domain_sheet_ensure(string $name,array $headers): void {
+    $properties=molavi_domain_sheet_properties();
+    if(!isset($properties[$name])){molavi_domain_google('POST',':batchUpdate',['requests'=>[['addSheet'=>['properties'=>['title'=>$name]]]]]);molavi_domain_sheet_properties(true);}
+    $rows=molavi_domain_sheets([$name],true)[$name];$current=$rows[0]??[];$next=array_map('strval',$current);
+    foreach($headers as $header)if(!in_array($header,$next,true))$next[]=$header;
+    if($next!==$current||!$current)molavi_domain_sheet_cells($name,[['range'=>'A1:'.molavi_domain_sheet_column(count($next)).'1','values'=>[$next]]]);
+}
 add_action('rest_api_init',static function():void {
     register_rest_route('molavi-workflow/v1','/connectors/check',['methods'=>'GET','permission_callback'=>'molavi_runtime_permission',
         'callback'=>static function(){try{$tables=molavi_domain_sheets(['Products','Offers','Shop','ReferencePrices'],true);$summary=[];

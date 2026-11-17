@@ -29,6 +29,9 @@ function molavi_domain_sheets($names,$fresh=false){$GLOBALS['native_sheet_reads'
 function molavi_domain_projection_digest($tables){return str_repeat('d',64);}
 function molavi_domain_observe_projection($digest){$GLOBALS['native_observed_digest']=$digest;}
 function molavi_domain_run_jobs(){return ['claimed'=>1,'completed'=>1,'error'=>''];}
+function molavi_domain_route_enabled($method,$path){return !empty($GLOBALS['native_reference']);}
+function molavi_domain_reference_refresh(){return ['state'=>'unchanged'];}
+function molavi_domain_reference_finish_refresh($outcome){$GLOBALS['native_reference_completed']=true;}
 $GLOBALS['wpdb']=new FakeDB();
 class Request {function __construct(public $body=[],public $token=''){}function get_json_params(){return $this->body;}function get_header($name){return $this->token;}}
 function wp_safe_remote_post($url,$args){
@@ -73,3 +76,6 @@ $GLOBALS['options']['molavi_state_active']=true;$GLOBALS['native_publish_host']=
 $state=molavi_runtime_state();$state['sheet_at']=time()-1;$state['last_remote']=0;molavi_runtime_save_state($state);molavi_runtime_tick();
 check(count($GLOBALS['calls'])===2&&($GLOBALS['native_observed_digest']??'')===str_repeat('d',64),'due Sheet observation runs locally without waking Railway');
 check(molavi_runtime_state()['sheet_at']>time()&&(get_option('molavi_native_jobs_receipt_v1')['completed']??0)===1,'native publication and next Sheet check have local receipts');
+$GLOBALS['native_reference']=true;$state=molavi_runtime_state();$state['reference_at']=time()-1;molavi_runtime_save_state($state);molavi_runtime_tick();
+check(count($GLOBALS['calls'])===2&&!empty($GLOBALS['native_reference_completed']),'reference refresh stays on WordPress');
+check(molavi_runtime_state()['reference_at']>time()&&(get_option('molavi_native_reference_receipt_v1')['ok']??false),'native reference refresh has a local receipt and next check');

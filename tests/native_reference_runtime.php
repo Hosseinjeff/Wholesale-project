@@ -1,0 +1,59 @@
+<?php
+declare(strict_types=1);
+define('ABSPATH','/synthetic/');define('MOLAVI_REFERENCE_BRIDGE_TOKEN',str_repeat('s',40));
+define('MOLAVI_STATE_ROOT',sys_get_temp_dir().'/molavi-reference-runtime-'.bin2hex(random_bytes(6)));
+define('MOLAVI_REFERENCE_OWNER_IDS',[7]);$GLOBALS['options']=['molavi_state_active'=>true];
+function add_action(...$args){}function add_filter(...$args){}
+function get_option($key,$default=false){return $GLOBALS['options'][$key]??$default;}
+function update_option($key,$value,$autoload=false){$GLOBALS['options'][$key]=$value;return true;}
+foreach(['state-host','domain-core','domain-schemas','domain-read-models','domain-reference-parser','domain-reference-store','domain-reference-workflow','domain-reference-scheduler','domain-gateway'] as $file)
+ require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-'.$file.'.php';
+$count=0;function same($actual,$expected,string $name):void{global $count;
+ if(molavi_domain_json($actual)!==molavi_domain_json($expected))throw new RuntimeException($name.' '.molavi_domain_json(['actual'=>$actual,'expected'=>$expected]));$count++;}
+$root=molavi_state_root();$initial=new SQLite3($root.'/reference.sqlite3');$initial->close();
+function reset_reference():void{$db=molavi_domain_db('reference');foreach(molavi_domain_rows($db,"SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'molavi_state_%'") as $row)$db->exec('DELETE FROM '.$row['name']);$db->close();}
+function molavi_domain_sheet_column(int $number):string{$out='';while($number>0){$number--;$out=chr(65+$number%26).$out;$number=intdiv($number,26);}return $out;}
+function molavi_domain_sheet_properties():array{return $GLOBALS['sheet']?['ReferencePrices'=>[]]:[];}
+function molavi_domain_sheet_ensure($name,$headers):void{$GLOBALS['sheet']=[$headers];}
+function molavi_domain_sheets($names,$fresh=false,$raw=false):array{$table=$GLOBALS['sheet'];if(!empty($GLOBALS['bad_receipt']))$table[1][3]=123;return ['ReferencePrices'=>$table];}
+function molavi_domain_sheet_cells($name,$updates):void{
+ $kind=count($updates)===1&&str_contains($updates[0]['range'],':')?'full':'delta';$cells=0;
+ foreach($updates as $update){preg_match('/^([A-Z]+)([0-9]+)/',$update['range'],$m);$column=0;foreach(str_split($m[1]) as $letter)$column=$column*26+ord($letter)-64;
+  foreach($update['values'] as $offset=>$values)foreach($values as $index=>$value){$GLOBALS['sheet'][(int)$m[2]+$offset-1][$column+$index-1]=$value;$cells++;}}
+ $GLOBALS['writes'][]=['kind'=>$kind,'cells'=>$cells];
+}
+$cases=json_decode(file_get_contents(__DIR__.'/fixtures/native-reference-projection-parity.json'),true,128,JSON_THROW_ON_ERROR);
+foreach($cases as $case){reset_reference();$GLOBALS['sheet']=$case['initial'];$GLOBALS['writes']=[];
+ if($case['previous'])molavi_domain_tx('reference',static fn($db)=>molavi_domain_sql($db,'INSERT INTO reference_projection_state VALUES (1,?)',[$case['previous']['snapshot_id']]));
+ same(molavi_domain_reference_project($case['snapshot'],$case['previous'],true),$case['expected_result'],$case['name'].' result');
+ same($GLOBALS['sheet'],$case['expected_table'],$case['name'].' cells');same($GLOBALS['writes'],$case['expected_calls'],$case['name'].' bounded writes');
+ same(molavi_domain_reference_project($case['snapshot'],$case['previous'],true)['mode'],'already_projected',$case['name'].' receipt replay');
+}
+reset_reference();$GLOBALS['sheet']=[];$GLOBALS['writes']=[];$GLOBALS['bad_receipt']=true;
+try{molavi_domain_reference_project($cases[0]['snapshot'],null,false);$error=false;}catch(MolaviWorkflowError $e){$error=$e->getMessage()==='reference_projection_receipt_mismatch';}
+same($error,true,'mismatched projection refuses receipt');same(molavi_domain_read('reference',static fn($db)=>molavi_domain_row($db,'SELECT snapshot_id FROM reference_projection_state')),null,'failed projection stays retryable');$GLOBALS['bad_receipt']=false;
+reset_reference();$storeCases=json_decode(file_get_contents(__DIR__.'/fixtures/native-reference-store-parity.json'),true,128,JSON_THROW_ON_ERROR);
+$base=$storeCases[0]['candidate'];$clock=molavi_domain_timestamp($base['extracted_at']);
+$first=molavi_domain_reference_refresh(false,static fn()=>$base,$clock);same($first['error_code']??$first['state'],'staged','initial refresh stages full raw records');
+same(molavi_domain_reference_refresh(false,static function(){throw new RuntimeException('must not fetch');},$clock+10)['state'],'not_due','daily check avoids network');
+same(molavi_domain_reference_refresh(true,null,$clock+10)['retry_after_seconds'],50,'manual retry cooldown');
+try{molavi_domain_reference_refresh(true,null,$clock+120,'stale',true);$error=false;}catch(MolaviWorkflowError $e){$error=$e->getMessage()==='refresh_state_changed';}same($error,true,'manual source revision checked inside lease');
+molavi_domain_reference_review($first['snapshot_id'],'wp:7','Synthetic review');molavi_domain_reference_activate($first['snapshot_id'],null,'wp:7');
+same(molavi_domain_reference_use($clock+100)['allow_automatic'],true,'fresh reference gate');
+$unchanged=$base;$unchanged['extracted_at']='2026-11-16T02:00:00+00:00';$second=molavi_domain_reference_refresh(true,static fn()=>$unchanged,$clock+3600);
+same($second['state'],'unchanged','unchanged reference retains snapshot');same($second['snapshot_id'],$first['snapshot_id'],'unchanged reference identity stable');
+$failure=molavi_domain_reference_refresh(true,static function(){molavi_domain_fail('woocommerce_http_503',503);},$clock+7200);
+same($failure['state'],'failed','fetch failure recorded');same(molavi_domain_reference_active()['snapshot_id'],$first['snapshot_id'],'fetch failure preserves active reference');
+same(molavi_domain_reference_use($clock+7201)['allow_automatic'],false,'refresh failure blocks automatic use');
+$event='refresh:'.$failure['occurrence_id'];$body=['event_id'=>$event,'snapshot_id'=>$first['snapshot_id'],'choice'=>'use_last_snapshot'];
+// Test the decision ledger directly: wake uses the real clock and is covered separately by native queue tests.
+molavi_domain_tx('reference',static fn($db)=>molavi_domain_sql($db,'UPDATE reference_events SET choice=?,actor_id=? WHERE event_id=?',['use_last_snapshot','wp:7',$event]));
+same(molavi_domain_reference_use($clock+7202)['state'],'use_last_snapshot','explicit permission retained');
+$unchanged['extracted_at']='2026-11-16T04:00:00+00:00';molavi_domain_reference_refresh(true,static fn()=>$unchanged,$clock+10800);
+same(molavi_domain_reference_use($clock+10801)['state'],'fresh','successful unchanged fetch retires failure');
+molavi_domain_tx('reference',static fn($db)=>molavi_domain_sql($db,"UPDATE reference_refresh_state SET state='running',occurrence_id='synthetic-crash' WHERE singleton=1"));
+molavi_domain_reference_refresh(false,static function(){molavi_domain_fail('woocommerce_http_503',503);},$clock+10802);
+same(molavi_domain_read('reference',static fn($db)=>molavi_domain_row($db,'SELECT reason FROM reference_events WHERE event_id=?',['refresh:synthetic-crash'])['reason']),'refresh_failed','interrupted fetch gets durable incident');
+$locked=['store'=>'reference','name'=>'refresh','owner'=>str_repeat('b',32),'action'=>'acquire'];molavi_state_lease($locked);
+try{molavi_domain_reference_refresh(true,null,$clock+12000);$error=false;}catch(MolaviWorkflowError $e){$error=$e->getMessage()==='workflow_busy_retry';}same($error,true,'concurrent refresh cannot run twice');$locked['action']='release';molavi_state_lease($locked);
+foreach(glob($root.'/*') as $file)unlink($file);rmdir($root);echo 'PASS native reference runtime '.$count." cases\n";

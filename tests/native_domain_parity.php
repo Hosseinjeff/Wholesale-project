@@ -20,6 +20,9 @@ require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-supplier-pri
 require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-outbox.php';
 require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-publisher.php';
 require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-jobs.php';
+require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-reference-fetch.php';
+require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-reference-workflow.php';
+require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-reference-scheduler.php';
 $root=molavi_state_root();$initial=new SQLite3($root.'/pipeline.sqlite3');$initial->exec('PRAGMA user_version=1');$initial->close();
 $fixtures=json_decode(file_get_contents(__DIR__.'/fixtures/native-domain-parity.json'),true,128,JSON_THROW_ON_ERROR);$count=0;
 function compare_native($actual,$expected,string $name):void {
@@ -63,7 +66,7 @@ foreach($reads['seed'] as $store=>$seeds){$db=molavi_domain_db($store);
 foreach($reads['operations'] as $index=>$case)compare_native(molavi_domain_operations($case['query'],1000.0),$case['expected'],'operations/'.$index);
 foreach($reads['reference'] as $index=>$case)compare_native(molavi_domain_reference_snapshots($case['query']),$case['expected'],'references/'.$index);
 compare_native(molavi_domain_dispatch('GET','/pipeline/stock-lots',[],null,'wp:99')['status'],403,'gateway owner guard');
-compare_native(molavi_domain_dispatch('POST','/reference/snapshots',[],[], 'wp:7')['status'],404,'gateway method guard');
+compare_native(molavi_domain_dispatch('PUT','/reference/snapshots',[],[], 'wp:7')['status'],404,'gateway method guard');
 compare_native(molavi_domain_dispatch('POST','/pipeline/stock-lots',[],['lot_id'=>'synthetic'], 'wp:7')['status'],400,'gateway strict body');
 try{molavi_domain_operations(['cursor'=>'invalid'],1000.0);$invalid=false;}catch(MolaviWorkflowError $e){$invalid=$e->status===400;}
 compare_native($invalid,true,'gateway cursor guard');
@@ -150,10 +153,23 @@ $workerCount=molavi_domain_read('pipeline',static fn($db)=>molavi_domain_row($db
 compare_native(molavi_domain_read('pipeline',static fn($db)=>molavi_domain_row($db,'SELECT COUNT(*) AS n FROM pipeline_workers')['n']),$workerCount,'idle minute creates no worker record');
 molavi_domain_tx('pipeline',static fn($db)=>molavi_domain_sql($db,'INSERT INTO publication_holds VALUES (?,?,?)',['synthetic-held','synthetic-review',microtime(true)]));
 compare_native(molavi_domain_publish_shop([],true),['ok'=>false,'pushed'=>false,'reason'=>'publication_held_for_review'],'native publisher preserves review holds');
+$heldJob=molavi_domain_queue('publish','synthetic-resume-after-hold',['images_only'=>true]);molavi_domain_run_jobs();
+compare_native(molavi_domain_read('pipeline',static fn($db)=>molavi_domain_row($db,'SELECT state FROM jobs WHERE id=?',[$heldJob])['state']),'waiting_publication','held publication remains parked');
 molavi_domain_tx('pipeline',static fn($db)=>molavi_domain_sql($db,'DELETE FROM publication_holds'));
+compare_native(molavi_domain_run_jobs()['completed'],1,'native worker resumes work after the hold was cleared');
 $first=molavi_domain_observe_projection(str_repeat('a',64));compare_native(molavi_domain_observe_projection(str_repeat('a',64)),$first,'unchanged sheet reuses publication receipt');
 compare_native(molavi_domain_observe_projection(str_repeat('b',64)),$first,'new sheet replaces queued payload without extra job');
 $running=molavi_domain_claim_job($first);$next=molavi_domain_observe_projection(str_repeat('c',64));compare_native($next!==$first,true,'changed sheet queues separately from active lease');
 molavi_domain_projection_published(str_repeat('c',64));
 compare_native(molavi_domain_read('pipeline',static fn($db)=>molavi_domain_row($db,'SELECT state FROM jobs WHERE id=?',[$next])['state']),'done','verified projection closes superseded queued job');
+$sourcePages=json_decode(file_get_contents(__DIR__.'/fixtures/native-reference-fetch-parity.json'),true,128,JSON_THROW_ON_ERROR);
+foreach($sourcePages as $case){try{$actual=molavi_domain_reference_page(['status'=>$case['status'],'headers'=>$case['headers'],'body'=>$case['body']],$case['page'],$case['size'],$case['total'],$case['pages']);}
+    catch(MolaviWorkflowError $e){$actual=['error'=>true];}
+    compare_native($actual,$case['expected'],'reference page/'.$case['name']);}
+$referenceWorkflow=json_decode(file_get_contents(__DIR__.'/fixtures/native-reference-workflow-parity.json'),true,128,JSON_THROW_ON_ERROR);
+foreach($referenceWorkflow['inherit'] as $case){$db=molavi_domain_db('reference');
+    foreach(molavi_domain_rows($db,"SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'molavi_state_%'") as $table)$db->exec('DELETE FROM '.$table['name']);
+    foreach($case['seed'] as $seed)molavi_domain_sql($db,$seed['sql'],$seed['params']);$db->close();
+    compare_native(molavi_domain_inherit_reference_mappings($case['target'],$referenceWorkflow['clock']),$case['expected'],'reference inheritance/'.$case['name']);}
+foreach($referenceWorkflow['product_changes'] as $case)compare_native(molavi_domain_reference_product_changes($case['products'],$case['previous'],$case['next'],[],$case['affected'],$referenceWorkflow['clock']),$case['expected'],'reference approval changes/'.$case['name']);
 foreach(glob($root.'/*') as $file)unlink($file);rmdir($root);echo 'PASS native domain parity '.$count." cases\n";

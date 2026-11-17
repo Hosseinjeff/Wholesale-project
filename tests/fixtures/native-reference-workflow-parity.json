@@ -1,0 +1,1136 @@
+{
+  "clock": "2026-11-17T00:00:00+00:00",
+  "inherit": [
+    {
+      "name": "within",
+      "seed": [
+        {
+          "sql": "INSERT OR REPLACE INTO reference_snapshots (snapshot_id,payload,reviewed_by,review_note,reviewed_at) VALUES (?,?,?,?,?)",
+          "params": [
+            "ef70f5afcacd5698278fe2fcb7f189c892b9868490667d2de29a657a2731b11e",
+            "{\"automatic_update\": false, \"change_summary\": {\"added\": [{\"product_code\": \"SYNTH-REF\", \"source_product_id\": \"1\"}], \"added_count\": 1, \"changed\": [], \"has_changes\": true, \"metadata_upgrade\": false, \"order_changed\": false, \"reconcile_reference_ids\": [], \"removed\": [], \"removed_count\": 0, \"updated_count\": 0}, \"coverage_verified\": true, \"extracted_at\": \"2026-11-01T00:00:00+00:00\", \"first_source_row_number\": 1, \"headers\": [\"Product Name\", \"Clean Product Name\", \"Normalized Key\", \"Reference Package Price\", \"Reference Unit Price\", \"Consumer Unit Price\", \"Package Count\", \"Unit Label\", \"Volume\", \"Weight\", \"Set Count\", \"Variant\", \"Brand\", \"Category\", \"Raw Name Details\", \"Source Row Number\", \"Product Code\", \"Currency\", \"Source\", \"Source URL\", \"Last Updated\"], \"last_source_row_number\": 1, \"model\": null, \"previous_snapshot_id\": null, \"processed_page_count\": 1, \"requires_review\": true, \"row_count\": 1, \"rows\": [[\"چای نمونه ۱۲ عددی (۴۵ف) ۲۵۰گرم ۵۰۰میل\", \"چای نمونه 250 گرم 500 میل\", \"چای نمونه 250 گرم 500 میل\", 100000, 8333, 45000, 12, \"عدد\", \"500 میل\", \"250 گرم\", \"\", \"\", \"\", \"نوشیدنی\", \"\", \"1\", \"SYNTH-REF\", \"TOMAN\", \"rezvanpakhsh_woocommerce_store_api\", \"https://rezvanpakhsh.com/wp-json/wc/store/v1/products\", \"2026-11-01T00:00:00+00:00\"]], \"schema_version\": 1, \"source_currency\": \"IRT\", \"source_page_count\": 1, \"source_product_ids\": [\"1\"], \"source_total\": 1, \"source_type\": \"woocommerce_store_api\", \"source_url\": \"https://rezvanpakhsh.com/wp-json/wc/store/v1/products\", \"status\": \"staged\"}",
+            "wp:7",
+            "Synthetic",
+            "2026-11-17T14:23:41.783106+00:00"
+          ]
+        },
+        {
+          "sql": "INSERT OR REPLACE INTO reference_snapshots (snapshot_id,payload,reviewed_by,review_note,reviewed_at) VALUES (?,?,?,?,?)",
+          "params": [
+            "66836c422e2c8d23ccecabc96231260974a22dd47af2804365dfb04a7631f0b7",
+            "{\"automatic_update\": true, \"change_summary\": {\"added\": [], \"added_count\": 0, \"changed\": [{\"nodes\": [\"prices\"], \"old_product_code\": \"SYNTH-REF\", \"price_changed\": true, \"product_code\": \"SYNTH-REF\", \"source_product_id\": \"1\"}], \"has_changes\": true, \"metadata_upgrade\": false, \"order_changed\": false, \"reconcile_reference_ids\": [\"SYNTH-REF\"], \"removed\": [], \"removed_count\": 0, \"updated_count\": 1}, \"coverage_verified\": true, \"extracted_at\": \"2026-11-02T00:00:00+00:00\", \"first_source_row_number\": 1, \"headers\": [\"Product Name\", \"Clean Product Name\", \"Normalized Key\", \"Reference Package Price\", \"Reference Unit Price\", \"Consumer Unit Price\", \"Package Count\", \"Unit Label\", \"Volume\", \"Weight\", \"Set Count\", \"Variant\", \"Brand\", \"Category\", \"Raw Name Details\", \"Source Row Number\", \"Product Code\", \"Currency\", \"Source\", \"Source URL\", \"Last Updated\"], \"last_source_row_number\": 1, \"model\": null, \"previous_snapshot_id\": \"ef70f5afcacd5698278fe2fcb7f189c892b9868490667d2de29a657a2731b11e\", \"processed_page_count\": 1, \"requires_review\": false, \"row_count\": 1, \"rows\": [[\"چای نمونه ۱۲ عددی (۴۵ف) ۲۵۰گرم ۵۰۰میل\", \"چای نمونه 250 گرم 500 میل\", \"چای نمونه 250 گرم 500 میل\", 104000, 8667, 45000, 12, \"عدد\", \"500 میل\", \"250 گرم\", \"\", \"\", \"\", \"نوشیدنی\", \"\", \"1\", \"SYNTH-REF\", \"TOMAN\", \"rezvanpakhsh_woocommerce_store_api\", \"https://rezvanpakhsh.com/wp-json/wc/store/v1/products\", \"2026-11-02T00:00:00+00:00\"]], \"schema_version\": 1, \"source_currency\": \"IRT\", \"source_page_count\": 1, \"source_product_ids\": [\"1\"], \"source_total\": 1, \"source_type\": \"woocommerce_store_api\", \"source_url\": \"https://rezvanpakhsh.com/wp-json/wc/store/v1/products\", \"status\": \"staged\"}",
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "sql": "INSERT OR REPLACE INTO reference_active (singleton,snapshot_id) VALUES (?,?)",
+          "params": [
+            1,
+            "66836c422e2c8d23ccecabc96231260974a22dd47af2804365dfb04a7631f0b7"
+          ]
+        },
+        {
+          "sql": "INSERT OR REPLACE INTO reference_activations (activation_id,snapshot_id,previous_snapshot_id,actor_id,activated_at) VALUES (?,?,?,?,?)",
+          "params": [
+            1,
+            "ef70f5afcacd5698278fe2fcb7f189c892b9868490667d2de29a657a2731b11e",
+            null,
+            "wp:7",
+            "2026-11-17T14:23:41.783802+00:00"
+          ]
+        },
+        {
+          "sql": "INSERT OR REPLACE INTO reference_activations (activation_id,snapshot_id,previous_snapshot_id,actor_id,activated_at) VALUES (?,?,?,?,?)",
+          "params": [
+            2,
+            "66836c422e2c8d23ccecabc96231260974a22dd47af2804365dfb04a7631f0b7",
+            "ef70f5afcacd5698278fe2fcb7f189c892b9868490667d2de29a657a2731b11e",
+            "system:reference-refresh",
+            "2026-11-17T14:23:41.787157+00:00"
+          ]
+        },
+        {
+          "sql": "INSERT OR REPLACE INTO reference_source_products (source_product_id,product_code,payload) VALUES (?,?,?)",
+          "params": [
+            "1",
+            "SYNTH-REF",
+            "{\"attributes\": [], \"categories\": [{\"id\": 12, \"name\": \"نوشیدنی\"}], \"id\": 1, \"name\": \"چای نمونه ۱۲ عددی (۴۵ف) ۲۵۰گرم ۵۰۰میل\", \"prices\": {\"currency_code\": \"IRT\", \"currency_minor_unit\": 0, \"price\": \"104000\", \"regular_price\": \"500000\", \"sale_price\": \"480000\"}, \"sku\": \"SYNTH-REF\"}"
+          ]
+        },
+        {
+          "sql": "INSERT OR REPLACE INTO reference_source_check (singleton,snapshot_id,checked_at) VALUES (?,?,?)",
+          "params": [
+            1,
+            "66836c422e2c8d23ccecabc96231260974a22dd47af2804365dfb04a7631f0b7",
+            "2026-11-02T00:00:00+00:00"
+          ]
+        },
+        {
+          "sql": "INSERT OR REPLACE INTO reference_item_decisions (sequence,decision_id,case_id,offer_id,snapshot_id,signature,choice,reference_id,price_role,actor_id,note,created_at,supersedes_decision_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+          "params": [
+            1,
+            "8888aa7a609021ab0d6e3cbe7b3dd2299c98221d2da90bc626f8da8c984c742a",
+            "synthetic-case",
+            "synthetic-offer",
+            "ef70f5afcacd5698278fe2fcb7f189c892b9868490667d2de29a657a2731b11e",
+            "synthetic-signature",
+            "match",
+            "SYNTH-REF",
+            "package",
+            "wp:7",
+            "Synthetic reference link",
+            "2026-11-17T14:23:41.785422+00:00",
+            null
+          ]
+        }
+      ],
+      "target": "66836c422e2c8d23ccecabc96231260974a22dd47af2804365dfb04a7631f0b7",
+      "expected": {
+        "synthetic-signature": {
+          "choice": "match",
+          "reference_id": "SYNTH-REF",
+          "price_role": "package",
+          "decision_id": "inherit:02c9782649aaaaa4defd2418dfc9f0b4e551593f1cece9187de03f44848f1ba4",
+          "source_decision_id": "8888aa7a609021ab0d6e3cbe7b3dd2299c98221d2da90bc626f8da8c984c742a",
+          "source_snapshot_id": "ef70f5afcacd5698278fe2fcb7f189c892b9868490667d2de29a657a2731b11e",
+          "price_change_ratio": 0.04
+        }
+      }
+    },
+    {
+      "name": "outside",
+      "seed": [
+        {
+          "sql": "INSERT OR REPLACE INTO reference_snapshots (snapshot_id,payload,reviewed_by,review_note,reviewed_at) VALUES (?,?,?,?,?)",
+          "params": [
+            "ef70f5afcacd5698278fe2fcb7f189c892b9868490667d2de29a657a2731b11e",
+            "{\"automatic_update\": false, \"change_summary\": {\"added\": [{\"product_code\": \"SYNTH-REF\", \"source_product_id\": \"1\"}], \"added_count\": 1, \"changed\": [], \"has_changes\": true, \"metadata_upgrade\": false, \"order_changed\": false, \"reconcile_reference_ids\": [], \"removed\": [], \"removed_count\": 0, \"updated_count\": 0}, \"coverage_verified\": true, \"extracted_at\": \"2026-11-01T00:00:00+00:00\", \"first_source_row_number\": 1, \"headers\": [\"Product Name\", \"Clean Product Name\", \"Normalized Key\", \"Reference Package Price\", \"Reference Unit Price\", \"Consumer Unit Price\", \"Package Count\", \"Unit Label\", \"Volume\", \"Weight\", \"Set Count\", \"Variant\", \"Brand\", \"Category\", \"Raw Name Details\", \"Source Row Number\", \"Product Code\", \"Currency\", \"Source\", \"Source URL\", \"Last Updated\"], \"last_source_row_number\": 1, \"model\": null, \"previous_snapshot_id\": null, \"processed_page_count\": 1, \"requires_review\": true, \"row_count\": 1, \"rows\": [[\"چای نمونه ۱۲ عددی (۴۵ف) ۲۵۰گرم ۵۰۰میل\", \"چای نمونه 250 گرم 500 میل\", \"چای نمونه 250 گرم 500 میل\", 100000, 8333, 45000, 12, \"عدد\", \"500 میل\", \"250 گرم\", \"\", \"\", \"\", \"نوشیدنی\", \"\", \"1\", \"SYNTH-REF\", \"TOMAN\", \"rezvanpakhsh_woocommerce_store_api\", \"https://rezvanpakhsh.com/wp-json/wc/store/v1/products\", \"2026-11-01T00:00:00+00:00\"]], \"schema_version\": 1, \"source_currency\": \"IRT\", \"source_page_count\": 1, \"source_product_ids\": [\"1\"], \"source_total\": 1, \"source_type\": \"woocommerce_store_api\", \"source_url\": \"https://rezvanpakhsh.com/wp-json/wc/store/v1/products\", \"status\": \"staged\"}",
+            "wp:7",
+            "Synthetic",
+            "2026-11-17T14:23:41.794286+00:00"
+          ]
+        },
+        {
+          "sql": "INSERT OR REPLACE INTO reference_snapshots (snapshot_id,payload,reviewed_by,review_note,reviewed_at) VALUES (?,?,?,?,?)",
+          "params": [
+            "d0781d8f22d99fbb3c1b713ba989deb8a7279358fceeb68b742d2bb7253484ba",
+            "{\"automatic_update\": true, \"change_summary\": {\"added\": [], \"added_count\": 0, \"changed\": [{\"nodes\": [\"prices\"], \"old_product_code\": \"SYNTH-REF\", \"price_changed\": true, \"product_code\": \"SYNTH-REF\", \"source_product_id\": \"1\"}], \"has_changes\": true, \"metadata_upgrade\": false, \"order_changed\": false, \"reconcile_reference_ids\": [\"SYNTH-REF\"], \"removed\": [], \"removed_count\": 0, \"updated_count\": 1}, \"coverage_verified\": true, \"extracted_at\": \"2026-11-02T00:00:00+00:00\", \"first_source_row_number\": 1, \"headers\": [\"Product Name\", \"Clean Product Name\", \"Normalized Key\", \"Reference Package Price\", \"Reference Unit Price\", \"Consumer Unit Price\", \"Package Count\", \"Unit Label\", \"Volume\", \"Weight\", \"Set Count\", \"Variant\", \"Brand\", \"Category\", \"Raw Name Details\", \"Source Row Number\", \"Product Code\", \"Currency\", \"Source\", \"Source URL\", \"Last Updated\"], \"last_source_row_number\": 1, \"model\": null, \"previous_snapshot_id\": \"ef70f5afcacd5698278fe2fcb7f189c892b9868490667d2de29a657a2731b11e\", \"processed_page_count\": 1, \"requires_review\": false, \"row_count\": 1, \"rows\": [[\"چای نمونه ۱۲ عددی (۴۵ف) ۲۵۰گرم ۵۰۰میل\", \"چای نمونه 250 گرم 500 میل\", \"چای نمونه 250 گرم 500 میل\", 106000, 8833, 45000, 12, \"عدد\", \"500 میل\", \"250 گرم\", \"\", \"\", \"\", \"نوشیدنی\", \"\", \"1\", \"SYNTH-REF\", \"TOMAN\", \"rezvanpakhsh_woocommerce_store_api\", \"https://rezvanpakhsh.com/wp-json/wc/store/v1/products\", \"2026-11-02T00:00:00+00:00\"]], \"schema_version\": 1, \"source_currency\": \"IRT\", \"source_page_count\": 1, \"source_product_ids\": [\"1\"], \"source_total\": 1, \"source_type\": \"woocommerce_store_api\", \"source_url\": \"https://rezvanpakhsh.com/wp-json/wc/store/v1/products\", \"status\": \"staged\"}",
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "sql": "INSERT OR REPLACE INTO reference_active (singleton,snapshot_id) VALUES (?,?)",
+          "params": [
+            1,
+            "d0781d8f22d99fbb3c1b713ba989deb8a7279358fceeb68b742d2bb7253484ba"
+          ]
+        },
+        {
+          "sql": "INSERT OR REPLACE INTO reference_activations (activation_id,snapshot_id,previous_snapshot_id,actor_id,activated_at) VALUES (?,?,?,?,?)",
+          "params": [
+            1,
+            "ef70f5afcacd5698278fe2fcb7f189c892b9868490667d2de29a657a2731b11e",
+            null,
+            "wp:7",
+            "2026-11-17T14:23:41.794593+00:00"
+          ]
+        },
+        {
+          "sql": "INSERT OR REPLACE INTO reference_activations (activation_id,snapshot_id,previous_snapshot_id,actor_id,activated_at) VALUES (?,?,?,?,?)",
+          "params": [
+            2,
+            "d0781d8f22d99fbb3c1b713ba989deb8a7279358fceeb68b742d2bb7253484ba",
+            "ef70f5afcacd5698278fe2fcb7f189c892b9868490667d2de29a657a2731b11e",
+            "system:reference-refresh",
+            "2026-11-17T14:23:41.796342+00:00"
+          ]
+        },
+        {
+          "sql": "INSERT OR REPLACE INTO reference_source_products (source_product_id,product_code,payload) VALUES (?,?,?)",
+          "params": [
+            "1",
+            "SYNTH-REF",
+            "{\"attributes\": [], \"categories\": [{\"id\": 12, \"name\": \"نوشیدنی\"}], \"id\": 1, \"name\": \"چای نمونه ۱۲ عددی (۴۵ف) ۲۵۰گرم ۵۰۰میل\", \"prices\": {\"currency_code\": \"IRT\", \"currency_minor_unit\": 0, \"price\": \"106000\", \"regular_price\": \"500000\", \"sale_price\": \"480000\"}, \"sku\": \"SYNTH-REF\"}"
+          ]
+        },
+        {
+          "sql": "INSERT OR REPLACE INTO reference_source_check (singleton,snapshot_id,checked_at) VALUES (?,?,?)",
+          "params": [
+            1,
+            "d0781d8f22d99fbb3c1b713ba989deb8a7279358fceeb68b742d2bb7253484ba",
+            "2026-11-02T00:00:00+00:00"
+          ]
+        },
+        {
+          "sql": "INSERT OR REPLACE INTO reference_item_decisions (sequence,decision_id,case_id,offer_id,snapshot_id,signature,choice,reference_id,price_role,actor_id,note,created_at,supersedes_decision_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+          "params": [
+            1,
+            "8888aa7a609021ab0d6e3cbe7b3dd2299c98221d2da90bc626f8da8c984c742a",
+            "synthetic-case",
+            "synthetic-offer",
+            "ef70f5afcacd5698278fe2fcb7f189c892b9868490667d2de29a657a2731b11e",
+            "synthetic-signature",
+            "match",
+            "SYNTH-REF",
+            "package",
+            "wp:7",
+            "Synthetic reference link",
+            "2026-11-17T14:23:41.795030+00:00",
+            null
+          ]
+        }
+      ],
+      "target": "d0781d8f22d99fbb3c1b713ba989deb8a7279358fceeb68b742d2bb7253484ba",
+      "expected": {}
+    },
+    {
+      "name": "blocked-chain",
+      "seed": [
+        {
+          "sql": "INSERT OR REPLACE INTO reference_snapshots (snapshot_id,payload,reviewed_by,review_note,reviewed_at) VALUES (?,?,?,?,?)",
+          "params": [
+            "ef70f5afcacd5698278fe2fcb7f189c892b9868490667d2de29a657a2731b11e",
+            "{\"automatic_update\": false, \"change_summary\": {\"added\": [{\"product_code\": \"SYNTH-REF\", \"source_product_id\": \"1\"}], \"added_count\": 1, \"changed\": [], \"has_changes\": true, \"metadata_upgrade\": false, \"order_changed\": false, \"reconcile_reference_ids\": [], \"removed\": [], \"removed_count\": 0, \"updated_count\": 0}, \"coverage_verified\": true, \"extracted_at\": \"2026-11-01T00:00:00+00:00\", \"first_source_row_number\": 1, \"headers\": [\"Product Name\", \"Clean Product Name\", \"Normalized Key\", \"Reference Package Price\", \"Reference Unit Price\", \"Consumer Unit Price\", \"Package Count\", \"Unit Label\", \"Volume\", \"Weight\", \"Set Count\", \"Variant\", \"Brand\", \"Category\", \"Raw Name Details\", \"Source Row Number\", \"Product Code\", \"Currency\", \"Source\", \"Source URL\", \"Last Updated\"], \"last_source_row_number\": 1, \"model\": null, \"previous_snapshot_id\": null, \"processed_page_count\": 1, \"requires_review\": true, \"row_count\": 1, \"rows\": [[\"چای نمونه ۱۲ عددی (۴۵ف) ۲۵۰گرم ۵۰۰میل\", \"چای نمونه 250 گرم 500 میل\", \"چای نمونه 250 گرم 500 میل\", 100000, 8333, 45000, 12, \"عدد\", \"500 میل\", \"250 گرم\", \"\", \"\", \"\", \"نوشیدنی\", \"\", \"1\", \"SYNTH-REF\", \"TOMAN\", \"rezvanpakhsh_woocommerce_store_api\", \"https://rezvanpakhsh.com/wp-json/wc/store/v1/products\", \"2026-11-01T00:00:00+00:00\"]], \"schema_version\": 1, \"source_currency\": \"IRT\", \"source_page_count\": 1, \"source_product_ids\": [\"1\"], \"source_total\": 1, \"source_type\": \"woocommerce_store_api\", \"source_url\": \"https://rezvanpakhsh.com/wp-json/wc/store/v1/products\", \"status\": \"staged\"}",
+            "wp:7",
+            "Synthetic",
+            "2026-11-17T14:23:41.801057+00:00"
+          ]
+        },
+        {
+          "sql": "INSERT OR REPLACE INTO reference_snapshots (snapshot_id,payload,reviewed_by,review_note,reviewed_at) VALUES (?,?,?,?,?)",
+          "params": [
+            "d0781d8f22d99fbb3c1b713ba989deb8a7279358fceeb68b742d2bb7253484ba",
+            "{\"automatic_update\": true, \"change_summary\": {\"added\": [], \"added_count\": 0, \"changed\": [{\"nodes\": [\"prices\"], \"old_product_code\": \"SYNTH-REF\", \"price_changed\": true, \"product_code\": \"SYNTH-REF\", \"source_product_id\": \"1\"}], \"has_changes\": true, \"metadata_upgrade\": false, \"order_changed\": false, \"reconcile_reference_ids\": [\"SYNTH-REF\"], \"removed\": [], \"removed_count\": 0, \"updated_count\": 1}, \"coverage_verified\": true, \"extracted_at\": \"2026-11-02T00:00:00+00:00\", \"first_source_row_number\": 1, \"headers\": [\"Product Name\", \"Clean Product Name\", \"Normalized Key\", \"Reference Package Price\", \"Reference Unit Price\", \"Consumer Unit Price\", \"Package Count\", \"Unit Label\", \"Volume\", \"Weight\", \"Set Count\", \"Variant\", \"Brand\", \"Category\", \"Raw Name Details\", \"Source Row Number\", \"Product Code\", \"Currency\", \"Source\", \"Source URL\", \"Last Updated\"], \"last_source_row_number\": 1, \"model\": null, \"previous_snapshot_id\": \"ef70f5afcacd5698278fe2fcb7f189c892b9868490667d2de29a657a2731b11e\", \"processed_page_count\": 1, \"requires_review\": false, \"row_count\": 1, \"rows\": [[\"چای نمونه ۱۲ عددی (۴۵ف) ۲۵۰گرم ۵۰۰میل\", \"چای نمونه 250 گرم 500 میل\", \"چای نمونه 250 گرم 500 میل\", 106000, 8833, 45000, 12, \"عدد\", \"500 میل\", \"250 گرم\", \"\", \"\", \"\", \"نوشیدنی\", \"\", \"1\", \"SYNTH-REF\", \"TOMAN\", \"rezvanpakhsh_woocommerce_store_api\", \"https://rezvanpakhsh.com/wp-json/wc/store/v1/products\", \"2026-11-02T00:00:00+00:00\"]], \"schema_version\": 1, \"source_currency\": \"IRT\", \"source_page_count\": 1, \"source_product_ids\": [\"1\"], \"source_total\": 1, \"source_type\": \"woocommerce_store_api\", \"source_url\": \"https://rezvanpakhsh.com/wp-json/wc/store/v1/products\", \"status\": \"staged\"}",
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "sql": "INSERT OR REPLACE INTO reference_snapshots (snapshot_id,payload,reviewed_by,review_note,reviewed_at) VALUES (?,?,?,?,?)",
+          "params": [
+            "99beffa41cf534e055eadacfac2408d124e58aff238fff66cb9c8f82b7edcd03",
+            "{\"automatic_update\": true, \"change_summary\": {\"added\": [], \"added_count\": 0, \"changed\": [{\"nodes\": [\"prices\"], \"old_product_code\": \"SYNTH-REF\", \"price_changed\": true, \"product_code\": \"SYNTH-REF\", \"source_product_id\": \"1\"}], \"has_changes\": true, \"metadata_upgrade\": false, \"order_changed\": false, \"reconcile_reference_ids\": [\"SYNTH-REF\"], \"removed\": [], \"removed_count\": 0, \"updated_count\": 1}, \"coverage_verified\": true, \"extracted_at\": \"2026-11-03T00:00:00+00:00\", \"first_source_row_number\": 1, \"headers\": [\"Product Name\", \"Clean Product Name\", \"Normalized Key\", \"Reference Package Price\", \"Reference Unit Price\", \"Consumer Unit Price\", \"Package Count\", \"Unit Label\", \"Volume\", \"Weight\", \"Set Count\", \"Variant\", \"Brand\", \"Category\", \"Raw Name Details\", \"Source Row Number\", \"Product Code\", \"Currency\", \"Source\", \"Source URL\", \"Last Updated\"], \"last_source_row_number\": 1, \"model\": null, \"previous_snapshot_id\": \"d0781d8f22d99fbb3c1b713ba989deb8a7279358fceeb68b742d2bb7253484ba\", \"processed_page_count\": 1, \"requires_review\": false, \"row_count\": 1, \"rows\": [[\"چای نمونه ۱۲ عددی (۴۵ف) ۲۵۰گرم ۵۰۰میل\", \"چای نمونه 250 گرم 500 میل\", \"چای نمونه 250 گرم 500 میل\", 102000, 8500, 45000, 12, \"عدد\", \"500 میل\", \"250 گرم\", \"\", \"\", \"\", \"نوشیدنی\", \"\", \"1\", \"SYNTH-REF\", \"TOMAN\", \"rezvanpakhsh_woocommerce_store_api\", \"https://rezvanpakhsh.com/wp-json/wc/store/v1/products\", \"2026-11-03T00:00:00+00:00\"]], \"schema_version\": 1, \"source_currency\": \"IRT\", \"source_page_count\": 1, \"source_product_ids\": [\"1\"], \"source_total\": 1, \"source_type\": \"woocommerce_store_api\", \"source_url\": \"https://rezvanpakhsh.com/wp-json/wc/store/v1/products\", \"status\": \"staged\"}",
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "sql": "INSERT OR REPLACE INTO reference_active (singleton,snapshot_id) VALUES (?,?)",
+          "params": [
+            1,
+            "99beffa41cf534e055eadacfac2408d124e58aff238fff66cb9c8f82b7edcd03"
+          ]
+        },
+        {
+          "sql": "INSERT OR REPLACE INTO reference_activations (activation_id,snapshot_id,previous_snapshot_id,actor_id,activated_at) VALUES (?,?,?,?,?)",
+          "params": [
+            1,
+            "ef70f5afcacd5698278fe2fcb7f189c892b9868490667d2de29a657a2731b11e",
+            null,
+            "wp:7",
+            "2026-11-17T14:23:41.801605+00:00"
+          ]
+        },
+        {
+          "sql": "INSERT OR REPLACE INTO reference_activations (activation_id,snapshot_id,previous_snapshot_id,actor_id,activated_at) VALUES (?,?,?,?,?)",
+          "params": [
+            2,
+            "d0781d8f22d99fbb3c1b713ba989deb8a7279358fceeb68b742d2bb7253484ba",
+            "ef70f5afcacd5698278fe2fcb7f189c892b9868490667d2de29a657a2731b11e",
+            "system:reference-refresh",
+            "2026-11-17T14:23:41.804936+00:00"
+          ]
+        },
+        {
+          "sql": "INSERT OR REPLACE INTO reference_activations (activation_id,snapshot_id,previous_snapshot_id,actor_id,activated_at) VALUES (?,?,?,?,?)",
+          "params": [
+            3,
+            "99beffa41cf534e055eadacfac2408d124e58aff238fff66cb9c8f82b7edcd03",
+            "d0781d8f22d99fbb3c1b713ba989deb8a7279358fceeb68b742d2bb7253484ba",
+            "system:reference-refresh",
+            "2026-11-17T14:23:41.807724+00:00"
+          ]
+        },
+        {
+          "sql": "INSERT OR REPLACE INTO reference_source_products (source_product_id,product_code,payload) VALUES (?,?,?)",
+          "params": [
+            "1",
+            "SYNTH-REF",
+            "{\"attributes\": [], \"categories\": [{\"id\": 12, \"name\": \"نوشیدنی\"}], \"id\": 1, \"name\": \"چای نمونه ۱۲ عددی (۴۵ف) ۲۵۰گرم ۵۰۰میل\", \"prices\": {\"currency_code\": \"IRT\", \"currency_minor_unit\": 0, \"price\": \"102000\", \"regular_price\": \"500000\", \"sale_price\": \"480000\"}, \"sku\": \"SYNTH-REF\"}"
+          ]
+        },
+        {
+          "sql": "INSERT OR REPLACE INTO reference_source_check (singleton,snapshot_id,checked_at) VALUES (?,?,?)",
+          "params": [
+            1,
+            "99beffa41cf534e055eadacfac2408d124e58aff238fff66cb9c8f82b7edcd03",
+            "2026-11-03T00:00:00+00:00"
+          ]
+        },
+        {
+          "sql": "INSERT OR REPLACE INTO reference_item_decisions (sequence,decision_id,case_id,offer_id,snapshot_id,signature,choice,reference_id,price_role,actor_id,note,created_at,supersedes_decision_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+          "params": [
+            1,
+            "8888aa7a609021ab0d6e3cbe7b3dd2299c98221d2da90bc626f8da8c984c742a",
+            "synthetic-case",
+            "synthetic-offer",
+            "ef70f5afcacd5698278fe2fcb7f189c892b9868490667d2de29a657a2731b11e",
+            "synthetic-signature",
+            "match",
+            "SYNTH-REF",
+            "package",
+            "wp:7",
+            "Synthetic reference link",
+            "2026-11-17T14:23:41.802321+00:00",
+            null
+          ]
+        },
+        {
+          "sql": "INSERT OR REPLACE INTO reference_item_inheritances (inheritance_id,snapshot_id,source_snapshot_id,source_decision_id,signature,reference_id,price_role,prior_reference_price,current_reference_price,change_ratio,state,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+          "params": [
+            "inherit:4a37f851686e637087ab77ffb06a10ba55663b156028a06be36703bfa5ec535d",
+            "d0781d8f22d99fbb3c1b713ba989deb8a7279358fceeb68b742d2bb7253484ba",
+            "ef70f5afcacd5698278fe2fcb7f189c892b9868490667d2de29a657a2731b11e",
+            "8888aa7a609021ab0d6e3cbe7b3dd2299c98221d2da90bc626f8da8c984c742a",
+            "synthetic-signature",
+            "SYNTH-REF",
+            "package",
+            100000.0,
+            106000.0,
+            0.06,
+            "outside_margin",
+            "2026-11-17T14:23:41.805479+00:00"
+          ]
+        }
+      ],
+      "target": "99beffa41cf534e055eadacfac2408d124e58aff238fff66cb9c8f82b7edcd03",
+      "expected": {}
+    }
+  ],
+  "product_changes": [
+    {
+      "name": "within",
+      "products": [
+        {
+          "Product ID": "synthetic-product",
+          "Product Name": "Synthetic linked product",
+          "Status": "approved",
+          "Reference Approval State": "owner_approved",
+          "Reference Match ID": "SYNTH-REF",
+          "Reference Price Role": "package",
+          "Reference Snapshot ID": "ef70f5afcacd5698278fe2fcb7f189c892b9868490667d2de29a657a2731b11e"
+        }
+      ],
+      "previous": {
+        "automatic_update": false,
+        "change_summary": {
+          "added": [
+            {
+              "product_code": "SYNTH-REF",
+              "source_product_id": "1"
+            }
+          ],
+          "added_count": 1,
+          "changed": [],
+          "has_changes": true,
+          "metadata_upgrade": false,
+          "order_changed": false,
+          "reconcile_reference_ids": [],
+          "removed": [],
+          "removed_count": 0,
+          "updated_count": 0
+        },
+        "coverage_verified": true,
+        "extracted_at": "2026-11-01T00:00:00+00:00",
+        "first_source_row_number": 1,
+        "headers": [
+          "Product Name",
+          "Clean Product Name",
+          "Normalized Key",
+          "Reference Package Price",
+          "Reference Unit Price",
+          "Consumer Unit Price",
+          "Package Count",
+          "Unit Label",
+          "Volume",
+          "Weight",
+          "Set Count",
+          "Variant",
+          "Brand",
+          "Category",
+          "Raw Name Details",
+          "Source Row Number",
+          "Product Code",
+          "Currency",
+          "Source",
+          "Source URL",
+          "Last Updated"
+        ],
+        "last_source_row_number": 1,
+        "model": null,
+        "previous_snapshot_id": null,
+        "processed_page_count": 1,
+        "requires_review": true,
+        "row_count": 1,
+        "rows": [
+          [
+            "چای نمونه ۱۲ عددی (۴۵ف) ۲۵۰گرم ۵۰۰میل",
+            "چای نمونه 250 گرم 500 میل",
+            "چای نمونه 250 گرم 500 میل",
+            100000,
+            8333,
+            45000,
+            12,
+            "عدد",
+            "500 میل",
+            "250 گرم",
+            "",
+            "",
+            "",
+            "نوشیدنی",
+            "",
+            "1",
+            "SYNTH-REF",
+            "TOMAN",
+            "rezvanpakhsh_woocommerce_store_api",
+            "https://rezvanpakhsh.com/wp-json/wc/store/v1/products",
+            "2026-11-01T00:00:00+00:00"
+          ]
+        ],
+        "schema_version": 1,
+        "source_currency": "IRT",
+        "source_page_count": 1,
+        "source_product_ids": [
+          "1"
+        ],
+        "source_total": 1,
+        "source_type": "woocommerce_store_api",
+        "source_url": "https://rezvanpakhsh.com/wp-json/wc/store/v1/products",
+        "status": "staged",
+        "snapshot_id": "ef70f5afcacd5698278fe2fcb7f189c892b9868490667d2de29a657a2731b11e"
+      },
+      "next": {
+        "schema_version": 1,
+        "status": "staged",
+        "requires_review": true,
+        "source_type": "woocommerce_store_api",
+        "source_url": "https://rezvanpakhsh.com/wp-json/wc/store/v1/products",
+        "source_currency": "IRT",
+        "source_total": 1,
+        "source_page_count": 1,
+        "processed_page_count": 1,
+        "first_source_row_number": 1,
+        "last_source_row_number": 1,
+        "model": null,
+        "extracted_at": "2026-11-02T00:00:00+00:00",
+        "row_count": 1,
+        "coverage_verified": true,
+        "headers": [
+          "Product Name",
+          "Clean Product Name",
+          "Normalized Key",
+          "Reference Package Price",
+          "Reference Unit Price",
+          "Consumer Unit Price",
+          "Package Count",
+          "Unit Label",
+          "Volume",
+          "Weight",
+          "Set Count",
+          "Variant",
+          "Brand",
+          "Category",
+          "Raw Name Details",
+          "Source Row Number",
+          "Product Code",
+          "Currency",
+          "Source",
+          "Source URL",
+          "Last Updated"
+        ],
+        "rows": [
+          [
+            "چای نمونه ۱۲ عددی (۴۵ف) ۲۵۰گرم ۵۰۰میل",
+            "چای نمونه 250 گرم 500 میل",
+            "چای نمونه 250 گرم 500 میل",
+            104000,
+            8667,
+            45000,
+            12,
+            "عدد",
+            "500 میل",
+            "250 گرم",
+            "",
+            "",
+            "",
+            "نوشیدنی",
+            "",
+            "1",
+            "SYNTH-REF",
+            "TOMAN",
+            "rezvanpakhsh_woocommerce_store_api",
+            "https://rezvanpakhsh.com/wp-json/wc/store/v1/products",
+            "2026-11-02T00:00:00+00:00"
+          ]
+        ],
+        "_source_products": [
+          {
+            "id": 1,
+            "sku": "SYNTH-REF",
+            "name": "چای نمونه ۱۲ عددی (۴۵ف) ۲۵۰گرم ۵۰۰میل",
+            "categories": [
+              {
+                "id": 12,
+                "name": "نوشیدنی"
+              }
+            ],
+            "attributes": [],
+            "prices": {
+              "price": "104000",
+              "regular_price": "500000",
+              "sale_price": "480000",
+              "currency_code": "IRT",
+              "currency_minor_unit": 0
+            }
+          }
+        ],
+        "snapshot_id": "synthetic-next-within"
+      },
+      "affected": null,
+      "expected": {
+        "counts": {
+          "checked": 1,
+          "retained": 1,
+          "needs_review": 0
+        },
+        "updates": [
+          {
+            "row": 2,
+            "product_id": "synthetic-product",
+            "fields": {
+              "Reference Snapshot ID": "synthetic-next-within",
+              "Reference Approval State": "approved_within_margin",
+              "Reference Price Change Percent": 4.0,
+              "Reference Price Checked At": "2026-11-17T00:00:00+00:00",
+              "Reference Review Reason": ""
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "outside",
+      "products": [
+        {
+          "Product ID": "synthetic-product",
+          "Product Name": "Synthetic linked product",
+          "Status": "approved",
+          "Reference Approval State": "owner_approved",
+          "Reference Match ID": "SYNTH-REF",
+          "Reference Price Role": "package",
+          "Reference Snapshot ID": "ef70f5afcacd5698278fe2fcb7f189c892b9868490667d2de29a657a2731b11e"
+        }
+      ],
+      "previous": {
+        "automatic_update": false,
+        "change_summary": {
+          "added": [
+            {
+              "product_code": "SYNTH-REF",
+              "source_product_id": "1"
+            }
+          ],
+          "added_count": 1,
+          "changed": [],
+          "has_changes": true,
+          "metadata_upgrade": false,
+          "order_changed": false,
+          "reconcile_reference_ids": [],
+          "removed": [],
+          "removed_count": 0,
+          "updated_count": 0
+        },
+        "coverage_verified": true,
+        "extracted_at": "2026-11-01T00:00:00+00:00",
+        "first_source_row_number": 1,
+        "headers": [
+          "Product Name",
+          "Clean Product Name",
+          "Normalized Key",
+          "Reference Package Price",
+          "Reference Unit Price",
+          "Consumer Unit Price",
+          "Package Count",
+          "Unit Label",
+          "Volume",
+          "Weight",
+          "Set Count",
+          "Variant",
+          "Brand",
+          "Category",
+          "Raw Name Details",
+          "Source Row Number",
+          "Product Code",
+          "Currency",
+          "Source",
+          "Source URL",
+          "Last Updated"
+        ],
+        "last_source_row_number": 1,
+        "model": null,
+        "previous_snapshot_id": null,
+        "processed_page_count": 1,
+        "requires_review": true,
+        "row_count": 1,
+        "rows": [
+          [
+            "چای نمونه ۱۲ عددی (۴۵ف) ۲۵۰گرم ۵۰۰میل",
+            "چای نمونه 250 گرم 500 میل",
+            "چای نمونه 250 گرم 500 میل",
+            100000,
+            8333,
+            45000,
+            12,
+            "عدد",
+            "500 میل",
+            "250 گرم",
+            "",
+            "",
+            "",
+            "نوشیدنی",
+            "",
+            "1",
+            "SYNTH-REF",
+            "TOMAN",
+            "rezvanpakhsh_woocommerce_store_api",
+            "https://rezvanpakhsh.com/wp-json/wc/store/v1/products",
+            "2026-11-01T00:00:00+00:00"
+          ]
+        ],
+        "schema_version": 1,
+        "source_currency": "IRT",
+        "source_page_count": 1,
+        "source_product_ids": [
+          "1"
+        ],
+        "source_total": 1,
+        "source_type": "woocommerce_store_api",
+        "source_url": "https://rezvanpakhsh.com/wp-json/wc/store/v1/products",
+        "status": "staged",
+        "snapshot_id": "ef70f5afcacd5698278fe2fcb7f189c892b9868490667d2de29a657a2731b11e"
+      },
+      "next": {
+        "schema_version": 1,
+        "status": "staged",
+        "requires_review": true,
+        "source_type": "woocommerce_store_api",
+        "source_url": "https://rezvanpakhsh.com/wp-json/wc/store/v1/products",
+        "source_currency": "IRT",
+        "source_total": 1,
+        "source_page_count": 1,
+        "processed_page_count": 1,
+        "first_source_row_number": 1,
+        "last_source_row_number": 1,
+        "model": null,
+        "extracted_at": "2026-11-02T00:00:00+00:00",
+        "row_count": 1,
+        "coverage_verified": true,
+        "headers": [
+          "Product Name",
+          "Clean Product Name",
+          "Normalized Key",
+          "Reference Package Price",
+          "Reference Unit Price",
+          "Consumer Unit Price",
+          "Package Count",
+          "Unit Label",
+          "Volume",
+          "Weight",
+          "Set Count",
+          "Variant",
+          "Brand",
+          "Category",
+          "Raw Name Details",
+          "Source Row Number",
+          "Product Code",
+          "Currency",
+          "Source",
+          "Source URL",
+          "Last Updated"
+        ],
+        "rows": [
+          [
+            "چای نمونه ۱۲ عددی (۴۵ف) ۲۵۰گرم ۵۰۰میل",
+            "چای نمونه 250 گرم 500 میل",
+            "چای نمونه 250 گرم 500 میل",
+            106000,
+            8833,
+            45000,
+            12,
+            "عدد",
+            "500 میل",
+            "250 گرم",
+            "",
+            "",
+            "",
+            "نوشیدنی",
+            "",
+            "1",
+            "SYNTH-REF",
+            "TOMAN",
+            "rezvanpakhsh_woocommerce_store_api",
+            "https://rezvanpakhsh.com/wp-json/wc/store/v1/products",
+            "2026-11-02T00:00:00+00:00"
+          ]
+        ],
+        "_source_products": [
+          {
+            "id": 1,
+            "sku": "SYNTH-REF",
+            "name": "چای نمونه ۱۲ عددی (۴۵ف) ۲۵۰گرم ۵۰۰میل",
+            "categories": [
+              {
+                "id": 12,
+                "name": "نوشیدنی"
+              }
+            ],
+            "attributes": [],
+            "prices": {
+              "price": "106000",
+              "regular_price": "500000",
+              "sale_price": "480000",
+              "currency_code": "IRT",
+              "currency_minor_unit": 0
+            }
+          }
+        ],
+        "snapshot_id": "synthetic-next-outside"
+      },
+      "affected": null,
+      "expected": {
+        "counts": {
+          "checked": 1,
+          "retained": 0,
+          "needs_review": 1
+        },
+        "updates": [
+          {
+            "row": 2,
+            "product_id": "synthetic-product",
+            "fields": {
+              "Status": "needs_review",
+              "Reference Approval State": "outside_margin",
+              "Reference Price Change Percent": 6.0,
+              "Reference Price Checked At": "2026-11-17T00:00:00+00:00",
+              "Reference Review Reason": "قیمت مرجع بیش از ۵٪ تغییر کرده؛ اطلاعات پیام اصلی را بررسی و به‌روزرسانی کنید."
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "filtered",
+      "products": [
+        {
+          "Product ID": "synthetic-product",
+          "Product Name": "Synthetic linked product",
+          "Status": "approved",
+          "Reference Approval State": "owner_approved",
+          "Reference Match ID": "SYNTH-REF",
+          "Reference Price Role": "package",
+          "Reference Snapshot ID": "ef70f5afcacd5698278fe2fcb7f189c892b9868490667d2de29a657a2731b11e"
+        }
+      ],
+      "previous": {
+        "automatic_update": false,
+        "change_summary": {
+          "added": [
+            {
+              "product_code": "SYNTH-REF",
+              "source_product_id": "1"
+            }
+          ],
+          "added_count": 1,
+          "changed": [],
+          "has_changes": true,
+          "metadata_upgrade": false,
+          "order_changed": false,
+          "reconcile_reference_ids": [],
+          "removed": [],
+          "removed_count": 0,
+          "updated_count": 0
+        },
+        "coverage_verified": true,
+        "extracted_at": "2026-11-01T00:00:00+00:00",
+        "first_source_row_number": 1,
+        "headers": [
+          "Product Name",
+          "Clean Product Name",
+          "Normalized Key",
+          "Reference Package Price",
+          "Reference Unit Price",
+          "Consumer Unit Price",
+          "Package Count",
+          "Unit Label",
+          "Volume",
+          "Weight",
+          "Set Count",
+          "Variant",
+          "Brand",
+          "Category",
+          "Raw Name Details",
+          "Source Row Number",
+          "Product Code",
+          "Currency",
+          "Source",
+          "Source URL",
+          "Last Updated"
+        ],
+        "last_source_row_number": 1,
+        "model": null,
+        "previous_snapshot_id": null,
+        "processed_page_count": 1,
+        "requires_review": true,
+        "row_count": 1,
+        "rows": [
+          [
+            "چای نمونه ۱۲ عددی (۴۵ف) ۲۵۰گرم ۵۰۰میل",
+            "چای نمونه 250 گرم 500 میل",
+            "چای نمونه 250 گرم 500 میل",
+            100000,
+            8333,
+            45000,
+            12,
+            "عدد",
+            "500 میل",
+            "250 گرم",
+            "",
+            "",
+            "",
+            "نوشیدنی",
+            "",
+            "1",
+            "SYNTH-REF",
+            "TOMAN",
+            "rezvanpakhsh_woocommerce_store_api",
+            "https://rezvanpakhsh.com/wp-json/wc/store/v1/products",
+            "2026-11-01T00:00:00+00:00"
+          ]
+        ],
+        "schema_version": 1,
+        "source_currency": "IRT",
+        "source_page_count": 1,
+        "source_product_ids": [
+          "1"
+        ],
+        "source_total": 1,
+        "source_type": "woocommerce_store_api",
+        "source_url": "https://rezvanpakhsh.com/wp-json/wc/store/v1/products",
+        "status": "staged",
+        "snapshot_id": "ef70f5afcacd5698278fe2fcb7f189c892b9868490667d2de29a657a2731b11e"
+      },
+      "next": {
+        "schema_version": 1,
+        "status": "staged",
+        "requires_review": true,
+        "source_type": "woocommerce_store_api",
+        "source_url": "https://rezvanpakhsh.com/wp-json/wc/store/v1/products",
+        "source_currency": "IRT",
+        "source_total": 1,
+        "source_page_count": 1,
+        "processed_page_count": 1,
+        "first_source_row_number": 1,
+        "last_source_row_number": 1,
+        "model": null,
+        "extracted_at": "2026-11-02T00:00:00+00:00",
+        "row_count": 1,
+        "coverage_verified": true,
+        "headers": [
+          "Product Name",
+          "Clean Product Name",
+          "Normalized Key",
+          "Reference Package Price",
+          "Reference Unit Price",
+          "Consumer Unit Price",
+          "Package Count",
+          "Unit Label",
+          "Volume",
+          "Weight",
+          "Set Count",
+          "Variant",
+          "Brand",
+          "Category",
+          "Raw Name Details",
+          "Source Row Number",
+          "Product Code",
+          "Currency",
+          "Source",
+          "Source URL",
+          "Last Updated"
+        ],
+        "rows": [
+          [
+            "چای نمونه ۱۲ عددی (۴۵ف) ۲۵۰گرم ۵۰۰میل",
+            "چای نمونه 250 گرم 500 میل",
+            "چای نمونه 250 گرم 500 میل",
+            106000,
+            8833,
+            45000,
+            12,
+            "عدد",
+            "500 میل",
+            "250 گرم",
+            "",
+            "",
+            "",
+            "نوشیدنی",
+            "",
+            "1",
+            "SYNTH-REF",
+            "TOMAN",
+            "rezvanpakhsh_woocommerce_store_api",
+            "https://rezvanpakhsh.com/wp-json/wc/store/v1/products",
+            "2026-11-02T00:00:00+00:00"
+          ]
+        ],
+        "_source_products": [
+          {
+            "id": 1,
+            "sku": "SYNTH-REF",
+            "name": "چای نمونه ۱۲ عددی (۴۵ف) ۲۵۰گرم ۵۰۰میل",
+            "categories": [
+              {
+                "id": 12,
+                "name": "نوشیدنی"
+              }
+            ],
+            "attributes": [],
+            "prices": {
+              "price": "106000",
+              "regular_price": "500000",
+              "sale_price": "480000",
+              "currency_code": "IRT",
+              "currency_minor_unit": 0
+            }
+          }
+        ],
+        "snapshot_id": "synthetic-next-filtered"
+      },
+      "affected": [
+        "OTHER"
+      ],
+      "expected": {
+        "counts": {
+          "checked": 0,
+          "retained": 0,
+          "needs_review": 0
+        },
+        "updates": []
+      }
+    },
+    {
+      "name": "unapproved",
+      "products": [
+        {
+          "Product ID": "synthetic-product",
+          "Product Name": "Synthetic linked product",
+          "Status": "needs_review",
+          "Reference Approval State": "owner_approved",
+          "Reference Match ID": "SYNTH-REF",
+          "Reference Price Role": "package",
+          "Reference Snapshot ID": "ef70f5afcacd5698278fe2fcb7f189c892b9868490667d2de29a657a2731b11e"
+        }
+      ],
+      "previous": {
+        "automatic_update": false,
+        "change_summary": {
+          "added": [
+            {
+              "product_code": "SYNTH-REF",
+              "source_product_id": "1"
+            }
+          ],
+          "added_count": 1,
+          "changed": [],
+          "has_changes": true,
+          "metadata_upgrade": false,
+          "order_changed": false,
+          "reconcile_reference_ids": [],
+          "removed": [],
+          "removed_count": 0,
+          "updated_count": 0
+        },
+        "coverage_verified": true,
+        "extracted_at": "2026-11-01T00:00:00+00:00",
+        "first_source_row_number": 1,
+        "headers": [
+          "Product Name",
+          "Clean Product Name",
+          "Normalized Key",
+          "Reference Package Price",
+          "Reference Unit Price",
+          "Consumer Unit Price",
+          "Package Count",
+          "Unit Label",
+          "Volume",
+          "Weight",
+          "Set Count",
+          "Variant",
+          "Brand",
+          "Category",
+          "Raw Name Details",
+          "Source Row Number",
+          "Product Code",
+          "Currency",
+          "Source",
+          "Source URL",
+          "Last Updated"
+        ],
+        "last_source_row_number": 1,
+        "model": null,
+        "previous_snapshot_id": null,
+        "processed_page_count": 1,
+        "requires_review": true,
+        "row_count": 1,
+        "rows": [
+          [
+            "چای نمونه ۱۲ عددی (۴۵ف) ۲۵۰گرم ۵۰۰میل",
+            "چای نمونه 250 گرم 500 میل",
+            "چای نمونه 250 گرم 500 میل",
+            100000,
+            8333,
+            45000,
+            12,
+            "عدد",
+            "500 میل",
+            "250 گرم",
+            "",
+            "",
+            "",
+            "نوشیدنی",
+            "",
+            "1",
+            "SYNTH-REF",
+            "TOMAN",
+            "rezvanpakhsh_woocommerce_store_api",
+            "https://rezvanpakhsh.com/wp-json/wc/store/v1/products",
+            "2026-11-01T00:00:00+00:00"
+          ]
+        ],
+        "schema_version": 1,
+        "source_currency": "IRT",
+        "source_page_count": 1,
+        "source_product_ids": [
+          "1"
+        ],
+        "source_total": 1,
+        "source_type": "woocommerce_store_api",
+        "source_url": "https://rezvanpakhsh.com/wp-json/wc/store/v1/products",
+        "status": "staged",
+        "snapshot_id": "ef70f5afcacd5698278fe2fcb7f189c892b9868490667d2de29a657a2731b11e"
+      },
+      "next": {
+        "schema_version": 1,
+        "status": "staged",
+        "requires_review": true,
+        "source_type": "woocommerce_store_api",
+        "source_url": "https://rezvanpakhsh.com/wp-json/wc/store/v1/products",
+        "source_currency": "IRT",
+        "source_total": 1,
+        "source_page_count": 1,
+        "processed_page_count": 1,
+        "first_source_row_number": 1,
+        "last_source_row_number": 1,
+        "model": null,
+        "extracted_at": "2026-11-02T00:00:00+00:00",
+        "row_count": 1,
+        "coverage_verified": true,
+        "headers": [
+          "Product Name",
+          "Clean Product Name",
+          "Normalized Key",
+          "Reference Package Price",
+          "Reference Unit Price",
+          "Consumer Unit Price",
+          "Package Count",
+          "Unit Label",
+          "Volume",
+          "Weight",
+          "Set Count",
+          "Variant",
+          "Brand",
+          "Category",
+          "Raw Name Details",
+          "Source Row Number",
+          "Product Code",
+          "Currency",
+          "Source",
+          "Source URL",
+          "Last Updated"
+        ],
+        "rows": [
+          [
+            "چای نمونه ۱۲ عددی (۴۵ف) ۲۵۰گرم ۵۰۰میل",
+            "چای نمونه 250 گرم 500 میل",
+            "چای نمونه 250 گرم 500 میل",
+            104000,
+            8667,
+            45000,
+            12,
+            "عدد",
+            "500 میل",
+            "250 گرم",
+            "",
+            "",
+            "",
+            "نوشیدنی",
+            "",
+            "1",
+            "SYNTH-REF",
+            "TOMAN",
+            "rezvanpakhsh_woocommerce_store_api",
+            "https://rezvanpakhsh.com/wp-json/wc/store/v1/products",
+            "2026-11-02T00:00:00+00:00"
+          ]
+        ],
+        "_source_products": [
+          {
+            "id": 1,
+            "sku": "SYNTH-REF",
+            "name": "چای نمونه ۱۲ عددی (۴۵ف) ۲۵۰گرم ۵۰۰میل",
+            "categories": [
+              {
+                "id": 12,
+                "name": "نوشیدنی"
+              }
+            ],
+            "attributes": [],
+            "prices": {
+              "price": "104000",
+              "regular_price": "500000",
+              "sale_price": "480000",
+              "currency_code": "IRT",
+              "currency_minor_unit": 0
+            }
+          }
+        ],
+        "snapshot_id": "synthetic-next-unapproved"
+      },
+      "affected": null,
+      "expected": {
+        "counts": {
+          "checked": 0,
+          "retained": 0,
+          "needs_review": 0
+        },
+        "updates": []
+      }
+    }
+  ]
+}
