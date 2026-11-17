@@ -332,3 +332,17 @@ Railway HTTP call is made by this read path. Uploaded/read-back sources are
 `777c37a` / live `f630d6b`. Remaining business controllers include Sheet conflict
 resolution, reference-item review/decisions and AI review read/decision models;
 actual extraction/re-extraction/suggestion execution stays with the bot runtime.
+
+Sheet conflict GET/POST and the shared Offer-to-Product derivation core are now
+implemented locally. The port retains source revision and fresh Sheet-cell checks,
+server/preserved field restrictions, verified single-cell writes, audited choices,
+publication queuing and response-loss retries. A stale source is rebuilt through
+local three-way reconciliation, preserving independent/concurrent Sheet edits and
+superseding obsolete conflicts. Decimal comparisons retain 28-digit Python Decimal
+normalization rather than converting cells to floats; supplier identity casefold
+now matches Python. Reference decisions, inherited approvals and package-unit
+conversion participate in the same shared derivation. 695 synthetic parity checks
+cover pure calculations, review inheritance and 23 complete controller scenarios;
+18 original Sheet tests and the prior 411 native-domain checks pass. No actual
+review was submitted. Deployment/read comparison and activation are tracked next;
+bot source pins remain unchanged.
