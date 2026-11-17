@@ -307,3 +307,16 @@ completed with all three MU-files uploaded/read back from `5d12521` (Staging
 tests directory on PYTHONPATH. Both wholesale Railway services were independently
 observed Sleeping with zero issues and no pending platform changes during these
 WordPress reads. The separate FollowUP-bot remains outside this repository.
+
+The intake-to-store reconciliation port is implemented next. Its pure report
+renderer preserves receipt/current-offer/derived-offer joins, price-order counters,
+publication decisions, ambiguous identities, held products, legacy SKUs, truncation
+and the explicit not-measured AI accuracy note. Six synthetic report fixtures and
+three original queue receipt joins pass; seven controller checks verify in-process
+Woo pagination, unavailable responses, private identity reads without a legacy
+secret and the ten-page ceiling (16 checks). Per-receipt product detail/visibility
+lists are sorted for deterministic output; comparisons normalize the Python set
+iteration order. The Woo Store API runs through rest_do_request rather than HTTP
+and the existing local identity snapshot supplies durable matches. The GET handler
+is available in source but not enabled at this checkpoint. Its private rollout must
+validate source/receipt counts and privacy before activation.
