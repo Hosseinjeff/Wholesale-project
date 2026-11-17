@@ -3,7 +3,70 @@
 Verified 2026-11-17, Asia/Tehran. Scope is Staging under the standing deployment
 instruction. Production was not changed.
 
-## Released source
+## Current follow-up: owner suggestions and bounded dashboard reads
+
+- Current pinned backend: `cfd6515298cb2832daf7e2b9d7f3124ff93c245a` on
+  `codex/free-google-staging-release`.
+- Railway deployment: `c78e7cf4-c4ce-4677-abf6-5597f4c237dd`, terminal `SUCCESS`.
+  The preceding integration deployment `95e56da4-0774-42e5-a7d8-86d5342a5115`
+  also succeeded at `6ce42b3`.
+- WordPress Staging asset uploaded and read back through the tracked deployer.
+  Current asset SHA-256:
+  `7a8694fffadf59f2bf2ac094c6a10e4fdba7554487ad50ab250fef29b2c75d8d`.
+- Backend health returned 200 with version
+  `2026-11-17-owner-reference-suggestions` after the integration deployment.
+
+The owner can explicitly request a reference suggestion from AI-confirmation or
+reference-item review. One idempotent task goes into the existing WordPress-owned
+durable queue. Code handles exact/approved identity first; qualified free models and
+optional cached embedding retrieval handle unresolved cases when configured. GETs
+attach stored receipts only. A suggestion cannot approve a link, choose a price role,
+edit product prices, or publish. Workers discard changed source/reference contexts;
+quota waits retain their exact due time without consuming failure attempts.
+
+The earlier proxy issue reproduced under parallel dashboard reads. WordPress's
+45-second upstream limit cancelled Railway reads; serial browser requests removed
+most failures. Supplier-price evidence still timed out because it queried state
+separately per product. Bounded source/evidence transactions reduced its observed
+read to 8.1 seconds. AI and price schema setup now uses the existing provider's
+schema cache. Read-only 502/503/504 responses receive one serial retry after one
+second; subsequent failures remain visible. Owner GETs now have a bounded 90-second
+timeout for state round trips and executor
+startup; POSTs retain 45 seconds. History is requested only for reviewable offers
+and visible cases. No infrastructure capacity increase, idle worker, browser
+polling, or write retry was added.
+
+Validation: 276 targeted Python checks and the synthetic Chromium desktop/mobile
+workflow suite passed. The final read-lookup/schema changes and combined native
+connector source passed 103 affected checks. Chromium also proves one transient
+read retry and one suggestion request without an approval write. Final
+authenticated Staging acceptance is recorded below.
+
+Free-model routing remains disabled. Actual project RPM/TPM/RPD rows and reviewed
+model/task benchmarks are still required before activation. Semantic search also
+needs an explicit bounded reference embedding index. No Google inference request or
+real owner approval was submitted for these release checks.
+
+### Final authenticated acceptance
+
+Against `cfd6515` and the deployed proxy, all eight unique owner dashboard GETs
+returned HTTP 200: current product status, AI confirmations, reference-item review,
+supplier-price evidence, Sheet conflicts, publication holds, reference decisions and
+operations. There were no JavaScript errors and no document overflow at 1365px or
+390px. The browser guard allowed sign-in and same-origin proxy GETs, blocked
+workflow writes and other origins, and retained only sanitized status/timing data.
+
+Observed API timings were 14.8s, 40.4s, 21.8s, 4.9s, 3.1s, 7.8s, 0.6s and 0.6s,
+respectively. No gateway retry was needed on this final pass. Correctness and the
+reported gateway failure are verified for this pass; overall initial read latency
+still needs improvement, especially AI/reference review. Do not claim fast page
+loading or that model precision has been benchmarked.
+
+The release incorporates the concurrent native WordPress work through `9234851`.
+Only the changed storefront assets/proxy were deployed by this follow-up; native
+route activation and the production state cutover retain their separate receipts.
+
+## Original text-only release
 
 - Backend commit: `466c71d80f9eef0117284ee600626b7fe035cc16` on
   `codex/free-google-staging-release`, pinned in Railway.
@@ -48,25 +111,25 @@ alone or keep waking the service with repeated health probes.
 
 ## Outstanding work
 
-1. **WordPress owner proxy connectivity:** the authenticated same-origin preview
-   returned HTTP 502, while the identical direct backend preview succeeded. The
-   inspected Railway HTTP log contained no proxy preview request at that point.
-   The failure is on the WordPress-to-Railway transport path; a specific transport
-   error was not recovered from the available cPanel logs. This remains the active
-   owner-workflow investigation, not an authentication or OCR feature failure.
-2. **Free model routing activation:** capability is deployed, but the project's
-   real per-model RPM/TPM/RPD values, quota sharing and task qualification must be
-   configured before enabling it. No allowance or paid eligibility was guessed.
-3. **Matching quality and integration:** evaluate actual Persian examples for
-   accuracy/latency, then connect optional semantic retrieval/model comparison to
-   the owner workflow using saved results and existing approval/freshness policies.
-   These services currently have explicit bounded Python/CLI entry points.
-4. **End-to-end business acceptance:** after proxy repair, check text/caption intake,
-   reference assignment, owner price review and guarded publication on Staging.
-   No real approve/dismiss/reprocess/reference-activation action was submitted here.
-5. **Production promotion:** requires an explicit production instruction under
-   `AGENTS.md`. The tested backend remains pinned so documentation/frontend pushes
-   cannot silently redeploy it.
+1. **Free model routing activation:** configure the actual project/model RPM, TPM,
+   RPD, shared buckets and Staging/production allocations. These values cannot be
+   recovered from the connected tools. The owner has been asked for AI Studio rows;
+   no allowance, paid eligibility or qualification was guessed.
+2. **Matching benchmarks and embedding index:** evaluate reviewed Persian products
+   for accuracy and latency, qualify each model for its tasks, then build an explicit
+   bounded reference embedding index. The owner suggestion workflow is integrated;
+   Google comparison/retrieval remains opt-in until these prerequisites are met.
+3. **Business acceptance:** exercise text/caption intake, explicit reference
+   assignment, owner price review and guarded publication with approved Staging
+   test data. No real approve/dismiss/reprocess/reference-activation action was
+   submitted by this release verification.
+4. **Further native execution and read latency:** preserve the concurrent native
+   WordPress work incorporated at `9234851`. Remaining migration domains and
+   activated routes are listed in [native workflows](native-wordpress-workflows.md).
+   These owner proxy improvements do not claim that every workflow is native PHP.
+5. **Production promotion:** this follow-up is scoped to Staging under `AGENTS.md`.
+   It does not authorize promoting this entire release to production. The backend
+   stays pinned so documentation/frontend pushes do not silently redeploy it.
 
 No live Google inference request, supplier-price decision, reference activation,
 catalog replay, customer/order mutation or production deploy was performed during
