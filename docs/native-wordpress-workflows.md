@@ -14,7 +14,7 @@ Native writes require active WordPress state custody and an existing explicit
 WordPress business-owner identity. Config/status/shadow requests use the existing
 runtime HMAC, remain private and never return connector credentials.
 
-Current execution: both sites use WordPress state, 17 native dashboard methods,
+Current execution: both sites use WordPress state, 22 native dashboard methods,
 local supplier outbox processing and WordPress-owned publication. Both Railway
 publication filters are deployed. The reference refresh port below is the next
 activation checkpoint; order and catalog-conflict workflows remain incomplete.
@@ -295,3 +295,15 @@ incomplete source rejection, partial sync, changing Sheets and audit states. Exi
 411 native-domain and 52 order writer checks still pass. New recovery methods are
 implemented but not activated at this source checkpoint; compare and record rollout
 separately. Bot source pins remain `302dcfe` / live `711b7ca`.
+
+Publication recovery is now enabled on both sites (22 native method/path pairs).
+Staging's one held batch and live's two held batches matched the original Python
+read implementation exactly against atomic, read-only WordPress snapshots. The
+comparison made zero Railway HTTP requests; native responses took 2.547 / 2.587
+seconds. No review, batch replay or backlog reconciliation was submitted. Live's
+first upload hit a transient cPanel save failure; the bounded identical retry
+completed with all three MU-files uploaded/read back from `5d12521` (Staging
+`de3defb`). The original 31 publication/operations tests pass with the repository's
+tests directory on PYTHONPATH. Both wholesale Railway services were independently
+observed Sleeping with zero issues and no pending platform changes during these
+WordPress reads. The separate FollowUP-bot remains outside this repository.
