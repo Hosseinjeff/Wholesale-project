@@ -240,10 +240,26 @@ after verified writes. An older receipt cannot clear a newer pending Woo event.
 Only a bot notice dispatch remains on Railway, preserving the original per-recipient
 notice keys and allowlists. Both hosts have native Unicode normalization/casefold.
 
-Checks: 434 native order workflow/API checks; 42 writer/receipt/queue checks; 411
+Checks: 434 native order workflow/API checks; 46 writer/receipt/queue checks; 411
 existing native-domain checks; 21 scheduler checks; and 35 focused Python runtime,
 notice, paid-order and follow-up tests. Synthetic checks send no messages or model
 requests. The Railway runtime advertises `native_order_notice_version=1`; order
 ownership cannot switch until its backend filter and notice version are verified.
 WordPress/test/archive files are excluded from the bot container build. Order route
 activation and execution ownership remain unchanged at this source checkpoint.
+
+Staging order cutover: backend `302dcfe5d1c2bad45ad22501c212f09cb1eb40af`
+deployed as `e9fcf0db-0262-4e9f-b931-fb44c5463da8`, terminal SUCCESS. Native and
+legacy paid-order GET responses matched exactly (both currently have zero plans);
+nonempty workflows and writes are covered by the synthetic fixtures. Runtime
+filter/notice versions were read back before assigning order execution to WordPress
+and enabling paid-orders GET/POST (19 native methods). Both sites were checked for
+zero active bot workers/order leases before their scoped releases. Both support
+SQLite JSON, Unicode normalization and casefold. Live's equivalent `711b7ca`
+backend reached terminal SUCCESS as `d20dd0b4-5fea-4a98-bf1d-3fd075c6013f`;
+its order executor remains on Railway until the live comparison/switch receipt.
+
+The final native order probe exercises the actual WordPress HTTP filter using an
+invalid, authenticated payload. It expects a local 400 with the WordPress executor
+header and creates no order, queue task, Sheet write or bot message. Four additional
+filter checks pass; this WordPress-only follow-up does not change either backend pin.
