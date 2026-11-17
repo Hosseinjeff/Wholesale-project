@@ -55,6 +55,9 @@ class Handoffs:
                 state TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
                 available REAL NOT NULL, lease TEXT, expires REAL,
                 result TEXT, error TEXT, created_at REAL, updated_at REAL);
+                CREATE TABLE IF NOT EXISTS molavi_state_executors (
+                kind TEXT PRIMARY KEY, host TEXT NOT NULL CHECK(host IN ('railway','wordpress')),
+                updated_at REAL NOT NULL);
                 CREATE TABLE IF NOT EXISTS inbox (
                 id TEXT PRIMARY KEY, payload TEXT NOT NULL, batch_id TEXT, received_at REAL);
                 CREATE TABLE IF NOT EXISTS publication_holds (
@@ -992,12 +995,20 @@ class Handoffs:
                         inbox_compacted += 1
         return {'jobs_compacted': jobs_compacted, 'inbox_compacted': inbox_compacted}
 
+    def job_host(self, kind):
+        """Execution ownership lives beside the canonical queue on WordPress."""
+        with self.connect() as db:
+            row=db.execute('SELECT host FROM molavi_state_executors WHERE kind=?',(str(kind),)).fetchone()
+        return str(row['host']) if row else 'railway'
+
     def claim(self, job_id=None):
         now=time.time(); lease=uuid.uuid4().hex
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
             row=db.execute('''SELECT * FROM jobs WHERE (state='queued' AND available<=?
-                OR state='running' AND expires<?) AND (? IS NULL OR id=?) ORDER BY rowid LIMIT 1''',
+                OR state='running' AND expires<?)
+                AND kind NOT IN (SELECT kind FROM molavi_state_executors WHERE host='wordpress')
+                AND (? IS NULL OR id=?) ORDER BY rowid LIMIT 1''',
                 (now,now,job_id,job_id)).fetchone()
             if not row:return None
             db.execute("UPDATE jobs SET state='running',lease=?,expires=?,attempts=attempts+1 WHERE id=?",

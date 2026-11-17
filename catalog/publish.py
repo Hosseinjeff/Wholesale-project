@@ -172,6 +172,18 @@ def publish_shop(
     images_only: bool = False,
 ) -> dict[str, Any]:
     """Send the catalog, then upload photo bytes until the queue is idle."""
+    from catalog.state import wordpress_state
+    if wordpress_state() and os.getenv('PIPELINE_DB_PATH'):
+        from catalog.durable import Handoffs
+        import uuid
+        queue = Handoffs(os.environ['PIPELINE_DB_PATH'])
+        if queue.job_host('publish') == 'wordpress':
+            receipt = queue.put('publish', 'wordpress-request:' + uuid.uuid4().hex,
+                {'images_only': bool(images_only), 'max_rounds': max(0, min(40, int(max_rounds)))})
+            # Queue rather than synchronously calling back into WordPress: its
+            # photo fetch can need this same single-worker bot HTTP service.
+            return {'ok': True, 'pushed': False, 'queued': True,
+                    'receipt_id': receipt, 'reason': 'wordpress_publication_queued'}
     url = (os.getenv("SHOP_SITE_URL") or "").strip().rstrip("/")
     secret = os.getenv("SHOP_NOTIFY_SECRET") or ""
     if not url or not secret:

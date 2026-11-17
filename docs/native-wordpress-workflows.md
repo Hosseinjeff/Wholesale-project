@@ -112,6 +112,35 @@ settings behavior; they do not publish or change execution ownership yet. Native
 parity now has 379 checks. Finish the corrected supplier comparison before enabling
 its two methods and local outbox processing.
 
+Corrected supplier verification is now enabled on both sites (15 native methods).
+Staging's 130 outstanding supplier entries matched the existing endpoint exactly;
+native read time was 7.486 seconds. Live's native entries passed shape/state checks;
+the old live supplier endpoint timed out after 90 seconds. No live comparison claim
+is made. Both sites use the existing WordPress outbox/decision tables and original
+recorded actor; only already-authorized pending commands are eligible.
+
+The publication worker checkpoint adds `molavi_state_executors`, operational metadata
+beside the canonical queue. Default ownership is Railway. WordPress can own only a
+fully implemented job kind; configuration rejects active leases and requires backend
+filter version 1. Python claims, explicit job-ID claims and next-wake calculations
+exclude WordPress-owned work. WordPress due checks ignore local worker heartbeats
+when deciding whether bot work needs a Railway wake. No second queue is created.
+
+The PHP publisher reuses each site's existing `molavi_apply_catalog`, settings and
+image functions, protects the shared publication lease and all review holds, checks
+the Sheet digest before/after publication, and leaves source changes for a fresh
+idempotent job. Photos still come from the bot's existing media endpoint. Partial
+image progress does not exhaust failure attempts. Legacy bot-triggered publication
+queues work rather than synchronously calling WordPress back, which would deadlock
+if WordPress requested a photo from that same single-worker bot request.
+
+The existing minute scheduler observes due Sheet changes and drains publication
+locally after the kind is assigned to WordPress. Idle ticks create no worker rows.
+Checks: 395 PHP native cases, 18 scheduler checks, 19 state-host checks and 66 focused
+Python publication/queue/runtime/state checks. This checkpoint still requires scoped
+backend deployment, filter-version read-back and explicit per-site ownership switch;
+do not infer publication ownership from source presence.
+
 Remaining migration domains: reference fetch/incremental activation and matching;
 catalog/Sheet reconciliation and guarded publication; current product and AI review
 read models/commands; supplier freshness and publication recovery; order workflow

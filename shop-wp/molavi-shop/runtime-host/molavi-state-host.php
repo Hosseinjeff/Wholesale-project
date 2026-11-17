@@ -30,6 +30,7 @@ function molavi_state_open(string $store):SQLite3 {
     $db->enableExceptions(true);$db->busyTimeout(15000);
     $db->exec('CREATE TABLE IF NOT EXISTS molavi_state_commits (id TEXT PRIMARY KEY,digest TEXT NOT NULL,created_at INTEGER NOT NULL,receipt TEXT NOT NULL)');
     $db->exec('CREATE TABLE IF NOT EXISTS molavi_state_locks (name TEXT PRIMARY KEY,owner TEXT NOT NULL,expires INTEGER NOT NULL)');
+    $db->exec("CREATE TABLE IF NOT EXISTS molavi_state_executors (kind TEXT PRIMARY KEY,host TEXT NOT NULL CHECK(host IN ('railway','wordpress')),updated_at REAL NOT NULL)");
     chmod($path,0600);return $db;
 }
 function molavi_state_json($value):string {
@@ -135,8 +136,8 @@ function molavi_state_due_work():bool {
     $db=molavi_state_open('pipeline');
     try {
         // A live executor already drains its queue; only recover idle/expired work.
-        if((int)$db->querySingle("SELECT count(*) FROM pipeline_workers WHERE state!='stopped' AND heartbeat_at>".(time()-45))>0)return false;
-        return (bool)$db->querySingle("SELECT 1 FROM inbox WHERE batch_id IS NULL UNION ALL SELECT 1 FROM jobs WHERE (state='queued' AND available<=".time().") OR (state='running' AND expires<=".time().") LIMIT 1");
+        if((int)$db->querySingle("SELECT count(*) FROM pipeline_workers WHERE worker_id NOT LIKE 'wordpress:%' AND state!='stopped' AND heartbeat_at>".(time()-45))>0)return false;
+        return (bool)$db->querySingle("SELECT 1 FROM inbox WHERE batch_id IS NULL UNION ALL SELECT 1 FROM jobs WHERE kind NOT IN (SELECT kind FROM molavi_state_executors WHERE host='wordpress') AND ((state='queued' AND available<=".time().") OR (state='running' AND expires<=".time().")) LIMIT 1");
     } finally {$db->close();}
 }
 function molavi_state_source_summary(array $source):array {

@@ -3371,7 +3371,7 @@ def shop_publish():
     except Exception:
         logger.exception("Shop publish failed")
         return jsonify({"ok": False, "error": "publish failed"}), 502
-    return jsonify(result)
+    return jsonify(result), (202 if result.get('queued') else 200)
 
 
 @app.route("/media/file/<file_id>", methods=["GET"])
