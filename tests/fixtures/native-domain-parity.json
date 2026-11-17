@@ -1,0 +1,749 @@
+{
+  "inventory": [
+    {
+      "name": "lot-events-reservations",
+      "operations": [
+        {
+          "operation": "receive",
+          "arguments": {
+            "lot_id": "lot-1",
+            "sku": "sku-1",
+            "supplier": "تأمین نمونه",
+            "purchase_date": "2026-10-01",
+            "received_at": "2026-10-03",
+            "production_date": "2026-09-01",
+            "expiry_date": "2027-01-01",
+            "units": 25,
+            "unit_cost": 15000
+          },
+          "expected": "ready"
+        },
+        {
+          "operation": "receive",
+          "arguments": {
+            "lot_id": "lot-1",
+            "sku": "sku-1",
+            "supplier": "تأمین نمونه",
+            "purchase_date": "2026-10-01",
+            "received_at": "2026-10-03",
+            "production_date": "2026-09-01",
+            "expiry_date": "2027-01-01",
+            "units": 25,
+            "unit_cost": 15000
+          },
+          "expected": "ready"
+        },
+        {
+          "operation": "get_lot",
+          "arguments": {
+            "lot_id": "lot-1"
+          },
+          "expected": {
+            "lot_id": "lot-1",
+            "sku": "sku-1",
+            "supplier": "تأمین نمونه",
+            "purchase_date": "2026-10-01",
+            "received_at": "2026-10-03",
+            "production_date": "2026-09-01",
+            "expiry_date": "2027-01-01",
+            "units": 25,
+            "unit_cost": 15000,
+            "receipt_hash": "e553bb0f190ef0e606cc65de9d89badc2598d5851e921004a85a80215a9913c8",
+            "state": "ready",
+            "committed_units": 0,
+            "received_units": 25,
+            "adjustment_units": 0,
+            "revision": "e3413e0673e1c8174cf5b1e4452e26051aba8d17e57efc5c64f74f93923500b0"
+          }
+        },
+        {
+          "operation": "apply_operator_event",
+          "arguments": {
+            "lot_id": "lot-1",
+            "expected_revision": "e3413e0673e1c8174cf5b1e4452e26051aba8d17e57efc5c64f74f93923500b0",
+            "actor_id": "wp:7",
+            "action": "adjust",
+            "delta_units": -2,
+            "reason": "damage",
+            "note": "شمارش نمونه",
+            "created_at": "2026-11-17T01:00:00+03:30",
+            "today": "2026-11-17"
+          },
+          "expected": {
+            "event_id": "6fcb45cd963d8c2c9287f569c83eb7688e9159c9ab81d3296ccdd69e77dd9d6f",
+            "revision": "16b72d02b015de0c84477d0b4f3dab17370db0b827381ee1f44a240a2fcdad8b",
+            "units": 23,
+            "state": "ready",
+            "action": "adjust",
+            "previous_revision": "e3413e0673e1c8174cf5b1e4452e26051aba8d17e57efc5c64f74f93923500b0",
+            "idempotent": false
+          }
+        },
+        {
+          "operation": "apply_operator_event",
+          "arguments": {
+            "lot_id": "lot-1",
+            "expected_revision": "e3413e0673e1c8174cf5b1e4452e26051aba8d17e57efc5c64f74f93923500b0",
+            "actor_id": "wp:7",
+            "action": "adjust",
+            "delta_units": -2,
+            "reason": "damage",
+            "note": "شمارش نمونه",
+            "created_at": "2026-11-17T01:00:00+03:30",
+            "today": "2026-11-17"
+          },
+          "expected": {
+            "event_id": "6fcb45cd963d8c2c9287f569c83eb7688e9159c9ab81d3296ccdd69e77dd9d6f",
+            "revision": "16b72d02b015de0c84477d0b4f3dab17370db0b827381ee1f44a240a2fcdad8b",
+            "units": 23,
+            "state": "ready",
+            "action": "adjust",
+            "previous_revision": "e3413e0673e1c8174cf5b1e4452e26051aba8d17e57efc5c64f74f93923500b0",
+            "idempotent": true
+          }
+        },
+        {
+          "operation": "get_lot",
+          "arguments": {
+            "lot_id": "lot-1"
+          },
+          "expected": {
+            "lot_id": "lot-1",
+            "sku": "sku-1",
+            "supplier": "تأمین نمونه",
+            "purchase_date": "2026-10-01",
+            "received_at": "2026-10-03",
+            "production_date": "2026-09-01",
+            "expiry_date": "2027-01-01",
+            "units": 23,
+            "unit_cost": 15000,
+            "receipt_hash": "e553bb0f190ef0e606cc65de9d89badc2598d5851e921004a85a80215a9913c8",
+            "state": "ready",
+            "committed_units": 0,
+            "received_units": 25,
+            "adjustment_units": -2,
+            "revision": "16b72d02b015de0c84477d0b4f3dab17370db0b827381ee1f44a240a2fcdad8b"
+          }
+        },
+        {
+          "operation": "reserve",
+          "arguments": {
+            "order_id": "order-1",
+            "sku": "sku-1",
+            "units": 12,
+            "today": "2026-11-17"
+          },
+          "expected": [
+            {
+              "lot_id": "lot-1",
+              "units": 12,
+              "state": "reserved"
+            }
+          ]
+        },
+        {
+          "operation": "reserve",
+          "arguments": {
+            "order_id": "order-1",
+            "sku": "sku-1",
+            "units": 12,
+            "today": "2026-11-17"
+          },
+          "expected": [
+            {
+              "lot_id": "lot-1",
+              "units": 12,
+              "state": "reserved"
+            }
+          ]
+        },
+        {
+          "operation": "list_lots",
+          "arguments": {
+            "today": "2026-11-17"
+          },
+          "expected": [
+            {
+              "lot_id": "lot-1",
+              "sku": "sku-1",
+              "supplier": "تأمین نمونه",
+              "purchase_date": "2026-10-01",
+              "received_at": "2026-10-03",
+              "production_date": "2026-09-01",
+              "expiry_date": "2027-01-01",
+              "units": 23,
+              "unit_cost": 15000,
+              "receipt_hash": "e553bb0f190ef0e606cc65de9d89badc2598d5851e921004a85a80215a9913c8",
+              "state": "ready",
+              "committed_units": 12,
+              "received_units": 25,
+              "adjustment_units": -2,
+              "revision": "16b72d02b015de0c84477d0b4f3dab17370db0b827381ee1f44a240a2fcdad8b",
+              "available_units": 11
+            }
+          ]
+        },
+        {
+          "operation": "release_order",
+          "arguments": {
+            "order_id": "order-1"
+          },
+          "expected": 12
+        },
+        {
+          "operation": "list_lots",
+          "arguments": {
+            "today": "2026-11-17"
+          },
+          "expected": [
+            {
+              "lot_id": "lot-1",
+              "sku": "sku-1",
+              "supplier": "تأمین نمونه",
+              "purchase_date": "2026-10-01",
+              "received_at": "2026-10-03",
+              "production_date": "2026-09-01",
+              "expiry_date": "2027-01-01",
+              "units": 23,
+              "unit_cost": 15000,
+              "receipt_hash": "e553bb0f190ef0e606cc65de9d89badc2598d5851e921004a85a80215a9913c8",
+              "state": "ready",
+              "committed_units": 0,
+              "received_units": 25,
+              "adjustment_units": -2,
+              "revision": "16b72d02b015de0c84477d0b4f3dab17370db0b827381ee1f44a240a2fcdad8b",
+              "available_units": 23
+            }
+          ]
+        },
+        {
+          "operation": "record_receipt",
+          "arguments": {
+            "lot_id": "lot-1",
+            "actor_id": "wp:7",
+            "note": "ثبت نمونه",
+            "created_at": "2026-11-17T01:00:00+03:30"
+          },
+          "expected": null
+        },
+        {
+          "operation": "receive",
+          "arguments": {
+            "lot_id": "lot-1",
+            "sku": "sku-1",
+            "supplier": "تأمین نمونه",
+            "purchase_date": "2026-10-01",
+            "received_at": "2026-10-03",
+            "production_date": "2026-09-01",
+            "expiry_date": "2027-01-01",
+            "units": 99,
+            "unit_cost": 15000
+          },
+          "expected": {
+            "error": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "historical-date-hold-release",
+      "operations": [
+        {
+          "operation": "receive",
+          "arguments": {
+            "lot_id": "historical",
+            "sku": "sku-2",
+            "supplier": "Synthetic",
+            "received_at": "2026-10-03",
+            "production_date": "2026-09-01",
+            "expiry_date": "2027-01-01",
+            "units": 7,
+            "unit_cost": 15000
+          },
+          "expected": "ready"
+        },
+        {
+          "operation": "add_missing_purchase_date",
+          "arguments": {
+            "lot_id": "historical",
+            "expected_receipt_hash": "4560b49ef414c4125cbaac840f574e865b6da94ce51c8d00718b71b544cdcac2",
+            "purchase_date": "2026-10-01"
+          },
+          "expected": "0e16530ee031fca6f7c157d0b1e768865232c75baf27e9e42e28cd5a2b751f47"
+        },
+        {
+          "operation": "get_lot",
+          "arguments": {
+            "lot_id": "historical"
+          },
+          "expected": {
+            "lot_id": "historical",
+            "sku": "sku-2",
+            "supplier": "Synthetic",
+            "purchase_date": "2026-10-01",
+            "received_at": "2026-10-03",
+            "production_date": "2026-09-01",
+            "expiry_date": "2027-01-01",
+            "units": 7,
+            "unit_cost": 15000,
+            "receipt_hash": "0e16530ee031fca6f7c157d0b1e768865232c75baf27e9e42e28cd5a2b751f47",
+            "state": "ready",
+            "committed_units": 0,
+            "received_units": 7,
+            "adjustment_units": 0,
+            "revision": "d8d4ae80923129d05329d8acaf5fe09f16b29bf3dfe85fb01374ffcae905cb1d"
+          }
+        },
+        {
+          "operation": "apply_operator_event",
+          "arguments": {
+            "lot_id": "historical",
+            "expected_revision": "d8d4ae80923129d05329d8acaf5fe09f16b29bf3dfe85fb01374ffcae905cb1d",
+            "actor_id": "wp:7",
+            "action": "hold",
+            "delta_units": 0,
+            "reason": "quality",
+            "note": "Synthetic inspection",
+            "created_at": "2026-11-17T01:00:00+03:30",
+            "today": "2026-11-17"
+          },
+          "expected": {
+            "event_id": "332e31543a2198ab764f2c5e40b519fe58a940fcc8972ea3b98398dd73be190e",
+            "revision": "99aa26261dd213ad2ad31971f71dde8bec1c1c3ee6c72ebba6b5f25ac9d38ccb",
+            "units": 7,
+            "state": "held",
+            "action": "hold",
+            "previous_revision": "d8d4ae80923129d05329d8acaf5fe09f16b29bf3dfe85fb01374ffcae905cb1d",
+            "idempotent": false
+          }
+        },
+        {
+          "operation": "reserve",
+          "arguments": {
+            "order_id": "order-2",
+            "sku": "sku-2",
+            "units": 5,
+            "today": "2026-11-17"
+          },
+          "expected": []
+        },
+        {
+          "operation": "apply_operator_event",
+          "arguments": {
+            "lot_id": "historical",
+            "expected_revision": "99aa26261dd213ad2ad31971f71dde8bec1c1c3ee6c72ebba6b5f25ac9d38ccb",
+            "actor_id": "wp:7",
+            "action": "release",
+            "delta_units": 0,
+            "reason": "inspection_passed",
+            "note": "Synthetic release",
+            "created_at": "2026-11-17T02:00:00+03:30",
+            "today": "2026-11-17"
+          },
+          "expected": {
+            "event_id": "e26ab0c20bed21c9d5de18571dc2dac8e8824f368348d24a92da411b4573fcaa",
+            "revision": "ad0ea14334e6bb29b69d16057f1c460b1153de712c226aa17d5a2fd2b2d37de8",
+            "units": 7,
+            "state": "ready",
+            "action": "release",
+            "previous_revision": "99aa26261dd213ad2ad31971f71dde8bec1c1c3ee6c72ebba6b5f25ac9d38ccb",
+            "idempotent": false
+          }
+        },
+        {
+          "operation": "reserve",
+          "arguments": {
+            "order_id": "order-2",
+            "sku": "sku-2",
+            "units": 5,
+            "today": "2026-11-17"
+          },
+          "expected": [
+            {
+              "lot_id": "historical",
+              "units": 5,
+              "state": "reserved"
+            }
+          ]
+        },
+        {
+          "operation": "change_reservation",
+          "arguments": {
+            "order_id": "order-2",
+            "sku": "sku-2",
+            "from_state": "reserved",
+            "to_state": "fulfilled"
+          },
+          "expected": 1
+        },
+        {
+          "operation": "list_lots",
+          "arguments": {
+            "today": "2026-11-17"
+          },
+          "expected": [
+            {
+              "lot_id": "historical",
+              "sku": "sku-2",
+              "supplier": "Synthetic",
+              "purchase_date": "2026-10-01",
+              "received_at": "2026-10-03",
+              "production_date": "2026-09-01",
+              "expiry_date": "2027-01-01",
+              "units": 7,
+              "unit_cost": 15000,
+              "receipt_hash": "0e16530ee031fca6f7c157d0b1e768865232c75baf27e9e42e28cd5a2b751f47",
+              "state": "ready",
+              "committed_units": 5,
+              "received_units": 7,
+              "adjustment_units": 0,
+              "revision": "ad0ea14334e6bb29b69d16057f1c460b1153de712c226aa17d5a2fd2b2d37de8",
+              "available_units": 2
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "clearance": [
+    {
+      "arguments": {
+        "purchase_date": "2026-01-01",
+        "production_date": "2025-12-01",
+        "expiry_date": "2026-12-31",
+        "today": "2026-11-17",
+        "purchase_cost": 50000,
+        "normal_price": 100000,
+        "market_price": 90000,
+        "market_source": "Synthetic market",
+        "market_observed_date": "2026-11-17",
+        "near_cost_threshold_toman": 15000
+      },
+      "expected": {
+        "purchase_date": "2026-01-01",
+        "production_date": "2025-12-01",
+        "expiry_date": "2026-12-31",
+        "today": "2026-11-17",
+        "age_basis": "purchase_and_production",
+        "days_since_purchase": 320,
+        "days_since_production": 351,
+        "holding_urgency": 0.8791208791208791,
+        "shelf_life_urgency": 0.8886075949367088,
+        "days_until_expiry": 44,
+        "urgency": 0.8838642370287939,
+        "purchase_cost_toman": 50000,
+        "normal_price_toman": 100000,
+        "market_price_toman": 90000,
+        "market_source": "Synthetic market",
+        "market_observed_date": "2026-11-17",
+        "near_cost_alert_configured": true,
+        "near_cost_threshold_toman": 15000,
+        "near_cost_alert": true,
+        "state": "near_cost_alert",
+        "suggested_price_toman": 54645,
+        "discount_from_normal_toman": 45355,
+        "reason": "owner_review_only; price is not published automatically"
+      }
+    },
+    {
+      "arguments": {
+        "purchase_date": "2026-01-01",
+        "production_date": null,
+        "expiry_date": "2026-12-31",
+        "today": "2026-11-17",
+        "purchase_cost": 50000,
+        "normal_price": 100000,
+        "market_price": 90000,
+        "market_source": "Synthetic market",
+        "market_observed_date": "2026-11-17",
+        "near_cost_threshold_toman": 15000
+      },
+      "expected": {
+        "purchase_date": "2026-01-01",
+        "production_date": null,
+        "expiry_date": "2026-12-31",
+        "today": "2026-11-17",
+        "age_basis": "purchase_date_fallback",
+        "days_since_purchase": 320,
+        "days_since_production": null,
+        "holding_urgency": 0.8791208791208791,
+        "shelf_life_urgency": 0.8791208791208791,
+        "days_until_expiry": 44,
+        "urgency": 0.8791208791208791,
+        "purchase_cost_toman": 50000,
+        "normal_price_toman": 100000,
+        "market_price_toman": 90000,
+        "market_source": "Synthetic market",
+        "market_observed_date": "2026-11-17",
+        "near_cost_alert_configured": true,
+        "near_cost_threshold_toman": 15000,
+        "near_cost_alert": true,
+        "state": "near_cost_alert",
+        "suggested_price_toman": 54835,
+        "discount_from_normal_toman": 45165,
+        "reason": "owner_review_only; price is not published automatically"
+      }
+    },
+    {
+      "arguments": {
+        "purchase_date": "2026-01-01",
+        "production_date": "2025-12-01",
+        "expiry_date": "2026-12-31",
+        "today": "2026-11-17",
+        "purchase_cost": 50000,
+        "normal_price": 100000,
+        "market_price": 90000,
+        "market_source": "Synthetic market",
+        "market_observed_date": "2026-11-17",
+        "near_cost_threshold_toman": null
+      },
+      "expected": {
+        "purchase_date": "2026-01-01",
+        "production_date": "2025-12-01",
+        "expiry_date": "2026-12-31",
+        "today": "2026-11-17",
+        "age_basis": "purchase_and_production",
+        "days_since_purchase": 320,
+        "days_since_production": 351,
+        "holding_urgency": 0.8791208791208791,
+        "shelf_life_urgency": 0.8886075949367088,
+        "days_until_expiry": 44,
+        "urgency": 0.8838642370287939,
+        "purchase_cost_toman": 50000,
+        "normal_price_toman": 100000,
+        "market_price_toman": 90000,
+        "market_source": "Synthetic market",
+        "market_observed_date": "2026-11-17",
+        "near_cost_alert_configured": false,
+        "near_cost_threshold_toman": null,
+        "near_cost_alert": false,
+        "state": "alert_threshold_required",
+        "suggested_price_toman": 54645,
+        "discount_from_normal_toman": 45355,
+        "reason": "owner_review_only; price is not published automatically"
+      }
+    },
+    {
+      "arguments": {
+        "purchase_date": "2026-01-01",
+        "production_date": "2025-12-01",
+        "expiry_date": "2026-12-31",
+        "today": "2026-11-17",
+        "purchase_cost": 50000,
+        "normal_price": 100000,
+        "market_price": 40000,
+        "market_source": "Synthetic market",
+        "market_observed_date": "2026-11-17",
+        "near_cost_threshold_toman": 15000
+      },
+      "expected": {
+        "purchase_date": "2026-01-01",
+        "production_date": "2025-12-01",
+        "expiry_date": "2026-12-31",
+        "today": "2026-11-17",
+        "age_basis": "purchase_and_production",
+        "days_since_purchase": 320,
+        "days_since_production": 351,
+        "holding_urgency": 0.8791208791208791,
+        "shelf_life_urgency": 0.8886075949367088,
+        "days_until_expiry": 44,
+        "urgency": 0.8838642370287939,
+        "purchase_cost_toman": 50000,
+        "normal_price_toman": 100000,
+        "market_price_toman": 40000,
+        "market_source": "Synthetic market",
+        "market_observed_date": "2026-11-17",
+        "near_cost_alert_configured": true,
+        "near_cost_threshold_toman": 15000,
+        "near_cost_alert": true,
+        "state": "near_cost_review",
+        "suggested_price_toman": null,
+        "discount_from_normal_toman": 0,
+        "reason": "normal_or_market_price_is_at_or_below_purchase_cost"
+      }
+    },
+    {
+      "arguments": {
+        "purchase_date": "2026-01-01",
+        "production_date": "2025-12-01",
+        "expiry_date": "2026-12-31",
+        "today": "2026-11-17",
+        "purchase_cost": 50000,
+        "normal_price": 100000,
+        "market_price": 90000,
+        "market_source": "Synthetic market",
+        "market_observed_date": "2026-11-16",
+        "near_cost_threshold_toman": 15000
+      },
+      "expected": {
+        "state": "needs_review",
+        "reason": "market_price_must_be_observed_today"
+      }
+    },
+    {
+      "arguments": {
+        "purchase_date": "2026-11-01",
+        "production_date": null,
+        "expiry_date": "2026-12-31",
+        "today": "2026-11-17",
+        "purchase_cost": 50000,
+        "normal_price": 100000,
+        "market_price": 90000,
+        "market_source": "Synthetic market",
+        "market_observed_date": "2026-11-17",
+        "near_cost_threshold_toman": 15000
+      },
+      "expected": {
+        "purchase_date": "2026-11-01",
+        "production_date": null,
+        "expiry_date": "2026-12-31",
+        "today": "2026-11-17",
+        "age_basis": "purchase_date_fallback",
+        "days_since_purchase": 16,
+        "days_since_production": null,
+        "holding_urgency": 0.26666666666666666,
+        "shelf_life_urgency": 0.26666666666666666,
+        "days_until_expiry": 44,
+        "urgency": 0.26666666666666666,
+        "purchase_cost_toman": 50000,
+        "normal_price_toman": 100000,
+        "market_price_toman": 90000,
+        "market_source": "Synthetic market",
+        "market_observed_date": "2026-11-17",
+        "near_cost_alert_configured": true,
+        "near_cost_threshold_toman": 15000,
+        "near_cost_alert": false,
+        "state": "normal_period",
+        "suggested_price_toman": null,
+        "discount_from_normal_toman": 0,
+        "reason": "clearance_urgency_below_proposed_start"
+      }
+    },
+    {
+      "arguments": {
+        "purchase_date": "2026-01-01",
+        "production_date": "2025-12-01",
+        "expiry_date": "2026-11-17",
+        "today": "2026-11-17",
+        "purchase_cost": 50000,
+        "normal_price": 100000,
+        "market_price": 90000,
+        "market_source": "Synthetic market",
+        "market_observed_date": "2026-11-17",
+        "near_cost_threshold_toman": 15000
+      },
+      "expected": {
+        "state": "needs_review",
+        "reason": "date_order_or_expiry_requires_review"
+      }
+    },
+    {
+      "arguments": {
+        "purchase_date": "2026-01-01",
+        "production_date": "2025-12-01",
+        "expiry_date": "2026-12-31",
+        "today": "2026-11-17",
+        "purchase_cost": true,
+        "normal_price": 100000,
+        "market_price": 90000,
+        "market_source": "Synthetic market",
+        "market_observed_date": "2026-11-17",
+        "near_cost_threshold_toman": 15000
+      },
+      "expected": {
+        "state": "needs_review",
+        "reason": "positive_integer_toman_prices_required"
+      }
+    },
+    {
+      "arguments": {
+        "purchase_date": "2026-02-30",
+        "production_date": "2025-12-01",
+        "expiry_date": "2026-12-31",
+        "today": "2026-11-17",
+        "purchase_cost": 50000,
+        "normal_price": 100000,
+        "market_price": 90000,
+        "market_source": "Synthetic market",
+        "market_observed_date": "2026-11-17",
+        "near_cost_threshold_toman": 15000
+      },
+      "expected": {
+        "state": "needs_review",
+        "reason": "invalid_or_missing_date"
+      }
+    }
+  ],
+  "packs": [
+    {
+      "arguments": [
+        0,
+        0,
+        12
+      ],
+      "expected": {
+        "customer_units": 0,
+        "owned_stock_used": 0,
+        "supplier_packs": 0,
+        "supplier_units": 0,
+        "unallocated_after_fulfillment": 0
+      }
+    },
+    {
+      "arguments": [
+        1,
+        0,
+        12
+      ],
+      "expected": {
+        "customer_units": 1,
+        "owned_stock_used": 0,
+        "supplier_packs": 1,
+        "supplier_units": 12,
+        "unallocated_after_fulfillment": 11
+      }
+    },
+    {
+      "arguments": [
+        30,
+        5,
+        12
+      ],
+      "expected": {
+        "customer_units": 30,
+        "owned_stock_used": 5,
+        "supplier_packs": 3,
+        "supplier_units": 36,
+        "unallocated_after_fulfillment": 11
+      }
+    },
+    {
+      "arguments": [
+        30,
+        40,
+        12
+      ],
+      "expected": {
+        "customer_units": 30,
+        "owned_stock_used": 30,
+        "supplier_packs": 0,
+        "supplier_units": 0,
+        "unallocated_after_fulfillment": 0
+      }
+    },
+    {
+      "arguments": [
+        1000,
+        33,
+        24
+      ],
+      "expected": {
+        "customer_units": 1000,
+        "owned_stock_used": 33,
+        "supplier_packs": 41,
+        "supplier_units": 984,
+        "unallocated_after_fulfillment": 17
+      }
+    }
+  ]
+}
