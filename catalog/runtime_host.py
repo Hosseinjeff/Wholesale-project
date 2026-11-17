@@ -11,13 +11,22 @@ import requests
 
 TASKS=frozenset({'sheet_sync','reference_refresh','outbox','housekeeping'})
 
+def _suggestion_policy_version():
+    # Production may intentionally lack the newer Staging suggestion executor.
+    try:
+        from reference_import.suggestion_tasks import policy_version
+    except ModuleNotFoundError as exc:
+        if exc.name != 'reference_import.suggestion_tasks':
+            raise
+        return None
+    return policy_version()
+
 def bot_capabilities():
     """Publish policy identities, never provider credentials or extracted data."""
     from catalog import gemini
-    from reference_import.suggestion_tasks import policy_version
     return {'schema_version':1,'ai_configured':bool(gemini.ai_extraction_configured()),
             'extraction_policy_version':gemini.extraction_policy_version(),
-            'suggestion_policy_version':policy_version(),
+            'suggestion_policy_version':_suggestion_policy_version(),
             'image_extraction_enabled':callable(getattr(gemini,'extract_text_from_image',None))}
 
 def configure_wordpress_connectors():

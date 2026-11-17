@@ -11,6 +11,7 @@ require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-bot-capabili
 function caps_check($ok,$label){global $count;if(!$ok)throw new RuntimeException($label);$count++;}
 $caps=['schema_version'=>1,'ai_configured'=>true,'extraction_policy_version'=>'gemini-'.str_repeat('a',16),'suggestion_policy_version'=>str_repeat('b',64),'image_extraction_enabled'=>false];
 caps_check(molavi_domain_validate_bot_capabilities($caps),'bounded policy receipt accepted');
+caps_check(molavi_domain_validate_bot_capabilities(array_merge($caps,['suggestion_policy_version'=>null])),'older bot explicitly reports suggestions unavailable');
 foreach([null,[],array_merge($caps,['token'=>'synthetic-secret']),array_merge($caps,['ai_configured'=>'true']),array_merge($caps,['schema_version'=>2]),array_merge($caps,['suggestion_policy_version'=>'invalid'])] as $invalid)
     caps_check(!molavi_domain_validate_bot_capabilities($invalid),'invalid/extra fields rejected');
 try{molavi_domain_bot_capabilities();throw new RuntimeException('missing configuration accepted');}catch(RuntimeException $e){caps_check($e->getMessage()==='bot_capabilities_unavailable','missing receipt fails locally');}
