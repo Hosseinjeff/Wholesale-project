@@ -103,7 +103,10 @@ function molavi_domain_run_jobs(int $limit=2,float $budget=40.0): array {
 }
 add_action('rest_api_init',static function():void {
     register_rest_route('molavi-workflow/v1','/executors',['methods'=>'GET','permission_callback'=>'molavi_runtime_permission',
-        'callback'=>static fn()=>['ok'=>true,'hosts'=>['publish'=>molavi_domain_job_host('publish')]]]);
+        'callback'=>static fn()=>['ok'=>true,'hosts'=>['publish'=>molavi_domain_job_host('publish')],
+            'last_publication_tick'=>get_option('molavi_native_jobs_receipt_v1',null),
+            'last_sheet_observation'=>get_option('molavi_native_sheet_receipt_v1',null),
+            'last_owner_outbox'=>get_option('molavi_native_outbox_receipt_v1',null)]]);
     register_rest_route('molavi-workflow/v1','/executors',['methods'=>'POST','permission_callback'=>'molavi_runtime_permission','callback'=>static function($request){
         try{$body=$request->get_json_params();$hosts=$body['hosts']??null;
             if(!is_array($hosts)||!$hosts||array_diff(array_keys($hosts),['publish']))molavi_domain_fail('invalid_executors',400);
@@ -115,7 +118,11 @@ add_action('rest_api_init',static function():void {
             molavi_domain_tx('pipeline',static function(SQLite3 $db)use($hosts):void {foreach($hosts as $kind=>$host){
                 if(molavi_domain_row($db,"SELECT 1 FROM jobs WHERE kind=? AND state='running' AND expires>? LIMIT 1",[$kind,microtime(true)]))molavi_domain_fail('executor_work_active');
                 molavi_domain_sql($db,'INSERT INTO molavi_state_executors VALUES (?,?,?) ON CONFLICT(kind) DO UPDATE SET host=excluded.host,updated_at=excluded.updated_at',[$kind,$host,microtime(true)]);
-            }});return ['ok'=>true,'hosts'=>['publish'=>molavi_domain_job_host('publish')]];
+            }});
+            if(($hosts['publish']??null)==='wordpress'&&function_exists('molavi_runtime_state')){
+                $state=molavi_runtime_state();$state['sheet_at']=min((int)$state['sheet_at'],time());molavi_runtime_save_state($state);
+            }
+            return ['ok'=>true,'hosts'=>['publish'=>molavi_domain_job_host('publish')]];
         }catch(MolaviWorkflowError $e){return new WP_Error($e->getMessage(),'Executor configuration failed',['status'=>$e->status]);}
         catch(Throwable $e){return new WP_Error('executor_unavailable','Executor configuration failed',['status'=>503]);}}]);
 });
