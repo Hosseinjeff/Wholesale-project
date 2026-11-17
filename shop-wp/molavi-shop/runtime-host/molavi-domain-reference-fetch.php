@@ -32,12 +32,12 @@ function molavi_domain_reference_retryable(string $code): bool {
     return $code==='native_connector_unavailable'||str_starts_with($code,'woocommerce_transport_')
         ||in_array($code,['woocommerce_http_429','woocommerce_http_500','woocommerce_http_502','woocommerce_http_503','woocommerce_http_504'],true);
 }
-/** Four bounded requests at a time through WordPress's bundled HTTP transport. */
+/** Eight bounded requests shorten the window for source changes between pages. */
 function molavi_domain_reference_fetch_attempt(int $size=100): array {
     if($size<1||$size>100)molavi_domain_fail('woocommerce_pagination_invalid',400);
     [$first,$total,$pages]=molavi_domain_reference_fetch_page(1,$size);$products=$first;
-    for($start=2;$start<=$pages;$start+=4){
-        $end=min($pages,$start+3);
+    for($start=2;$start<=$pages;$start+=8){
+        $end=min($pages,$start+7);
         if(class_exists('WpOrg\Requests\Requests')){
             $requests=[];for($page=$start;$page<=$end;$page++)$requests[$page]=['url'=>molavi_domain_reference_page_url($page,$size),'type'=>'GET'];
             $options=['timeout'=>30,'connect_timeout'=>10,'follow_redirects'=>false,'verify'=>true];
@@ -64,7 +64,14 @@ function molavi_domain_reference_fetch_attempt(int $size=100): array {
     return molavi_domain_reference_candidate($products,$pages,(string)$currency,molavi_domain_now());
 }
 function molavi_domain_reference_fetch_products(int $size=100): array {
-    try{return molavi_domain_reference_fetch_attempt($size);}
-    catch(MolaviWorkflowError $e){if($size<=50||!molavi_domain_reference_retryable($e->getMessage()))throw $e;
-        return molavi_domain_reference_fetch_attempt(intdiv($size,2));}
+    for($generation=0;$generation<2;$generation++){
+        try{return molavi_domain_reference_fetch_attempt($size);}
+        catch(MolaviWorkflowError $e){$code=$e->getMessage();
+            // Discard the entire incomplete generation, then start once from page 1.
+            if($generation===0&&($code==='woocommerce_pagination_changed'||str_starts_with($code,'woocommerce_page_incomplete_')))continue;
+            if($size<=50||!molavi_domain_reference_retryable($code))throw $e;
+            return molavi_domain_reference_fetch_attempt(intdiv($size,2));
+        }
+    }
+    molavi_domain_fail('woocommerce_source_unstable',503);
 }
