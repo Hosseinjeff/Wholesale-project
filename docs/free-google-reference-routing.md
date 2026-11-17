@@ -76,6 +76,9 @@ Read-only gateway failures (502/503/504) receive one serial retry after one seco
 subsequent failure remains visible. Owner writes are never automatically retried by
 this browser path. AI-confirmation and price-ledger schema setup use the existing
 schema cache rather than replaying unchanged DDL on every owner read.
+AI review requests decision history only for reviewable offers and visible cases,
+instead of the entire completed offer archive. Owner GETs have a bounded 90-second
+upstream timeout for state round trips and executor startup; POSTs retain 45 seconds.
 Supplier-price evidence also loads and observes sources in bounded groups of 300,
 preserving manual verification, source revisions and original timestamps. It no
 longer makes separate remote state transactions for every product.

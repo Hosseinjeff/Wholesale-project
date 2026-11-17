@@ -61,7 +61,7 @@ function molavi_owner_workflow_proxy_call(string $method, string $path, array $q
     $url = rtrim($base, '/') . $path . ($queryString === '' ? '' : '?' . $queryString);
     $args = [
         'method'=>$method,
-        'timeout'=>45,
+        'timeout'=>$method === 'GET' ? 90 : 45,
         'redirection'=>0,
         'headers'=>[
             'X-Molavi-Reference-Token'=>$token,

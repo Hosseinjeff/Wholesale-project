@@ -133,6 +133,23 @@ class ReferenceSuggestionTasksTests(unittest.TestCase):
         self.assertEqual(ignored['state'], 'superseded')
         matcher.assert_not_called()
 
+    def test_ai_review_history_ignores_completed_offer_inventory(self):
+        from catalog.ai_confirmations import AIConfirmationLedger, review_cases as ai_cases
+        self.store.write_rows('Offers', 2, [_row_from_map(OFFER_HEADERS,
+            {**self.offer, 'Review Reason': 'missing_stock'})])
+        self.store.append('Offers', [_row_from_map(OFFER_HEADERS,
+            {**self.offer, 'Offer ID': f'completed-{i}', 'Status': 'imported'}) for i in range(1001)])
+        ledger = AIConfirmationLedger(self.queue.path)
+        original = ledger.latest_for_cases
+        looked_up = []
+        def latest(identifiers):
+            identifiers = list(identifiers); looked_up.extend(identifiers)
+            return original(identifiers)
+        with patch.object(ledger, 'latest_for_cases', side_effect=latest):
+            cases, _ = ai_cases(self.store, ledger, include_history=True)
+        self.assertEqual(len(cases), 1)
+        self.assertEqual(looked_up, [cases[0]['case_id']])
+
     def test_owner_route_queues_idempotently_and_get_only_reads_receipt(self):
         import app as server
         secret = 'synthetic-owner-bridge-token-at-least-32-chars'

@@ -438,12 +438,18 @@ def review_cases(store, ledger, *, include_history=False, limit=200, reference_s
     source_duplicates = {}
     all_by_offer = {}
     source_results = ledger.source_reextractions()
-    latest_decisions = ledger.latest_for_cases(review_case_id(str(offer.get('Offer ID') or '')) for offer in offers)
+    reviewable_offers = [offer for offer in offers
+        if str(offer.get('Status') or '').strip().lower() == 'needs_review'
+        and str(offer.get('Review Reason') or '')
+        and not _reference_only(offer.get('Review Reason'))]
+    latest_decisions = ledger.latest_for_cases(
+        review_case_id(str(offer.get('Offer ID') or '')) for offer in reviewable_offers)
     reference_decisions = {}
     if reference_item_ledger and active_reference_snapshot_id:
         from reference_import.item_reviews import review_case_id as reference_review_case_id
         reference_decisions = reference_item_ledger.get_for_cases(
-            reference_review_case_id(str(offer.get('Offer ID') or ''), active_reference_snapshot_id) for offer in offers)
+            reference_review_case_id(str(offer.get('Offer ID') or ''), active_reference_snapshot_id)
+            for offer in reviewable_offers)
     reextracted_messages={
         (str(offer.get('Message ID') or ''),str(offer.get('Channel Username') or ''))
         for offer in offers if str(offer.get('Batch ID') or '').startswith('reextract:')
@@ -555,7 +561,7 @@ def review_cases(store, ledger, *, include_history=False, limit=200, reference_s
             if case:
                 recent.append({**case, 'decision': decision})
     histories = ledger.history_for_cases(
-        [item['case_id'] for item in cases] + [item['case_id'] for item in recent], per_case=10)
+        [item['case_id'] for item in cases[:limit]] + [item['case_id'] for item in recent[:limit]], per_case=10)
     _annotate_variant_groups(recent)
     for item in cases:
         item['decision_history'] = histories.get(item['case_id'], [])
