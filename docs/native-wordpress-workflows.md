@@ -141,6 +141,15 @@ Python publication/queue/runtime/state checks. This checkpoint still requires sc
 backend deployment, filter-version read-back and explicit per-site ownership switch;
 do not infer publication ownership from source presence.
 
+Staging backend `7b49a63` deployed as `dfc4e5ac-ce88-4b6e-8d1d-c0b8133dc38d`,
+terminal SUCCESS. Runtime read-back confirmed filter version 1, WordPress state and
+zero Railway data files. Its publication kind was then atomically assigned to
+WordPress. Live's equivalent `ce67ccb` MU-files are uploaded/read back; its exact
+backend source change is staged but not yet accepted. The executor status endpoint
+reports native observation/job/outbox counters only. Enabling native publication
+makes its existing Sheet clock due so real minute cron verifies the first local
+observation without a synthetic order or invented product.
+
 Remaining migration domains: reference fetch/incremental activation and matching;
 catalog/Sheet reconciliation and guarded publication; current product and AI review
 read models/commands; supplier freshness and publication recovery; order workflow
