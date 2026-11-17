@@ -47,7 +47,7 @@ function molavi_domain_freshness(array $records,?float $clock=null,bool $observe
             if($saved&&$revision!==''&&$saved['source_revision']===$revision)$state=['state'=>molavi_domain_price_age($saved['verified_at'],$now),'verified_at'=>$saved['verified_at'],'method'=>$saved['method']];
             if($stamp!==null&&$stamp>$now)$state['state']='needs_review';
             $out[]=array_merge(['product_id'=>$id,'name'=>(string)($record['Product Name']??''),'channel'=>(string)($record['Channel Username']??''),
-                'sale_price'=>($record['Sale Price']??'')?:'','source_revision'=>$revision,'source_timestamp'=>$iso,
+                'sale_price'=>molavi_domain_py_value($record['Sale Price']??null),'source_revision'=>$revision,'source_timestamp'=>$iso,
                 'source_timestamp_basis'=>$basis?:'legacy_unknown','source_timestamp_trusted'=>$trusted],$state);
         }return $out;
     });
@@ -123,7 +123,7 @@ function molavi_domain_product_state(array $record,array $evidence=[],array $iss
         'channel'=>(string)($record['Channel Username']??''),'status'=>$status,'latest_offer_id'=>(string)($record['Latest Offer ID']??''),
         'source_post_url'=>(string)($record['Source Post URL']??''),'reference_snapshot_id'=>(string)($record['Reference Snapshot ID']??''),
         'reference_match_id'=>(string)($record['Reference Match ID']??''),'reference_price_role'=>(string)($record['Reference Price Role']??''),
-        'reference_approval_state'=>$approval,'reference_price_change_percent'=>($record['Reference Price Change Percent']??'')?:'',
+        'reference_approval_state'=>$approval,'reference_price_change_percent'=>molavi_domain_py_value($record['Reference Price Change Percent']??null),
         'reference_price_checked_at'=>(string)($record['Reference Price Checked At']??''),'reference_review_due'=>$referenceDue||$approval==='approved_within_margin',
         'reference_review_result'=>$result,'reference_update_needed'=>$referenceDue,'supplier_price_state'=>$supplierState,
         'supplier_price_verified_at'=>(string)(($evidence['verified_at']??'')?:''),'supplier_price_update_due'=>$supplierDue,

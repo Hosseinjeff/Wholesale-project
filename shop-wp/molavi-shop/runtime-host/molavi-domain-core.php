@@ -61,6 +61,11 @@ function molavi_domain_json($value,bool $spaces=false,bool $ascii=false,bool $so
 }
 function molavi_domain_hash($value,bool $spaces=false,bool $ascii=false):string {return hash('sha256',molavi_domain_json($value,$spaces,$ascii));}
 function molavi_domain_decode($value,$default=[]){if(!is_string($value)||$value==='')return $default;return json_decode($value,true,128,JSON_THROW_ON_ERROR);}
+/** Python keeps the string "0" when using `value or ''`; PHP's ?: does not. */
+function molavi_domain_py_value($value,$fallback='') {
+    return $value===null||$value===false||$value===''||$value===[]
+        ||((is_int($value)||is_float($value))&&$value==0)?$fallback:$value;
+}
 function molavi_domain_sql(SQLite3 $db,string $sql,array $params=[]):array {
     $statement=$db->prepare($sql);
     foreach(array_values($params) as $index=>$value){$type=$value===null?SQLITE3_NULL:(is_int($value)||is_bool($value)?SQLITE3_INTEGER:(is_float($value)?SQLITE3_FLOAT:SQLITE3_TEXT));$statement->bindValue($index+1,$value,$type);}

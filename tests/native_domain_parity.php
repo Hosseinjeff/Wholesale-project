@@ -18,6 +18,7 @@ require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-reference-st
 require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-products.php';
 require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-supplier-prices.php';
 require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-outbox.php';
+require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-publisher.php';
 $root=molavi_state_root();$initial=new SQLite3($root.'/pipeline.sqlite3');$initial->exec('PRAGMA user_version=1');$initial->close();
 $fixtures=json_decode(file_get_contents(__DIR__.'/fixtures/native-domain-parity.json'),true,128,JSON_THROW_ON_ERROR);$count=0;
 function compare_native($actual,$expected,string $name):void {
@@ -119,4 +120,9 @@ $GLOBALS['outbox_actor']=99;$GLOBALS['outbox_commands']=[$command];
 compare_native(molavi_domain_drain_outbox()['failed'],1,'native outbox respects recorded owner');
 $GLOBALS['outbox_actor']=7;$GLOBALS['receipt_reject']=true;$GLOBALS['outbox_commands']=[$command];
 compare_native(molavi_domain_drain_outbox(),['claimed'=>1,'delivered'=>0,'retried'=>0,'failed'=>0,'error'=>'outbox_receipt_rejected'],'native outbox requires durable acknowledgement');
+$publication=json_decode(file_get_contents(__DIR__.'/fixtures/native-publication-parity.json'),true,128,JSON_THROW_ON_ERROR);
+foreach($publication['scenarios'] as $case)compare_native(molavi_domain_site_products($case['tables'],$case['freshness'],$case['conflicts']),$case['expected'],'publication/'.$case['name']);
+foreach($publication['settings'] as $index=>$case)compare_native(molavi_domain_site_settings($case['rows']),$case['expected'],'shop settings/'.$index);
+foreach($publication['stock'] as $index=>$case)compare_native(molavi_domain_stock_status($case['raw']),$case['expected'],'supplier availability/'.$index);
+foreach($publication['skus'] as $index=>$case)compare_native(molavi_domain_woo_sku($case['record']),$case['expected'],'published SKU/'.$index);
 foreach(glob($root.'/*') as $file)unlink($file);rmdir($root);echo 'PASS native domain parity '.$count." cases\n";
