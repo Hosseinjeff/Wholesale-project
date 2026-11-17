@@ -88,7 +88,7 @@ function molavi_domain_reconcile_product(array $existing,array $base,array $serv
         foreach($rows as $row)if(!in_array($row['conflict_id'],$active,true))molavi_domain_sql($db,
             "UPDATE sheet_sync_conflicts SET state='superseded',resolved_at=?,choice='superseded',actor_id='system',note='Values or source revision changed during reconciliation' WHERE conflict_id=? AND state='open'",[microtime(true),$row['conflict_id']]);});
 }
-function molavi_domain_refresh_conflict_product(array $conflict,array $existing,array $headers,array $matching): void {
+function molavi_domain_refresh_conflict_product(array $conflict,array $existing,array $headers,array $matching,?string $clock=null): void {
     usort($matching,static function($a,$b){$key=static function($offer){$import=molavi_domain_timestamp($offer['Import Timestamp']??null)??-62135596800.0;
         $basis=trim((string)molavi_domain_py_value($offer['Source Timestamp Basis']??null));$source=$basis!==''&&!in_array($basis,['supplier_channel_update','supplier_channel_forward'],true)?null:molavi_domain_timestamp($offer['Message Timestamp']??null);
         return [$source??$import,$import];};return $key($a)<=>$key($b);});
@@ -105,9 +105,9 @@ function molavi_domain_refresh_conflict_product(array $conflict,array $existing,
         foreach(['Status'=>'status','Reference Snapshot ID'=>'reference_snapshot_id','Reference Match ID'=>'reference_match_id','Reference Price Role'=>'reference_price_role',
             'Reference Decision ID'=>'reference_decision_id','Reference Approval State'=>'reference_approval_state','Reference Price Change Percent'=>'reference_price_change_percent',
             'Reference Price Checked At'=>'reference_price_checked_at','Reference Review Reason'=>'reference_review_reason'] as $field=>$key)$product[$key]=$existing[$field]??'';}
-    $product=molavi_domain_product_reference_review($product,$latest,$activeId);$row=molavi_domain_product_row($headers,$product,molavi_domain_message_from_offer($latest));
+    $product=molavi_domain_product_reference_review($product,$latest,$activeId,$clock);$row=molavi_domain_product_row($headers,$product,molavi_domain_message_from_offer($latest),$clock);
     $server=array_combine($headers,$row);$server['Last Updated']=molavi_domain_py_value($latest['Import Timestamp']??null);$base=$existing;
-    if(count($matching)>1){$prior=array_slice($matching,0,-1);$base=array_combine($headers,molavi_domain_product_row($headers,molavi_domain_product_from_offers($prior),molavi_domain_message_from_offer(end($prior))));}
+    if(count($matching)>1){$prior=array_slice($matching,0,-1);$base=array_combine($headers,molavi_domain_product_row($headers,molavi_domain_product_from_offers($prior),molavi_domain_message_from_offer(end($prior)),$clock));}
     molavi_domain_reconcile_product($existing,$base,$server,['product_id'=>$conflict['product_id'],'product_name'=>$conflict['product_name'],'channel'=>$conflict['channel'],'source_revision'=>(string)molavi_domain_py_value($latest['Offer ID']??null)]);
 }
 function molavi_domain_sheet_conflicts_api(string $method,?array $body,string $actor): array {

@@ -364,3 +364,26 @@ older scheduling observations cannot overwrite a newer receipt. This is a bot
 boundary change and must be cherry-picked onto each environment's separately
 pinned bot source, preserving live image extraction and Staging text-only behavior.
 No extra HTTP request, model call or polling loop is introduced.
+
+Reference-item review is now ported in source: local candidate ranking, current
+Product/Offer case construction, receipt attachment, strict audited manual/no-match
+choices, AI-card reference assignment and verified Product projection. Suggestions
+only enqueue the existing bot task when the receipt advertises that executor; live
+keeps it unavailable. Matching uses the same normalized Unicode Indel ratio as the
+declared RapidFuzz runtime dependency, with a signed-safe bitset fast path and a
+request-scoped reference index. Scores remain suggestions, never approvals. 189
+synthetic checks cover ranking/signatures, 70 Unicode similarity pairs and 21 full
+controller scenarios; the original 11 reference item/matching tests pass. The local
+validation environment initially lacked the declared RapidFuzz dependency; it is
+now installed for runtime parity. Existing 695 Sheet checks still pass. This source
+checkpoint is not yet an activation receipt.
+
+Bot policy release `430916b` on the separate Staging release branch deployed with
+terminal SUCCESS as `7fa1c72e-e749-46ca-8981-757faf842117`; production's narrowly
+scoped source `cd13c49` deployed with terminal SUCCESS as
+`35841ae2-50f6-4c57-9719-14e479b96684`. The native receiver/scheduler files were
+uploaded/read back first on both sites. Production intentionally has no newer
+suggestion module: its capability is null and no Staging bot features were copied.
+Each environment keeps its original image/text extraction behavior and on-demand
+settings. Future bot scheduling callbacks refresh the local policy receipt without
+an additional HTTP request. Frontend/PHP-only commits must leave these pins fixed.
