@@ -4,13 +4,13 @@ declare(strict_types=1);
 defined('ABSPATH') || exit;
 
 function molavi_domain_text($value, int $limit): string {
-    $value = trim((string)($value ?? ''));
+    $value = molavi_domain_py_value($value);$value = trim($value===true?'True':(string)$value);
     return function_exists('mb_substr') ? mb_substr($value, 0, $limit, 'UTF-8')
         : implode('', array_slice(preg_split('//u', $value, -1, PREG_SPLIT_NO_EMPTY), 0, $limit));
 }
 function molavi_domain_rounded($value): int {
     if(is_bool($value))return (int)$value;
-    if(is_string($value))$value=trim(molavi_domain_digits($value));
+    if(is_string($value))$value=preg_replace('/(?<=\d)_(?=\d)/u','',trim(molavi_domain_digits($value)));
     return is_numeric($value)&&is_finite((float)$value)?(int)round((float)$value,0,PHP_ROUND_HALF_EVEN):0;
 }
 function molavi_domain_normalize_order(array $order): array {
@@ -20,15 +20,15 @@ function molavi_domain_normalize_order(array $order): array {
         $line = [];
         foreach (['id'=>40,'name'=>200,'packaging'=>120,'volume'=>80,'supplier'=>80,'sku'=>80,'supplier_offer_id'=>120] as $field=>$limit) {
             $value = $raw[$field] ?? '';
-            if ($field === 'id') $value = $value ?: ($raw['product_id'] ?? '');
-            if ($field === 'sku') $value = $value ?: ($raw['id'] ?? '') ?: ($raw['product_id'] ?? '');
+            if ($field === 'id') $value = molavi_domain_py_value($value,($raw['product_id'] ?? ''));
+            if ($field === 'sku') $value = molavi_domain_py_value($value,molavi_domain_py_value($raw['id']??'',($raw['product_id']??'')));
             $line[$field] = molavi_domain_text($value, $limit);
         }
         foreach (['qty','min','order_unit','sale','shelf','unit','total'] as $field) {
             $value = $raw[$field] ?? 0;
-            if ($field === 'qty') $value = $value ?: ($raw['quantity'] ?? 0);
-            if ($field === 'min') $value = $value ?: ($raw['min_qty'] ?? 0);
-            if ($field === 'shelf') $value = $value ?: ($raw['consumer'] ?? 0);
+            if ($field === 'qty') $value = molavi_domain_py_value($value,($raw['quantity'] ?? 0));
+            if ($field === 'min') $value = molavi_domain_py_value($value,($raw['min_qty'] ?? 0));
+            if ($field === 'shelf') $value = molavi_domain_py_value($value,($raw['consumer'] ?? 0));
             $line[$field] = molavi_domain_rounded($value);
         }
         $line['qty'] = max(0, $line['qty']); $line['min'] = max(0, $line['min']);
@@ -42,12 +42,12 @@ function molavi_domain_normalize_order(array $order): array {
     }
     $result['woo_status'] = strtolower($result['woo_status']);
     if ($result['woo_status'] !== '' && !preg_match('/^[\pL\pN_-]+$/u', $result['woo_status'])) $result['woo_status'] = 'unknown';
-    $result['at'] = molavi_domain_text(($order['at'] ?? '') ?: ($order['created_at'] ?? ''), 40);
-    $result['progress'] = is_int($order['progress'] ?? null) || is_float($order['progress'] ?? null) ? $order['progress'] : 0;
+    $result['at'] = molavi_domain_text(molavi_domain_py_value($order['at']??'',($order['created_at']??'')),40);
+    $result['progress'] = is_int($order['progress'] ?? null) || is_float($order['progress'] ?? null) || is_bool($order['progress']??null) ? $order['progress'] : 0;
     $result['total'] = molavi_domain_rounded($order['total'] ?? 0);
-    $result['status'] = molavi_domain_text(($order['status'] ?? '') ?: 'new', 20);
+    $result['status'] = molavi_domain_text(molavi_domain_py_value($order['status']??'','new'),20);
     if (!in_array($result['status'], ['new','review','confirmed','cancelled'], true)) $result['status'] = 'new';
-    $result['payment_status'] = strtolower(molavi_domain_text(($order['payment_status'] ?? '') ?: 'pending', 20));
+    $result['payment_status'] = strtolower(molavi_domain_text(molavi_domain_py_value($order['payment_status']??'','pending'),20));
     if (!in_array($result['payment_status'], ['pending','verified','failed','refunded','unknown'], true)) $result['payment_status'] = 'unknown';
     $result['buyer_type'] = strtolower(molavi_domain_text($order['buyer_type'] ?? '', 20));
     if (!in_array($result['buyer_type'], ['household','shop'], true)) $result['buyer_type'] = 'unknown';

@@ -341,6 +341,12 @@ def run_durable_handoff(queue, job_id=None, worker_id=None):
         return result
 
     def notify(payload):
+        if payload.get('type') == 'order_notice':
+            from catalog.order_notices import dispatch_order_notice
+            return dispatch_order_notice(payload, emit=notice,
+                allowed_chats=_notice_chat_allowlists(queue),
+                telegram_chats=operator_chat_ids(None, queue.approved_telegram_operator_ids()),
+                telegram_enabled=bool(BOT_TOKEN), bale_enabled=bool(BALE_BOT_TOKEN))
         channel = payload["channel"]
         if (channel not in {'telegram', 'bale'}
                 or str(payload.get('chat_id') or '').strip() not in _notice_chat_allowlists(queue).get(channel, set())):

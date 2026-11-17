@@ -10,8 +10,10 @@ function molavi_domain_claim_job(?string $id=null,?float $clock=null): ?array {
     $now=$clock??microtime(true);$lease=bin2hex(random_bytes(16));
     return molavi_domain_tx('pipeline',static function(SQLite3 $db)use($id,$now,$lease):?array {
         $row=molavi_domain_row($db,"SELECT * FROM jobs WHERE ((state='queued' AND available<=?) OR (state='running' AND expires<?))
-            AND kind IN ('publish') AND kind IN (SELECT kind FROM molavi_state_executors WHERE host='wordpress')
-            AND (? IS NULL OR id=?) ORDER BY rowid LIMIT 1",[$now,$now,$id,$id]);
+            AND kind IN ('publish','order') AND kind IN (SELECT kind FROM molavi_state_executors WHERE host='wordpress')
+            AND (kind!='order' OR NOT EXISTS (SELECT 1 FROM jobs older WHERE older.kind='order' AND older.rowid<jobs.rowid
+                AND older.state IN ('queued','running') AND CAST(json_extract(older.payload,'$.order.id') AS TEXT)=CAST(json_extract(jobs.payload,'$.order.id') AS TEXT)))
+            AND (? IS NULL OR id=?) ORDER BY CASE kind WHEN 'order' THEN 0 ELSE 1 END,rowid LIMIT 1",[$now,$now,$id,$id]);
         if(!$row)return null;
         molavi_domain_sql($db,"UPDATE jobs SET state='running',lease=?,expires=?,attempts=attempts+1 WHERE id=?",[$lease,$now+900,$row['id']]);
         $row['payload']=molavi_domain_decode($row['payload']);$row['lease']=$lease;$row['attempts']++;return $row;
@@ -67,15 +69,15 @@ function molavi_domain_worker_progress(?string $job=null): void {
         'UPDATE pipeline_workers SET heartbeat_at=?,progress_at=?,state=?,current_job_id=? WHERE worker_id=?',
         [$now,$now,$job===null?'idle':'processing',$job,$worker]));
 }
-function molavi_domain_run_jobs(int $limit=2,float $budget=40.0): array {
+function molavi_domain_run_jobs(int $limit=2,float $budget=40.0,?string $onlyId=null): array {
     $summary=['claimed'=>0,'completed'=>0,'error'=>''];$until=microtime(true)+$budget;$worker='wordpress:'.bin2hex(random_bytes(12));$now=microtime(true);
     if($limit<1||$budget<=0)return $summary;
-    if(molavi_domain_job_host('publish')!=='wordpress')return $summary;
+    if(molavi_domain_job_host('publish')!=='wordpress'&&molavi_domain_job_host('order')!=='wordpress')return $summary;
     // Match the legacy worker's restart recovery. A hold can be cleared after
     // a publisher reads it but before the waiting receipt is committed.
     molavi_domain_tx('pipeline',static fn(SQLite3 $db)=>molavi_domain_sql($db,
-        "UPDATE jobs SET state='queued',available=?,lease=NULL,expires=NULL,error=NULL WHERE kind='publish' AND state='waiting_publication' AND NOT EXISTS (SELECT 1 FROM publication_holds)",[microtime(true)]));
-    $job=molavi_domain_claim_job();if(!$job)return $summary;
+        "UPDATE jobs SET state='queued',available=?,lease=NULL,expires=NULL,error=NULL WHERE kind='publish' AND state='waiting_publication' AND EXISTS (SELECT 1 FROM molavi_state_executors WHERE kind='publish' AND host='wordpress') AND NOT EXISTS (SELECT 1 FROM publication_holds)",[microtime(true)]));
+    $job=molavi_domain_claim_job($onlyId);if(!$job)return $summary;
     molavi_domain_tx('pipeline',static function(SQLite3 $db)use($worker,$now):void {
         molavi_domain_sql($db,"DELETE FROM pipeline_workers WHERE worker_id LIKE 'wordpress:%' AND started_at<?",[$now-30*86400]);
         molavi_domain_sql($db,"INSERT INTO pipeline_workers (worker_id,started_at,heartbeat_at,progress_at,state) VALUES (?,?,?,?,'starting')",[$worker,$now,$now,$now]);
@@ -84,8 +86,9 @@ function molavi_domain_run_jobs(int $limit=2,float $budget=40.0): array {
         for($i=0;$i<$limit&&($i===0||microtime(true)<$until);$i++){
             $summary['claimed']++;$GLOBALS['molavi_native_job_current']=$job['id'];molavi_domain_worker_progress($job['id']);
             try{
-                $result=molavi_domain_publish_job($job['payload']);
-                if(($result['reason']??null)==='publication_held_for_review')molavi_domain_finish_job($job,$result,'waiting_publication','publication_held_for_review');
+                $result=$job['kind']==='order'?molavi_domain_order_job($job['payload']):molavi_domain_publish_job($job['payload']);
+                if($job['kind']==='order'&&($result['written']??null)===true){molavi_domain_finish_job($job,$result);$summary['completed']++;}
+                elseif(($result['reason']??null)==='publication_held_for_review')molavi_domain_finish_job($job,$result,'waiting_publication','publication_held_for_review');
                 elseif(!empty($result['ok'])&&!empty($result['pushed'])&&($result['images_left']??0)>0&&($result['attached']??0)>0)
                     molavi_domain_finish_job($job,$result,'queued','images_pending',microtime(true)+1,false);
                 elseif(empty($result['ok'])||empty($result['pushed'])||($result['images_left']??0)>0)
@@ -96,9 +99,10 @@ function molavi_domain_run_jobs(int $limit=2,float $budget=40.0): array {
                 $busy=$e->getMessage()==='workflow_busy_retry';
                 molavi_domain_finish_job($job,[],$busy?'queued':($job['attempts']>=8?'failed':'queued'),$e->getMessage(),$busy?microtime(true)+30:null,!$busy);
                 $summary['error']=$e->getMessage();
-            }catch(Throwable $e){molavi_domain_finish_job($job,[],$job['attempts']>=8?'failed':'queued','native_publication_failed');$summary['error']='native_publication_failed';}
+            }catch(Throwable $e){$failure=$job['kind']==='order'?'native_order_failed':'native_publication_failed';
+                molavi_domain_finish_job($job,[],$job['attempts']>=8?'failed':'queued',$failure);$summary['error']=$failure;}
             molavi_domain_worker_progress();
-            if($i+1>=$limit||microtime(true)>=$until)break;$job=molavi_domain_claim_job();if(!$job)break;
+            if($onlyId!==null||$i+1>=$limit||microtime(true)>=$until)break;$job=molavi_domain_claim_job();if(!$job)break;
         }
     }finally{
         molavi_domain_tx('pipeline',static fn(SQLite3 $db)=>molavi_domain_sql($db,"UPDATE pipeline_workers SET state='stopped',heartbeat_at=?,current_job_id=NULL WHERE worker_id=?",[microtime(true),$worker]));
@@ -107,18 +111,19 @@ function molavi_domain_run_jobs(int $limit=2,float $budget=40.0): array {
 }
 add_action('rest_api_init',static function():void {
     register_rest_route('molavi-workflow/v1','/executors',['methods'=>'GET','permission_callback'=>'molavi_runtime_permission',
-        'callback'=>static fn()=>['ok'=>true,'hosts'=>['publish'=>molavi_domain_job_host('publish')],
+        'callback'=>static fn()=>['ok'=>true,'hosts'=>['publish'=>molavi_domain_job_host('publish'),'order'=>molavi_domain_job_host('order')],
             'last_publication_tick'=>get_option('molavi_native_jobs_receipt_v1',null),
             'last_sheet_observation'=>get_option('molavi_native_sheet_receipt_v1',null),
             'last_reference_refresh'=>get_option('molavi_native_reference_receipt_v1',null),
             'last_owner_outbox'=>get_option('molavi_native_outbox_receipt_v1',null)]]);
     register_rest_route('molavi-workflow/v1','/executors',['methods'=>'POST','permission_callback'=>'molavi_runtime_permission','callback'=>static function($request){
         try{$body=$request->get_json_params();$hosts=$body['hosts']??null;
-            if(!is_array($hosts)||!$hosts||array_diff(array_keys($hosts),['publish']))molavi_domain_fail('invalid_executors',400);
+            if(!is_array($hosts)||!$hosts||array_diff(array_keys($hosts),['publish','order']))molavi_domain_fail('invalid_executors',400);
             foreach($hosts as $host)if(!in_array($host,['wordpress','railway'],true))molavi_domain_fail('invalid_executors',400);
             if(in_array('wordpress',$hosts,true)){
                 if(($body['backend_filter_version']??null)!==1||!get_option('molavi_state_active',false))molavi_domain_fail('executor_filter_not_verified');
                 molavi_domain_config();if(!function_exists('molavi_apply_catalog')||!function_exists('molavi_receive_images'))molavi_domain_fail('native_publisher_unavailable',503);
+                if(($hosts['order']??null)==='wordpress'&&(($body['backend_order_notice_version']??null)!==1||!function_exists('molavi_domain_order_job')))molavi_domain_fail('order_notice_not_verified');
             }
             molavi_domain_tx('pipeline',static function(SQLite3 $db)use($hosts):void {foreach($hosts as $kind=>$host){
                 if(molavi_domain_row($db,"SELECT 1 FROM jobs WHERE kind=? AND state='running' AND expires>? LIMIT 1",[$kind,microtime(true)]))molavi_domain_fail('executor_work_active');
@@ -127,7 +132,7 @@ add_action('rest_api_init',static function():void {
             if(($hosts['publish']??null)==='wordpress'&&function_exists('molavi_runtime_state')){
                 $state=molavi_runtime_state();$state['sheet_at']=min((int)$state['sheet_at'],time());molavi_runtime_save_state($state);
             }
-            return ['ok'=>true,'hosts'=>['publish'=>molavi_domain_job_host('publish')]];
+            return ['ok'=>true,'hosts'=>['publish'=>molavi_domain_job_host('publish'),'order'=>molavi_domain_job_host('order')]];
         }catch(MolaviWorkflowError $e){return new WP_Error($e->getMessage(),'Executor configuration failed',['status'=>$e->status]);}
         catch(Throwable $e){return new WP_Error('executor_unavailable','Executor configuration failed',['status'=>503]);}}]);
 });

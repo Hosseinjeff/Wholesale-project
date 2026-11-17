@@ -110,6 +110,7 @@ def storage_report():
     from catalog.state import wordpress_state,state_call
     report={'mode':os.getenv('PIPELINE_RUNTIME_MODE','continuous'),'state_host':'wordpress' if wordpress_state() else 'local',
             'native_execution_filter_version':1,
+            'native_order_notice_version':1,
             'databases':[],'memory':memory_report()}
     try:report['container_memory_bytes']=int(Path('/sys/fs/cgroup/memory.current').read_text())
     except (OSError,ValueError):pass
