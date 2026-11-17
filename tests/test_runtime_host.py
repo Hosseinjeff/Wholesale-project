@@ -9,6 +9,19 @@ from catalog.durable import Handoffs
 from catalog.runtime_host import enqueue_tasks,next_work_at,schedule_on_wordpress
 
 class RuntimeHostTests(unittest.TestCase):
+    def test_capability_receipt_contains_only_local_policy_metadata(self):
+        from catalog.runtime_host import bot_capabilities
+        with patch('catalog.gemini.ai_extraction_configured',return_value=True), \
+                patch('catalog.gemini.extraction_policy_version',return_value='gemini-'+'a'*16), \
+                patch('reference_import.suggestion_tasks.policy_version',return_value='b'*64):
+            receipt=bot_capabilities()
+        self.assertEqual(set(receipt),{'schema_version','ai_configured','extraction_policy_version',
+            'suggestion_policy_version','image_extraction_enabled'})
+        self.assertEqual(receipt['schema_version'],1)
+        self.assertEqual(receipt['extraction_policy_version'],'gemini-'+'a'*16)
+        self.assertEqual(receipt['suggestion_policy_version'],'b'*64)
+        self.assertIs(receipt['ai_configured'],True)
+
     def test_native_jobs_are_not_claimed_or_scheduled_on_railway(self):
         job=self.queue.put('publish','native-synthetic',{'synthetic':True})
         with self.queue.connect() as db:
