@@ -71,3 +71,64 @@ passes or that native PHP has replaced Python extraction/normalization.
 Actual rollout IDs and custody verification must be recorded in the project handoff.
 Until those receipts exist, this document describes the implementation, not a claim
 that the live migration is complete.
+
+## Current cutover checkpoint — 2026-11-17
+
+**Updated after the completed live cutover:** both Staging and production now use
+WordPress state. Production's source `cbf54f2` deployed successfully as
+`95b44d1a-745d-46c3-8e21-e4d1bb905e59`. A fresh protected transfer verified the
+28,725,248-byte pipeline and 26,955,776-byte reference databases by full SHA-256,
+SQLite integrity and all 24 existing business tables (16 + 8). The previous inactive
+WordPress candidates were preserved in their original private directories; a fresh
+generation is selected by protected `MOLAVI_STATE_ROOT`. They were never activated.
+
+Live runtime read-back confirmed `state_host=wordpress` and `on_demand`. A no-op
+transaction committed and replayed; the approved sender count matched the frozen
+source. Native due checks were activated, all six native dashboard reads succeeded,
+and the same 11 verified native method/path pairs as Staging were enabled. The
+receipt-protected cleanup removed five legacy files. Final runtime inventory found
+zero files under `/data`. The new native schema adds the five incremental reference
+tables absent from the older live backend, preserving all transferred records.
+
+Staging's newer text-only/free Google bot release remains pinned to `466c71d`,
+deployment `622f5bb8-e8ea-425e-b8ef-1b43649a1b26`, terminal `SUCCESS`. It includes
+the binary state transport fix. Independent native MU-components were uploaded and
+read back on both sites from `d0e4390`; store/frontend plugin files were untouched.
+See `native-wordpress-workflows.md` for the port and activation boundary. Railway
+still owns unported processing; moving state is not full workflow migration.
+
+The paragraphs below preserve the interrupted earlier checkpoint for context and
+are superseded by the completed cutover recorded above.
+
+Staging is WordPress-hosted and its legacy Railway database files have been removed.
+The transfer verified full hashes and all 29 business tables (16 pipeline, 13 reference).
+Native due checks are active; no-op commit/replay and both approved sender records were
+verified. Deployment `134ec2a7-8e37-493d-809f-68e73d19bd91` from `a2487e8` is
+successful. Queue, reference and AI review reads returned 200; batched AI decisions
+replaced per-offer remote calls (the checked AI read completed in about 38 seconds).
+The compressed-request MIME fix `6e6da4c` is pushed and staged on Railway, but its
+accept-deploy call was interrupted and was not applied. Finish that pending source
+pin before relying on large compressed state writes.
+
+Production remains on local state with the idle-memory guard. Its current successful
+backend is `469fa97`, deployment `c2752154-3104-4d87-b085-05b90ffc7c97`. Both
+databases were copied to the protected WordPress directory and full checksums/table
+counts matched. The copy used compressed binary requests; renewed protection also
+verified that the frozen source had not changed. **The live state-mode switch was
+not applied.** After the deployment-tool interruption, the temporary live freeze
+was released to resume normal processing. The WordPress production copies are
+inactive and can now be stale. Never switch production to those copies blindly:
+freeze again, verify the current source, archive any obsolete inactive candidate,
+and transfer/compare fresh data before enabling WordPress state. Do not remove the
+live Railway database or volume until the actual cutover and read/write checks pass.
+
+The production MIME fix is pushed as `cbf54f2`; it is not deployed. All private
+manifests, binary copies and receipts are under `/tmp/molavi-memory-private`, outside
+Git. The independent runtime/state MU-plugins on both sites were read back from
+revision `a2487e8`. Native housekeeping is tested, preserves review-needed payloads,
+and accepts WordPress's string-valued retention option. It uses the verified existing
+30–365 day setting supplied by the executor's schedule callback.
+
+The full-runtime removal assessment is in `wordpress-only-feasibility.md`. No claim
+is made that the remaining Python bot, extraction, matching or synchronization logic
+has already been ported to PHP, or that the separate FollowUP bot has moved.

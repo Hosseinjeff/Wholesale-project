@@ -1265,6 +1265,12 @@ def runtime_host_route():
     if queue is None:return jsonify({'ok':False,'error':'queue_unavailable'}),503
     if request.method=='POST':
         body=request.get_json(silent=True) or {}
+        if body=={'action':'configure_wordpress_connectors'}:
+            from catalog.runtime_host import configure_wordpress_connectors
+            try:return jsonify(configure_wordpress_connectors()),200
+            except Exception:
+                logger.error('WordPress connector handoff failed')
+                return jsonify({'ok':False,'error':'connector_configuration_failed'}),503
         try:scheduled=enqueue_tasks(queue,body.get('tasks',[]))
         except (ValueError,TypeError):return jsonify({'ok':False,'error':'invalid_tasks'}),400
         _start_pipeline_worker(force=True)

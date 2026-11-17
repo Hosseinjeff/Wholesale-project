@@ -7,6 +7,12 @@ read-only checks for the next session. The broader project history remains in
 [`docs/project-handoff.md`](docs/project-handoff.md).
 
 For the business workflow and migration audit, start with `docs/project-handoff.md`.
+For the active migration, first read `docs/wordpress-state-executor.md`'s current
+cutover checkpoint and `docs/native-wordpress-workflows.md`. Both sites now use
+WordPress state. Production switched only after a new transfer verified all 24
+existing business tables; its old inactive candidates remain private backups.
+Both Railway data directories were verified empty after receipt-protected cleanup.
+Never point an executor at the old inactive candidates or the removed local stores.
 The user-provided GAS export is preserved in `legacy-gas/recovered-2026-10-25/`;
 `legacy-gas/README.md` explains its authority and limits. The root
 `google_apps_script.js` is an older implementation, not the recovered snapshot.
