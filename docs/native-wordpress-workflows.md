@@ -263,3 +263,15 @@ The final native order probe exercises the actual WordPress HTTP filter using an
 invalid, authenticated payload. It expects a local 400 with the WordPress executor
 header and creates no order, queue task, Sheet write or bot message. Four additional
 filter checks pass; this WordPress-only follow-up does not change either backend pin.
+
+Both order cutovers are now enabled (19 native methods): live's paid-order response
+also matched the existing endpoint exactly, with zero existing plans. The protected
+probe then identified an older live-site legacy order configuration gap. The native
+Woo adapter is therefore wired directly to the local durable queue: it needs no
+legacy bot URL/notify secret and performs no checkout HTTP call. Its missing/failed
+local dependencies retain the existing Woo retry behavior. The old HTTP adapter
+remains only for an unassigned executor. Saved immutable payloads are reused without
+rebuilding an unused current snapshot. Six further tests exercise the actual Woo
+entrypoint with empty legacy configuration, verified metadata completion and replay
+without external I/O. Source cutover is enabled; deploy this final shop/runtime
+follow-up and repeat the protected probe before declaring the live entrypoint ready.
