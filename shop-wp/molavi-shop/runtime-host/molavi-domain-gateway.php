@@ -163,7 +163,11 @@ add_action('rest_api_init',static function():void {
         if($routes&&(!get_option('molavi_state_active',false)||!class_exists('SQLite3')||PHP_VERSION_ID<80100))return new WP_Error('native_prerequisites','Native custody unavailable',['status'=>409]);
         foreach($routes as $route){if(!is_string($route)||!preg_match('/^(GET|POST) (\/[^ ]+)$/D',$route,$match)
             ||!in_array($match[1],molavi_domain_routes()[$match[2]]??[],true))return new WP_Error('invalid_routes','Invalid routes',['status'=>400]);}
+        $previous=get_option('molavi_native_routes_v1',[]);
         update_option('molavi_native_routes_v1',array_values(array_unique($routes)),false);
+        if(in_array('POST /reference/snapshots',$routes,true)&&!in_array('POST /reference/snapshots',is_array($previous)?$previous:[],true)){
+            $state=molavi_runtime_state();$state['reference_at']=time();molavi_runtime_save_state($state);
+        }
         return ['ok'=>true,'native_routes'=>get_option('molavi_native_routes_v1',[])];}]);
     register_rest_route('molavi-workflow/v1','/request',['methods'=>'POST','permission_callback'=>'molavi_runtime_permission','callback'=>static function($request){
         $body=$request->get_json_params();if(!is_array($body))return new WP_Error('invalid_body','Invalid body',['status'=>400]);

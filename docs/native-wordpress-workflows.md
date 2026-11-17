@@ -174,9 +174,9 @@ incidents and owner exception decisions. The existing minute cron can run the da
 refresh locally once its POST route is enabled. Activated work never falls back to
 Railway. Interrupted activation/projection can resume without a second source fetch.
 
-Validation: 411 native domain parity cases, 40 reference runtime cases (including six
+Validation: 411 native domain parity cases, 50 reference runtime cases (including six
 Python projection fixtures, receipts, cooldown, source revision, concurrent lease and
-interrupted-fetch recovery), and 20 scheduler checks. The private reference/check
+interrupted-fetch recovery), and 21 scheduler checks. The private reference/check
 endpoint fetches and compares in memory without changing raw records, snapshots,
 Sheets or decisions. This source checkpoint has not yet enabled either new POST
 route. Confirm live source coverage and record per-site activation separately.
@@ -186,3 +186,12 @@ Production publication also reached terminal SUCCESS (deployment
 Its executor is assigned to WordPress and real cron observed the unchanged Sheet
 locally. Staging's real cron preserved the first publication job's existing review hold.
 Both Railway data directories were verified empty.
+
+Both source checks completed locally with no business writes: 3,372 source products
+across 34 pages, with complete coverage. Staging compared stable raw IDs; live also
+identified the expected metadata upgrade from its older active reference format.
+The reconciliation writer batches multiple products per Sheets request, keeps each
+product in a single atomic request and verifies raw cell receipts before completion.
+Activation recovery distinguishes an already committed active ID from a new
+activation; failed projection/reconciliation retries locally without refetching or
+waking Railway. Route activation is still off at this source checkpoint.

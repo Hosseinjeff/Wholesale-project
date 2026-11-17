@@ -127,7 +127,15 @@ function molavi_domain_reference_complete(array $snapshot,?array $previous,bool 
                     foreach(molavi_domain_records($table) as $record){$source=(string)($record['Reference Snapshot ID']??'');
                         if($source!==''&&$source!==$snapshot['snapshot_id']&&$source!==($previous['snapshot_id']??null)&&!array_key_exists($source,$older))$older[$source]=molavi_domain_reference_snapshot($source)??[];}
                     $changes=molavi_domain_reference_product_changes(molavi_domain_records($table),$previous,$snapshot,$older,$affected);
-                    foreach($changes['updates'] as $update)molavi_domain_sheet_fields('Products',$update['row'],$headers,$update['fields']);
+                    $cells=[];foreach($changes['updates'] as $update){
+                        // Keep each product's reference fields in the same atomic Sheets request.
+                        if($cells&&count($cells)+count($update['fields'])>500){molavi_domain_sheet_cells('Products',$cells);$cells=[];}
+                        foreach($update['fields'] as $field=>$value){
+                            $column=array_search($field,$headers,true);if($column===false)molavi_domain_fail('sheet_header_missing',409,['field'=>$field]);
+                            $cells[]=['range'=>molavi_domain_sheet_column($column+1).$update['row'],'values'=>[[$value]]];
+                        }
+                    }
+                    if($cells)molavi_domain_sheet_cells('Products',$cells);
                     if($changes['updates']){
                         $verified=molavi_domain_records(molavi_domain_sheets(['Products'],true,true)['Products']);
                         foreach($changes['updates'] as $update){$row=$verified[$update['row']-2]??[];
@@ -146,7 +154,8 @@ function molavi_domain_reference_complete(array $snapshot,?array $previous,bool 
                 }
             }
             molavi_domain_tx('reference',static fn(SQLite3 $db)=>molavi_domain_sql($db,'INSERT OR REPLACE INTO reference_reconciliation_state VALUES (1,?)',[$id]));
-        }catch(Throwable $e){$state='failed';}
+        }catch(Throwable $e){$state='failed';
+            error_log('[molavi-native] reference_reconciliation code='.($e instanceof MolaviWorkflowError?$e->getMessage():get_class($e)));}
     }
     return ['projection'=>$projection,'product_reference_updates'=>$counts,'product_reconciliation_state'=>$state,'product_status_snapshot'=>$captured];
 }

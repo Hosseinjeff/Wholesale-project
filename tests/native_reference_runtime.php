@@ -14,14 +14,19 @@ $root=molavi_state_root();$initial=new SQLite3($root.'/reference.sqlite3');$init
 function reset_reference():void{$db=molavi_domain_db('reference');foreach(molavi_domain_rows($db,"SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'molavi_state_%'") as $row)$db->exec('DELETE FROM '.$row['name']);$db->close();}
 function molavi_domain_sheet_column(int $number):string{$out='';while($number>0){$number--;$out=chr(65+$number%26).$out;$number=intdiv($number,26);}return $out;}
 function molavi_domain_sheet_properties():array{return $GLOBALS['sheet']?['ReferencePrices'=>[]]:[];}
-function molavi_domain_sheet_ensure($name,$headers):void{$GLOBALS['sheet']=[$headers];}
-function molavi_domain_sheets($names,$fresh=false,$raw=false):array{$table=$GLOBALS['sheet'];if(!empty($GLOBALS['bad_receipt']))$table[1][3]=123;return ['ReferencePrices'=>$table];}
+function molavi_domain_sheet_ensure($name,$headers):void{if($name==='ReferencePrices')$GLOBALS['sheet']=[$headers];}
+function molavi_domain_sheets($names,$fresh=false,$raw=false):array{if(in_array('Products',$names,true))return ['Products'=>$GLOBALS['products'],'Offers'=>[],'Shop'=>[]];$table=$GLOBALS['sheet'];if(!empty($GLOBALS['bad_receipt']))$table[1][3]=123;return ['ReferencePrices'=>$table];}
 function molavi_domain_sheet_cells($name,$updates):void{
  $kind=count($updates)===1&&str_contains($updates[0]['range'],':')?'full':'delta';$cells=0;
  foreach($updates as $update){preg_match('/^([A-Z]+)([0-9]+)/',$update['range'],$m);$column=0;foreach(str_split($m[1]) as $letter)$column=$column*26+ord($letter)-64;
-  foreach($update['values'] as $offset=>$values)foreach($values as $index=>$value){$GLOBALS['sheet'][(int)$m[2]+$offset-1][$column+$index-1]=$value;$cells++;}}
+  foreach($update['values'] as $offset=>$values)foreach($values as $index=>$value){if($name==='Products')$GLOBALS['products'][(int)$m[2]+$offset-1][$column+$index-1]=$value;else $GLOBALS['sheet'][(int)$m[2]+$offset-1][$column+$index-1]=$value;$cells++;}}
  $GLOBALS['writes'][]=['kind'=>$kind,'cells'=>$cells];
 }
+function molavi_domain_positive_price($value){return (int)$value;}
+function molavi_domain_product_headers(){return $GLOBALS['products'][0];}
+function molavi_domain_status_capture($tables,$reason){return ['snapshot_id'=>'synthetic-status'];}
+function molavi_domain_projection_digest($tables){return 'synthetic-digest';}
+function molavi_domain_observe_projection($digest){$GLOBALS['observed']=$digest;}
 $cases=json_decode(file_get_contents(__DIR__.'/fixtures/native-reference-projection-parity.json'),true,128,JSON_THROW_ON_ERROR);
 foreach($cases as $case){reset_reference();$GLOBALS['sheet']=$case['initial'];$GLOBALS['writes']=[];
  if($case['previous'])molavi_domain_tx('reference',static fn($db)=>molavi_domain_sql($db,'INSERT INTO reference_projection_state VALUES (1,?)',[$case['previous']['snapshot_id']]));
@@ -56,4 +61,25 @@ molavi_domain_reference_refresh(false,static function(){molavi_domain_fail('wooc
 same(molavi_domain_read('reference',static fn($db)=>molavi_domain_row($db,'SELECT reason FROM reference_events WHERE event_id=?',['refresh:synthetic-crash'])['reason']),'refresh_failed','interrupted fetch gets durable incident');
 $locked=['store'=>'reference','name'=>'refresh','owner'=>str_repeat('b',32),'action'=>'acquire'];molavi_state_lease($locked);
 try{molavi_domain_reference_refresh(true,null,$clock+12000);$error=false;}catch(MolaviWorkflowError $e){$error=$e->getMessage()==='workflow_busy_retry';}same($error,true,'concurrent refresh cannot run twice');$locked['action']='release';molavi_state_lease($locked);
+reset_reference();$workflow=json_decode(file_get_contents(__DIR__.'/fixtures/native-reference-workflow-parity.json'),true,128,JSON_THROW_ON_ERROR);$case=$workflow['product_changes'][0];
+$headers=array_keys($case['products'][0]);foreach(array_keys($case['expected']['updates'][0]['fields']) as $header)if(!in_array($header,$headers,true))$headers[]=$header;
+$records=[$case['products'][0],array_merge($case['products'][0],['Product ID'=>'synthetic-second'])];
+$GLOBALS['products']=molavi_domain_rows_from_records($headers,$records);$GLOBALS['sheet']=[];$GLOBALS['writes']=[];
+$initial=new SQLite3($root.'/pipeline.sqlite3');$initial->close();
+$complete=molavi_domain_reference_complete($case['next'],$case['previous'],false);
+same($complete['product_reconciliation_state'],'complete','full reference reconciliation receipt');
+same($complete['product_reference_updates'],['checked'=>2,'retained'=>2,'needs_review'=>0],'two reference approvals updated');
+same(count($GLOBALS['writes']),2,'full reference projection and both products use two batched requests');
+$records=molavi_domain_records($GLOBALS['products']);same($records[0]['Reference Snapshot ID'],$case['next']['snapshot_id'],'product reference moved to verified snapshot');
+same($records[1]['Reference Approval State'],'approved_within_margin','second product receipt');
+same($GLOBALS['observed'],'synthetic-digest','changed products queue the native publication digest');
+same(molavi_domain_read('reference',static fn($db)=>molavi_domain_row($db,'SELECT snapshot_id FROM reference_reconciliation_state')['snapshot_id']),$case['next']['snapshot_id'],'reconciliation marker committed after receipts');
+$before=count($GLOBALS['writes']);molavi_domain_reference_complete($case['next'],$case['previous'],false);same(count($GLOBALS['writes']),$before,'completed reconciliation replays without Sheet writes');
+reset_reference();$case=$storeCases[2];$db=molavi_domain_db('reference');foreach($case['seed'] as $seed)molavi_domain_sql($db,$seed['sql'],$seed['params']);$db->close();
+$previous=molavi_domain_reference_active();$staged=molavi_domain_reference_stage($case['candidate']);
+molavi_domain_reference_activate($staged['snapshot_id'],$previous['snapshot_id'],'system:reference-refresh',true);
+molavi_domain_tx('reference',static function($db)use($staged){molavi_domain_sql($db,'INSERT OR IGNORE INTO reference_refresh_state(singleton) VALUES (1)');molavi_domain_sql($db,"UPDATE reference_refresh_state SET state='staged',snapshot_id=? WHERE singleton=1",[$staged['snapshot_id']]);});
+$GLOBALS['sheet']=[];$completion=molavi_domain_reference_finish_refresh(['state'=>'not_due']);
+same($completion['product_reconciliation_state'],'complete','activation committed before interruption resumes without reactivation');
+same(molavi_domain_reference_refresh_state()['state'],'updated','interrupted activation finishes its existing refresh receipt');
 foreach(glob($root.'/*') as $file)unlink($file);rmdir($root);echo 'PASS native reference runtime '.$count." cases\n";
