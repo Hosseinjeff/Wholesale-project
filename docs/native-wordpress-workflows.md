@@ -14,7 +14,7 @@ Native writes require active WordPress state custody and an existing explicit
 WordPress business-owner identity. Config/status/shadow requests use the existing
 runtime HMAC, remain private and never return connector credentials.
 
-Current execution: both sites use WordPress state, 22 native dashboard methods,
+Current execution: both sites use WordPress state, 23 native dashboard methods,
 local supplier outbox processing and WordPress-owned publication. Both Railway
 publication filters are deployed. The reference refresh port below is the next
 activation checkpoint; order and catalog-conflict workflows remain incomplete.
@@ -320,3 +320,15 @@ iteration order. The Woo Store API runs through rest_do_request rather than HTTP
 and the existing local identity snapshot supplies durable matches. The GET handler
 is available in source but not enabled at this checkpoint. Its private rollout must
 validate source/receipt counts and privacy before activation.
+
+Reconciliation GET is now enabled on both sites (23 native methods). Staging's
+read checked 132 product rows / 2 intake receipts in 6.919 seconds; live checked
+125 product rows / 123 receipts in 7.586 seconds. Both in-process Woo reads and
+catalog projection checks succeeded. Public Woo SKU counts were 0 / 25; these are
+SKU counts, not an assertion about the total visible product count. The existing
+private identity snapshot also participates in matching. No raw source text or chat
+IDs are exposed in receipt rows, no business write/review was submitted, and no
+Railway HTTP call is made by this read path. Uploaded/read-back sources are
+`777c37a` / live `f630d6b`. Remaining business controllers include Sheet conflict
+resolution, reference-item review/decisions and AI review read/decision models;
+actual extraction/re-extraction/suggestion execution stays with the bot runtime.
