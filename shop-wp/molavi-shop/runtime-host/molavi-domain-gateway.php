@@ -7,6 +7,7 @@ defined('ABSPATH') || exit;
 function molavi_domain_routes(): array {
     return [
         '/pipeline/operations-dashboard'=>['GET'],
+        '/pipeline/paid-orders'=>['GET','POST'],
         '/pipeline/product-status-snapshots'=>['GET','POST'],
         '/pipeline/supplier-price-evidence'=>['GET','POST'],
         '/reference/snapshots'=>['GET','POST'],
@@ -128,6 +129,7 @@ function molavi_domain_dispatch(string $method,string $path,array $query,?array 
         if(!in_array($method,molavi_domain_routes()[$path]??[],true))molavi_domain_fail('workflow_route_unavailable',404);
         if($method==='POST'&&$body===null)molavi_domain_fail('invalid_body',400);
         if($path==='/pipeline/operations-dashboard')$result=molavi_domain_operations($query);
+        elseif($path==='/pipeline/paid-orders')$result=molavi_domain_paid_orders_api($method,$body??[],$actor);
         elseif($path==='/pipeline/product-status-snapshots')$result=molavi_domain_status_api($method,$query,$body,$actor);
         elseif($path==='/pipeline/supplier-price-evidence')$result=molavi_domain_supplier_prices_api($method,$body,$actor);
         elseif($path==='/reference/snapshots')$result=$method==='POST'?molavi_domain_reference_api($body,$actor):molavi_domain_reference_snapshots($query);
@@ -162,6 +164,9 @@ add_action('rest_api_init',static function():void {
         $body=$request->get_json_params();$routes=$body['routes']??null;
         if(!is_array($routes)||!array_is_list($routes))return new WP_Error('invalid_routes','Invalid routes',['status'=>400]);
         if($routes&&(!get_option('molavi_state_active',false)||!class_exists('SQLite3')||PHP_VERSION_ID<80100))return new WP_Error('native_prerequisites','Native custody unavailable',['status'=>409]);
+        if(array_intersect($routes,['GET /pipeline/paid-orders','POST /pipeline/paid-orders'])
+            &&(!class_exists('Normalizer')||!function_exists('mb_convert_case')||!function_exists('molavi_band')||(new ReflectionFunction('molavi_band'))->getNumberOfParameters()<3))
+            return new WP_Error('native_order_prerequisites','Native order dependencies unavailable',['status'=>409]);
         foreach($routes as $route){if(!is_string($route)||!preg_match('/^(GET|POST) (\/[^ ]+)$/D',$route,$match)
             ||!in_array($match[1],molavi_domain_routes()[$match[2]]??[],true))return new WP_Error('invalid_routes','Invalid routes',['status'=>400]);}
         $previous=get_option('molavi_native_routes_v1',[]);

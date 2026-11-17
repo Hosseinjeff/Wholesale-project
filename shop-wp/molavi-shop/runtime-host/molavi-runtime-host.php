@@ -79,8 +79,8 @@ function molavi_runtime_tick():void {
                 'retried'=>$nativeOutbox['retried'],'failed'=>$nativeOutbox['failed'],'error'=>$nativeOutbox['error']],false);
         }
         if(function_exists('molavi_domain_job_host')&&get_option('molavi_state_active',false)
-            &&molavi_domain_job_host('publish')==='wordpress'){
-            if((int)$state['sheet_at']<=$now){
+            &&(molavi_domain_job_host('publish')==='wordpress'||molavi_domain_job_host('order')==='wordpress')){
+            if(molavi_domain_job_host('publish')==='wordpress'&&(int)$state['sheet_at']<=$now){
                 try{
                     molavi_domain_observe_projection(molavi_domain_projection_digest(molavi_domain_sheets(['Products','Shop'],true)));
                     $state['sheet_at']=$now+3600;update_option('molavi_native_sheet_receipt_v1',['at'=>$now,'ok'=>true,'error'=>''],false);

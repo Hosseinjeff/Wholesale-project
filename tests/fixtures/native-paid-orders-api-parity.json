@@ -1,0 +1,802 @@
+[
+  {
+    "seed": {
+      "stock_lots": {
+        "columns": [
+          "lot_id",
+          "sku",
+          "supplier",
+          "purchase_date",
+          "received_at",
+          "production_date",
+          "expiry_date",
+          "units",
+          "unit_cost",
+          "receipt_hash",
+          "state"
+        ],
+        "rows": []
+      },
+      "stock_lot_events": {
+        "columns": [
+          "sequence",
+          "event_id",
+          "lot_id",
+          "actor_id",
+          "action",
+          "delta_units",
+          "reason",
+          "note",
+          "created_at",
+          "new_state",
+          "expected_revision"
+        ],
+        "rows": []
+      },
+      "stock_lot_receipt_audit": {
+        "columns": [
+          "lot_id",
+          "receipt_hash",
+          "actor_id",
+          "note",
+          "created_at"
+        ],
+        "rows": []
+      },
+      "stock_reservation_requests": {
+        "columns": [
+          "order_id",
+          "sku",
+          "requested"
+        ],
+        "rows": [
+          [
+            "order-1",
+            "item-a",
+            6
+          ]
+        ]
+      },
+      "stock_allocations": {
+        "columns": [
+          "order_id",
+          "sku",
+          "lot_id",
+          "units",
+          "state"
+        ],
+        "rows": []
+      },
+      "paid_order_plans": {
+        "columns": [
+          "order_id",
+          "request_hash",
+          "terms_hash",
+          "source_order",
+          "result",
+          "state",
+          "updated_at",
+          "supplier_terms"
+        ],
+        "rows": [
+          [
+            "order-1",
+            "45ba52b69cdfda9670491f1febe8f3faaf9affd90c89cdf4c25c94c85cc3c1ed",
+            "67243622fb8da6a56c15a928c42a0c1d2d6d2e3db523f6de98502fe0469366fb",
+            "{\"address\": \"\", \"at\": \"\", \"buyer_type\": \"unknown\", \"email\": \"\", \"id\": \"order-1\", \"lines\": [{\"id\": \"item-a\", \"min\": 0, \"name\": \"Tuna 180g\", \"order_unit\": 0, \"packaging\": \"\", \"qty\": 6, \"sale\": 0, \"shelf\": 0, \"sku\": \"item-a\", \"supplier\": \"\", \"supplier_offer_id\": \"offer-a\", \"total\": 6000, \"unit\": 0, \"volume\": \"\"}], \"name\": \"\", \"note\": \"\", \"paid_at\": \"\", \"payment_method\": \"\", \"payment_status\": \"verified\", \"phone\": \"\", \"progress\": 0, \"status\": \"new\", \"total\": 6000, \"transaction_id\": \"\", \"username\": \"\", \"woo_status\": \"processing\"}",
+            "{\"lines\": [{\"customer_units\": 6, \"lots\": [], \"owned_units_reserved\": 0, \"shortfall_units\": 6, \"sku\": \"item-a\"}], \"order_id\": \"order-1\", \"procurement\": [{\"customer_units\": 6, \"expected_surplus_units\": 0, \"owned_units_allocated\": 0, \"purchase_authorized\": false, \"purchase_cost_toman\": 3600, \"shortfall\": 6, \"sku\": \"item-a\", \"source_offer_id\": \"offer-a\", \"state\": \"proposed\", \"supplier\": \"Supplier A\", \"supplier_packs\": 1, \"supplier_units\": 6}], \"purchase_authorized\": false, \"source_lines\": [{\"sku\": \"item-a\", \"supplier_offer_id\": \"offer-a\"}], \"state\": \"procurement_proposed\", \"terms_hash\": \"67243622fb8da6a56c15a928c42a0c1d2d6d2e3db523f6de98502fe0469366fb\"}",
+            "procurement_proposed",
+            "2026-10-28",
+            "{\"item-a\": {\"minimum_packs\": 1, \"pack_multiple\": 1, \"pack_price_toman\": 3600, \"source_offer_id\": \"offer-a\", \"supplier\": \"Supplier A\", \"units_per_pack\": 6}}"
+          ]
+        ]
+      },
+      "paid_order_decisions": {
+        "columns": [
+          "decision_id",
+          "order_id",
+          "actor_id",
+          "note",
+          "terms",
+          "created_at"
+        ],
+        "rows": [
+          [
+            1,
+            "order-1",
+            "wp:7",
+            "Reviewed pack terms.",
+            "{\"item-a\": {\"minimum_packs\": 1, \"pack_multiple\": 1, \"pack_price_toman\": 3600, \"source_offer_id\": \"offer-a\", \"supplier\": \"Supplier A\", \"units_per_pack\": 6}}",
+            "2026-10-28"
+          ]
+        ]
+      },
+      "order_workflows": {
+        "columns": [
+          "order_id",
+          "revision",
+          "workflow",
+          "updated_at"
+        ],
+        "rows": []
+      },
+      "order_workflow_events": {
+        "columns": [
+          "event_id",
+          "order_id",
+          "actor_id",
+          "action",
+          "details",
+          "note",
+          "created_at"
+        ],
+        "rows": []
+      }
+    },
+    "tables": {
+      "Products": [
+        [
+          "Product ID",
+          "Product Name",
+          "Sale Price",
+          "Consumer Price",
+          "Category",
+          "Status"
+        ],
+        [
+          "item-b",
+          "Tuna Premium 180g",
+          1000,
+          2000,
+          "canned fish",
+          "approved"
+        ]
+      ],
+      "Shop": [
+        [
+          "Min Profit",
+          100
+        ]
+      ]
+    },
+    "clock": "2026-11-17",
+    "expected_json": "{\"ok\":true,\"orders\":[{\"lines\":[{\"customer_units\":6,\"lots\":[],\"owned_units_reserved\":0,\"shortfall_units\":6,\"sku\":\"item-a\"}],\"order_id\":\"order-1\",\"order_total_toman\":6000,\"original_line_totals_toman\":{\"item-a\":6000},\"procurement\":[{\"customer_units\":6,\"expected_surplus_units\":0,\"owned_units_allocated\":0,\"purchase_authorized\":false,\"purchase_cost_toman\":3600,\"shortfall\":6,\"sku\":\"item-a\",\"source_offer_id\":\"offer-a\",\"state\":\"proposed\",\"supplier\":\"Supplier A\",\"supplier_packs\":1,\"supplier_units\":6}],\"purchase_authorized\":false,\"source_lines\":[{\"sku\":\"item-a\",\"supplier_offer_id\":\"offer-a\"}],\"state\":\"procurement_proposed\",\"substitution_candidates\":{\"item-a\":[]},\"terms_hash\":\"67243622fb8da6a56c15a928c42a0c1d2d6d2e3db523f6de98502fe0469366fb\",\"workflow\":{\"aftercare\":{\"status\":\"none\"},\"assigned_to\":\"\",\"delivery\":{\"status\":\"pending\"},\"dispatch\":{\"status\":\"pending\"},\"due_at\":\"\",\"next_action\":\"Review supplier terms or unavailable lines\",\"order_id\":\"order-1\",\"packing\":{\"status\":\"pending\"},\"procurement\":{},\"refunds\":[],\"resolutions\":{},\"settlements\":[],\"state\":\"supplier_followup\"}}]}"
+  },
+  {
+    "seed": {
+      "stock_lots": {
+        "columns": [
+          "lot_id",
+          "sku",
+          "supplier",
+          "purchase_date",
+          "received_at",
+          "production_date",
+          "expiry_date",
+          "units",
+          "unit_cost",
+          "receipt_hash",
+          "state"
+        ],
+        "rows": [
+          [
+            "owned-a",
+            "item-a",
+            "Supplier A",
+            "2026-10-28",
+            "2026-10-28",
+            "2026-09-01",
+            "2027-09-01",
+            4,
+            600,
+            "52c168b1b2d06921d1959f18e7c23737182183834627edd71d22a3fac03c0445",
+            "ready"
+          ],
+          [
+            "arrival-a",
+            "item-a",
+            "Supplier A",
+            "2026-10-28",
+            "2026-10-28",
+            "2026-09-01",
+            "2027-09-01",
+            2,
+            600,
+            "ee69ab7426881a5b3203fd7de139ab38ded5e0a2af6cd9c27da667d92a72a80e",
+            "ready"
+          ]
+        ]
+      },
+      "stock_lot_events": {
+        "columns": [
+          "sequence",
+          "event_id",
+          "lot_id",
+          "actor_id",
+          "action",
+          "delta_units",
+          "reason",
+          "note",
+          "created_at",
+          "new_state",
+          "expected_revision"
+        ],
+        "rows": []
+      },
+      "stock_lot_receipt_audit": {
+        "columns": [
+          "lot_id",
+          "receipt_hash",
+          "actor_id",
+          "note",
+          "created_at"
+        ],
+        "rows": []
+      },
+      "stock_reservation_requests": {
+        "columns": [
+          "order_id",
+          "sku",
+          "requested"
+        ],
+        "rows": [
+          [
+            "order-1",
+            "item-a",
+            10
+          ]
+        ]
+      },
+      "stock_allocations": {
+        "columns": [
+          "order_id",
+          "sku",
+          "lot_id",
+          "units",
+          "state"
+        ],
+        "rows": [
+          [
+            "order-1",
+            "item-a",
+            "owned-a",
+            4,
+            "reserved"
+          ],
+          [
+            "order-1",
+            "item-a",
+            "arrival-a",
+            2,
+            "reserved"
+          ]
+        ]
+      },
+      "paid_order_plans": {
+        "columns": [
+          "order_id",
+          "request_hash",
+          "terms_hash",
+          "source_order",
+          "result",
+          "state",
+          "updated_at",
+          "supplier_terms"
+        ],
+        "rows": [
+          [
+            "order-1",
+            "933aa7a55b15760567d572041369f8fa22619ad70f9ab946859211d00340c0c4",
+            "67243622fb8da6a56c15a928c42a0c1d2d6d2e3db523f6de98502fe0469366fb",
+            "{\"address\": \"\", \"at\": \"\", \"buyer_type\": \"unknown\", \"email\": \"\", \"id\": \"order-1\", \"lines\": [{\"id\": \"item-a\", \"min\": 0, \"name\": \"Tuna 180g\", \"order_unit\": 0, \"packaging\": \"\", \"qty\": 10, \"sale\": 0, \"shelf\": 0, \"sku\": \"item-a\", \"supplier\": \"\", \"supplier_offer_id\": \"offer-a\", \"total\": 10000, \"unit\": 0, \"volume\": \"\"}], \"name\": \"\", \"note\": \"\", \"paid_at\": \"\", \"payment_method\": \"\", \"payment_status\": \"verified\", \"phone\": \"\", \"progress\": 0, \"status\": \"new\", \"total\": 10000, \"transaction_id\": \"\", \"username\": \"\", \"woo_status\": \"processing\"}",
+            "{\"lines\": [{\"customer_units\": 10, \"lots\": [{\"lot_id\": \"arrival-a\", \"state\": \"reserved\", \"units\": 2}, {\"lot_id\": \"owned-a\", \"state\": \"reserved\", \"units\": 4}], \"owned_units_reserved\": 6, \"shortfall_units\": 4, \"sku\": \"item-a\"}], \"order_id\": \"order-1\", \"procurement\": [{\"customer_units\": 4, \"expected_surplus_units\": 2, \"owned_units_allocated\": 0, \"purchase_authorized\": false, \"purchase_cost_toman\": 3600, \"shortfall\": 4, \"sku\": \"item-a\", \"source_offer_id\": \"offer-a\", \"state\": \"proposed\", \"supplier\": \"Supplier A\", \"supplier_packs\": 1, \"supplier_units\": 6}], \"purchase_authorized\": false, \"source_lines\": [{\"sku\": \"item-a\", \"supplier_offer_id\": \"offer-a\"}], \"state\": \"procurement_proposed\", \"terms_hash\": \"67243622fb8da6a56c15a928c42a0c1d2d6d2e3db523f6de98502fe0469366fb\"}",
+            "procurement_proposed",
+            "2026-10-28",
+            "{\"item-a\": {\"minimum_packs\": 1, \"pack_multiple\": 1, \"pack_price_toman\": 3600, \"source_offer_id\": \"offer-a\", \"supplier\": \"Supplier A\", \"units_per_pack\": 6}}"
+          ]
+        ]
+      },
+      "paid_order_decisions": {
+        "columns": [
+          "decision_id",
+          "order_id",
+          "actor_id",
+          "note",
+          "terms",
+          "created_at"
+        ],
+        "rows": [
+          [
+            1,
+            "order-1",
+            "wp:7",
+            "Reviewed pack terms.",
+            "{\"item-a\": {\"minimum_packs\": 1, \"pack_multiple\": 1, \"pack_price_toman\": 3600, \"source_offer_id\": \"offer-a\", \"supplier\": \"Supplier A\", \"units_per_pack\": 6}}",
+            "2026-10-28"
+          ]
+        ]
+      },
+      "order_workflows": {
+        "columns": [
+          "order_id",
+          "revision",
+          "workflow",
+          "updated_at"
+        ],
+        "rows": [
+          [
+            "order-1",
+            5,
+            "{\"aftercare\": {\"status\": \"none\"}, \"assigned_to\": \"\", \"delivery\": {\"status\": \"pending\"}, \"dispatch\": {\"status\": \"pending\"}, \"due_at\": \"\", \"last_event\": {\"action\": \"record_customer_choice\", \"actor_id\": \"wp:7\", \"at\": \"2026-10-28\", \"note\": \"Customer chose a partial refund for missing units.\"}, \"next_action\": \"Review supplier terms or unavailable lines\", \"order_id\": \"order-1\", \"packing\": {\"status\": \"pending\"}, \"procurement\": {\"item-a\": {\"expected_at\": \"\", \"expected_supplier_units\": 6, \"packs\": 1, \"purchase_date\": \"2026-10-28\", \"receipt_lots\": [\"arrival-a\"], \"received_units\": 2, \"state\": \"unavailable\", \"supplier\": \"Supplier A\", \"supplier_reference\": \"PO-2\"}}, \"refunds\": [{\"amount_toman\": 4000, \"reason\": \"shortage\", \"refund_id\": \"4856c5dae24138c832e3a3301162a8ce\", \"requested_at\": \"2026-10-28\", \"sku\": \"item-a\", \"status\": \"requested\"}], \"resolutions\": {\"item-a\": {\"choice\": \"partial_refund\", \"refund_amount_toman\": 4000, \"state\": \"partial_refund\"}}, \"settlements\": [], \"state\": \"refund_pending\"}",
+            "2026-10-28"
+          ]
+        ]
+      },
+      "order_workflow_events": {
+        "columns": [
+          "event_id",
+          "order_id",
+          "actor_id",
+          "action",
+          "details",
+          "note",
+          "created_at"
+        ],
+        "rows": [
+          [
+            "4377572177546dc55e7200d98a81f37d72eb47f3ebe5fd2ef97ab3a560943c4c",
+            "order-1",
+            "wp:7",
+            "record_supplier_order",
+            "{\"expected_at\": \"\", \"packs\": 1, \"purchase_date\": \"2026-10-28\", \"sku\": \"item-a\", \"supplier_reference\": \"PO-2\"}",
+            "Verified by owner.",
+            "2026-10-28"
+          ],
+          [
+            "d341e35565fc3844f2942a3900e5c23fb3d8bd2bbe21fa30707e49ccfdfc6031",
+            "order-1",
+            "wp:7",
+            "mark_supplier_received",
+            "{\"accepted_units\": 2, \"lot_id\": \"arrival-a\", \"sku\": \"item-a\"}",
+            "Verified by owner.",
+            "2026-10-28"
+          ],
+          [
+            "631dce978fc828a9a5e6bbd32aac4376c33be0de95b968c75370443bd752d2a7",
+            "order-1",
+            "wp:7",
+            "mark_supplier_unavailable",
+            "{\"sku\": \"item-a\"}",
+            "Supplier confirmed the remaining units cannot be supplied.",
+            "2026-10-28"
+          ],
+          [
+            "85318108ba23a08a7c3206fafabfae402fda8d3a81b28e8000c245b10bcf3668",
+            "order-1",
+            "wp:7",
+            "record_customer_choice",
+            "{\"choice\": \"partial_refund\", \"refund_amount_toman\": 4000, \"sku\": \"item-a\"}",
+            "Customer chose a partial refund for missing units.",
+            "2026-10-28"
+          ]
+        ]
+      }
+    },
+    "tables": {
+      "Products": [
+        [
+          "Product ID",
+          "Product Name",
+          "Sale Price",
+          "Consumer Price",
+          "Category",
+          "Status"
+        ],
+        [
+          "item-b",
+          "Tuna Premium 180g",
+          1000,
+          2000,
+          "canned fish",
+          "approved"
+        ]
+      ],
+      "Shop": [
+        [
+          "Min Profit",
+          100
+        ]
+      ]
+    },
+    "clock": "2026-11-17",
+    "expected_json": "{\"ok\":true,\"orders\":[{\"lines\":[{\"customer_units\":10,\"lots\":[{\"lot_id\":\"arrival-a\",\"state\":\"reserved\",\"units\":2},{\"lot_id\":\"owned-a\",\"state\":\"reserved\",\"units\":4}],\"owned_units_reserved\":6,\"shortfall_units\":4,\"sku\":\"item-a\"}],\"order_id\":\"order-1\",\"order_total_toman\":10000,\"original_line_totals_toman\":{\"item-a\":10000},\"procurement\":[{\"customer_units\":4,\"expected_surplus_units\":2,\"owned_units_allocated\":0,\"purchase_authorized\":false,\"purchase_cost_toman\":3600,\"shortfall\":4,\"sku\":\"item-a\",\"source_offer_id\":\"offer-a\",\"state\":\"proposed\",\"supplier\":\"Supplier A\",\"supplier_packs\":1,\"supplier_units\":6}],\"purchase_authorized\":false,\"source_lines\":[{\"sku\":\"item-a\",\"supplier_offer_id\":\"offer-a\"}],\"state\":\"procurement_proposed\",\"substitution_candidates\":{\"item-a\":[]},\"terms_hash\":\"67243622fb8da6a56c15a928c42a0c1d2d6d2e3db523f6de98502fe0469366fb\",\"workflow\":{\"aftercare\":{\"status\":\"none\"},\"assigned_to\":\"\",\"delivery\":{\"status\":\"pending\"},\"dispatch\":{\"status\":\"pending\"},\"due_at\":\"\",\"last_event\":{\"action\":\"record_customer_choice\",\"actor_id\":\"wp:7\",\"at\":\"2026-10-28\",\"note\":\"Customer chose a partial refund for missing units.\"},\"next_action\":\"Review supplier terms or unavailable lines\",\"order_id\":\"order-1\",\"packing\":{\"status\":\"pending\"},\"procurement\":{\"item-a\":{\"expected_at\":\"\",\"expected_supplier_units\":6,\"packs\":1,\"purchase_date\":\"2026-10-28\",\"receipt_lots\":[\"arrival-a\"],\"received_units\":2,\"state\":\"unavailable\",\"supplier\":\"Supplier A\",\"supplier_reference\":\"PO-2\"}},\"refunds\":[{\"amount_toman\":4000,\"reason\":\"shortage\",\"refund_id\":\"4856c5dae24138c832e3a3301162a8ce\",\"requested_at\":\"2026-10-28\",\"sku\":\"item-a\",\"status\":\"requested\"}],\"resolutions\":{\"item-a\":{\"choice\":\"partial_refund\",\"refund_amount_toman\":4000,\"state\":\"partial_refund\"}},\"settlements\":[],\"state\":\"refund_pending\"}}]}"
+  },
+  {
+    "seed": {
+      "stock_lots": {
+        "columns": [
+          "lot_id",
+          "sku",
+          "supplier",
+          "purchase_date",
+          "received_at",
+          "production_date",
+          "expiry_date",
+          "units",
+          "unit_cost",
+          "receipt_hash",
+          "state"
+        ],
+        "rows": [
+          [
+            "alternative-lot",
+            "item-b",
+            "Supplier A",
+            "2026-10-28",
+            "2026-10-28",
+            "2026-09-01",
+            "2027-09-01",
+            5,
+            600,
+            "ed48bfe57b801509fb0c499f96305591caf68912ac25658e981381aa231a82e7",
+            "ready"
+          ]
+        ]
+      },
+      "stock_lot_events": {
+        "columns": [
+          "sequence",
+          "event_id",
+          "lot_id",
+          "actor_id",
+          "action",
+          "delta_units",
+          "reason",
+          "note",
+          "created_at",
+          "new_state",
+          "expected_revision"
+        ],
+        "rows": []
+      },
+      "stock_lot_receipt_audit": {
+        "columns": [
+          "lot_id",
+          "receipt_hash",
+          "actor_id",
+          "note",
+          "created_at"
+        ],
+        "rows": []
+      },
+      "stock_reservation_requests": {
+        "columns": [
+          "order_id",
+          "sku",
+          "requested"
+        ],
+        "rows": [
+          [
+            "order-1",
+            "item-a",
+            5
+          ]
+        ]
+      },
+      "stock_allocations": {
+        "columns": [
+          "order_id",
+          "sku",
+          "lot_id",
+          "units",
+          "state"
+        ],
+        "rows": []
+      },
+      "paid_order_plans": {
+        "columns": [
+          "order_id",
+          "request_hash",
+          "terms_hash",
+          "source_order",
+          "result",
+          "state",
+          "updated_at",
+          "supplier_terms"
+        ],
+        "rows": [
+          [
+            "order-1",
+            "17317263db194c9a7963864cd8a9b1f48d14f7ebd6a1cf66f77ebc984409ab8f",
+            "67243622fb8da6a56c15a928c42a0c1d2d6d2e3db523f6de98502fe0469366fb",
+            "{\"address\": \"\", \"at\": \"\", \"buyer_type\": \"unknown\", \"email\": \"\", \"id\": \"order-1\", \"lines\": [{\"id\": \"item-a\", \"min\": 0, \"name\": \"Tuna 180g\", \"order_unit\": 0, \"packaging\": \"\", \"qty\": 5, \"sale\": 0, \"shelf\": 0, \"sku\": \"item-a\", \"supplier\": \"\", \"supplier_offer_id\": \"offer-a\", \"total\": 5000, \"unit\": 0, \"volume\": \"\"}], \"name\": \"\", \"note\": \"\", \"paid_at\": \"\", \"payment_method\": \"\", \"payment_status\": \"verified\", \"phone\": \"\", \"progress\": 0, \"status\": \"new\", \"total\": 5000, \"transaction_id\": \"\", \"username\": \"\", \"woo_status\": \"processing\"}",
+            "{\"lines\": [{\"customer_units\": 5, \"lots\": [], \"owned_units_reserved\": 0, \"shortfall_units\": 5, \"sku\": \"item-a\"}], \"order_id\": \"order-1\", \"procurement\": [{\"customer_units\": 5, \"expected_surplus_units\": 1, \"owned_units_allocated\": 0, \"purchase_authorized\": false, \"purchase_cost_toman\": 3600, \"shortfall\": 5, \"sku\": \"item-a\", \"source_offer_id\": \"offer-a\", \"state\": \"proposed\", \"supplier\": \"Supplier A\", \"supplier_packs\": 1, \"supplier_units\": 6}], \"purchase_authorized\": false, \"source_lines\": [{\"sku\": \"item-a\", \"supplier_offer_id\": \"offer-a\"}], \"state\": \"procurement_proposed\", \"terms_hash\": \"67243622fb8da6a56c15a928c42a0c1d2d6d2e3db523f6de98502fe0469366fb\"}",
+            "procurement_proposed",
+            "2026-10-28",
+            "{\"item-a\": {\"minimum_packs\": 1, \"pack_multiple\": 1, \"pack_price_toman\": 3600, \"source_offer_id\": \"offer-a\", \"supplier\": \"Supplier A\", \"units_per_pack\": 6}}"
+          ]
+        ]
+      },
+      "paid_order_decisions": {
+        "columns": [
+          "decision_id",
+          "order_id",
+          "actor_id",
+          "note",
+          "terms",
+          "created_at"
+        ],
+        "rows": [
+          [
+            1,
+            "order-1",
+            "wp:7",
+            "Reviewed pack terms.",
+            "{\"item-a\": {\"minimum_packs\": 1, \"pack_multiple\": 1, \"pack_price_toman\": 3600, \"source_offer_id\": \"offer-a\", \"supplier\": \"Supplier A\", \"units_per_pack\": 6}}",
+            "2026-10-28"
+          ]
+        ]
+      },
+      "order_workflows": {
+        "columns": [
+          "order_id",
+          "revision",
+          "workflow",
+          "updated_at"
+        ],
+        "rows": [
+          [
+            "order-1",
+            2,
+            "{\"aftercare\": {\"status\": \"none\"}, \"assigned_to\": \"\", \"delivery\": {\"status\": \"pending\"}, \"dispatch\": {\"status\": \"pending\"}, \"due_at\": \"\", \"last_event\": {\"action\": \"propose_substitution\", \"actor_id\": \"wp:7\", \"at\": \"2026-10-28\", \"note\": \"Verified by owner.\"}, \"next_action\": \"Review supplier terms or unavailable lines\", \"order_id\": \"order-1\", \"packing\": {\"status\": \"pending\"}, \"procurement\": {}, \"refunds\": [], \"resolutions\": {\"item-a\": {\"choice\": \"\", \"proposal\": {\"offered_at\": \"2026-10-28\", \"proposed_line_total_toman\": 5000, \"replacement_sku\": \"item-b\", \"replacement_units\": 5}, \"state\": \"awaiting_customer\"}}, \"settlements\": [], \"state\": \"awaiting_customer\"}",
+            "2026-10-28"
+          ]
+        ]
+      },
+      "order_workflow_events": {
+        "columns": [
+          "event_id",
+          "order_id",
+          "actor_id",
+          "action",
+          "details",
+          "note",
+          "created_at"
+        ],
+        "rows": [
+          [
+            "e54576ac5a81744ec114a6a7a8c39b71e7608d0768a10b383d17f104b8e9e0fd",
+            "order-1",
+            "wp:7",
+            "propose_substitution",
+            "{\"proposed_line_total_toman\": 5000, \"replacement_sku\": \"item-b\", \"replacement_units\": 5, \"sku\": \"item-a\"}",
+            "Verified by owner.",
+            "2026-10-28"
+          ]
+        ]
+      }
+    },
+    "tables": {
+      "Products": [
+        [
+          "Product ID",
+          "Product Name",
+          "Sale Price",
+          "Consumer Price",
+          "Category",
+          "Status"
+        ],
+        [
+          "item-b",
+          "Tuna Premium 180g",
+          1000,
+          2000,
+          "canned fish",
+          "approved"
+        ]
+      ],
+      "Shop": [
+        [
+          "Min Profit",
+          100
+        ]
+      ]
+    },
+    "clock": "2026-11-17",
+    "expected_json": "{\"ok\":true,\"orders\":[{\"lines\":[{\"customer_units\":5,\"lots\":[],\"owned_units_reserved\":0,\"shortfall_units\":5,\"sku\":\"item-a\"}],\"order_id\":\"order-1\",\"order_total_toman\":5000,\"original_line_totals_toman\":{\"item-a\":5000},\"procurement\":[{\"customer_units\":5,\"expected_surplus_units\":1,\"owned_units_allocated\":0,\"purchase_authorized\":false,\"purchase_cost_toman\":3600,\"shortfall\":5,\"sku\":\"item-a\",\"source_offer_id\":\"offer-a\",\"state\":\"proposed\",\"supplier\":\"Supplier A\",\"supplier_packs\":1,\"supplier_units\":6}],\"purchase_authorized\":false,\"source_lines\":[{\"sku\":\"item-a\",\"supplier_offer_id\":\"offer-a\"}],\"state\":\"procurement_proposed\",\"substitution_candidates\":{\"item-a\":[{\"available_units\":5,\"category\":\"canned fish\",\"match_score\":0.667,\"matched_terms\":[\"180g\",\"tuna\"],\"name\":\"Tuna Premium 180g\",\"price_ceiling_toman\":1760,\"price_floor_toman\":1420,\"required_units\":5,\"review_required\":true,\"sku\":\"item-b\"}]},\"terms_hash\":\"67243622fb8da6a56c15a928c42a0c1d2d6d2e3db523f6de98502fe0469366fb\",\"workflow\":{\"aftercare\":{\"status\":\"none\"},\"assigned_to\":\"\",\"delivery\":{\"status\":\"pending\"},\"dispatch\":{\"status\":\"pending\"},\"due_at\":\"\",\"last_event\":{\"action\":\"propose_substitution\",\"actor_id\":\"wp:7\",\"at\":\"2026-10-28\",\"note\":\"Verified by owner.\"},\"next_action\":\"Review supplier terms or unavailable lines\",\"order_id\":\"order-1\",\"packing\":{\"status\":\"pending\"},\"procurement\":{},\"refunds\":[],\"resolutions\":{\"item-a\":{\"choice\":\"\",\"proposal\":{\"offered_at\":\"2026-10-28\",\"proposed_line_total_toman\":5000,\"replacement_sku\":\"item-b\",\"replacement_units\":5},\"state\":\"awaiting_customer\"}},\"settlements\":[],\"state\":\"awaiting_customer\"}}]}"
+  },
+  {
+    "seed": {
+      "stock_lots": {
+        "columns": [
+          "lot_id",
+          "sku",
+          "supplier",
+          "purchase_date",
+          "received_at",
+          "production_date",
+          "expiry_date",
+          "units",
+          "unit_cost",
+          "receipt_hash",
+          "state"
+        ],
+        "rows": [
+          [
+            "arrival-mismatched",
+            "item-a",
+            "Supplier A",
+            "2026-10-28",
+            "2026-10-28",
+            "2026-09-01",
+            "2027-09-01",
+            6,
+            600,
+            "f38cdf2bfec8e8f6568615bd809b6b990a264cab97098772173b85b75ab8a629",
+            "ready"
+          ]
+        ]
+      },
+      "stock_lot_events": {
+        "columns": [
+          "sequence",
+          "event_id",
+          "lot_id",
+          "actor_id",
+          "action",
+          "delta_units",
+          "reason",
+          "note",
+          "created_at",
+          "new_state",
+          "expected_revision"
+        ],
+        "rows": []
+      },
+      "stock_lot_receipt_audit": {
+        "columns": [
+          "lot_id",
+          "receipt_hash",
+          "actor_id",
+          "note",
+          "created_at"
+        ],
+        "rows": []
+      },
+      "stock_reservation_requests": {
+        "columns": [
+          "order_id",
+          "sku",
+          "requested"
+        ],
+        "rows": [
+          [
+            "order-1",
+            "item-a",
+            10
+          ]
+        ]
+      },
+      "stock_allocations": {
+        "columns": [
+          "order_id",
+          "sku",
+          "lot_id",
+          "units",
+          "state"
+        ],
+        "rows": []
+      },
+      "paid_order_plans": {
+        "columns": [
+          "order_id",
+          "request_hash",
+          "terms_hash",
+          "source_order",
+          "result",
+          "state",
+          "updated_at",
+          "supplier_terms"
+        ],
+        "rows": [
+          [
+            "order-1",
+            "933aa7a55b15760567d572041369f8fa22619ad70f9ab946859211d00340c0c4",
+            "67243622fb8da6a56c15a928c42a0c1d2d6d2e3db523f6de98502fe0469366fb",
+            "{\"address\": \"\", \"at\": \"\", \"buyer_type\": \"unknown\", \"email\": \"\", \"id\": \"order-1\", \"lines\": [{\"id\": \"item-a\", \"min\": 0, \"name\": \"Tuna 180g\", \"order_unit\": 0, \"packaging\": \"\", \"qty\": 10, \"sale\": 0, \"shelf\": 0, \"sku\": \"item-a\", \"supplier\": \"\", \"supplier_offer_id\": \"offer-a\", \"total\": 10000, \"unit\": 0, \"volume\": \"\"}], \"name\": \"\", \"note\": \"\", \"paid_at\": \"\", \"payment_method\": \"\", \"payment_status\": \"verified\", \"phone\": \"\", \"progress\": 0, \"status\": \"new\", \"total\": 10000, \"transaction_id\": \"\", \"username\": \"\", \"woo_status\": \"processing\"}",
+            "{\"lines\": [{\"customer_units\": 10, \"lots\": [], \"owned_units_reserved\": 0, \"shortfall_units\": 10, \"sku\": \"item-a\"}], \"order_id\": \"order-1\", \"procurement\": [{\"customer_units\": 10, \"expected_surplus_units\": 2, \"owned_units_allocated\": 0, \"purchase_authorized\": false, \"purchase_cost_toman\": 7200, \"shortfall\": 10, \"sku\": \"item-a\", \"source_offer_id\": \"offer-a\", \"state\": \"proposed\", \"supplier\": \"Supplier A\", \"supplier_packs\": 2, \"supplier_units\": 12}], \"purchase_authorized\": false, \"source_lines\": [{\"sku\": \"item-a\", \"supplier_offer_id\": \"offer-a\"}], \"state\": \"procurement_proposed\", \"terms_hash\": \"67243622fb8da6a56c15a928c42a0c1d2d6d2e3db523f6de98502fe0469366fb\"}",
+            "procurement_proposed",
+            "2026-10-28",
+            "{\"item-a\": {\"minimum_packs\": 1, \"pack_multiple\": 1, \"pack_price_toman\": 3600, \"source_offer_id\": \"offer-a\", \"supplier\": \"Supplier A\", \"units_per_pack\": 6}}"
+          ]
+        ]
+      },
+      "paid_order_decisions": {
+        "columns": [
+          "decision_id",
+          "order_id",
+          "actor_id",
+          "note",
+          "terms",
+          "created_at"
+        ],
+        "rows": [
+          [
+            1,
+            "order-1",
+            "wp:7",
+            "Reviewed pack terms.",
+            "{\"item-a\": {\"minimum_packs\": 1, \"pack_multiple\": 1, \"pack_price_toman\": 3600, \"source_offer_id\": \"offer-a\", \"supplier\": \"Supplier A\", \"units_per_pack\": 6}}",
+            "2026-10-28"
+          ]
+        ]
+      },
+      "order_workflows": {
+        "columns": [
+          "order_id",
+          "revision",
+          "workflow",
+          "updated_at"
+        ],
+        "rows": [
+          [
+            "order-1",
+            2,
+            "{\"aftercare\": {\"status\": \"none\"}, \"assigned_to\": \"\", \"delivery\": {\"status\": \"pending\"}, \"dispatch\": {\"status\": \"pending\"}, \"due_at\": \"\", \"last_event\": {\"action\": \"record_supplier_order\", \"actor_id\": \"wp:7\", \"at\": \"2026-10-28\", \"note\": \"Verified by owner.\"}, \"next_action\": \"Review supplier terms or unavailable lines\", \"order_id\": \"order-1\", \"packing\": {\"status\": \"pending\"}, \"procurement\": {\"item-a\": {\"expected_at\": \"\", \"expected_supplier_units\": 12, \"packs\": 2, \"purchase_date\": \"2026-10-27\", \"state\": \"ordered\", \"supplier\": \"Supplier A\", \"supplier_reference\": \"PO-date\"}}, \"refunds\": [], \"resolutions\": {}, \"settlements\": [], \"state\": \"supplier_followup\"}",
+            "2026-10-28"
+          ]
+        ]
+      },
+      "order_workflow_events": {
+        "columns": [
+          "event_id",
+          "order_id",
+          "actor_id",
+          "action",
+          "details",
+          "note",
+          "created_at"
+        ],
+        "rows": [
+          [
+            "926c3e26aec8d4123eda5b1d4be60eb6a4df541627d09dcc2575546a677f9d14",
+            "order-1",
+            "wp:7",
+            "record_supplier_order",
+            "{\"expected_at\": \"\", \"packs\": 2, \"purchase_date\": \"2026-10-27\", \"sku\": \"item-a\", \"supplier_reference\": \"PO-date\"}",
+            "Verified by owner.",
+            "2026-10-28"
+          ]
+        ]
+      }
+    },
+    "tables": {
+      "Products": [
+        [
+          "Product ID",
+          "Product Name",
+          "Sale Price",
+          "Consumer Price",
+          "Category",
+          "Status"
+        ],
+        [
+          "item-b",
+          "Tuna Premium 180g",
+          1000,
+          2000,
+          "canned fish",
+          "approved"
+        ]
+      ],
+      "Shop": [
+        [
+          "Min Profit",
+          100
+        ]
+      ]
+    },
+    "clock": "2026-11-17",
+    "expected_json": "{\"ok\":true,\"orders\":[{\"lines\":[{\"customer_units\":10,\"lots\":[],\"owned_units_reserved\":0,\"shortfall_units\":10,\"sku\":\"item-a\"}],\"order_id\":\"order-1\",\"order_total_toman\":10000,\"original_line_totals_toman\":{\"item-a\":10000},\"procurement\":[{\"customer_units\":10,\"expected_surplus_units\":2,\"owned_units_allocated\":0,\"purchase_authorized\":false,\"purchase_cost_toman\":7200,\"shortfall\":10,\"sku\":\"item-a\",\"source_offer_id\":\"offer-a\",\"state\":\"proposed\",\"supplier\":\"Supplier A\",\"supplier_packs\":2,\"supplier_units\":12}],\"purchase_authorized\":false,\"source_lines\":[{\"sku\":\"item-a\",\"supplier_offer_id\":\"offer-a\"}],\"state\":\"procurement_proposed\",\"substitution_candidates\":{\"item-a\":[]},\"terms_hash\":\"67243622fb8da6a56c15a928c42a0c1d2d6d2e3db523f6de98502fe0469366fb\",\"workflow\":{\"aftercare\":{\"status\":\"none\"},\"assigned_to\":\"\",\"delivery\":{\"status\":\"pending\"},\"dispatch\":{\"status\":\"pending\"},\"due_at\":\"\",\"last_event\":{\"action\":\"record_supplier_order\",\"actor_id\":\"wp:7\",\"at\":\"2026-10-28\",\"note\":\"Verified by owner.\"},\"next_action\":\"Review supplier terms or unavailable lines\",\"order_id\":\"order-1\",\"packing\":{\"status\":\"pending\"},\"procurement\":{\"item-a\":{\"expected_at\":\"\",\"expected_supplier_units\":12,\"packs\":2,\"purchase_date\":\"2026-10-27\",\"state\":\"ordered\",\"supplier\":\"Supplier A\",\"supplier_reference\":\"PO-date\"}},\"refunds\":[],\"resolutions\":{},\"settlements\":[],\"state\":\"supplier_followup\"}}]}"
+  }
+]

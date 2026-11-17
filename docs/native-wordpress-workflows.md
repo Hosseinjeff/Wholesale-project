@@ -230,3 +230,20 @@ and all 20 customer runtime checks pass. No order route or order execution owner
 is activated at this checkpoint; native order Sheet writing and integration are next.
 The protected status endpoint reports Unicode normalization/casefold capabilities
 for checking host dependencies before the order rollout.
+
+The order integration source now includes the owner GET/POST contract, current-Sheet
+replacement price bounds through the shared storefront core, verified Orders/OrderLines
+upserts, native order job leases and per-order FIFO, and Woo completion receipts.
+Checkout persists its existing durable task without waiting for Sheets; real minute
+cron performs the write. Matching paid/initial Woo metadata is acknowledged only
+after verified writes. An older receipt cannot clear a newer pending Woo event.
+Only a bot notice dispatch remains on Railway, preserving the original per-recipient
+notice keys and allowlists. Both hosts have native Unicode normalization/casefold.
+
+Checks: 434 native order workflow/API checks; 42 writer/receipt/queue checks; 411
+existing native-domain checks; 21 scheduler checks; and 35 focused Python runtime,
+notice, paid-order and follow-up tests. Synthetic checks send no messages or model
+requests. The Railway runtime advertises `native_order_notice_version=1`; order
+ownership cannot switch until its backend filter and notice version are verified.
+WordPress/test/archive files are excluded from the bot container build. Order route
+activation and execution ownership remain unchanged at this source checkpoint.
