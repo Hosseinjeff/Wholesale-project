@@ -52,7 +52,7 @@ app = Flask(__name__)
 WEB_APP_URL = os.getenv('GOOGLE_WEB_APP_URL')
 BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 BALE_BOT_TOKEN = os.getenv('BALE_BOT_TOKEN')
-APP_VERSION = "2026-11-17-free-routing-text-only"
+APP_VERSION = "2026-11-17-owner-reference-suggestions"
 setup_logger(logging.INFO, log_file=None)
 logger = logging.getLogger(__name__)
 
@@ -414,11 +414,21 @@ def run_durable_handoff(queue, job_id=None, worker_id=None):
             finally:
                 reference_locks.close()
 
+    def reference_suggest(payload):
+        from reference_import.snapshots import ReferenceStore
+        from reference_import.suggestion_tasks import run_suggestion
+        path = os.getenv('REFERENCE_STORE_PATH') or ''
+        if not path:
+            return {'ok': True, 'state': 'superseded'}
+        owners = [value.strip() for value in (os.getenv('REFERENCE_OWNER_IDS') or '').split(',')
+                  if value.strip()]
+        return run_suggestion(queue, payload, build_store(), ReferenceStore(path, owner_ids=owners))
+
     from catalog.runtime_host import run_runtime_task
     return queue.run_one(runtime_task=lambda payload:run_runtime_task(queue,payload),finalize=finalize, publish=publish_projection,
                          publish_with_payload=publish_projection,
                          order_write=order_write, notify=notify, job_id=job_id,
-                         reextract=reextract, worker_id=worker_id)
+                         reextract=reextract, worker_id=worker_id, reference_suggest=reference_suggest)
 
 
 def _wake_reference_waiters_if_eligible(queue, reference_store):
@@ -2682,6 +2692,9 @@ def ai_confirmations_route():
             cases, recent = review_cases(store, ledger, include_history=True,
                                          reference_snapshot=reference_snapshot,
                                          reference_item_ledger=reference_item_ledger)
+            if reference_snapshot:
+                from reference_import.suggestion_tasks import attach_receipts
+                attach_receipts(queue, cases, 'ai', reference_snapshot['snapshot_id'])
             hold_scope=_publication_hold_scope(queue)
             for item in [*cases,*recent]:
                 item['publication_held']=_source_blocked_by_publication_hold(hold_scope,item)
@@ -3047,6 +3060,9 @@ def reference_item_reviews_route():
         snapshot = reference_store.active_snapshot()
         eligibility = active_reference_use(reference_store, now=datetime.now(timezone.utc))
         if not eligibility['allow_automatic'] or not snapshot or snapshot['snapshot_id'] != eligibility['snapshot_id']:
+            rejected_body = request.get_json(silent=True) if request.method == 'POST' else None
+            if isinstance(rejected_body, dict) and rejected_body.get('action') == 'suggest_reference':
+                return jsonify({'ok': False, 'error': 'stale_snapshot'}), 409
             response = jsonify({'ok': True, 'reference_state': eligibility,
                                 'cases': [], 'recent_decisions': []})
             response.headers['Cache-Control'] = 'no-store'
@@ -3063,6 +3079,8 @@ def reference_item_reviews_route():
                     {**(row.get('attributes') or {}),
                      'supplier_price': row.get('supplier_price') or ''},
                     snapshot.get('rows') or [], limit=12)
+            from reference_import.suggestion_tasks import attach_receipts
+            attach_receipts(queue, cases, 'reference', snapshot['snapshot_id'])
             recent_decisions = sorted((row for row in all_cases
                                        if row.get('decision') and not row.get('projection_pending')),
                 key=lambda row: str((row.get('decision') or {}).get('created_at') or ''), reverse=True)[:50]
@@ -3071,6 +3089,27 @@ def reference_item_reviews_route():
             response.headers['Cache-Control'] = 'no-store'
             return response
         body = request.get_json(silent=True)
+        if isinstance(body, dict) and body.get('action') == 'suggest_reference':
+            from reference_import.suggestion_tasks import (eligible_snapshot, policy_version,
+                resolve_case, task_key)
+            required = {'action', 'case_kind', 'case_id', 'offer_id', 'signature', 'snapshot_id'}
+            if (set(body) != required or body.get('case_kind') not in ('ai', 'reference')
+                    or any(not isinstance(body.get(key), str) or not body[key] or len(body[key]) > 300
+                           for key in required - {'action', 'case_kind'})
+                    or not re.fullmatch(r'[a-f0-9]{64}', body.get('signature', ''))):
+                return jsonify({'ok': False, 'error': 'invalid_fields'}), 400
+            context = {key: value for key, value in body.items() if key != 'action'}
+            context['policy_version'] = policy_version()
+            if not eligible_snapshot(reference_store, context):
+                return jsonify({'ok': False, 'error': 'stale_snapshot'}), 409
+            if resolve_case(sheet_store, snapshot, ledger, queue, context) is None:
+                return jsonify({'ok': False, 'error': 'stale_case'}), 409
+            job_id = queue.put('reference_suggest', task_key(context), context)
+            _start_pipeline_worker(force=True)
+            response = jsonify({'ok': True, 'job_id': job_id, 'state': 'queued',
+                                'snapshot_id': context['snapshot_id'], 'case_id': context['case_id']})
+            response.headers['Cache-Control'] = 'no-store'
+            return response, 202
         if isinstance(body, dict) and body.get('action') == 'assign_ai_reference':
             required = {'action', 'case_id', 'offer_id', 'signature', 'snapshot_id',
                         'reference_id', 'price_role', 'expected_decision_id'}

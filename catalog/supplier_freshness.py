@@ -116,11 +116,50 @@ class PriceFreshness:
     def state(self, offer_id, *, now, expected_revision):
         with self._connect() as db:
             row=db.execute('SELECT * FROM supplier_price_evidence WHERE offer_id=?',(offer_id,)).fetchone()
+        return self._state_from_row(row, now=now, expected_revision=expected_revision)
+
+    @staticmethod
+    def _state_from_row(row, *, now, expected_revision):
         if not row:return {'state':'needs_review','verified_at':None}
         if not expected_revision or expected_revision != row['source_revision']:
             return {'state':'needs_review','verified_at':row['verified_at']}
         return {'state':supplier_price_state(datetime.fromisoformat(row['verified_at']),now),
                 'verified_at':row['verified_at'],'method':row['method']}
+
+    def observe_and_states(self, sources, *, now):
+        """Preserve revision rules with one transaction per bounded source group.
+
+        WordPress revalidates the observed rows before committing the writes, so a
+        concurrent manual verification cannot be overwritten using stale evidence.
+        """
+        current = _utc(now)
+        output = []
+        for start in range(0, len(sources), 300):
+            group = sources[start:start + 300]
+            identifiers = list(dict.fromkeys(item['offer_id'] for item in group))
+            with self._connect() as db:
+                db.execute('BEGIN IMMEDIATE')
+                rows = db.execute('SELECT * FROM supplier_price_evidence WHERE offer_id IN (' +
+                                  ','.join('?' for _ in identifiers) + ')', identifiers).fetchall()
+                known = {row['offer_id']: dict(row) for row in rows}
+                for item in group:
+                    offer_id, revision = item['offer_id'], item['source_revision']
+                    timestamp = item['source_timestamp']
+                    old = known.get(offer_id)
+                    if (revision and timestamp is not None and timestamp <= current
+                            and (not old or (old['source_revision'] != revision
+                                and timestamp > datetime.fromisoformat(old['verified_at'])))):
+                        stamp = timestamp.isoformat()
+                        db.execute('''INSERT INTO supplier_price_evidence VALUES (?,?,?,'source',NULL)
+                            ON CONFLICT(offer_id) DO UPDATE SET source_revision=excluded.source_revision,
+                            verified_at=excluded.verified_at,method=excluded.method,verified_by=NULL''',
+                            (offer_id, revision, stamp))
+                        db.execute("INSERT INTO supplier_price_evidence_history (offer_id,source_revision,verified_at,method,verified_by,note) VALUES (?,?,?,'source',NULL,'')",
+                            (offer_id, revision, stamp))
+                        old = known[offer_id] = {'offer_id': offer_id, 'source_revision': revision,
+                                                'verified_at': stamp, 'method': 'source'}
+                    output.append(self._state_from_row(old, now=current, expected_revision=revision))
+        return output
 
 
 def source_price_revision(record):
@@ -196,6 +235,7 @@ def current_supplier_offers(store, ledger, *, now):
         return []
     headers=[str(value or '') for value in rows[0]]
     offers=[]
+    sources=[]
     for raw in rows[1:]:
         record={header:raw[index] if index<len(raw) else '' for index,header in enumerate(headers)}
         product_id=str(record.get('Product ID') or '').strip()
@@ -206,20 +246,18 @@ def current_supplier_offers(store, ledger, *, now):
         revision=source_price_revision(record)
         stamp=source_datetime(record.get('Message Timestamp'))
         invalid_future=stamp is not None and stamp>_utc(now)
-        if revision and stamp and trusted_source_time:
-            try:
-                ledger.observe_source(offer_id=product_id,source_revision=revision,source_timestamp=stamp,now=now)
-            except ValueError:
-                pass
-        state=ledger.state(product_id,now=now,expected_revision=revision)
-        if invalid_future:
-            state={**state,'state':'needs_review'}
+        sources.append({'offer_id': product_id, 'source_revision': revision,
+                        'source_timestamp': stamp if trusted_source_time else None})
         offers.append({
             'product_id':product_id,'name':str(record.get('Product Name') or ''),
             'channel':str(record.get('Channel Username') or ''),'sale_price':record.get('Sale Price') or '',
             'source_revision':revision,'source_timestamp':stamp.isoformat() if stamp else None,
             'source_timestamp_basis':timestamp_basis or 'legacy_unknown',
             'source_timestamp_trusted':trusted_source_time,
-            **state,
+            '_invalid_future':invalid_future,
         })
+    for offer, state in zip(offers, ledger.observe_and_states(sources, now=now)):
+        if offer.pop('_invalid_future'):
+            state = {**state, 'state':'needs_review'}
+        offer.update(state)
     return offers

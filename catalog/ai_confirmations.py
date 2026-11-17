@@ -370,9 +370,9 @@ def _annotate_variant_groups(cases):
             case['variant_group_id'] = group_id
 
 
-def find_case(store, ledger, case_id, offer_id):
-    from catalog.sync import _records, _read_sheet_if_present
-    _, offers = _records(_read_sheet_if_present(store, 'Offers'))
+def find_case(store, ledger, case_id, offer_id, *, fresh=False):
+    from catalog.sync import _records, _read_sheet_if_present, _fresh_read
+    _, offers = _records(_fresh_read(store, 'Offers') if fresh else _read_sheet_if_present(store, 'Offers'))
     source = next((item for item in offers if str(item.get('Offer ID') or '') == offer_id), None)
     if source is None or review_case_id(offer_id) != case_id:
         return None

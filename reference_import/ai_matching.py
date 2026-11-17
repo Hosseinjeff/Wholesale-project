@@ -170,7 +170,7 @@ class ReferenceSuggestions:
                     'snapshot_id': snapshot_id, 'retrieval_retry_at': retrieval_wait,
                     'method': 'code', 'reason': ('explicit_attribute_conflicts'
                         if rows and not filtered else 'no_candidates')}
-        if self.router is None or not api_key:
+        if self.router is None or not api_key or not any('match' in item.tasks for item in self.router.models):
             return {'state': 'needs_review', 'reference_id': None, 'candidates': candidates,
                     'snapshot_id': snapshot_id, 'retrieval_retry_at': retrieval_wait,
                     'method': 'code', 'reason': 'ambiguous_reference_identity'}
