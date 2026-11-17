@@ -52,6 +52,34 @@ runtime with the entire same-project allowance.
 
 ## Runtime behavior
 
+Owner review now offers an explicit **request reference suggestion** action for AI
+confirmation and reference-item cases. It queues one idempotent `reference_suggest`
+task in the existing WordPress-owned durable pipeline. The worker reads the current
+offer and eligible active snapshot, applies code-first matching, and only then uses
+configured qualified Google matching models. Optional semantic retrieval uses
+`GOOGLE_REFERENCE_EMBEDDING_MODEL` and vectors previously built by the bounded index
+command. Enabling an embedding model does not embed the whole reference catalog on
+a page load. Indexing remains an explicit bounded operation.
+
+The worker discards results if the case, owner decision, reference eligibility,
+snapshot, or routing policy changes. GETs only attach saved receipts and candidates
+in one bulk lookup; they never call Google or start the worker. Suggestions do not
+approve links, choose a price role, change prices, or publish products. Quota waits
+use the existing WordPress due-work schedule. The owner refreshes to see results;
+there is no background browser poll.
+
+Owner-workflow reads are serialized in the browser because each Railway request
+calls back to WordPress for state. Parallel proxy requests can occupy the hosting
+PHP workers and starve these callbacks until the 45-second proxy timeout. Writes
+retain their explicit action path. This preserves one Railway worker and idle sleep.
+Read-only gateway failures (502/503/504) receive one serial retry after one second;
+subsequent failure remains visible. Owner writes are never automatically retried by
+this browser path. AI-confirmation and price-ledger schema setup use the existing
+schema cache rather than replaying unchanged DDL on every owner read.
+Supplier-price evidence also loads and observes sources in bounded groups of 300,
+preserving manual verification, source revisions and original timestamps. It no
+longer makes separate remote state transactions for every product.
+
 SQLite transactions reserve capacity before HTTP requests across concurrent callers.
 The ledger survives restarts, groups all task usage for each model, enforces rolling
 minute request/input-token limits and Pacific-calendar daily limits, including DST.

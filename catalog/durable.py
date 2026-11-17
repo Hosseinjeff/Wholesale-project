@@ -1021,7 +1021,8 @@ class Handoffs:
         return {**dict(row),'result':json.loads(row['result']) if row['result'] else None} if row else None
 
     def run_one(self, *, finalize, publish, order_write, notify=None, job_id=None,
-                publish_with_payload=None, reextract=None, worker_id=None, runtime_task=None):
+                publish_with_payload=None, reextract=None, worker_id=None, runtime_task=None,
+                reference_suggest=None):
         job=self.claim(job_id)
         if not job:return False
         self._worker_job_started(worker_id,job['id'])
@@ -1069,6 +1070,10 @@ class Handoffs:
                 if reextract is None:raise RuntimeError('re-extraction_worker_unconfigured')
                 result=reextract(job['payload'])
                 if result.get('ok') is not True:raise RuntimeError('re-extraction_failed')
+            elif job['kind']=='reference_suggest':
+                if reference_suggest is None:raise RuntimeError('reference_suggestion_worker_unconfigured')
+                result=reference_suggest(job['payload'])
+                if result.get('ok') is not True:raise RuntimeError('reference_suggestion_failed')
             else:raise RuntimeError('unknown_handoff')
             self.finish(job,result)
         except ReferencePending:

@@ -19,12 +19,17 @@ const fixtures={
 (async()=>{
  const browser=await chromium.launch({executablePath:'/usr/bin/chromium',headless:true,args:['--no-sandbox']});
  const page=await browser.newPage({viewport:{width:1365,height:1000}});const errors=[];const writes=[];let failPrices=false;let acceptPrice=false;
+ let activeReads=0,maxActiveReads=0,transientStatusOnce=true,statusReads=0;
  page.on('pageerror',e=>errors.push(e.message));
  await page.route('**/*',async route=>{
   const req=route.request();if(req.url().includes('/admin-ajax.php')){
    const f=new URLSearchParams(req.postData());const path=f.get('path');
    if(f.get('method')==='POST'||f.get('action')!=='molavi_owner_workflow_proxy'){
     writes.push({action:f.get('action'),path,payload:f.get('payload')});
+    if(path==='/reference/item-reviews'&&JSON.parse(f.get('payload')||'{}').action==='suggest_reference'){
+      const payload=JSON.parse(f.get('payload'));
+      return route.fulfill({status:202,json:{ok:true,job_id:'reference_suggest:'+'a'.repeat(64),case_id:payload.case_id,snapshot_id:payload.snapshot_id}});
+    }
     if(f.get('action')==='molavi_owner_review_store'){
       const records=JSON.parse(f.get('records')||'[]');return route.fulfill({json:{success:true,data:{stored:records.length,commands:Object.fromEntries(records.map(r=>[r.event_id,'cmd-1']))}}});
     }
@@ -41,8 +46,16 @@ const fixtures={
     }
     return route.fulfill({status:403,json:{ok:false,error:'write_blocked'}});
    }
-   if(failPrices&&path==='/pipeline/supplier-price-evidence')return route.fulfill({status:503,json:{ok:false,error:'upstream_unavailable'}});
-   return route.fulfill({json:{ok:true,...(fixtures[path]||{})}});
+   activeReads++;maxActiveReads=Math.max(maxActiveReads,activeReads);
+   try{
+    await new Promise(resolve=>setTimeout(resolve,10));
+    if(path==='/pipeline/product-status-snapshots'){
+     statusReads++;
+     if(transientStatusOnce){transientStatusOnce=false;return await route.fulfill({status:503,json:{ok:false,error:'request_failed'}});}
+    }
+    if(failPrices&&path==='/pipeline/supplier-price-evidence')return await route.fulfill({status:503,json:{ok:false,error:'upstream_unavailable'}});
+    return await route.fulfill({json:{ok:true,...(fixtures[path]||{})}});
+   }finally{activeReads--;}
   }
   return route.fulfill({contentType:'text/html',body:'<!doctype html><html lang="fa" dir="rtl"><body style="background:#f0f0f1;margin:20px"><div id="molavi-owner-workflow"></div></body></html>'});
  });
@@ -57,6 +70,8 @@ const fixtures={
  }
  await mount();
  assert.equal(await page.locator('.md-product-card').count(),3);assert.equal(writes.length,0);assert.deepEqual(errors,[]);
+ assert.equal(maxActiveReads,1,'owner reads leave WordPress workers free for state callbacks');
+ assert.equal(statusReads,2,'one temporary read failure gets one bounded retry');
  const first=page.locator('.md-product-card').filter({hasText:'نودل سبزیجات'});
  await first.getByRole('button',{name:'رسیدگی',exact:true}).click();
  await first.getByRole('button',{name:'منبع فعلی را دیدم؛ قیمت تأیید است'}).waitFor({state:'visible'});
@@ -110,6 +125,14 @@ const fixtures={
  await page.getByRole('button',{name:'بازگرداندن',exact:true}).click();
  await page.getByRole('button',{name:'محصولات',exact:true}).click();
  await page.locator('.md-product-card').waitFor();
+ fixtures['/pipeline/ai-confirmations'].cases[0].reference_snapshot_id='snapshot-A';
+ await mount('&workbench_action=ai');
+ await page.locator('.md-product-card').getByRole('button',{name:'رسیدگی',exact:true}).click();
+ const beforeSuggestion=writes.length;
+ await page.getByRole('button',{name:'درخواست پیشنهاد مرجع',exact:true}).click();
+ await page.getByText('درخواست ثبت شد؛ برای دیدن نتیجه صفحه را تازه کنید. تأیید مرجع همچنان با شماست.').waitFor();
+ assert.equal(writes.length,beforeSuggestion+1,'requesting a suggestion never submits an approval');
+ assert.equal(JSON.parse(writes.at(-1).payload).case_kind,'ai');
  assert.deepEqual(errors,[]);
  console.log(JSON.stringify({passed:true,errors,writes:writes.length,captures:['/tmp/molavi-dashboard-desktop.png','/tmp/molavi-dashboard-mobile.png']}));
  await browser.close();

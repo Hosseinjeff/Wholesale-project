@@ -307,7 +307,30 @@
         return labels[code] || 'ارتباط با سرور برقرار نشد. کد پیگیری: ' + (code || 'نامشخص');
     }
 
+    // Each proxy request calls back into WordPress for durable state. Eight
+    // parallel PHP requests can occupy the host's workers and starve those
+    // callbacks. Keep owner reads serial; an explicit write has its own path.
+    let workflowReadQueue = Promise.resolve();
     async function request(method = 'GET', payload = undefined, url = '', apiKey = '') {
+        if (method !== 'GET') return workflowRequest(method, payload, url, apiKey);
+        const previous = workflowReadQueue;
+        let release;
+        workflowReadQueue = new Promise(resolve => { release = resolve; });
+        await previous;
+        try {
+            try { return await workflowRequest(method, payload, url, apiKey); }
+            catch (error) {
+                if (![502,503,504].includes(error.requestStatus)) throw error;
+                // One bounded retry covers a sleeping executor or a temporary
+                // host limit. The read queue remains serial throughout.
+                await new Promise(resolve => setTimeout(resolve,1000));
+                return await workflowRequest(method, payload, url, apiKey);
+            }
+        }
+        finally { release(); }
+    }
+
+    async function workflowRequest(method, payload, url, apiKey) {
         const scopedApi = apiKey && config.workflowApis && config.workflowApis[apiKey];
         if (apiKey && !scopedApi) throw new Error('workflow_route_unavailable');
         if (!config.apiProxyUrl || !config.apiProxyNonce) throw new Error('workflow_proxy_unavailable');
@@ -2247,12 +2270,52 @@
         }
     }
 
+    function referenceSuggestionSection(item, kind, enabled = true) {
+        const snapshotId = item.reference_snapshot_id || item.snapshot_id;
+        if (!snapshotId) return null;
+        const section = node('section', null, 'molavi-reference-suggestion');
+        const receipt = item.reference_suggestion;
+        const result = receipt && receipt.result;
+        if (result) {
+            const selected = (result.candidates || []).find(row => row.reference_id === result.reference_id);
+            section.appendChild(notice(selected
+                ? `مرجع پیشنهادی: ${selected.name}؛ پیش از ثبت، مشخصات و مبنای قیمت را بررسی کنید.`
+                : 'پیشنهاد یکتایی پیدا نشد؛ گزینه‌های مرجع را بررسی کنید.', 'info'));
+        } else if (receipt) {
+            section.appendChild(notice(['queued','running'].includes(receipt.state)
+                ? 'درخواست پیشنهاد ثبت شده است؛ نتیجه را با تازه‌سازی صفحه ببینید.'
+                : 'پیشنهاد آماده نشد؛ وضعیت این مورد را پس از تازه‌سازی بررسی کنید.', 'info'));
+        }
+        const button = node('button', 'درخواست پیشنهاد مرجع', 'button');
+        button.type = 'button';
+        button.disabled = !enabled || Boolean(receipt);
+        button.addEventListener('click', async () => {
+            button.disabled = true;
+            try {
+                const response = await request('POST', {action:'suggest_reference', case_kind:kind,
+                    case_id:item.case_id, offer_id:item.offer_id, signature:item.signature,
+                    snapshot_id:snapshotId}, new URL('/reference/item-reviews', config.apiUrl).href, 'reference_items');
+                if (response.case_id !== item.case_id || response.snapshot_id !== snapshotId
+                    || !/^reference_suggest:[a-f0-9]{64}$/.test(response.job_id || '')) {
+                    throw new Error('invalid_receipt');
+                }
+                section.appendChild(notice('درخواست ثبت شد؛ برای دیدن نتیجه صفحه را تازه کنید. تأیید مرجع همچنان با شماست.', 'success'));
+            } catch (error) {
+                errorBox(errorText(error.message), section);
+                button.disabled = !enabled;
+            }
+        });
+        section.appendChild(button);
+        return section;
+    }
+
     function aiReferenceAssignmentSection(item, contextStored, decisionsEnabled, options = {}) {
         if (!item.reference_snapshot_id) return null;
         const candidates = Array.isArray(item.reference_candidates)
             ? item.reference_candidates.filter(candidate => candidate && candidate.reference_id
                 && String(candidate.name || '').trim()).slice(0, 12) : [];
         const section = node('section', null, 'molavi-ai-reference-assignment');
+        section.appendChild(referenceSuggestionSection(item, 'ai', decisionsEnabled));
         if (!options.groupedVariants) {
             section.appendChild(node('strong', 'تطبیق با کالای مرجع — انتخاب را همین‌جا ثبت کنید'));
             section.appendChild(node('p', 'این انتخاب فقط مرجع و مبنای مقایسه را ذخیره می‌کند؛ قیمت، موجودی و انتشار جداگانه می‌مانند.'));
@@ -3385,6 +3448,10 @@
         const card = node('section', null, options.embedded
             ? 'molavi-product-subsection molavi-review-card molavi-reference-review-card'
             : 'card molavi-review-card molavi-reference-review-card');
+        if (!item.decision) {
+            const suggestionSection = referenceSuggestionSection(item, 'reference');
+            if (suggestionSection) card.appendChild(suggestionSection);
+        }
         const duplicateParentName = Boolean(options.embedded && options.parentName
             && aiDisplayKey(options.parentName) === aiDisplayKey(item.product_name));
         card.appendChild(reviewCardHeader(duplicateParentName ? '' : item.product_name || 'کالای بدون نام', 'تطبیق مرجع'));
