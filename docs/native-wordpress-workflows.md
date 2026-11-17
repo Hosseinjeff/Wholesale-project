@@ -63,6 +63,26 @@ reordering/removal, snapshot IDs, activation and raw-source custody. A protected
 server-to-WordPress connector handoff is implemented and has three focused tests;
 it still needs its own scoped backend deployment before use.
 
+The connector handoff has now succeeded on both sites. Staging's current successful
+backend is `cfd6515` (`c78e7cf4-c4ce-4677-abf6-5597f4c237dd`), incorporating the
+native handoff and the latest owner-read fixes. Live's handoff backend `1b046a3`
+deployed successfully as `47424989-f352-4bb0-b27b-d320778d02a0`. No credentials
+were returned or copied into the workspace. Protected connector check reports only
+table row/column counts. Native Sheets reads preserve the existing formatted-value
+contract; raw reads are explicit and cached separately for write verification.
+
+The product-status port now covers live Products/Offers reads, source identity and
+provenance checks, supplier freshness/revision calculations and immutable status
+capture/history. It preserves the existing business rules and private-field
+exclusions. There are 327 synthetic PHP/Python checks. Product-status GET/POST
+handlers exist but require read-only per-site comparison before route activation.
+
+After the live cleanup, Railway control-plane metrics showed current disk usage
+0.0489472 GB versus a one-hour high of 0.404676608 GB, and current RAM 0.065241088 GB.
+The production service was independently observed `Sleeping`, with no pending
+deployment, warnings or recent failures. These are observed values, not resource
+limits or a guarantee that memory will not rise during bot work.
+
 Remaining migration domains: reference fetch/incremental activation and matching;
 catalog/Sheet reconciliation and guarded publication; current product and AI review
 read models/commands; supplier freshness and publication recovery; order workflow
