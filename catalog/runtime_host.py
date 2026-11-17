@@ -11,6 +11,15 @@ import requests
 
 TASKS=frozenset({'sheet_sync','reference_refresh','outbox','housekeeping'})
 
+def bot_capabilities():
+    """Publish policy identities, never provider credentials or extracted data."""
+    from catalog import gemini
+    from reference_import.suggestion_tasks import policy_version
+    return {'schema_version':1,'ai_configured':bool(gemini.ai_extraction_configured()),
+            'extraction_policy_version':gemini.extraction_policy_version(),
+            'suggestion_policy_version':policy_version(),
+            'image_extraction_enabled':callable(getattr(gemini,'extract_text_from_image',None))}
+
 def configure_wordpress_connectors():
     """Hand service credentials directly to the protected WordPress host once.
 
@@ -57,7 +66,7 @@ def schedule_on_wordpress(queue):
     due=next_work_at(queue)
     try:
         from catalog.durable import pipeline_payload_retention_days
-        response=requests.post(site+'/wp-json/molavi-runtime/v1/schedule',json={'observed_at':time.time(),'wake_at':due,'retention_days':pipeline_payload_retention_days()},
+        response=requests.post(site+'/wp-json/molavi-runtime/v1/schedule',json={'observed_at':time.time(),'wake_at':due,'retention_days':pipeline_payload_retention_days(),'bot_capabilities':bot_capabilities()},
             headers={'X-Molavi-Runtime-Token':hmac.new(secret.encode(),b'molavi-runtime-v1',hashlib.sha256).hexdigest()},timeout=(5,15))
         return response.status_code==200 and response.json().get('ok') is True
     except (requests.RequestException,ValueError):return False
@@ -111,6 +120,7 @@ def storage_report():
     report={'mode':os.getenv('PIPELINE_RUNTIME_MODE','continuous'),'state_host':'wordpress' if wordpress_state() else 'local',
             'native_execution_filter_version':1,
             'native_order_notice_version':1,
+            'bot_capabilities':bot_capabilities(),
             'databases':[],'memory':memory_report()}
     try:report['container_memory_bytes']=int(Path('/sys/fs/cgroup/memory.current').read_text())
     except (OSError,ValueError):pass

@@ -161,6 +161,8 @@ add_action('rest_api_init',static function():void {
             if(abs($observed-time())>300)return new WP_Error('runtime_clock','Invalid clock',['status'=>409]);
             if($observed>=(float)$state['last_observed']){molavi_runtime_save_wake($body['wake_at']===null?null:max(time(),min(time()+604800,(float)$body['wake_at'])),$observed);}
             $retention=$body['retention_days']??null;
+            if($observed>=(float)$state['last_observed']&&isset($body['bot_capabilities'])&&function_exists('molavi_domain_validate_bot_capabilities')&&molavi_domain_validate_bot_capabilities($body['bot_capabilities']))
+                update_option('molavi_bot_capabilities_v1',$body['bot_capabilities'],false);
             if(is_int($retention)&&$retention>=30&&$retention<=365)update_option('molavi_pipeline_payload_retention_days',$retention,false);
             return ['ok'=>true,'wake_at'=>molavi_runtime_state()['wake_at']];}]);
 });
