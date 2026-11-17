@@ -8,6 +8,8 @@ function molavi_domain_routes(): array {
     return [
         '/pipeline/operations-dashboard'=>['GET'],
         '/pipeline/paid-orders'=>['GET','POST'],
+        '/pipeline/publication-holds'=>['GET','POST'],
+        '/pipeline/reconcile-publication-backlog'=>['POST'],
         '/pipeline/product-status-snapshots'=>['GET','POST'],
         '/pipeline/supplier-price-evidence'=>['GET','POST'],
         '/reference/snapshots'=>['GET','POST'],
@@ -130,6 +132,8 @@ function molavi_domain_dispatch(string $method,string $path,array $query,?array 
         if($method==='POST'&&$body===null)molavi_domain_fail('invalid_body',400);
         if($path==='/pipeline/operations-dashboard')$result=molavi_domain_operations($query);
         elseif($path==='/pipeline/paid-orders')$result=molavi_domain_paid_orders_api($method,$body??[],$actor);
+        elseif($path==='/pipeline/publication-holds')$result=molavi_domain_publication_holds_api($method,$body??[],$actor);
+        elseif($path==='/pipeline/reconcile-publication-backlog')$result=molavi_domain_reconcile_backlog_api($body,$actor);
         elseif($path==='/pipeline/product-status-snapshots')$result=molavi_domain_status_api($method,$query,$body,$actor);
         elseif($path==='/pipeline/supplier-price-evidence')$result=molavi_domain_supplier_prices_api($method,$body,$actor);
         elseif($path==='/reference/snapshots')$result=$method==='POST'?molavi_domain_reference_api($body,$actor):molavi_domain_reference_snapshots($query);

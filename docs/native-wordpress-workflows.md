@@ -275,3 +275,23 @@ rebuilding an unused current snapshot. Six further tests exercise the actual Woo
 entrypoint with empty legacy configuration, verified metadata completion and replay
 without external I/O. Source cutover is enabled; deploy this final shop/runtime
 follow-up and repeat the protected probe before declaring the live entrypoint ready.
+
+The final order shop/runtime follow-up is uploaded/read back on both sites from
+`9c131b8` / live `f5ca6a6`. Protected probes verify the native entrypoint with zero
+writes on both. Staging also verifies its legacy HTTP interception; live has no
+legacy order settings and now needs none. A read-only Woo REST audit found zero
+existing production orders, so there is no missed historical handoff backlog to
+replay or historical stock allocation decision to make. Both recent runtime receipts
+confirmed on-demand mode, WordPress custody and zero Railway data files.
+
+Publication recovery now has native hold context reads, single/bulk owner replay,
+source-verified hold reconciliation and catalog/backlog synchronization with the
+existing audit receipts. It preserves the explicit review choices, raw source count
+and AI-case proofs, complete-image requirement, before/after Sheet digest and exact
+failed-receipt selection. No real review was resolved during implementation. Nested
+publication operations share and renew one request-owned lease, then release it once.
+74 synthetic Python/PHP checks cover context privacy/truncation, atomic selections,
+incomplete source rejection, partial sync, changing Sheets and audit states. Existing
+411 native-domain and 52 order writer checks still pass. New recovery methods are
+implemented but not activated at this source checkpoint; compare and record rollout
+separately. Bot source pins remain `302dcfe` / live `711b7ca`.
