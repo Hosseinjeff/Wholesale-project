@@ -50,7 +50,9 @@ function molavi_runtime_outbox_due():bool {
     global $wpdb;
     $table=$wpdb->prefix.'molavi_workflow_outbox';
     if($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s',$table))!==$table)return false;
-    return (bool)$wpdb->get_var($wpdb->prepare("SELECT 1 FROM {$table} WHERE state='queued' AND available_at<=%s LIMIT 1",gmdate('Y-m-d H:i:s')));
+    $native=function_exists('molavi_domain_outbox_domains')?molavi_domain_outbox_domains():[];
+    $where=$native?' AND command_type NOT IN ('.implode(',',array_fill(0,count($native),'%s')).')':'';
+    return (bool)$wpdb->get_var($wpdb->prepare("SELECT 1 FROM {$table} WHERE state='queued' AND available_at<=%s{$where} LIMIT 1",gmdate('Y-m-d H:i:s'),...$native));
 }
 function molavi_runtime_staging_http_exception($pre,array $args,string $url) {
     if(!is_wp_error($pre)||$pre->get_error_code()!=='molavi_staging_external_blocked')return $pre;
@@ -70,6 +72,12 @@ function molavi_runtime_tick():void {
         if(!add_option('molavi_runtime_host_lock',$now,'',false))return;
     }
     try {
+        if(function_exists('molavi_domain_drain_outbox')){
+            $nativeOutbox=molavi_domain_drain_outbox();
+            if($nativeOutbox['claimed']||$nativeOutbox['error'])update_option('molavi_native_outbox_receipt_v1',[
+                'at'=>$now,'claimed'=>$nativeOutbox['claimed'],'delivered'=>$nativeOutbox['delivered'],
+                'retried'=>$nativeOutbox['retried'],'failed'=>$nativeOutbox['failed'],'error'=>$nativeOutbox['error']],false);
+        }
         $tasks=[];
         if((int)$state['sheet_at']<=$now)$tasks[]='sheet_sync';
         if((int)$state['reference_at']<=$now)$tasks[]='reference_refresh';

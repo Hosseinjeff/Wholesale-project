@@ -8,6 +8,7 @@ function molavi_domain_routes(): array {
     return [
         '/pipeline/operations-dashboard'=>['GET'],
         '/pipeline/product-status-snapshots'=>['GET','POST'],
+        '/pipeline/supplier-price-evidence'=>['GET','POST'],
         '/reference/snapshots'=>['GET'],
         '/reference/decisions'=>['GET'],
         '/pipeline/stock-lots'=>['GET','POST'],
@@ -128,6 +129,7 @@ function molavi_domain_dispatch(string $method,string $path,array $query,?array 
         if($method==='POST'&&$body===null)molavi_domain_fail('invalid_body',400);
         if($path==='/pipeline/operations-dashboard')$result=molavi_domain_operations($query);
         elseif($path==='/pipeline/product-status-snapshots')$result=molavi_domain_status_api($method,$query,$body,$actor);
+        elseif($path==='/pipeline/supplier-price-evidence')$result=molavi_domain_supplier_prices_api($method,$body,$actor);
         elseif($path==='/reference/snapshots')$result=molavi_domain_reference_snapshots($query);
         elseif($path==='/reference/decisions')$result=['ok'=>true,'events'=>molavi_domain_read('reference',static fn(SQLite3 $db)=>molavi_domain_rows($db,
             'SELECT * FROM reference_events e WHERE choice IS NULL AND NOT EXISTS (SELECT 1 FROM reference_retirements r WHERE r.event_id=e.event_id) ORDER BY created_at,event_id'))];

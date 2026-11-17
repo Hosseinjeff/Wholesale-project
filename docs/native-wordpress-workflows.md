@@ -83,6 +83,25 @@ The production service was independently observed `Sleeping`, with no pending
 deployment, warnings or recent failures. These are observed values, not resource
 limits or a guarantee that memory will not rise during bot work.
 
+Current product-card reads have now been switched on both sites (13 native
+method/path pairs). Staging's 132 cards exactly matched the existing endpoint;
+the native request took 4.688 seconds versus 14.206 seconds. Live's native connector
+read 125 Products and returned all 125 validated cards. Its old Railway current-card
+endpoint timed out after 120 seconds, so no live equivalence claim is made. The
+same implementation passed the cross-language fixtures and Staging comparison;
+live was enabled after native row-count/shape/privacy checks. Status history/capture
+remains the existing audit interface, separate from the live card view.
+
+The supplier verification port now includes revision-bound manual decisions,
+command replay, audit history and canonical shared queue encoding. Its native
+outbox reuses the existing WordPress MySQL decisions and receipt validator, obtains
+the exact recorded owner from the command's decision, and processes only activated
+domains. The existing minute scheduler leaves supported commands in WordPress and
+wakes Railway only for unported outbox domains. Native domain parity is 352 checks;
+the scheduler has 16 checks, including no Railway wake for local outbox work.
+These new supplier/outbox handlers still need their own Staging deployment and
+read comparison before activation. No pending review was automatically approved.
+
 Remaining migration domains: reference fetch/incremental activation and matching;
 catalog/Sheet reconciliation and guarded publication; current product and AI review
 read models/commands; supplier freshness and publication recovery; order workflow

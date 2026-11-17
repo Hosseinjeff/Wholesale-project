@@ -18,8 +18,9 @@ function molavi_domain_date($value):DateTimeImmutable {
     return $date;
 }
 function molavi_domain_timestamp($value):?float {
-    if(is_int($value)||is_float($value))return (float)$value;
-    $raw=trim((string)($value??''));if(ctype_digit($raw))return (float)$raw;
+    if(is_bool($value))return null;
+    if(is_int($value)||is_float($value))return is_finite((float)$value)&&$value>=-62135596800&&$value<=253402300799.999999?(float)$value:null;
+    $raw=trim((string)($value??''));if(ctype_digit($raw))return molavi_domain_timestamp((float)$raw);
     if(!preg_match('/(?:Z|[+-]\d{2}:\d{2})$/',$raw))return null;
     try{return (float)(new DateTimeImmutable($raw))->format('U.u');}catch(Throwable $e){return null;}
 }
@@ -110,7 +111,7 @@ function molavi_domain_rows_from_records(array $headers,array $records):array {
     $out=[$headers];foreach($records as $record){$out[]=array_map(static fn($header)=>$record[$header]??'',$headers);}return $out;
 }
 function molavi_domain_queue(string $kind,string $key,array $payload):string {
-    $id=$kind.':'.$key;$encoded=molavi_domain_json($payload,false,false,false);$now=microtime(true);
+    $id=$kind.':'.$key;$encoded=molavi_domain_json((object)$payload,true);$now=microtime(true);
     molavi_domain_tx('pipeline',static function(SQLite3 $db)use($id,$kind,$encoded,$now){
         molavi_domain_sql($db,"INSERT OR IGNORE INTO jobs (id,kind,payload,state,available,created_at,updated_at) VALUES (?,?,?,'queued',?,?,?)",[$id,$kind,$encoded,$now,$now,$now]);
         $existing=molavi_domain_row($db,'SELECT kind,payload FROM jobs WHERE id=?',[$id]);

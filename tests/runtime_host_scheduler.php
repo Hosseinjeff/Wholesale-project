@@ -18,7 +18,12 @@ function get_users($args){return [1];}function wp_json_encode($value){return jso
 class WP_Error {public $code;public $data;function __construct($code,$message,$data=[]){$this->code=$code;$this->data=$data;}function get_error_code(){return $this->code;}}
 function is_wp_error($value){return $value instanceof WP_Error;}
 function wp_remote_retrieve_body($response){return json_encode($response['body']);}function wp_remote_retrieve_response_code($response){return $response['status'];}
-class FakeDB {public $prefix='wp_';function prepare($sql,...$args){return $sql;}function get_var($sql){return null;}}
+class FakeDB {public $prefix='wp_';public $db=null;
+ function prepare($sql,...$args){foreach($args as $value)$sql=preg_replace('/%s/',"'".SQLite3::escapeString((string)$value)."'",$sql,1);return $sql;}
+ function get_var($sql){if(!$this->db)return null;
+  if(str_starts_with($sql,'SHOW TABLES LIKE'))return 'wp_molavi_workflow_outbox';return $this->db->querySingle($sql);}}
+function molavi_domain_outbox_domains(){return $GLOBALS['native_domains']??[];}
+function molavi_domain_drain_outbox(){return $GLOBALS['native_outbox_summary']??['claimed'=>0,'delivered'=>0,'retried'=>0,'failed'=>0,'error'=>''];}
 $GLOBALS['wpdb']=new FakeDB();
 class Request {function __construct(public $body=[],public $token=''){}function get_json_params(){return $this->body;}function get_header($name){return $this->token;}}
 function wp_safe_remote_post($url,$args){
@@ -48,3 +53,14 @@ check(molavi_runtime_staging_http_exception($blocked,['method'=>'POST'],MOLAVI_R
 check(molavi_runtime_staging_http_exception($blocked,['method'=>'GET'],MOLAVI_REFERENCE_SERVER_URL.'/pipeline/runtime')===$blocked,'other HTTP methods stay blocked');
 check(molavi_runtime_staging_http_exception($blocked,['method'=>'POST'],'https://wholesale-project-production.up.railway.app/pipeline/runtime')===$blocked,'production requests from staging stay blocked');
 check(molavi_runtime_staging_http_exception($blocked,['method'=>'POST'],MOLAVI_REFERENCE_SERVER_URL.'/other')===$blocked,'other runtime routes stay blocked');
+$GLOBALS['wpdb']->db=new SQLite3(':memory:');$testDb=$GLOBALS['wpdb']->db;
+$testDb->exec('CREATE TABLE wp_molavi_workflow_outbox (state TEXT,available_at TEXT,command_type TEXT)');
+$testDb->exec("INSERT INTO wp_molavi_workflow_outbox VALUES ('queued','2020-01-01 00:00:00','supplier_price')");
+$GLOBALS['native_domains']=['supplier_price'];molavi_runtime_tick();
+check(count($GLOBALS['calls'])===1,'native outbox work does not wake Railway');
+$testDb->exec("INSERT INTO wp_molavi_workflow_outbox VALUES ('queued','2020-01-01 00:00:00','sheet_conflict')");
+$state=molavi_runtime_state();$state['last_remote']=0;molavi_runtime_save_state($state);molavi_runtime_tick();
+check(count($GLOBALS['calls'])===2&&json_decode($GLOBALS['calls'][1][1]['body'],true)['tasks']===['outbox'],'unported outbox work retains its existing executor');
+$testDb->exec('DELETE FROM wp_molavi_workflow_outbox');
+$GLOBALS['native_outbox_summary']=['claimed'=>1,'delivered'=>1,'retried'=>0,'failed'=>0,'error'=>''];molavi_runtime_tick();
+check((get_option('molavi_native_outbox_receipt_v1')['delivered']??0)===1&&count($GLOBALS['calls'])===2,'local outbox completion is recorded without a remote wake');
