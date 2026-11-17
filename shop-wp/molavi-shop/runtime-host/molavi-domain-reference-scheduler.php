@@ -84,7 +84,9 @@ function molavi_domain_reference_finish_refresh(array $outcome): array {
         molavi_domain_lock('activation',static function()use($outcome,$state,$id,&$result):void {
             if($state==='staged'){$candidate=molavi_domain_reference_snapshot($id);
                 if(!$candidate)molavi_domain_fail('snapshot_not_found',404);
-                molavi_domain_reference_activate_locked($id,$candidate['previous_snapshot_id']??null,'system:reference-refresh',true);}
+                // Activation may have committed before the prior projection request stopped.
+                if((molavi_domain_reference_active()['snapshot_id']??null)!==$id)
+                    molavi_domain_reference_activate_locked($id,$candidate['previous_snapshot_id']??null,'system:reference-refresh',true);}
             $active=molavi_domain_reference_active();if(!$active)return;$activeId=$active['snapshot_id'];
             $previous=!empty($active['previous_snapshot_id'])?molavi_domain_reference_snapshot($active['previous_snapshot_id']):null;
             $result=molavi_domain_reference_complete($active,$previous,(bool)($active['automatic_update']??false));

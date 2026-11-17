@@ -31,7 +31,7 @@ function molavi_domain_observe_projection($digest){$GLOBALS['native_observed_dig
 function molavi_domain_run_jobs(){return ['claimed'=>1,'completed'=>1,'error'=>''];}
 function molavi_domain_route_enabled($method,$path){return !empty($GLOBALS['native_reference']);}
 function molavi_domain_reference_refresh(){return ['state'=>'unchanged'];}
-function molavi_domain_reference_finish_refresh($outcome){$GLOBALS['native_reference_completed']=true;}
+function molavi_domain_reference_finish_refresh($outcome){$GLOBALS['native_reference_completed']=true;return $GLOBALS['reference_completion']??['product_reconciliation_state'=>'complete'];}
 $GLOBALS['wpdb']=new FakeDB();
 class Request {function __construct(public $body=[],public $token=''){}function get_json_params(){return $this->body;}function get_header($name){return $this->token;}}
 function wp_safe_remote_post($url,$args){
@@ -79,3 +79,5 @@ check(molavi_runtime_state()['sheet_at']>time()&&(get_option('molavi_native_jobs
 $GLOBALS['native_reference']=true;$state=molavi_runtime_state();$state['reference_at']=time()-1;molavi_runtime_save_state($state);molavi_runtime_tick();
 check(count($GLOBALS['calls'])===2&&!empty($GLOBALS['native_reference_completed']),'reference refresh stays on WordPress');
 check(molavi_runtime_state()['reference_at']>time()&&(get_option('molavi_native_reference_receipt_v1')['ok']??false),'native reference refresh has a local receipt and next check');
+$GLOBALS['reference_completion']=['product_reconciliation_state'=>'failed'];$state=molavi_runtime_state();$state['reference_at']=time()-1;molavi_runtime_save_state($state);molavi_runtime_tick();
+check(count($GLOBALS['calls'])===2&&get_option('molavi_native_reference_receipt_v1')['ok']===false&&molavi_runtime_state()['reference_at']<=time()+60,'incomplete reference projection retries locally without a source refetch or Railway wake');
