@@ -1051,6 +1051,10 @@ def register_webhook_when_serving():
     from catalog.state_transfer import frozen
     if request.path!='/pipeline/state-transfer' and frozen():
         return jsonify({'ok':False,'error':'state_transfer_in_progress'}),503,{'Retry-After':'30'}
+    from catalog.wordpress_workflows import wordpress_workflow_request
+    routed = wordpress_workflow_request()
+    if routed is not None:
+        return routed
     _start_pipeline_worker()
     ensure_telegram_webhook()
 

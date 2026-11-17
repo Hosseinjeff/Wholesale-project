@@ -400,3 +400,20 @@ the existing extraction jobs when WordPress sees work due. WordPress queues the
 existing publication receipt after a run finishes with written offers. Synthetic
 tests cover the original text and image policies, source revision checks, publication
 holds and retries. This checkpoint records the implementation before live verification.
+
+Both AI workflows are active in WordPress with 30 owner methods enabled on each
+site. The normal authenticated dashboard request returned 73 open cases and eight
+recent decisions on Staging, and 33 open cases and 15 recent decisions on live.
+The case and preview responses matched the original implementations. Matching now
+uses the structured reference package count and retains supplier title inference
+on the offer side. Both real crons reported current timestamps with no queued or
+running jobs before activation. No review or extraction was submitted for testing.
+
+The old Railway URLs can forward to the WordPress handlers after their existing
+authorization. The storefront itself already runs in WordPress. The migration
+inventory now reads both active stores locally. The standalone buying desk refresh
+route is retired in WordPress-hosted mode. It had no requests in the seven-day
+Railway traffic sample, and Telegram still prepares its prompts when it handles a
+supplier post or a reply. The remaining old order, publish, catalog and cart URLs
+use the WordPress commerce adapter to preserve callers without a second business
+executor.
