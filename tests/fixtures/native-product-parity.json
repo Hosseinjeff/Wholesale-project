@@ -1,0 +1,1636 @@
+{
+  "records": [
+    {
+      "Product ID": "syn1",
+      "Product Name": "شیر ۱لیتری ، کارتن ۶ عددی",
+      "Channel Username": "@Synthetic",
+      "Sale Price": "۱۲٬۵۰۰",
+      "Currency": "TOMAN",
+      "Latest Offer ID": "offer-syn1",
+      "Source Timestamp Basis": "supplier_channel_forward",
+      "Message Timestamp": "2026-11-15T00:00:00+00:00",
+      "Source Post URL": "https://t.me/Synthetic/1",
+      "Status": "ready"
+    },
+    {
+      "Product ID": "syn2",
+      "Product Name": "شیر 1000 ml",
+      "Channel Username": "@synthetic",
+      "Sale Price": "15000.50",
+      "Currency": "TOMAN",
+      "Latest Offer ID": "offer-syn2",
+      "Volume": "1 liter",
+      "Stock Status": "Available"
+    },
+    {
+      "Product ID": "syn3",
+      "Product Name": "چای بهار 250گرم",
+      "Channel Username": "@other",
+      "Sale Price": "2.5e4",
+      "Latest Offer ID": "offer-syn3",
+      "Variation Type": "بهار",
+      "Weight": "۲۵۰ گرم",
+      "Packaging": "بسته ۲۵ عدد و کارتن ۲۴ بسته"
+    },
+    {
+      "Product ID": "syn4",
+      "Product Name": "شیر 1 liter 1000 ml",
+      "Channel Username": "@Synthetic",
+      "Latest Offer ID": "missing",
+      "Sale Price": "10000",
+      "Volume": "1 liter 1000 ml"
+    },
+    {
+      "Product ID": "syn5",
+      "Product Name": "شیر ۱لیتری ، کارتن ۶ عددی",
+      "Channel Username": "@Synthetic",
+      "Sale Price": "12500",
+      "Latest Offer ID": "offer-syn5"
+    },
+    {
+      "Product ID": "syn1",
+      "Product Name": "Synthetic duplicate ID",
+      "Channel Username": "@Synthetic",
+      "Sale Price": "12500",
+      "Latest Offer ID": "offer-syn1"
+    }
+  ],
+  "offers": [
+    {
+      "Offer ID": "offer-syn1",
+      "Product ID": "syn1",
+      "Channel Username": "@Synthetic",
+      "Channel": "",
+      "Batch ID": "",
+      "Message Timestamp": "2026-11-15T00:00:00+00:00",
+      "Source Timestamp Basis": "supplier_channel_forward",
+      "Source Post URL": "https://t.me/Synthetic/1"
+    },
+    {
+      "Offer ID": "offer-syn2",
+      "Product ID": "syn2",
+      "Channel Username": "@synthetic",
+      "Channel": "",
+      "Batch ID": "",
+      "Message Timestamp": "",
+      "Source Timestamp Basis": "",
+      "Source Post URL": "https://t.me/synthetic/222"
+    },
+    {
+      "Offer ID": "offer-syn3",
+      "Product ID": "syn3",
+      "Channel Username": "@other",
+      "Channel": "",
+      "Batch ID": "",
+      "Message Timestamp": "",
+      "Source Timestamp Basis": "",
+      "Source Post URL": ""
+    }
+  ],
+  "identities": [
+    [
+      "@synthetic",
+      "شیر 1لیتری",
+      "",
+      "1000",
+      "",
+      "6"
+    ],
+    [
+      "@synthetic",
+      "شیر 1000 ml",
+      "",
+      "1000",
+      "",
+      "0"
+    ],
+    [
+      "@other",
+      "چای بهار 250گرم",
+      "",
+      "",
+      "250",
+      "24"
+    ],
+    [
+      "@synthetic",
+      "شیر 1 liter 1000 ml",
+      "",
+      "1000,1000",
+      "",
+      "0"
+    ],
+    [
+      "@synthetic",
+      "شیر 1لیتری",
+      "",
+      "1000",
+      "",
+      "6"
+    ],
+    [
+      "@synthetic",
+      "synthetic duplicate id",
+      "",
+      "",
+      "",
+      "0"
+    ]
+  ],
+  "revisions": [
+    "9a5881724512176a6288cf1295fc033695d8724b73e3eb23dbbf9d1e896f9048",
+    "44aa8e3fc2b7f38c8982e5c4faf94e182d855c5a149d0a97305f3006059a654b",
+    "b807a0a93ec8b65a437901a79ede8230b14bd99236cbebddee5cfba6d1f3715d",
+    "e5c51f71394edfc536ccdfdce455943f7691c797d1b2aad1fa6fe4893f5fb086",
+    "2eef4e1c93c82777877a8aaddb0404e2d877e40f7ed6689358d0e523bc9bffb7",
+    "b8308daa4fd4b3237da908b48da1ca74a9ead0435d89bad56429f2c8941ce71b"
+  ],
+  "source_issues": [
+    {
+      "row_number": 2,
+      "product_id": "syn1",
+      "product_name": "شیر ۱لیتری ، کارتن ۶ عددی",
+      "channel": "@Synthetic",
+      "status": "ready",
+      "latest_offer_id": "offer-syn1",
+      "source_post_url": "https://t.me/Synthetic/1",
+      "codes": [
+        "duplicate_product_id",
+        "duplicate_product_identity"
+      ],
+      "mismatched_fields": []
+    },
+    {
+      "row_number": 3,
+      "product_id": "syn2",
+      "product_name": "شیر 1000 ml",
+      "channel": "@synthetic",
+      "status": "",
+      "latest_offer_id": "offer-syn2",
+      "source_post_url": "",
+      "codes": [
+        "source_provenance_mismatch"
+      ],
+      "mismatched_fields": [
+        "Source Post URL"
+      ]
+    },
+    {
+      "row_number": 5,
+      "product_id": "syn4",
+      "product_name": "شیر 1 liter 1000 ml",
+      "channel": "@Synthetic",
+      "status": "",
+      "latest_offer_id": "missing",
+      "source_post_url": "",
+      "codes": [
+        "offer_not_found"
+      ],
+      "mismatched_fields": []
+    },
+    {
+      "row_number": 6,
+      "product_id": "syn5",
+      "product_name": "شیر ۱لیتری ، کارتن ۶ عددی",
+      "channel": "@Synthetic",
+      "status": "",
+      "latest_offer_id": "offer-syn5",
+      "source_post_url": "",
+      "codes": [
+        "duplicate_product_identity",
+        "offer_not_found"
+      ],
+      "mismatched_fields": []
+    },
+    {
+      "row_number": 7,
+      "product_id": "syn1",
+      "product_name": "Synthetic duplicate ID",
+      "channel": "@Synthetic",
+      "status": "",
+      "latest_offer_id": "offer-syn1",
+      "source_post_url": "",
+      "codes": [
+        "duplicate_product_id",
+        "source_provenance_mismatch"
+      ],
+      "mismatched_fields": [
+        "Message Timestamp",
+        "Source Timestamp Basis",
+        "Source Post URL"
+      ]
+    }
+  ],
+  "freshness": [
+    {
+      "product_id": "syn1",
+      "name": "شیر ۱لیتری ، کارتن ۶ عددی",
+      "channel": "@Synthetic",
+      "sale_price": "۱۲٬۵۰۰",
+      "source_revision": "9a5881724512176a6288cf1295fc033695d8724b73e3eb23dbbf9d1e896f9048",
+      "source_timestamp": "2026-11-15T00:00:00+00:00",
+      "source_timestamp_basis": "supplier_channel_forward",
+      "source_timestamp_trusted": true,
+      "state": "current",
+      "verified_at": "2026-11-15T00:00:00+00:00",
+      "method": "source"
+    },
+    {
+      "product_id": "syn2",
+      "name": "شیر 1000 ml",
+      "channel": "@synthetic",
+      "sale_price": "15000.50",
+      "source_revision": "44aa8e3fc2b7f38c8982e5c4faf94e182d855c5a149d0a97305f3006059a654b",
+      "source_timestamp": null,
+      "source_timestamp_basis": "legacy_unknown",
+      "source_timestamp_trusted": false,
+      "state": "needs_review",
+      "verified_at": null
+    },
+    {
+      "product_id": "syn3",
+      "name": "چای بهار 250گرم",
+      "channel": "@other",
+      "sale_price": "2.5e4",
+      "source_revision": "b807a0a93ec8b65a437901a79ede8230b14bd99236cbebddee5cfba6d1f3715d",
+      "source_timestamp": null,
+      "source_timestamp_basis": "legacy_unknown",
+      "source_timestamp_trusted": false,
+      "state": "needs_review",
+      "verified_at": null
+    },
+    {
+      "product_id": "syn4",
+      "name": "شیر 1 liter 1000 ml",
+      "channel": "@Synthetic",
+      "sale_price": "10000",
+      "source_revision": "e5c51f71394edfc536ccdfdce455943f7691c797d1b2aad1fa6fe4893f5fb086",
+      "source_timestamp": null,
+      "source_timestamp_basis": "legacy_unknown",
+      "source_timestamp_trusted": false,
+      "state": "needs_review",
+      "verified_at": null
+    },
+    {
+      "product_id": "syn5",
+      "name": "شیر ۱لیتری ، کارتن ۶ عددی",
+      "channel": "@Synthetic",
+      "sale_price": "12500",
+      "source_revision": "2eef4e1c93c82777877a8aaddb0404e2d877e40f7ed6689358d0e523bc9bffb7",
+      "source_timestamp": null,
+      "source_timestamp_basis": "legacy_unknown",
+      "source_timestamp_trusted": false,
+      "state": "needs_review",
+      "verified_at": null
+    },
+    {
+      "product_id": "syn1",
+      "name": "Synthetic duplicate ID",
+      "channel": "@Synthetic",
+      "sale_price": "12500",
+      "source_revision": "b8308daa4fd4b3237da908b48da1ca74a9ead0435d89bad56429f2c8941ce71b",
+      "source_timestamp": null,
+      "source_timestamp_basis": "legacy_unknown",
+      "source_timestamp_trusted": false,
+      "state": "needs_review",
+      "verified_at": "2026-11-15T00:00:00+00:00"
+    }
+  ],
+  "clock": 1794873600.0,
+  "current": {
+    "generated_at": "2026-11-17T00:00:00+00:00",
+    "products": [
+      {
+        "status_schema_version": 2,
+        "product_id": "syn1",
+        "product_name": "Synthetic duplicate ID",
+        "channel": "@Synthetic",
+        "status": "",
+        "latest_offer_id": "offer-syn1",
+        "source_post_url": "",
+        "reference_snapshot_id": "",
+        "reference_match_id": "",
+        "reference_price_role": "",
+        "reference_approval_state": "",
+        "reference_price_change_percent": "",
+        "reference_price_checked_at": "",
+        "reference_review_due": false,
+        "reference_review_result": "not_checked",
+        "reference_update_needed": false,
+        "supplier_price_state": "needs_review",
+        "supplier_price_verified_at": "",
+        "supplier_price_update_due": true,
+        "source_integrity_issues": [
+          "duplicate_product_id",
+          "source_provenance_mismatch"
+        ],
+        "source_integrity_update_due": true,
+        "update_needed": true,
+        "review_reason": ""
+      },
+      {
+        "status_schema_version": 2,
+        "product_id": "syn4",
+        "product_name": "شیر 1 liter 1000 ml",
+        "channel": "@Synthetic",
+        "status": "",
+        "latest_offer_id": "missing",
+        "source_post_url": "",
+        "reference_snapshot_id": "",
+        "reference_match_id": "",
+        "reference_price_role": "",
+        "reference_approval_state": "",
+        "reference_price_change_percent": "",
+        "reference_price_checked_at": "",
+        "reference_review_due": false,
+        "reference_review_result": "not_checked",
+        "reference_update_needed": false,
+        "supplier_price_state": "needs_review",
+        "supplier_price_verified_at": "",
+        "supplier_price_update_due": true,
+        "source_integrity_issues": [
+          "offer_not_found"
+        ],
+        "source_integrity_update_due": true,
+        "update_needed": true,
+        "review_reason": ""
+      },
+      {
+        "status_schema_version": 2,
+        "product_id": "syn2",
+        "product_name": "شیر 1000 ml",
+        "channel": "@synthetic",
+        "status": "",
+        "latest_offer_id": "offer-syn2",
+        "source_post_url": "",
+        "reference_snapshot_id": "",
+        "reference_match_id": "",
+        "reference_price_role": "",
+        "reference_approval_state": "",
+        "reference_price_change_percent": "",
+        "reference_price_checked_at": "",
+        "reference_review_due": false,
+        "reference_review_result": "not_checked",
+        "reference_update_needed": false,
+        "supplier_price_state": "needs_review",
+        "supplier_price_verified_at": "",
+        "supplier_price_update_due": true,
+        "source_integrity_issues": [
+          "source_provenance_mismatch"
+        ],
+        "source_integrity_update_due": true,
+        "update_needed": true,
+        "review_reason": ""
+      },
+      {
+        "status_schema_version": 2,
+        "product_id": "syn1",
+        "product_name": "شیر ۱لیتری ، کارتن ۶ عددی",
+        "channel": "@Synthetic",
+        "status": "ready",
+        "latest_offer_id": "offer-syn1",
+        "source_post_url": "https://t.me/Synthetic/1",
+        "reference_snapshot_id": "",
+        "reference_match_id": "",
+        "reference_price_role": "",
+        "reference_approval_state": "",
+        "reference_price_change_percent": "",
+        "reference_price_checked_at": "",
+        "reference_review_due": false,
+        "reference_review_result": "not_checked",
+        "reference_update_needed": false,
+        "supplier_price_state": "needs_review",
+        "supplier_price_verified_at": "",
+        "supplier_price_update_due": true,
+        "source_integrity_issues": [
+          "duplicate_product_id",
+          "source_provenance_mismatch"
+        ],
+        "source_integrity_update_due": true,
+        "update_needed": true,
+        "review_reason": ""
+      },
+      {
+        "status_schema_version": 2,
+        "product_id": "syn5",
+        "product_name": "شیر ۱لیتری ، کارتن ۶ عددی",
+        "channel": "@Synthetic",
+        "status": "",
+        "latest_offer_id": "offer-syn5",
+        "source_post_url": "",
+        "reference_snapshot_id": "",
+        "reference_match_id": "",
+        "reference_price_role": "",
+        "reference_approval_state": "",
+        "reference_price_change_percent": "",
+        "reference_price_checked_at": "",
+        "reference_review_due": false,
+        "reference_review_result": "not_checked",
+        "reference_update_needed": false,
+        "supplier_price_state": "needs_review",
+        "supplier_price_verified_at": "",
+        "supplier_price_update_due": true,
+        "source_integrity_issues": [
+          "duplicate_product_identity",
+          "offer_not_found"
+        ],
+        "source_integrity_update_due": true,
+        "update_needed": true,
+        "review_reason": ""
+      },
+      {
+        "status_schema_version": 2,
+        "product_id": "syn3",
+        "product_name": "چای بهار 250گرم",
+        "channel": "@other",
+        "status": "",
+        "latest_offer_id": "offer-syn3",
+        "source_post_url": "",
+        "reference_snapshot_id": "",
+        "reference_match_id": "",
+        "reference_price_role": "",
+        "reference_approval_state": "",
+        "reference_price_change_percent": "",
+        "reference_price_checked_at": "",
+        "reference_review_due": false,
+        "reference_review_result": "not_checked",
+        "reference_update_needed": false,
+        "supplier_price_state": "needs_review",
+        "supplier_price_verified_at": "",
+        "supplier_price_update_due": true,
+        "source_integrity_issues": [],
+        "source_integrity_update_due": false,
+        "update_needed": true,
+        "review_reason": ""
+      }
+    ]
+  },
+  "evidence": [
+    {
+      "offer_id": "syn1",
+      "source_revision": "9a5881724512176a6288cf1295fc033695d8724b73e3eb23dbbf9d1e896f9048",
+      "verified_at": "2026-11-15T00:00:00+00:00",
+      "method": "source",
+      "verified_by": null
+    }
+  ],
+  "tables": {
+    "Products": [
+      [
+        "Channel Username",
+        "Currency",
+        "Latest Offer ID",
+        "Message Timestamp",
+        "Packaging",
+        "Product ID",
+        "Product Name",
+        "Sale Price",
+        "Source Post URL",
+        "Source Timestamp Basis",
+        "Status",
+        "Stock Status",
+        "Variation Type",
+        "Volume",
+        "Weight"
+      ],
+      [
+        "@Synthetic",
+        "TOMAN",
+        "offer-syn1",
+        "2026-11-15T00:00:00+00:00",
+        "",
+        "syn1",
+        "شیر ۱لیتری ، کارتن ۶ عددی",
+        "۱۲٬۵۰۰",
+        "https://t.me/Synthetic/1",
+        "supplier_channel_forward",
+        "ready",
+        "",
+        "",
+        "",
+        ""
+      ],
+      [
+        "@synthetic",
+        "TOMAN",
+        "offer-syn2",
+        "",
+        "",
+        "syn2",
+        "شیر 1000 ml",
+        "15000.50",
+        "",
+        "",
+        "",
+        "Available",
+        "",
+        "1 liter",
+        ""
+      ],
+      [
+        "@other",
+        "",
+        "offer-syn3",
+        "",
+        "بسته ۲۵ عدد و کارتن ۲۴ بسته",
+        "syn3",
+        "چای بهار 250گرم",
+        "2.5e4",
+        "",
+        "",
+        "",
+        "",
+        "بهار",
+        "",
+        "۲۵۰ گرم"
+      ],
+      [
+        "@Synthetic",
+        "",
+        "missing",
+        "",
+        "",
+        "syn4",
+        "شیر 1 liter 1000 ml",
+        "10000",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "1 liter 1000 ml",
+        ""
+      ],
+      [
+        "@Synthetic",
+        "",
+        "offer-syn5",
+        "",
+        "",
+        "syn5",
+        "شیر ۱لیتری ، کارتن ۶ عددی",
+        "12500",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+      ],
+      [
+        "@Synthetic",
+        "",
+        "offer-syn1",
+        "",
+        "",
+        "syn1",
+        "Synthetic duplicate ID",
+        "12500",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+      ]
+    ],
+    "Offers": [
+      [
+        "Batch ID",
+        "Channel",
+        "Channel Username",
+        "Message Timestamp",
+        "Offer ID",
+        "Product ID",
+        "Source Post URL",
+        "Source Timestamp Basis"
+      ],
+      [
+        "",
+        "",
+        "@Synthetic",
+        "2026-11-15T00:00:00+00:00",
+        "offer-syn1",
+        "syn1",
+        "https://t.me/Synthetic/1",
+        "supplier_channel_forward"
+      ],
+      [
+        "",
+        "",
+        "@synthetic",
+        "",
+        "offer-syn2",
+        "syn2",
+        "https://t.me/synthetic/222",
+        ""
+      ],
+      [
+        "",
+        "",
+        "@other",
+        "",
+        "offer-syn3",
+        "syn3",
+        "",
+        ""
+      ]
+    ]
+  },
+  "states": [
+    {
+      "record": {
+        "Product ID": "syn1",
+        "Product Name": "شیر ۱لیتری ، کارتن ۶ عددی",
+        "Channel Username": "@Synthetic",
+        "Sale Price": "۱۲٬۵۰۰",
+        "Currency": "TOMAN",
+        "Latest Offer ID": "offer-syn1",
+        "Source Timestamp Basis": "supplier_channel_forward",
+        "Message Timestamp": "2026-11-15T00:00:00+00:00",
+        "Source Post URL": "https://t.me/Synthetic/1",
+        "Status": "ready",
+        "Reference Approval State": ""
+      },
+      "evidence": {
+        "state": "warning",
+        "verified_at": "2026-11-10T00:00:00+00:00"
+      },
+      "issues": [],
+      "expected": {
+        "status_schema_version": 2,
+        "product_id": "syn1",
+        "product_name": "شیر ۱لیتری ، کارتن ۶ عددی",
+        "channel": "@Synthetic",
+        "status": "ready",
+        "latest_offer_id": "offer-syn1",
+        "source_post_url": "https://t.me/Synthetic/1",
+        "reference_snapshot_id": "",
+        "reference_match_id": "",
+        "reference_price_role": "",
+        "reference_approval_state": "",
+        "reference_price_change_percent": "",
+        "reference_price_checked_at": "",
+        "reference_review_due": false,
+        "reference_review_result": "not_checked",
+        "reference_update_needed": false,
+        "supplier_price_state": "warning",
+        "supplier_price_verified_at": "2026-11-10T00:00:00+00:00",
+        "supplier_price_update_due": false,
+        "source_integrity_issues": [],
+        "source_integrity_update_due": false,
+        "update_needed": false,
+        "review_reason": ""
+      }
+    },
+    {
+      "record": {
+        "Product ID": "syn1",
+        "Product Name": "شیر ۱لیتری ، کارتن ۶ عددی",
+        "Channel Username": "@Synthetic",
+        "Sale Price": "۱۲٬۵۰۰",
+        "Currency": "TOMAN",
+        "Latest Offer ID": "offer-syn1",
+        "Source Timestamp Basis": "supplier_channel_forward",
+        "Message Timestamp": "2026-11-15T00:00:00+00:00",
+        "Source Post URL": "https://t.me/Synthetic/1",
+        "Status": "needs_review",
+        "Reference Approval State": ""
+      },
+      "evidence": {
+        "state": "warning",
+        "verified_at": "2026-11-10T00:00:00+00:00"
+      },
+      "issues": [],
+      "expected": {
+        "status_schema_version": 2,
+        "product_id": "syn1",
+        "product_name": "شیر ۱لیتری ، کارتن ۶ عددی",
+        "channel": "@Synthetic",
+        "status": "needs_review",
+        "latest_offer_id": "offer-syn1",
+        "source_post_url": "https://t.me/Synthetic/1",
+        "reference_snapshot_id": "",
+        "reference_match_id": "",
+        "reference_price_role": "",
+        "reference_approval_state": "",
+        "reference_price_change_percent": "",
+        "reference_price_checked_at": "",
+        "reference_review_due": false,
+        "reference_review_result": "not_checked",
+        "reference_update_needed": false,
+        "supplier_price_state": "warning",
+        "supplier_price_verified_at": "2026-11-10T00:00:00+00:00",
+        "supplier_price_update_due": false,
+        "source_integrity_issues": [],
+        "source_integrity_update_due": false,
+        "update_needed": true,
+        "review_reason": ""
+      }
+    },
+    {
+      "record": {
+        "Product ID": "syn1",
+        "Product Name": "شیر ۱لیتری ، کارتن ۶ عددی",
+        "Channel Username": "@Synthetic",
+        "Sale Price": "۱۲٬۵۰۰",
+        "Currency": "TOMAN",
+        "Latest Offer ID": "offer-syn1",
+        "Source Timestamp Basis": "supplier_channel_forward",
+        "Message Timestamp": "2026-11-15T00:00:00+00:00",
+        "Source Post URL": "https://t.me/Synthetic/1",
+        "Status": "held",
+        "Reference Approval State": ""
+      },
+      "evidence": {
+        "state": "warning",
+        "verified_at": "2026-11-10T00:00:00+00:00"
+      },
+      "issues": [
+        "offer_not_found"
+      ],
+      "expected": {
+        "status_schema_version": 2,
+        "product_id": "syn1",
+        "product_name": "شیر ۱لیتری ، کارتن ۶ عددی",
+        "channel": "@Synthetic",
+        "status": "held",
+        "latest_offer_id": "offer-syn1",
+        "source_post_url": "https://t.me/Synthetic/1",
+        "reference_snapshot_id": "",
+        "reference_match_id": "",
+        "reference_price_role": "",
+        "reference_approval_state": "",
+        "reference_price_change_percent": "",
+        "reference_price_checked_at": "",
+        "reference_review_due": false,
+        "reference_review_result": "not_checked",
+        "reference_update_needed": false,
+        "supplier_price_state": "warning",
+        "supplier_price_verified_at": "2026-11-10T00:00:00+00:00",
+        "supplier_price_update_due": false,
+        "source_integrity_issues": [
+          "offer_not_found"
+        ],
+        "source_integrity_update_due": true,
+        "update_needed": true,
+        "review_reason": ""
+      }
+    },
+    {
+      "record": {
+        "Product ID": "syn1",
+        "Product Name": "شیر ۱لیتری ، کارتن ۶ عددی",
+        "Channel Username": "@Synthetic",
+        "Sale Price": "۱۲٬۵۰۰",
+        "Currency": "TOMAN",
+        "Latest Offer ID": "offer-syn1",
+        "Source Timestamp Basis": "supplier_channel_forward",
+        "Message Timestamp": "2026-11-15T00:00:00+00:00",
+        "Source Post URL": "https://t.me/Synthetic/1",
+        "Status": "ready",
+        "Reference Approval State": "approved_within_margin"
+      },
+      "evidence": {
+        "state": "warning",
+        "verified_at": "2026-11-10T00:00:00+00:00"
+      },
+      "issues": [],
+      "expected": {
+        "status_schema_version": 2,
+        "product_id": "syn1",
+        "product_name": "شیر ۱لیتری ، کارتن ۶ عددی",
+        "channel": "@Synthetic",
+        "status": "ready",
+        "latest_offer_id": "offer-syn1",
+        "source_post_url": "https://t.me/Synthetic/1",
+        "reference_snapshot_id": "",
+        "reference_match_id": "",
+        "reference_price_role": "",
+        "reference_approval_state": "approved_within_margin",
+        "reference_price_change_percent": "",
+        "reference_price_checked_at": "",
+        "reference_review_due": true,
+        "reference_review_result": "due_no_update_within_margin",
+        "reference_update_needed": false,
+        "supplier_price_state": "warning",
+        "supplier_price_verified_at": "2026-11-10T00:00:00+00:00",
+        "supplier_price_update_due": false,
+        "source_integrity_issues": [],
+        "source_integrity_update_due": false,
+        "update_needed": false,
+        "review_reason": ""
+      }
+    },
+    {
+      "record": {
+        "Product ID": "syn1",
+        "Product Name": "شیر ۱لیتری ، کارتن ۶ عددی",
+        "Channel Username": "@Synthetic",
+        "Sale Price": "۱۲٬۵۰۰",
+        "Currency": "TOMAN",
+        "Latest Offer ID": "offer-syn1",
+        "Source Timestamp Basis": "supplier_channel_forward",
+        "Message Timestamp": "2026-11-15T00:00:00+00:00",
+        "Source Post URL": "https://t.me/Synthetic/1",
+        "Status": "needs_review",
+        "Reference Approval State": "approved_within_margin"
+      },
+      "evidence": {
+        "state": "warning",
+        "verified_at": "2026-11-10T00:00:00+00:00"
+      },
+      "issues": [],
+      "expected": {
+        "status_schema_version": 2,
+        "product_id": "syn1",
+        "product_name": "شیر ۱لیتری ، کارتن ۶ عددی",
+        "channel": "@Synthetic",
+        "status": "needs_review",
+        "latest_offer_id": "offer-syn1",
+        "source_post_url": "https://t.me/Synthetic/1",
+        "reference_snapshot_id": "",
+        "reference_match_id": "",
+        "reference_price_role": "",
+        "reference_approval_state": "approved_within_margin",
+        "reference_price_change_percent": "",
+        "reference_price_checked_at": "",
+        "reference_review_due": true,
+        "reference_review_result": "due_no_update_within_margin",
+        "reference_update_needed": false,
+        "supplier_price_state": "warning",
+        "supplier_price_verified_at": "2026-11-10T00:00:00+00:00",
+        "supplier_price_update_due": false,
+        "source_integrity_issues": [],
+        "source_integrity_update_due": false,
+        "update_needed": true,
+        "review_reason": ""
+      }
+    },
+    {
+      "record": {
+        "Product ID": "syn1",
+        "Product Name": "شیر ۱لیتری ، کارتن ۶ عددی",
+        "Channel Username": "@Synthetic",
+        "Sale Price": "۱۲٬۵۰۰",
+        "Currency": "TOMAN",
+        "Latest Offer ID": "offer-syn1",
+        "Source Timestamp Basis": "supplier_channel_forward",
+        "Message Timestamp": "2026-11-15T00:00:00+00:00",
+        "Source Post URL": "https://t.me/Synthetic/1",
+        "Status": "held",
+        "Reference Approval State": "approved_within_margin"
+      },
+      "evidence": {
+        "state": "warning",
+        "verified_at": "2026-11-10T00:00:00+00:00"
+      },
+      "issues": [
+        "offer_not_found"
+      ],
+      "expected": {
+        "status_schema_version": 2,
+        "product_id": "syn1",
+        "product_name": "شیر ۱لیتری ، کارتن ۶ عددی",
+        "channel": "@Synthetic",
+        "status": "held",
+        "latest_offer_id": "offer-syn1",
+        "source_post_url": "https://t.me/Synthetic/1",
+        "reference_snapshot_id": "",
+        "reference_match_id": "",
+        "reference_price_role": "",
+        "reference_approval_state": "approved_within_margin",
+        "reference_price_change_percent": "",
+        "reference_price_checked_at": "",
+        "reference_review_due": true,
+        "reference_review_result": "due_no_update_within_margin",
+        "reference_update_needed": false,
+        "supplier_price_state": "warning",
+        "supplier_price_verified_at": "2026-11-10T00:00:00+00:00",
+        "supplier_price_update_due": false,
+        "source_integrity_issues": [
+          "offer_not_found"
+        ],
+        "source_integrity_update_due": true,
+        "update_needed": true,
+        "review_reason": ""
+      }
+    },
+    {
+      "record": {
+        "Product ID": "syn1",
+        "Product Name": "شیر ۱لیتری ، کارتن ۶ عددی",
+        "Channel Username": "@Synthetic",
+        "Sale Price": "۱۲٬۵۰۰",
+        "Currency": "TOMAN",
+        "Latest Offer ID": "offer-syn1",
+        "Source Timestamp Basis": "supplier_channel_forward",
+        "Message Timestamp": "2026-11-15T00:00:00+00:00",
+        "Source Post URL": "https://t.me/Synthetic/1",
+        "Status": "ready",
+        "Reference Approval State": "outside_margin"
+      },
+      "evidence": {
+        "state": "warning",
+        "verified_at": "2026-11-10T00:00:00+00:00"
+      },
+      "issues": [],
+      "expected": {
+        "status_schema_version": 2,
+        "product_id": "syn1",
+        "product_name": "شیر ۱لیتری ، کارتن ۶ عددی",
+        "channel": "@Synthetic",
+        "status": "ready",
+        "latest_offer_id": "offer-syn1",
+        "source_post_url": "https://t.me/Synthetic/1",
+        "reference_snapshot_id": "",
+        "reference_match_id": "",
+        "reference_price_role": "",
+        "reference_approval_state": "outside_margin",
+        "reference_price_change_percent": "",
+        "reference_price_checked_at": "",
+        "reference_review_due": true,
+        "reference_review_result": "update_required",
+        "reference_update_needed": true,
+        "supplier_price_state": "warning",
+        "supplier_price_verified_at": "2026-11-10T00:00:00+00:00",
+        "supplier_price_update_due": false,
+        "source_integrity_issues": [],
+        "source_integrity_update_due": false,
+        "update_needed": true,
+        "review_reason": ""
+      }
+    },
+    {
+      "record": {
+        "Product ID": "syn1",
+        "Product Name": "شیر ۱لیتری ، کارتن ۶ عددی",
+        "Channel Username": "@Synthetic",
+        "Sale Price": "۱۲٬۵۰۰",
+        "Currency": "TOMAN",
+        "Latest Offer ID": "offer-syn1",
+        "Source Timestamp Basis": "supplier_channel_forward",
+        "Message Timestamp": "2026-11-15T00:00:00+00:00",
+        "Source Post URL": "https://t.me/Synthetic/1",
+        "Status": "needs_review",
+        "Reference Approval State": "outside_margin"
+      },
+      "evidence": {
+        "state": "warning",
+        "verified_at": "2026-11-10T00:00:00+00:00"
+      },
+      "issues": [],
+      "expected": {
+        "status_schema_version": 2,
+        "product_id": "syn1",
+        "product_name": "شیر ۱لیتری ، کارتن ۶ عددی",
+        "channel": "@Synthetic",
+        "status": "needs_review",
+        "latest_offer_id": "offer-syn1",
+        "source_post_url": "https://t.me/Synthetic/1",
+        "reference_snapshot_id": "",
+        "reference_match_id": "",
+        "reference_price_role": "",
+        "reference_approval_state": "outside_margin",
+        "reference_price_change_percent": "",
+        "reference_price_checked_at": "",
+        "reference_review_due": true,
+        "reference_review_result": "update_required",
+        "reference_update_needed": true,
+        "supplier_price_state": "warning",
+        "supplier_price_verified_at": "2026-11-10T00:00:00+00:00",
+        "supplier_price_update_due": false,
+        "source_integrity_issues": [],
+        "source_integrity_update_due": false,
+        "update_needed": true,
+        "review_reason": ""
+      }
+    },
+    {
+      "record": {
+        "Product ID": "syn1",
+        "Product Name": "شیر ۱لیتری ، کارتن ۶ عددی",
+        "Channel Username": "@Synthetic",
+        "Sale Price": "۱۲٬۵۰۰",
+        "Currency": "TOMAN",
+        "Latest Offer ID": "offer-syn1",
+        "Source Timestamp Basis": "supplier_channel_forward",
+        "Message Timestamp": "2026-11-15T00:00:00+00:00",
+        "Source Post URL": "https://t.me/Synthetic/1",
+        "Status": "held",
+        "Reference Approval State": "outside_margin"
+      },
+      "evidence": {
+        "state": "warning",
+        "verified_at": "2026-11-10T00:00:00+00:00"
+      },
+      "issues": [
+        "offer_not_found"
+      ],
+      "expected": {
+        "status_schema_version": 2,
+        "product_id": "syn1",
+        "product_name": "شیر ۱لیتری ، کارتن ۶ عددی",
+        "channel": "@Synthetic",
+        "status": "held",
+        "latest_offer_id": "offer-syn1",
+        "source_post_url": "https://t.me/Synthetic/1",
+        "reference_snapshot_id": "",
+        "reference_match_id": "",
+        "reference_price_role": "",
+        "reference_approval_state": "outside_margin",
+        "reference_price_change_percent": "",
+        "reference_price_checked_at": "",
+        "reference_review_due": true,
+        "reference_review_result": "update_required",
+        "reference_update_needed": true,
+        "supplier_price_state": "warning",
+        "supplier_price_verified_at": "2026-11-10T00:00:00+00:00",
+        "supplier_price_update_due": false,
+        "source_integrity_issues": [
+          "offer_not_found"
+        ],
+        "source_integrity_update_due": true,
+        "update_needed": true,
+        "review_reason": ""
+      }
+    },
+    {
+      "record": {
+        "Product ID": "syn1",
+        "Product Name": "شیر ۱لیتری ، کارتن ۶ عددی",
+        "Channel Username": "@Synthetic",
+        "Sale Price": "۱۲٬۵۰۰",
+        "Currency": "TOMAN",
+        "Latest Offer ID": "offer-syn1",
+        "Source Timestamp Basis": "supplier_channel_forward",
+        "Message Timestamp": "2026-11-15T00:00:00+00:00",
+        "Source Post URL": "https://t.me/Synthetic/1",
+        "Status": "ready",
+        "Reference Approval State": "reference_missing"
+      },
+      "evidence": {
+        "state": "warning",
+        "verified_at": "2026-11-10T00:00:00+00:00"
+      },
+      "issues": [],
+      "expected": {
+        "status_schema_version": 2,
+        "product_id": "syn1",
+        "product_name": "شیر ۱لیتری ، کارتن ۶ عددی",
+        "channel": "@Synthetic",
+        "status": "ready",
+        "latest_offer_id": "offer-syn1",
+        "source_post_url": "https://t.me/Synthetic/1",
+        "reference_snapshot_id": "",
+        "reference_match_id": "",
+        "reference_price_role": "",
+        "reference_approval_state": "reference_missing",
+        "reference_price_change_percent": "",
+        "reference_price_checked_at": "",
+        "reference_review_due": true,
+        "reference_review_result": "update_required",
+        "reference_update_needed": true,
+        "supplier_price_state": "warning",
+        "supplier_price_verified_at": "2026-11-10T00:00:00+00:00",
+        "supplier_price_update_due": false,
+        "source_integrity_issues": [],
+        "source_integrity_update_due": false,
+        "update_needed": true,
+        "review_reason": ""
+      }
+    },
+    {
+      "record": {
+        "Product ID": "syn1",
+        "Product Name": "شیر ۱لیتری ، کارتن ۶ عددی",
+        "Channel Username": "@Synthetic",
+        "Sale Price": "۱۲٬۵۰۰",
+        "Currency": "TOMAN",
+        "Latest Offer ID": "offer-syn1",
+        "Source Timestamp Basis": "supplier_channel_forward",
+        "Message Timestamp": "2026-11-15T00:00:00+00:00",
+        "Source Post URL": "https://t.me/Synthetic/1",
+        "Status": "needs_review",
+        "Reference Approval State": "reference_missing"
+      },
+      "evidence": {
+        "state": "warning",
+        "verified_at": "2026-11-10T00:00:00+00:00"
+      },
+      "issues": [],
+      "expected": {
+        "status_schema_version": 2,
+        "product_id": "syn1",
+        "product_name": "شیر ۱لیتری ، کارتن ۶ عددی",
+        "channel": "@Synthetic",
+        "status": "needs_review",
+        "latest_offer_id": "offer-syn1",
+        "source_post_url": "https://t.me/Synthetic/1",
+        "reference_snapshot_id": "",
+        "reference_match_id": "",
+        "reference_price_role": "",
+        "reference_approval_state": "reference_missing",
+        "reference_price_change_percent": "",
+        "reference_price_checked_at": "",
+        "reference_review_due": true,
+        "reference_review_result": "update_required",
+        "reference_update_needed": true,
+        "supplier_price_state": "warning",
+        "supplier_price_verified_at": "2026-11-10T00:00:00+00:00",
+        "supplier_price_update_due": false,
+        "source_integrity_issues": [],
+        "source_integrity_update_due": false,
+        "update_needed": true,
+        "review_reason": ""
+      }
+    },
+    {
+      "record": {
+        "Product ID": "syn1",
+        "Product Name": "شیر ۱لیتری ، کارتن ۶ عددی",
+        "Channel Username": "@Synthetic",
+        "Sale Price": "۱۲٬۵۰۰",
+        "Currency": "TOMAN",
+        "Latest Offer ID": "offer-syn1",
+        "Source Timestamp Basis": "supplier_channel_forward",
+        "Message Timestamp": "2026-11-15T00:00:00+00:00",
+        "Source Post URL": "https://t.me/Synthetic/1",
+        "Status": "held",
+        "Reference Approval State": "reference_missing"
+      },
+      "evidence": {
+        "state": "warning",
+        "verified_at": "2026-11-10T00:00:00+00:00"
+      },
+      "issues": [
+        "offer_not_found"
+      ],
+      "expected": {
+        "status_schema_version": 2,
+        "product_id": "syn1",
+        "product_name": "شیر ۱لیتری ، کارتن ۶ عددی",
+        "channel": "@Synthetic",
+        "status": "held",
+        "latest_offer_id": "offer-syn1",
+        "source_post_url": "https://t.me/Synthetic/1",
+        "reference_snapshot_id": "",
+        "reference_match_id": "",
+        "reference_price_role": "",
+        "reference_approval_state": "reference_missing",
+        "reference_price_change_percent": "",
+        "reference_price_checked_at": "",
+        "reference_review_due": true,
+        "reference_review_result": "update_required",
+        "reference_update_needed": true,
+        "supplier_price_state": "warning",
+        "supplier_price_verified_at": "2026-11-10T00:00:00+00:00",
+        "supplier_price_update_due": false,
+        "source_integrity_issues": [
+          "offer_not_found"
+        ],
+        "source_integrity_update_due": true,
+        "update_needed": true,
+        "review_reason": ""
+      }
+    },
+    {
+      "record": {
+        "Product ID": "syn1",
+        "Product Name": "شیر ۱لیتری ، کارتن ۶ عددی",
+        "Channel Username": "@Synthetic",
+        "Sale Price": "۱۲٬۵۰۰",
+        "Currency": "TOMAN",
+        "Latest Offer ID": "offer-syn1",
+        "Source Timestamp Basis": "supplier_channel_forward",
+        "Message Timestamp": "2026-11-15T00:00:00+00:00",
+        "Source Post URL": "https://t.me/Synthetic/1",
+        "Status": "ready",
+        "Reference Approval State": "price_unavailable"
+      },
+      "evidence": {
+        "state": "warning",
+        "verified_at": "2026-11-10T00:00:00+00:00"
+      },
+      "issues": [],
+      "expected": {
+        "status_schema_version": 2,
+        "product_id": "syn1",
+        "product_name": "شیر ۱لیتری ، کارتن ۶ عددی",
+        "channel": "@Synthetic",
+        "status": "ready",
+        "latest_offer_id": "offer-syn1",
+        "source_post_url": "https://t.me/Synthetic/1",
+        "reference_snapshot_id": "",
+        "reference_match_id": "",
+        "reference_price_role": "",
+        "reference_approval_state": "price_unavailable",
+        "reference_price_change_percent": "",
+        "reference_price_checked_at": "",
+        "reference_review_due": true,
+        "reference_review_result": "update_required",
+        "reference_update_needed": true,
+        "supplier_price_state": "warning",
+        "supplier_price_verified_at": "2026-11-10T00:00:00+00:00",
+        "supplier_price_update_due": false,
+        "source_integrity_issues": [],
+        "source_integrity_update_due": false,
+        "update_needed": true,
+        "review_reason": ""
+      }
+    },
+    {
+      "record": {
+        "Product ID": "syn1",
+        "Product Name": "شیر ۱لیتری ، کارتن ۶ عددی",
+        "Channel Username": "@Synthetic",
+        "Sale Price": "۱۲٬۵۰۰",
+        "Currency": "TOMAN",
+        "Latest Offer ID": "offer-syn1",
+        "Source Timestamp Basis": "supplier_channel_forward",
+        "Message Timestamp": "2026-11-15T00:00:00+00:00",
+        "Source Post URL": "https://t.me/Synthetic/1",
+        "Status": "needs_review",
+        "Reference Approval State": "price_unavailable"
+      },
+      "evidence": {
+        "state": "warning",
+        "verified_at": "2026-11-10T00:00:00+00:00"
+      },
+      "issues": [],
+      "expected": {
+        "status_schema_version": 2,
+        "product_id": "syn1",
+        "product_name": "شیر ۱لیتری ، کارتن ۶ عددی",
+        "channel": "@Synthetic",
+        "status": "needs_review",
+        "latest_offer_id": "offer-syn1",
+        "source_post_url": "https://t.me/Synthetic/1",
+        "reference_snapshot_id": "",
+        "reference_match_id": "",
+        "reference_price_role": "",
+        "reference_approval_state": "price_unavailable",
+        "reference_price_change_percent": "",
+        "reference_price_checked_at": "",
+        "reference_review_due": true,
+        "reference_review_result": "update_required",
+        "reference_update_needed": true,
+        "supplier_price_state": "warning",
+        "supplier_price_verified_at": "2026-11-10T00:00:00+00:00",
+        "supplier_price_update_due": false,
+        "source_integrity_issues": [],
+        "source_integrity_update_due": false,
+        "update_needed": true,
+        "review_reason": ""
+      }
+    },
+    {
+      "record": {
+        "Product ID": "syn1",
+        "Product Name": "شیر ۱لیتری ، کارتن ۶ عددی",
+        "Channel Username": "@Synthetic",
+        "Sale Price": "۱۲٬۵۰۰",
+        "Currency": "TOMAN",
+        "Latest Offer ID": "offer-syn1",
+        "Source Timestamp Basis": "supplier_channel_forward",
+        "Message Timestamp": "2026-11-15T00:00:00+00:00",
+        "Source Post URL": "https://t.me/Synthetic/1",
+        "Status": "held",
+        "Reference Approval State": "price_unavailable"
+      },
+      "evidence": {
+        "state": "warning",
+        "verified_at": "2026-11-10T00:00:00+00:00"
+      },
+      "issues": [
+        "offer_not_found"
+      ],
+      "expected": {
+        "status_schema_version": 2,
+        "product_id": "syn1",
+        "product_name": "شیر ۱لیتری ، کارتن ۶ عددی",
+        "channel": "@Synthetic",
+        "status": "held",
+        "latest_offer_id": "offer-syn1",
+        "source_post_url": "https://t.me/Synthetic/1",
+        "reference_snapshot_id": "",
+        "reference_match_id": "",
+        "reference_price_role": "",
+        "reference_approval_state": "price_unavailable",
+        "reference_price_change_percent": "",
+        "reference_price_checked_at": "",
+        "reference_review_due": true,
+        "reference_review_result": "update_required",
+        "reference_update_needed": true,
+        "supplier_price_state": "warning",
+        "supplier_price_verified_at": "2026-11-10T00:00:00+00:00",
+        "supplier_price_update_due": false,
+        "source_integrity_issues": [
+          "offer_not_found"
+        ],
+        "source_integrity_update_due": true,
+        "update_needed": true,
+        "review_reason": ""
+      }
+    },
+    {
+      "record": {
+        "Product ID": "syn1",
+        "Product Name": "شیر ۱لیتری ، کارتن ۶ عددی",
+        "Channel Username": "@Synthetic",
+        "Sale Price": "۱۲٬۵۰۰",
+        "Currency": "TOMAN",
+        "Latest Offer ID": "offer-syn1",
+        "Source Timestamp Basis": "supplier_channel_forward",
+        "Message Timestamp": "2026-11-15T00:00:00+00:00",
+        "Source Post URL": "https://t.me/Synthetic/1",
+        "Status": "ready",
+        "Reference Approval State": "approved"
+      },
+      "evidence": {
+        "state": "warning",
+        "verified_at": "2026-11-10T00:00:00+00:00"
+      },
+      "issues": [],
+      "expected": {
+        "status_schema_version": 2,
+        "product_id": "syn1",
+        "product_name": "شیر ۱لیتری ، کارتن ۶ عددی",
+        "channel": "@Synthetic",
+        "status": "ready",
+        "latest_offer_id": "offer-syn1",
+        "source_post_url": "https://t.me/Synthetic/1",
+        "reference_snapshot_id": "",
+        "reference_match_id": "",
+        "reference_price_role": "",
+        "reference_approval_state": "approved",
+        "reference_price_change_percent": "",
+        "reference_price_checked_at": "",
+        "reference_review_due": false,
+        "reference_review_result": "checked",
+        "reference_update_needed": false,
+        "supplier_price_state": "warning",
+        "supplier_price_verified_at": "2026-11-10T00:00:00+00:00",
+        "supplier_price_update_due": false,
+        "source_integrity_issues": [],
+        "source_integrity_update_due": false,
+        "update_needed": false,
+        "review_reason": ""
+      }
+    },
+    {
+      "record": {
+        "Product ID": "syn1",
+        "Product Name": "شیر ۱لیتری ، کارتن ۶ عددی",
+        "Channel Username": "@Synthetic",
+        "Sale Price": "۱۲٬۵۰۰",
+        "Currency": "TOMAN",
+        "Latest Offer ID": "offer-syn1",
+        "Source Timestamp Basis": "supplier_channel_forward",
+        "Message Timestamp": "2026-11-15T00:00:00+00:00",
+        "Source Post URL": "https://t.me/Synthetic/1",
+        "Status": "needs_review",
+        "Reference Approval State": "approved"
+      },
+      "evidence": {
+        "state": "warning",
+        "verified_at": "2026-11-10T00:00:00+00:00"
+      },
+      "issues": [],
+      "expected": {
+        "status_schema_version": 2,
+        "product_id": "syn1",
+        "product_name": "شیر ۱لیتری ، کارتن ۶ عددی",
+        "channel": "@Synthetic",
+        "status": "needs_review",
+        "latest_offer_id": "offer-syn1",
+        "source_post_url": "https://t.me/Synthetic/1",
+        "reference_snapshot_id": "",
+        "reference_match_id": "",
+        "reference_price_role": "",
+        "reference_approval_state": "approved",
+        "reference_price_change_percent": "",
+        "reference_price_checked_at": "",
+        "reference_review_due": false,
+        "reference_review_result": "checked",
+        "reference_update_needed": false,
+        "supplier_price_state": "warning",
+        "supplier_price_verified_at": "2026-11-10T00:00:00+00:00",
+        "supplier_price_update_due": false,
+        "source_integrity_issues": [],
+        "source_integrity_update_due": false,
+        "update_needed": true,
+        "review_reason": ""
+      }
+    },
+    {
+      "record": {
+        "Product ID": "syn1",
+        "Product Name": "شیر ۱لیتری ، کارتن ۶ عددی",
+        "Channel Username": "@Synthetic",
+        "Sale Price": "۱۲٬۵۰۰",
+        "Currency": "TOMAN",
+        "Latest Offer ID": "offer-syn1",
+        "Source Timestamp Basis": "supplier_channel_forward",
+        "Message Timestamp": "2026-11-15T00:00:00+00:00",
+        "Source Post URL": "https://t.me/Synthetic/1",
+        "Status": "held",
+        "Reference Approval State": "approved"
+      },
+      "evidence": {
+        "state": "warning",
+        "verified_at": "2026-11-10T00:00:00+00:00"
+      },
+      "issues": [
+        "offer_not_found"
+      ],
+      "expected": {
+        "status_schema_version": 2,
+        "product_id": "syn1",
+        "product_name": "شیر ۱لیتری ، کارتن ۶ عددی",
+        "channel": "@Synthetic",
+        "status": "held",
+        "latest_offer_id": "offer-syn1",
+        "source_post_url": "https://t.me/Synthetic/1",
+        "reference_snapshot_id": "",
+        "reference_match_id": "",
+        "reference_price_role": "",
+        "reference_approval_state": "approved",
+        "reference_price_change_percent": "",
+        "reference_price_checked_at": "",
+        "reference_review_due": false,
+        "reference_review_result": "checked",
+        "reference_update_needed": false,
+        "supplier_price_state": "warning",
+        "supplier_price_verified_at": "2026-11-10T00:00:00+00:00",
+        "supplier_price_update_due": false,
+        "source_integrity_issues": [
+          "offer_not_found"
+        ],
+        "source_integrity_update_due": true,
+        "update_needed": true,
+        "review_reason": ""
+      }
+    }
+  ],
+  "capture": {
+    "snapshot_id": "cf7a0a6e12f16d0962b38f6c29049f459607d0cb1ec91d4dde3ec9f897dc1b09",
+    "captured_at": "2026-11-17T00:00:00+00:00",
+    "reason": "synthetic-native-parity",
+    "product_count": 6,
+    "changed_count": 6
+  },
+  "history": {
+    "snapshots": [
+      {
+        "snapshot_id": "cf7a0a6e12f16d0962b38f6c29049f459607d0cb1ec91d4dde3ec9f897dc1b09",
+        "captured_at": "2026-11-17T00:00:00+00:00",
+        "reason": "synthetic-native-parity",
+        "product_count": 6,
+        "changed_count": 6,
+        "schema_version": 2
+      }
+    ],
+    "latest_snapshot_id": "cf7a0a6e12f16d0962b38f6c29049f459607d0cb1ec91d4dde3ec9f897dc1b09",
+    "selected_snapshot_id": "cf7a0a6e12f16d0962b38f6c29049f459607d0cb1ec91d4dde3ec9f897dc1b09",
+    "products": [
+      {
+        "channel": "@Synthetic",
+        "latest_offer_id": "missing",
+        "product_id": "syn4",
+        "product_name": "شیر 1 liter 1000 ml",
+        "reference_approval_state": "",
+        "reference_match_id": "",
+        "reference_price_change_percent": "",
+        "reference_price_checked_at": "",
+        "reference_price_role": "",
+        "reference_review_due": false,
+        "reference_review_result": "not_checked",
+        "reference_snapshot_id": "",
+        "reference_update_needed": false,
+        "review_reason": "",
+        "source_integrity_issues": [
+          "offer_not_found"
+        ],
+        "source_integrity_update_due": true,
+        "source_post_url": "",
+        "status": "",
+        "status_schema_version": 2,
+        "supplier_price_state": "needs_review",
+        "supplier_price_update_due": true,
+        "supplier_price_verified_at": "",
+        "update_needed": true
+      },
+      {
+        "channel": "@synthetic",
+        "latest_offer_id": "offer-syn2",
+        "product_id": "syn2",
+        "product_name": "شیر 1000 ml",
+        "reference_approval_state": "",
+        "reference_match_id": "",
+        "reference_price_change_percent": "",
+        "reference_price_checked_at": "",
+        "reference_price_role": "",
+        "reference_review_due": false,
+        "reference_review_result": "not_checked",
+        "reference_snapshot_id": "",
+        "reference_update_needed": false,
+        "review_reason": "",
+        "source_integrity_issues": [
+          "source_provenance_mismatch"
+        ],
+        "source_integrity_update_due": true,
+        "source_post_url": "",
+        "status": "",
+        "status_schema_version": 2,
+        "supplier_price_state": "needs_review",
+        "supplier_price_update_due": true,
+        "supplier_price_verified_at": "",
+        "update_needed": true
+      },
+      {
+        "channel": "@Synthetic",
+        "latest_offer_id": "offer-syn1",
+        "product_id": "syn1",
+        "product_name": "شیر ۱لیتری ، کارتن ۶ عددی",
+        "reference_approval_state": "",
+        "reference_match_id": "",
+        "reference_price_change_percent": "",
+        "reference_price_checked_at": "",
+        "reference_price_role": "",
+        "reference_review_due": false,
+        "reference_review_result": "not_checked",
+        "reference_snapshot_id": "",
+        "reference_update_needed": false,
+        "review_reason": "",
+        "source_integrity_issues": [
+          "duplicate_product_id",
+          "source_provenance_mismatch"
+        ],
+        "source_integrity_update_due": true,
+        "source_post_url": "https://t.me/Synthetic/1",
+        "status": "ready",
+        "status_schema_version": 2,
+        "supplier_price_state": "needs_review",
+        "supplier_price_update_due": true,
+        "supplier_price_verified_at": "",
+        "update_needed": true
+      },
+      {
+        "channel": "@Synthetic",
+        "latest_offer_id": "offer-syn5",
+        "product_id": "syn5",
+        "product_name": "شیر ۱لیتری ، کارتن ۶ عددی",
+        "reference_approval_state": "",
+        "reference_match_id": "",
+        "reference_price_change_percent": "",
+        "reference_price_checked_at": "",
+        "reference_price_role": "",
+        "reference_review_due": false,
+        "reference_review_result": "not_checked",
+        "reference_snapshot_id": "",
+        "reference_update_needed": false,
+        "review_reason": "",
+        "source_integrity_issues": [
+          "duplicate_product_identity",
+          "offer_not_found"
+        ],
+        "source_integrity_update_due": true,
+        "source_post_url": "",
+        "status": "",
+        "status_schema_version": 2,
+        "supplier_price_state": "needs_review",
+        "supplier_price_update_due": true,
+        "supplier_price_verified_at": "",
+        "update_needed": true
+      },
+      {
+        "channel": "@other",
+        "latest_offer_id": "offer-syn3",
+        "product_id": "syn3",
+        "product_name": "چای بهار 250گرم",
+        "reference_approval_state": "",
+        "reference_match_id": "",
+        "reference_price_change_percent": "",
+        "reference_price_checked_at": "",
+        "reference_price_role": "",
+        "reference_review_due": false,
+        "reference_review_result": "not_checked",
+        "reference_snapshot_id": "",
+        "reference_update_needed": false,
+        "review_reason": "",
+        "source_integrity_issues": [],
+        "source_integrity_update_due": false,
+        "source_post_url": "",
+        "status": "",
+        "status_schema_version": 2,
+        "supplier_price_state": "needs_review",
+        "supplier_price_update_due": true,
+        "supplier_price_verified_at": "",
+        "update_needed": true
+      }
+    ]
+  }
+}

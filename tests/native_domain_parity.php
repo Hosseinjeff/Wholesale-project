@@ -15,6 +15,7 @@ require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-read-models.
 require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-gateway.php';
 require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-reference-parser.php';
 require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-reference-store.php';
+require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-products.php';
 $root=molavi_state_root();$initial=new SQLite3($root.'/pipeline.sqlite3');$initial->exec('PRAGMA user_version=1');$initial->close();
 $fixtures=json_decode(file_get_contents(__DIR__.'/fixtures/native-domain-parity.json'),true,128,JSON_THROW_ON_ERROR);$count=0;
 function compare_native($actual,$expected,string $name):void {
@@ -78,4 +79,17 @@ foreach($incremental as $case){$db=molavi_domain_db('reference');
         compare_native(molavi_domain_read('reference',static fn($db)=>molavi_domain_row($db,'SELECT COUNT(*) AS n FROM reference_source_products')['n']),count($case['candidate']['_source_products']),'raw custody/'.$case['name']);
     }
 }
+$products=json_decode(file_get_contents(__DIR__.'/fixtures/native-product-parity.json'),true,128,JSON_THROW_ON_ERROR);
+foreach($products['records'] as $index=>$record){
+    compare_native(molavi_domain_product_identity($record),$products['identities'][$index],'product identity/'.$index);
+    compare_native(molavi_domain_source_revision($record),$products['revisions'][$index],'source price revision/'.$index);
+}
+compare_native(molavi_domain_source_issues($products['records'],$products['offers']),$products['source_issues'],'source provenance');
+$db=molavi_domain_db();$db->exec('DELETE FROM supplier_price_evidence');$db->exec('DELETE FROM supplier_price_evidence_history');$db->close();
+compare_native(molavi_domain_freshness($products['records'],(float)$products['clock']),$products['freshness'],'supplier freshness');
+compare_native(molavi_domain_current_products($products['tables'],(float)$products['clock']),$products['current'],'current product status');
+foreach($products['states'] as $index=>$case)compare_native(molavi_domain_product_state($case['record'],$case['evidence'],$case['issues']),$case['expected'],'product state/'.$index);
+$db=molavi_domain_db();$db->exec('DELETE FROM product_status_records');$db->exec('DELETE FROM product_status_snapshots');$db->close();
+compare_native(molavi_domain_status_capture($products['tables'],'synthetic-native-parity',(float)$products['clock']),$products['capture'],'status capture digest');
+compare_native(molavi_domain_status_history(),$products['history'],'status history');
 foreach(glob($root.'/*') as $file)unlink($file);rmdir($root);echo 'PASS native domain parity '.$count." cases\n";

@@ -60,21 +60,27 @@ function molavi_domain_google(string $method,string $path,?array $body=null):arr
 function molavi_domain_sheet_name(string $name):string {
     if(!preg_match('/^[A-Za-z][A-Za-z0-9_ ]{0,60}$/',$name))molavi_domain_fail('invalid_sheet_name',400);return "'".str_replace("'","''",$name)."'";
 }
-function molavi_domain_sheets(array $names,bool $fresh=false):array {
+function molavi_domain_sheet_cache_key(string $name,bool $unformatted=false):string {
+    return 'molavi_sheet_'.hash('sha256',molavi_domain_config()['sheet_id'].'|'.$name.'|'.($unformatted?'raw':'formatted'));
+}
+function molavi_domain_sheet_invalidate(string $name):void {
+    foreach([false,true] as $raw)delete_transient(molavi_domain_sheet_cache_key($name,$raw));
+}
+function molavi_domain_sheets(array $names,bool $fresh=false,bool $unformatted=false):array {
     $out=[];$missing=[];
-    foreach($names as $name){$key='molavi_sheet_'.hash('sha256',molavi_domain_config()['sheet_id'].'|'.$name);$cached=$fresh?false:get_transient($key);
+    foreach($names as $name){$key=molavi_domain_sheet_cache_key($name,$unformatted);$cached=$fresh?false:get_transient($key);
         if(is_array($cached))$out[$name]=$cached;else $missing[]=$name;}
     if($missing){$query=implode('&',array_map(static fn($name)=>'ranges='.rawurlencode(molavi_domain_sheet_name($name)),$missing));
-        $result=molavi_domain_google('GET','/values:batchGet?'.$query.'&valueRenderOption=UNFORMATTED_VALUE');
+        $result=molavi_domain_google('GET','/values:batchGet?'.$query.'&valueRenderOption='.($unformatted?'UNFORMATTED_VALUE':'FORMATTED_VALUE'));
         foreach($missing as $index=>$name){$rows=$result['valueRanges'][$index]['values']??[];if(!is_array($rows))molavi_domain_fail('invalid_sheet_response',503);
-            $out[$name]=$rows;set_transient('molavi_sheet_'.hash('sha256',molavi_domain_config()['sheet_id'].'|'.$name),$rows,5);}}
+            $out[$name]=$rows;set_transient(molavi_domain_sheet_cache_key($name,$unformatted),$rows,5);}}
     return $out;
 }
 function molavi_domain_sheet_column(int $number):string {$out='';while($number>0){$number--;$out=chr(65+$number%26).$out;$number=intdiv($number,26);}return $out;}
 function molavi_domain_sheet_cells(string $name,array $updates):void {
     $data=[];foreach($updates as $update)$data[]=['range'=>molavi_domain_sheet_name($name).'!'.$update['range'],'values'=>$update['values']];
     if($data)molavi_domain_google('POST','/values:batchUpdate',['valueInputOption'=>'RAW','data'=>$data]);
-    delete_transient('molavi_sheet_'.hash('sha256',molavi_domain_config()['sheet_id'].'|'.$name));
+    molavi_domain_sheet_invalidate($name);
 }
 function molavi_domain_sheet_fields(string $name,int $row,array $headers,array $values):void {
     $updates=[];foreach($values as $field=>$value){$column=array_search($field,$headers,true);if($column===false)molavi_domain_fail('sheet_header_missing',409,['field'=>$field]);
@@ -82,15 +88,23 @@ function molavi_domain_sheet_fields(string $name,int $row,array $headers,array $
 }
 function molavi_domain_sheet_append(string $name,array $rows):array {
     $result=molavi_domain_google('POST','/values/'.rawurlencode(molavi_domain_sheet_name($name).'!A1').':append?valueInputOption=RAW&insertDataOption=INSERT_ROWS',['values'=>$rows]);
-    delete_transient('molavi_sheet_'.hash('sha256',molavi_domain_config()['sheet_id'].'|'.$name));return $result;
+    molavi_domain_sheet_invalidate($name);return $result;
 }
 add_action('rest_api_init',static function():void {
+    register_rest_route('molavi-workflow/v1','/connectors/check',['methods'=>'GET','permission_callback'=>'molavi_runtime_permission',
+        'callback'=>static function(){try{$tables=molavi_domain_sheets(['Products','Offers','Shop','ReferencePrices'],true);$summary=[];
+            foreach($tables as $name=>$rows)$summary[$name]=['rows'=>max(0,count($rows)-1),'columns'=>count($rows[0]??[])];
+            return ['ok'=>true,'connector'=>'google_sheets','tables'=>$summary];
+        }catch(MolaviWorkflowError $e){return new WP_Error($e->getMessage(),'Connector verification failed',['status'=>$e->status]);}
+        catch(Throwable $e){return new WP_Error('connector_check_failed','Connector verification failed',['status'=>503]);}}]);
     register_rest_route('molavi-workflow/v1','/connectors',['methods'=>'POST','permission_callback'=>'molavi_domain_connector_permission',
         'callback'=>static function($request){try{$body=$request->get_json_params();
             if(!is_array($body)||!preg_match('/^[A-Za-z0-9_-]{10,200}$/',(string)($body['sheet_id']??''))||!is_array($body['google_service_account']??null)
                 ||($body['google_service_account']['type']??'')!=='service_account')molavi_domain_fail('invalid_connector_configuration',400);
             $path=molavi_state_root().'/connectors.json';$temporary=$path.'.'.bin2hex(random_bytes(6));
-            file_put_contents($temporary,molavi_domain_json($body),LOCK_EX);chmod($temporary,0600);rename($temporary,$path);
+            $encoded=molavi_domain_json($body);
+            if(file_put_contents($temporary,$encoded,LOCK_EX)!==strlen($encoded)||!chmod($temporary,0600)||!rename($temporary,$path))
+                molavi_domain_fail('connector_private_storage_unavailable',503);
             return ['ok'=>true,'configured'=>['google_sheets'],'configuration_digest'=>hash_file('sha256',$path)];
         }catch(MolaviWorkflowError $e){return new WP_Error($e->getMessage(),'Connector setup failed',['status'=>$e->status]);}
         catch(Throwable $e){return new WP_Error('configuration_failed','Connector setup failed',['status'=>503]);}}]);

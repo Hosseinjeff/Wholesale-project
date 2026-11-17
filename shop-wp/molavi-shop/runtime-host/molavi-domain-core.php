@@ -8,7 +8,6 @@ final class MolaviWorkflowError extends RuntimeException {
     public function __construct(string $code,int $status=409,array $details=[]){parent::__construct($code);$this->status=$status;$this->details=$details;}
 }
 function molavi_domain_fail(string $code,int $status=409,array $details=[]):void {throw new MolaviWorkflowError($code,$status,$details);}
-function molavi_domain_enabled():bool {return get_option('molavi_nonbot_host','railway')==='wordpress';}
 function molavi_domain_now():string {return (new DateTimeImmutable('now',new DateTimeZone('UTC')))->format('Y-m-d\TH:i:s.uP');}
 function molavi_domain_today():string {return (new DateTimeImmutable('now',new DateTimeZone('Asia/Tehran')))->format('Y-m-d');}
 function molavi_domain_strlen(string $value):int {return function_exists('mb_strlen')?mb_strlen($value,'UTF-8'):(int)preg_match_all('/./us',$value);}
