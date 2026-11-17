@@ -27,7 +27,8 @@ writer_same($result['written'],true,'native order job writes locally');writer_sa
 $jobs=molavi_domain_read('pipeline',static fn($db)=>molavi_domain_rows($db,"SELECT id,payload FROM jobs WHERE kind='notice'"));writer_same(count($jobs),1,'only the bot notification is queued');
 writer_same(molavi_domain_decode($jobs[0]['payload'])['type'],'order_notice','bot receives a transport dispatch task');
 molavi_domain_order_job($payload);writer_same(molavi_domain_read('pipeline',static fn($db)=>molavi_domain_row($db,"SELECT COUNT(*) AS n FROM jobs WHERE kind='notice'")['n']),1,'order retry reuses notification receipt');
-class SyntheticReceiptOrder {public array $meta=[];public int $saves=0;
+class SyntheticReceiptOrder {public array $meta=[];public int $saves=0;public int $id=70001;
+ function get_id(){return $this->id;}
  function get_meta($key){return $this->meta[$key]??'';}
  function update_meta_data($key,$value){$this->meta[$key]=$value;}
  function delete_meta_data($key){unset($this->meta[$key]);}
@@ -51,11 +52,20 @@ writer_same(molavi_domain_claim_job($new),null,'paid update cannot overtake an o
 molavi_domain_tx('pipeline',static fn($db)=>molavi_domain_sql($db,"UPDATE jobs SET state='done' WHERE id=?",[$old]));
 $claimed=molavi_domain_claim_job($new);writer_same($claimed['id'],$new,'next order update becomes eligible after its predecessor');molavi_domain_finish_job($claimed,['written'=>true]);
 function get_option($key,$default=false){return $key==='molavi_state_active'?true:$default;}
-function molavi_legacy_config(){return ['bot_url'=>'https://bot.synthetic.test','notify_secret'=>str_repeat('s',40)];}
+function molavi_legacy_config(){return $GLOBALS['legacy_override']??['bot_url'=>'https://bot.synthetic.test','notify_secret'=>str_repeat('s',40)];}
 function wp_json_encode($value){return json_encode($value);}
 function get_status_header_desc($status){return 'Synthetic status';}
 $filter=$GLOBALS['filters']['pre_http_request'][0];$args=['method'=>'POST','headers'=>['X-Shop-Token'=>str_repeat('s',40)],'body'=>'{"order":null}'];$before=$GLOBALS['sheet_reads'];
 $intercepted=$filter(false,$args,'https://bot.synthetic.test/shop/order');writer_same($intercepted['response']['code'],400,'real handoff filter rejects invalid orders locally');
 writer_same($intercepted['headers']['x-molavi-executor'],'wordpress','handoff response identifies WordPress execution');writer_same($GLOBALS['sheet_reads'],$before,'interception check has no Sheet writes or reads');
 $args['headers']['X-Shop-Token']='wrong';writer_same($filter(false,$args,'https://bot.synthetic.test/shop/order'),false,'handoff filter requires the configured shared token');
+function wp_next_scheduled($hook,$args=[]){return 1;}
+$GLOBALS['legacy_override']=[];$local=['order'=>array_merge($cases[0]['source'],['id'=>'70003']),'notify'=>true];$wooLocal=new SyntheticReceiptOrder();$wooLocal->id=70003;$wooLocal->meta['_molavi_handoff_payload']=$local;$GLOBALS['receipt_orders'][70003]=$wooLocal;
+$before=$GLOBALS['sheet_reads'];molavi_publish_order_notice(70003);
+writer_same($GLOBALS['sheet_reads'],$before,'native checkout queues without legacy bot configuration or Sheet I/O');
+$queued=molavi_domain_read('pipeline',static fn($db)=>molavi_domain_row($db,"SELECT id FROM jobs WHERE kind='order' AND json_extract(payload,'$.order.id')='70003'"));
+writer_same($queued!==null,true,'real Woo notice entrypoint uses the native durable queue');
+writer_same($wooLocal->get_meta('_molavi_handoff_status'),'pending','unverified native mirror stays pending in Woo');molavi_domain_run_jobs(1,40.0,$queued['id']);
+writer_same($wooLocal->get_meta('_molavi_published'),'1','native completion reaches Woo without legacy credentials');$before=$GLOBALS['sheet_reads'];
+writer_same(molavi_post_order_handoff($local),true,'actual Woo post adapter replays its native receipt');writer_same($GLOBALS['sheet_reads'],$before,'native receipt replay has no external I/O');
 foreach(glob($root.'/*') as $file)unlink($file);rmdir($root);echo 'PASS native order writer '.$count." cases\n";

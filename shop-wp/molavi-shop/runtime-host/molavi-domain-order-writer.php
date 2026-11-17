@@ -59,6 +59,9 @@ function molavi_domain_order_job(array $payload): array {
         return $result;
     });
 }
+function molavi_domain_order_native_enabled(): bool {
+    return (bool)get_option('molavi_state_active',false)&&molavi_domain_job_host('order')==='wordpress';
+}
 function molavi_domain_order_handoff(array $body): array {
     $order=$body['order']??null;$id=is_array($order)?(string)molavi_domain_py_value($order['id']??''):'';
     if(!is_array($order)||trim($id)==='')return ['code'=>400,'body'=>['status'=>'error','message'=>'missing order']];
@@ -98,13 +101,15 @@ add_action('rest_api_init',static function():void {
     register_rest_route('molavi-workflow/v1','/orders/check',['methods'=>'GET','permission_callback'=>'molavi_runtime_permission',
         'callback'=>static function(){
             if(!get_option('molavi_state_active',false)||molavi_domain_job_host('order')!=='wordpress')return new WP_Error('native_orders_inactive','Native order execution unavailable',['status'=>409]);
+            if(!function_exists('molavi_order_native_handoff')||molavi_order_native_handoff(['order'=>null])!==false)
+                return new WP_Error('native_order_entrypoint_unverified','Native order entrypoint unavailable',['status'=>503]);
             $config=molavi_legacy_config();$base=rtrim((string)($config['bot_url']??''),'/');$secret=(string)($config['notify_secret']??'');
-            if($secret===''||wp_parse_url($base,PHP_URL_SCHEME)!=='https')return new WP_Error('native_order_config','Order configuration unavailable',['status'=>503]);
+            if($secret===''||wp_parse_url($base,PHP_URL_SCHEME)!=='https')return ['ok'=>true,'native_entrypoint'=>'wordpress','legacy_http_interception_checked'=>false,'writes'=>false];
             // An invalid payload proves the real WP HTTP interception without creating an order or task.
             $response=wp_safe_remote_post($base.'/shop/order',['timeout'=>10,'redirection'=>0,
                 'headers'=>['Content-Type'=>'application/json','X-Shop-Token'=>$secret],'body'=>'{"order":null}']);
             $local=!is_wp_error($response)&&wp_remote_retrieve_response_code($response)===400&&wp_remote_retrieve_header($response,'x-molavi-executor')==='wordpress';
             if(!$local)return new WP_Error('native_order_interception_unverified','Native order handoff unavailable',['status'=>503]);
-            return ['ok'=>true,'native_handoff_intercepted'=>true,'writes'=>false];
+            return ['ok'=>true,'native_entrypoint'=>'wordpress','native_handoff_intercepted'=>true,'legacy_http_interception_checked'=>true,'writes'=>false];
         }]);
 });

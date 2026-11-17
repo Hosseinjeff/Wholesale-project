@@ -9,17 +9,22 @@ function molavi_publish_order_notice(int $orderId, int $attempt = 0): void
     if (!$order || $order->get_meta('_molavi_published') === '1') {
         return;
     }
-    $config = molavi_legacy_config();
-    $secret = (string) ($config['notify_secret'] ?? '');
-    $bot = rtrim((string) ($config['bot_url'] ?? ''), '/');
-    if ($secret === '' || $bot === '') {
+    try {
+        $native = function_exists('molavi_domain_order_native_enabled') && molavi_domain_order_native_enabled();
+    } catch (Throwable $error) {
         molavi_retry_order_handoff($order, $attempt);
         return;
     }
-    $payload = molavi_order_handoff_payload($order, true);
+    if (!$native) {
+        $config = molavi_legacy_config();
+        if (empty($config['notify_secret']) || empty($config['bot_url'])) {
+            molavi_retry_order_handoff($order, $attempt);
+            return;
+        }
+    }
     $saved = $order->get_meta('_molavi_handoff_payload');
     if (is_array($saved) && isset($saved['order']['id'])) { $payload = $saved; }
-    else { $order->update_meta_data('_molavi_handoff_payload', $payload); $order->save(); }
+    else { $payload = molavi_order_handoff_payload($order, true); $order->update_meta_data('_molavi_handoff_payload', $payload); $order->save(); }
     if (molavi_post_order_handoff($payload)) {
         $order->update_meta_data('_molavi_published', '1');
         $order->update_meta_data('_molavi_handoff_status', 'written');
@@ -106,6 +111,8 @@ add_action('woocommerce_checkout_create_order', static function ($order): void {
 
 function molavi_post_order_handoff(array $payload): bool
 {
+    $native = molavi_order_native_handoff($payload);
+    if ($native !== null) { return $native; }
     $config = molavi_legacy_config();
     $secret = (string) ($config['notify_secret'] ?? '');
     $bot = rtrim((string) ($config['bot_url'] ?? ''), '/');
@@ -128,6 +135,20 @@ function molavi_post_order_handoff(array $payload): bool
     return $code >= 200 && $code < 300 && is_array($receipt)
         && ($receipt['written'] ?? false) === true
         && (string) ($receipt['order_id'] ?? '') === (string) ($payload['order']['id'] ?? '');
+}
+
+/** null keeps the existing legacy adapter when this job kind has not switched. */
+function molavi_order_native_handoff(array $payload): ?bool
+{
+    if (!function_exists('molavi_domain_order_native_enabled')) { return null; }
+    try {
+        if (!molavi_domain_order_native_enabled()) { return null; }
+        $result = molavi_domain_order_handoff($payload);
+        $receipt = $result['body'];
+        return $result['code'] >= 200 && $result['code'] < 300
+            && ($receipt['written'] ?? false) === true
+            && (string) ($receipt['order_id'] ?? '') === (string) ($payload['order']['id'] ?? '');
+    } catch (Throwable $error) { return false; }
 }
 
 function molavi_sync_paid_order(int $orderId, string $transactionId = ''): void
