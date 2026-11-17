@@ -501,5 +501,5 @@ body.molavi-site-page .molavi-list-thumb {display:grid;place-items:center;width:
 .molavi-item-editor-actions button {display:inline-flex;gap:6px;align-items:center;}
 @media(max-width:360px){body.molavi-site-page .molavi-saved-actions {gap:4px;}body.molavi-site-page .molavi-saved-actions button {padding:5px 6px;font-size:10px;}body.molavi-site-page .molavi-transfer-actions {gap:4px;}}
 body.molavi-site-page .molavi-library-prompt {box-sizing:border-box;}
-body.molavi-site-page .molavi-library-toolbar .molavi-transfer-actions button {font-size:11px;padding:5px 8px;}
+body.molavi-site-page .molavi-library-toolbar .molavi-transfer-actions button {font-size:11px;padding:5px 8px;min-height:32px;}
 @media(max-width:360px){body.molavi-site-page .molavi-library-toolbar .molavi-transfer-actions button {font-size:10px;padding:5px 6px;}}
