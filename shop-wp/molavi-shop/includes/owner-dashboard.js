@@ -270,10 +270,15 @@
         }
         function next(product) { return model.primaryAction(product); }
         function ready(product) { return model.readyAction(product); }
+        function waiting(product) {
+            const action=next(product);
+            return action!=='next'&&action!=='deferred'&&!ready(product);
+        }
         function stateLabel(product) {
             if(product.holds.length)return ['انتشار متوقف','blocked'];
             if(ready(product))return ['آمادهٔ بررسی','attention'];
-            if(next(product)!=='next')return ['در انتظار پیگیری','unknown'];
+            if(next(product)==='deferred')return ['کنارگذاشته‌شده','neutral'];
+            if(waiting(product))return ['در انتظار پیگیری','unknown'];
             const woo=model.wooState(product);
             if(woo==='purchasable')return ['قابل خرید','good'];
             if(!product.status)return ['در انتظار تکمیل','unknown'];
@@ -296,7 +301,7 @@
             if(state.action&&!state.focus&&next(product)!==state.action)return false;
             if(state.action||state.focus)return true;
             if(state.scope==='ready')return Boolean(ready(product));
-            if(state.scope==='waiting')return next(product)!=='next'&&!ready(product);
+            if(state.scope==='waiting')return waiting(product);
             return true;
         }
         function productsView() {
@@ -316,7 +321,7 @@
             }
             const scopeBar=el('div',null,'md-scopes');scopeBar.setAttribute('aria-label','فهرست محصولات');
             [['ready','آمادهٔ بررسی',model.products.filter(ready).length],
-                ['waiting','در انتظار پیگیری',model.products.filter(p=>next(p)!=='next'&&!ready(p)).length],
+                ['waiting','در انتظار پیگیری',model.products.filter(waiting).length],
                 ['all','همهٔ محصولات',model.products.length]].forEach(([key,label,count])=>{
                 const item=button(`${label}  ${fa(count)}`,()=>{
                     state.scope=key;state.action='';state.focus='';state.limit=24;saveURL();paint();
