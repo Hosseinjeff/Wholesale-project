@@ -1,5 +1,14 @@
 # MolaviSale — whole-workflow handoff
 
+## WordPress cutover on live and Staging — 2026-11-18
+
+WordPress runs storefront commerce, stock, orders, publication, reference refreshes and
+owner reviews. Its cron checks for work and wakes Railway for due bot jobs. Railway
+keeps bot handling, model extraction and source media. Legacy callers receive responses
+forwarded from WordPress. The live business stores are protected on each WordPress host.
+Railway's former volumes are detached and retained for recovery.
+See [final cutover and deployed revisions](native-wordpress-workflows.md#final-live-cutover).
+
 ## Latest Staging release — 2026-11-17
 
 Owner-requested reference suggestions, code-first matching and text-only supplier

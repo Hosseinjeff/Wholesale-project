@@ -1,18 +1,15 @@
 # MolaviSale continuity
 
-For the active staging owner-workflow `Failed to fetch` investigation, begin with
-[`docs/session-handoff-staging-owner-fetch.md`](docs/session-handoff-staging-owner-fetch.md).
-It records the current deployment state, the authentication blocker, and the safe
-read-only checks for the next session. The broader project history remains in
-[`docs/project-handoff.md`](docs/project-handoff.md).
+Start with the [final WordPress cutover](docs/native-wordpress-workflows.md#final-live-cutover)
+for the deployed state on live and Staging. WordPress owns business state and workflows.
+Railway runs the on-demand bot executor with no mounted business volume. Production's
+24-table transfer was verified before the switch. Its old inactive WordPress candidates
+and the detached Railway volumes were retained for recovery. Do not point an executor
+at those candidates or the removed local stores.
 
-For the business workflow and migration audit, start with `docs/project-handoff.md`.
-For the active migration, first read `docs/wordpress-state-executor.md`'s current
-cutover checkpoint and `docs/native-wordpress-workflows.md`. Both sites now use
-WordPress state. Production switched only after a new transfer verified all 24
-existing business tables; its old inactive candidates remain private backups.
-Both Railway data directories were verified empty after receipt-protected cleanup.
-Never point an executor at the old inactive candidates or the removed local stores.
+Read [the project handoff](docs/project-handoff.md) for the broader history.
+The [staging owner fetch incident](docs/session-handoff-staging-owner-fetch.md) is historical.
+
 The user-provided GAS export is preserved in `legacy-gas/recovered-2026-10-25/`;
 `legacy-gas/README.md` explains its authority and limits. The root
 `google_apps_script.js` is an older implementation, not the recovered snapshot.
@@ -40,13 +37,9 @@ runtime's execution mode. See `docs/railway-on-demand-runtime.md`; verify resour
 measurements and actual sleep through control-plane reads, not HTTP probes that wake
 it. Keep storefront/quote work in WordPress. Code releases are scoped by environment
 and pinned to reviewed backend commits; frontend/docs commits must not redeploy it.
-The owner's latest target is WordPress ownership of all persistent data and all
-locally feasible work; Railway should be a stateless executor receiving only its task
-inputs. Do not confuse that target with the current SQLite-ledger migration status.
-The latest explicit boundary keeps bot-related functions on Railway and moves all
-other functions to WordPress. See `docs/native-wordpress-workflows.md` for the native
-port, route activation and parity checkpoint. Preserve the newer Staging text-only
-bot/free Google routing release when changing backend source pins.
+Keep bot workflows, extraction and source media on Railway. WordPress owns the inputs,
+results and business actions. Legacy Railway routes can relay old callers to WordPress.
+Preserve the newer Staging text-only bot release and its model routing when changing pins.
 Keep verified receipts and one writer before removing old state. Background threads
 must use `catalog.memory.start_background` so idle heap reclamation cannot interrupt
 them. Health probes must neither arm reset loops nor postpone pending reclamation.
