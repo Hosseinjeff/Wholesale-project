@@ -260,13 +260,17 @@ add_action('wp_enqueue_scripts', static function (): void {
     $quote = molavi_quote();
     wp_localize_script('molavi-shop', 'molaviShop', [
         'qty' => WC_AJAX::get_endpoint('molavi_qty'),
+        'quoteEndpoint' => WC_AJAX::get_endpoint('molavi_ui_quote'),
         'restoreList' => WC_AJAX::get_endpoint('molavi_restore_list'),
+        'collections' => WC_AJAX::get_endpoint('molavi_library'),
+        'customerId' => get_current_user_id(),
         'catalogEndpoint' => WC_AJAX::get_endpoint('molavi_catalog'),
         'buyer' => WC_AJAX::get_endpoint('molavi_buyer'),
         'nonce' => wp_create_nonce('molavi-qty'),
         'unlock' => (int) $quote['unlock'],
         'buyerType' => molavi_buyer_type(),
         'checkout' => wc_get_checkout_url(),
+        'shopUrl' => wc_get_page_permalink('shop'),
         'qtys' => $quote['qtys'] === [] ? new stdClass() : $quote['qtys'],
         'initial' => $quote,
         'catalog' => $catalog === [] ? new stdClass() : $catalog,

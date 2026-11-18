@@ -142,15 +142,7 @@ function molavi_render_storefront(): void
                 <p class="molavi-store-empty" data-molavi-empty hidden>محصولی با این مشخصات پیدا نشد.</p>
             </div>
 
-            <div class="molavi-basket-shell" data-molavi-basket-shell>
-                <button type="button" class="molavi-mobile-basket" data-molavi-open-basket aria-label="باز کردن سبد خرید و علاقه‌مندی‌ها" aria-controls="molavi-basket-dialog" aria-expanded="false">
-                    <span class="molavi-mobile-cart-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h2l2 11h9l2-8H8"></path><circle cx="10" cy="20" r="1"></circle><circle cx="17" cy="20" r="1"></circle></svg><span class="molavi-mobile-count" data-molavi-mobile-count aria-hidden="true"<?php echo empty($quote['count']) ? ' hidden' : ''; ?>><?php echo esc_html(molavi_digits((string) ($quote['count'] ?? 0))); ?></span></span>
-                    <span class="molavi-mobile-copy"><strong><span data-molavi-mobile-rate><?php echo esc_html(molavi_percent((float) ($quote['savings_rate'] ?? 0))); ?></span> تخفیف فعلی</strong><small><span data-molavi-mobile-saving><?php echo esc_html(molavi_toman((int) ($quote['savings'] ?? 0))); ?></span> صرفه‌جویی</small></span>
-                    <strong class="molavi-mobile-total" data-molavi-mobile-total><?php echo esc_html(molavi_toman((int) ($quote['subtotal'] ?? 0))); ?></strong>
-                </button>
-                <button type="button" class="molavi-basket-backdrop" data-molavi-close-basket aria-label="بستن سبد خرید" hidden></button>
-                <?php molavi_render_storefront_basket($quote); ?>
-            </div>
+            <?php molavi_render_floating_cart($quote); ?>
         </div>
         <p class="molavi-store-status" data-molavi-status role="status" aria-live="polite" hidden></p>
     </section>
@@ -320,12 +312,12 @@ function molavi_render_storefront_card(\WC_Product $product, array $quote): void
             </div>
             <div class="molavi-card-bottom">
                 <div class="molavi-card-facts">
-                    <span class="molavi-order-units" data-molavi-order-units<?php echo $invalidStep ? ' hidden' : ''; ?> data-household-unit="<?php echo esc_attr((string) $profile['household_unit']); ?>" data-shop-unit="<?php echo esc_attr((string) $profile['shop_unit']); ?>" title="خانوار <?php echo esc_attr(molavi_digits((string) $profile['household_unit'])); ?> عدد؛ فروشگاه <?php echo esc_attr(molavi_digits((string) $profile['shop_unit'])); ?> عدد">گام سفارش: <?php echo esc_html(molavi_digits((string) $profile[$buyerType . '_unit'])); ?> عدد</span>
+                    <div class="molavi-step-note"><span class="molavi-order-units" data-molavi-order-units data-household-unit="<?php echo esc_attr((string) $profile['household_unit']); ?>" data-shop-unit="<?php echo esc_attr((string) $profile['shop_unit']); ?>" title="خانوار <?php echo esc_attr(molavi_digits((string) $profile['household_unit'])); ?> عدد؛ فروشگاه <?php echo esc_attr(molavi_digits((string) $profile['shop_unit'])); ?> عدد">گام سفارش: <strong data-molavi-step-value><?php echo esc_html(molavi_digits((string) $profile[$buyerType . '_unit'])); ?> عدد</strong></span>
                     <?php if ($category !== ''): ?><span class="molavi-card-category"<?php echo $invalidStep ? ' hidden' : ''; ?>><?php echo esc_html($category); ?></span><?php endif; ?>
                     <details class="molavi-card-step-help">
-                        <summary aria-label="توضیح گام سفارش" title="توضیح درباره گام سفارش">؟</summary>
+                        <summary aria-label="توضیح گام سفارش" title="توضیح گام سفارش"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/></svg></summary>
                         <div class="molavi-card-step-popover">گام سفارش تعداد هر بار افزودن یا کم‌کردن کالا را مشخص می‌کند. با تغییر نوع خرید، تعداد فعلی حفظ می‌شود؛ برای هماهنگ‌کردنش «اصلاح تعداد» را انتخاب کنید.</div>
-                    </details>
+                    </details></div>
                     <div class="molavi-card-step-warning" data-molavi-card-step-warning<?php echo $invalidStep ? '' : ' hidden'; ?> role="status" aria-live="polite">
                         <span data-molavi-card-step-warning-text><?php echo $invalidStep ? esc_html('تعداد ' . molavi_digits((string) $qty) . ' · گام ' . molavi_digits((string) $min)) : ''; ?></span>
                     </div>
@@ -357,24 +349,66 @@ function molavi_render_storefront_control(\WC_Product $product, int $qty, int $m
     echo '</div>';
 }
 
+function molavi_render_floating_cart(array $quote, bool $standalone = false): void
+{
+    ?>
+            <div class="molavi-basket-shell<?php echo $standalone ? ' molavi-global-basket-shell' : ''; ?>" data-molavi-basket-shell data-molavi-floating-shell>
+                <button type="button" class="molavi-mobile-basket" data-molavi-open-basket aria-label="باز کردن سبد خرید و علاقه‌مندی‌ها" aria-controls="molavi-basket-dialog" aria-expanded="false">
+                    <span class="molavi-mobile-cart-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h2l2 11h9l2-8H8"></path><circle cx="10" cy="20" r="1"></circle><circle cx="17" cy="20" r="1"></circle></svg><span class="molavi-mobile-count" data-molavi-mobile-count aria-hidden="true"<?php echo empty($quote['count']) ? ' hidden' : ''; ?>><?php echo esc_html(molavi_digits((string) ($quote['count'] ?? 0))); ?></span></span>
+                    <span class="molavi-mobile-copy"><strong><span data-molavi-mobile-rate><?php echo esc_html(molavi_percent((float) ($quote['savings_rate'] ?? 0))); ?></span> تخفیف فعلی</strong><small><span data-molavi-mobile-saving><?php echo esc_html(molavi_toman((int) ($quote['savings'] ?? 0))); ?></span> صرفه‌جویی</small></span>
+                    <strong class="molavi-mobile-total" data-molavi-mobile-total><?php echo esc_html(molavi_toman((int) ($quote['subtotal'] ?? 0))); ?></strong>
+                </button>
+                <button type="button" class="molavi-basket-backdrop" data-molavi-close-basket aria-label="بستن سبد خرید" hidden></button>
+                <?php molavi_render_storefront_basket($quote); ?>
+            </div>
+    <?php
+}
+
 function molavi_render_favorites_library(): void
 {
     ?>
     <dialog id="molavi-favorites-dialog" class="molavi-favorites-dialog" data-molavi-lists aria-labelledby="molavi-favorites-title">
-        <header class="molavi-library-head"><div><span class="molavi-library-eyebrow">برای خریدهای بعدی</span><h2 id="molavi-favorites-title">علاقه‌مندی‌ها</h2></div><button type="button" class="molavi-library-close" data-molavi-close-library aria-label="بستن علاقه‌مندی‌ها">×</button></header>
+        <header class="molavi-library-head">
+            <h2 id="molavi-favorites-title">علاقه‌مندی‌ها</h2>
+            <span class="screen-reader-text" data-molavi-account-status role="status" aria-live="polite"></span>
+            <div class="molavi-library-head-actions">
+                <button type="button" class="molavi-library-new" data-molavi-new-cart title="ذخیرهٔ سبد خرید فعلی به‌صورت یک فهرست جدید">+ سبد جدید</button>
+            <button type="button" class="molavi-icon-button" data-molavi-undo-delete hidden aria-label="بازگرداندن سبد حذف‌شده" title="بازگرداندن سبد حذف‌شده"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3"/></svg></button>
+                <button type="button" class="molavi-icon-button" data-molavi-sync-retry hidden aria-label="تلاش دوباره برای اتصال حساب" title="تلاش دوباره برای اتصال حساب"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-1l2 6M4 12l2 6a7 7 0 0 0 12-1"/></svg></button>
+                <button type="button" class="molavi-icon-button molavi-library-close" data-molavi-close-library aria-label="بستن علاقه‌مندی‌ها" title="بستن"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+            </div>
+        </header>
         <div class="molavi-library-tabs" role="tablist" aria-label="نوع علاقه‌مندی">
             <button type="button" id="molavi-favorite-products-tab" role="tab" aria-selected="true" aria-controls="molavi-favorite-products" data-molavi-library-tab="products">کالاها <span data-molavi-favorites-count>۰</span></button>
-            <button type="button" id="molavi-saved-carts-tab" role="tab" aria-selected="false" aria-controls="molavi-saved-carts" tabindex="-1" data-molavi-library-tab="carts">سبدهای ذخیره‌شده <span data-molavi-saved-count>۰</span></button>
+            <button type="button" id="molavi-saved-carts-tab" role="tab" aria-selected="false" aria-controls="molavi-saved-carts" tabindex="-1" data-molavi-library-tab="carts" title="حداکثر ۱۰ سبد ذخیره‌شده">سبدهای ذخیره‌شده <span data-molavi-saved-count>۰</span></button>
         </div>
         <section id="molavi-favorite-products" class="molavi-library-panel" role="tabpanel" aria-labelledby="molavi-favorite-products-tab" data-molavi-library-panel="products">
-            <div class="molavi-library-toolbar"><p>کالاهایی که با قلب انتخاب کرده‌اید.</p><button type="button" data-molavi-save-favorites>ذخیرهٔ همه به‌صورت سبد</button></div>
+            <div class="molavi-library-toolbar"><p class="screen-reader-text">انتقال همه، علاقه‌مندی‌ها را در یک سبد جدید ذخیره می‌کند.</p><div class="molavi-transfer-actions"><button type="button" data-molavi-save-favorites>انتقال همه به سبد جدید</button><button type="button" data-molavi-move-existing>به سبد موجود</button></div></div>
             <div class="molavi-library-products" data-molavi-favorite-products></div>
         </section>
         <section id="molavi-saved-carts" class="molavi-library-panel" role="tabpanel" aria-labelledby="molavi-saved-carts-tab" data-molavi-library-panel="carts" hidden>
-            <div class="molavi-library-toolbar"><p>انتخاب‌های آماده برای خرید دوباره.</p><button type="button" data-molavi-save-list>ذخیرهٔ سبد خرید فعلی</button></div>
+            <?php /* Retain a hidden legacy hook while older cached scripts finish loading. */ ?><button type="button" data-molavi-save-list hidden></button>
             <div class="molavi-library-carts" data-molavi-saved-carts></div>
         </section>
-        <footer class="molavi-library-footer"><p data-molavi-lists-status role="status" aria-live="polite"></p><button type="button" class="molavi-library-retry" data-molavi-library-retry hidden>تلاش دوباره</button><small>روی همین مرورگر ذخیره می‌شود. قیمت و امکان خرید هنگام افزودن به سبد بررسی می‌شود.</small></footer>
+        <footer class="molavi-library-footer">
+
+            <button type="button" class="molavi-library-retry" data-molavi-import-library hidden>افزودن انتخاب‌های مرورگر به حساب</button>
+            <?php if (!is_user_logged_in()): ?><a class="molavi-library-account-link" href="<?php echo esc_url(wc_get_page_permalink('myaccount')); ?>">برای دسترسی در دستگاه‌های دیگر وارد شوید</a><?php endif; ?>
+        </footer>
+        <div class="molavi-library-toast" data-molavi-toast hidden>
+            <p data-molavi-lists-status role="status" aria-live="polite"></p>
+
+            <button type="button" class="molavi-library-retry" data-molavi-library-retry hidden>تلاش دوباره</button>
+        </div>
+
+    </dialog>
+    <dialog class="molavi-library-prompt" data-molavi-library-prompt aria-labelledby="molavi-prompt-title">
+        <form data-molavi-prompt-form>
+            <h2 id="molavi-prompt-title"></h2><p data-molavi-prompt-message></p>
+            <label data-molavi-prompt-name-wrap hidden>نام سبد<input name="list_name" maxlength="60" autocomplete="off"></label>
+            <label data-molavi-prompt-target-wrap hidden>سبد مقصد<select name="target"></select></label>
+            <div class="molavi-prompt-actions"><button type="button" data-molavi-prompt-cancel>انصراف</button><button type="submit" data-molavi-prompt-confirm>تأیید</button></div>
+        </form>
     </dialog>
     <?php
 }
@@ -436,7 +470,7 @@ function molavi_render_storefront_basket(array $quote): void
                     <div class="molavi-bline-copy">
                         <h3><?php echo esc_html((string) $row['name']); ?></h3>
                         <p><strong><?php echo esc_html(molavi_toman($unit)); ?></strong> × <?php echo esc_html(molavi_digits((string) $qty)); ?></p>
-                        <small class="molavi-order-step">گام سفارش: <?php echo esc_html(molavi_digits((string) $step)); ?> عدد</small>
+                        <small class="molavi-order-step">گام سفارش: <strong><?php echo esc_html(molavi_digits((string) $step)); ?> عدد</strong></small>
                         <?php if ($invalidLine): ?>
                             <small class="molavi-buyer-line-warning">تعداد فعلی با این گام هماهنگ نیست.</small>
                             <button type="button" class="molavi-line-update" data-molavi-set-qty="<?php echo esc_attr((string) $invalidLine['needed_quantity']); ?>">
