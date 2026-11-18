@@ -6,6 +6,7 @@ $GLOBALS['filters']=[];$GLOBALS['transients']=[];$GLOBALS['products']=[];
 function add_action($key,$callback,$priority=10,$accepted=1){$GLOBALS['filters'][$key][]=$callback;}
 function add_filter($key,$callback,$priority=10,$accepted=1){add_action($key,$callback,$priority,$accepted);}
 function is_admin(){return false;}function wp_doing_ajax(){return false;}function is_cart(){return $GLOBALS['test_is_cart']??false;}
+function is_user_logged_in(){return false;}
 function add_option($key,$value){}
 function get_option($key,$default=false){return $default;}function get_transient($key){return $GLOBALS['transients'][$key]??false;}
 function set_transient($key,$value,$ttl){$GLOBALS['transients'][$key]=$value;}function delete_transient($key){unset($GLOBALS['transients'][$key]);}

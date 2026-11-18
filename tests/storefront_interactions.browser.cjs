@@ -33,6 +33,13 @@ const source=path.resolve(__dirname,'../shop-wp/molavi-shop'),fixture=process.en
  await page.evaluate(config=>window.molaviShop=config,{catalog:data.catalog,initial:quote,qtys:{},buyerType:'household',nonce:'test-nonce',qty:'/?wc-ajax=molavi_qty',restoreList:'/?wc-ajax=molavi_restore_list',catalogEndpoint:'/?wc-ajax=molavi_catalog',checkout:'/checkout/'});
  await page.addScriptTag({content:fs.readFileSync(source+'/shop.js','utf8')});
  const library=page.locator('#molavi-favorites-dialog'),first=page.locator('[data-molavi-grid] [data-molavi-card]').first();
+ async function saveNamedCart(view, name) {
+  await view.locator('[data-molavi-new-cart]').click();
+  const prompt = view.locator('[data-molavi-library-prompt][open]');
+  await prompt.locator('input[name=list_name]').fill(name);
+  await prompt.locator('[data-molavi-prompt-confirm]').click();
+  await view.locator('[data-molavi-list-name]').getByText(name, {exact:true}).waitFor();
+ }
  assert.equal(await page.locator('[data-molavi-grid] [data-molavi-card]').count(),24);assert.equal(writes.length,0,'page load is read only');
  assert.equal(await page.locator('[data-molavi-basket] [data-molavi-lists]').count(),0,'cart contains no saved-cart system');
  assert.equal(await page.locator('[data-molavi-mobile-count]').isVisible(),false,'empty-cart badge is absent');
@@ -46,23 +53,42 @@ const source=path.resolve(__dirname,'../shop-wp/molavi-shop'),fixture=process.en
  assert.equal(await library.locator('.molavi-library-product').count(),2,'favorites include off-page products');
  assert.equal(await library.locator('.molavi-library-product[data-product="1"] .molavi-add span').innerText(),'افزودن ۴ عدد','new favorite controls initialize without an existing button');
  const beforeSave=writes.length;await library.locator('[data-molavi-save-favorites]').click();assert.equal(writes.length,beforeSave,'favorites become a saved cart without changing active cart');
- let lists=await page.evaluate(()=>JSON.parse(localStorage.getItem('molavi-shopping-lists-v1')));assert.deepEqual(lists[0].items,{'1':4,'52':4});assert.equal(lists[0].name,'سبد ۱');assert.equal(lists[0].price,undefined);
- let row=library.locator('[data-molavi-saved-cart]').first();await row.locator('summary').click();await row.locator('[data-molavi-rename-list]').click();await row.locator('input[name=name]').fill('خرید هفتگی');await row.locator('button[type=submit]').click();
- assert.equal(await library.locator('summary strong').first().innerText(),'خرید هفتگی','rename is optional and inline');
- await library.locator('[data-molavi-save-list]').click();assert.equal(await library.locator('[data-molavi-saved-cart]').count(),2,'active cart can also be saved without a naming prompt');
- assert.deepEqual(await page.evaluate(()=>JSON.parse(localStorage.getItem('molavi-wishlist-v1'))),['52','1'],'saving cart does not pollute favorite products');
- row=library.locator('[data-molavi-saved-cart]').filter({hasText:'خرید هفتگی'});if(!await row.evaluate(node=>node.open))await row.locator('summary').click();await row.locator('[data-molavi-load-list]').click();await library.locator('[data-molavi-lists-status]').filter({hasText:'۲ کالا اضافه شد'}).waitFor();
- assert.equal(writes.at(-1),'merge');assert.equal(quote.qtys['52'],8);
- await row.locator('[data-molavi-replace-list]').click();await library.locator('[data-molavi-lists-status]').filter({hasText:'سبد خرید جدید آماده شد'}).waitFor();assert.deepEqual(quote.qtys,{'1':4,'52':4});
- lists=await page.evaluate(()=>JSON.parse(localStorage.getItem('molavi-shopping-lists-v1')));assert.deepEqual(lists[0].items,{'1':4,'52':8},'replacement preserves previous cart');
+ let lists=await page.evaluate(()=>JSON.parse(localStorage.getItem('molavi-shopping-lists-v1')));
+ assert.deepEqual(lists[0].items,{'1':4,'52':4});
+ assert.deepEqual(lists[0].favorite_ids.slice().sort(),['1','52']);
+ assert.equal(lists[0].name,'سبد ۱');assert.equal(lists[0].price,undefined);
+ assert.deepEqual(await page.evaluate(()=>JSON.parse(localStorage.getItem('molavi-wishlist-v1'))),[]);
+ let row=library.locator('[data-molavi-saved-cart]').first();
+ await row.locator('[data-molavi-rename-list]').click();
+ await row.locator('[data-molavi-inline-rename] input').fill('خرید هفتگی');
+ await row.locator('[data-molavi-inline-rename] [data-save]').click();
+ assert.equal(await library.locator('summary strong').first().innerText(),'خرید هفتگی','rename is inline');
+ await saveNamedCart(page,'سبد فعلی');
+ assert.equal(await library.locator('[data-molavi-saved-cart]').count(),2,'the active cart can be copied to a named list');
+ assert.deepEqual(await page.evaluate(()=>JSON.parse(localStorage.getItem('molavi-wishlist-v1'))),[],'saving a cart preserves favorites');
+ row=library.locator('[data-molavi-saved-cart]').filter({hasText:'خرید هفتگی'});
+ if(!await row.evaluate(node=>node.open))await row.locator('summary').click();
+ await Promise.all([
+  page.waitForResponse(response=>response.url().includes('wc-ajax=molavi_restore_list')),
+  row.locator('[data-molavi-load-list]').click(),
+ ]);
+ assert.equal(writes.at(-1),'merge');assert.deepEqual(quote.qtys,{'1':4,'52':8});
+ await row.locator('[data-molavi-list-favorites]').click();
+ assert.deepEqual(await page.evaluate(()=>JSON.parse(localStorage.getItem('molavi-wishlist-v1')).sort()),['1','52']);
  await page.screenshot({path:'/tmp/molavi-library-desktop.png'});await page.keyboard.press('Escape');
  await first.locator('h3 a').evaluate(node=>{node.textContent='عنوان کامل و بسیار بلند محصول برای بررسی خوانایی در هر دو حالت شبکه‌ای و فهرستی بدون بریده شدن بخش پایانی';});
  async function titleFits(){return first.locator('h3 a').evaluate(node=>node.scrollHeight<=node.clientHeight+1&&getComputedStyle(node).overflow!=='hidden');}
  assert.equal(await titleFits(),true);await page.locator('[data-molavi-view=list]').click();assert.equal(await titleFits(),true);await page.screenshot({path:'/tmp/molavi-polish-list-desktop.png'});await page.locator('[data-molavi-view=grid]').click();await page.screenshot({path:'/tmp/molavi-polish-desktop.png'});
  await page.setViewportSize({width:390,height:844});await page.waitForTimeout(200);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);assert.equal(await titleFits(),true);
  await page.locator('[data-molavi-view=list]').click();assert.equal(await titleFits(),true);await page.screenshot({path:'/tmp/molavi-polish-list-mobile.png'});await page.locator('[data-molavi-view=grid]').click();
- await page.waitForTimeout(4400);const compact=await page.locator('.molavi-mobile-basket').boundingBox(),badge=await page.locator('[data-molavi-mobile-count]').boundingBox(),icon=await page.locator('.molavi-mobile-cart-icon').boundingBox();
- assert.ok(compact.width<=60&&compact.x<30&&compact.y>700);assert.ok(badge.x+badge.width>icon.x+icon.width-4&&badge.y<icon.y+4&&badge.y>=compact.y,'badge sits at icon upper right without clipping');
+ await page.waitForTimeout(4400);
+ const compact=await page.locator('.molavi-mobile-basket').boundingBox();
+ const badge=await page.locator('[data-molavi-mobile-count]').boundingBox();
+ assert.ok(compact.width<=60&&compact.x<30&&compact.y>700);
+ const right=compact.x+compact.width;
+ assert.ok(badge.x<right&&badge.x+badge.width>right&&badge.y<compact.y
+           &&badge.y+badge.height>compact.y&&badge.x+badge.width<=390,
+           'badge overlaps the compact cart’s upper-right corner inside the viewport');
  await page.setViewportSize({width:320,height:760});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'320px catalog fits');
  await page.locator('.molavi-mobile-basket').evaluate(node=>node.classList.add('is-peeking'));assert.equal(await page.locator('.molavi-mobile-total').isVisible(),false,'narrow cart summary prioritizes discount and savings');await page.locator('.molavi-mobile-basket').evaluate(node=>node.classList.remove('is-peeking'));
  await page.locator('[data-molavi-open-library]').click();assert.equal(await library.evaluate(node=>node.getBoundingClientRect().right<=innerWidth),true,'320px library fits');await page.keyboard.press('Escape');
@@ -70,9 +96,9 @@ const source=path.resolve(__dirname,'../shop-wp/molavi-shop'),fixture=process.en
  await page.screenshot({path:'/tmp/molavi-polish-mobile.png'});await page.locator('.molavi-mobile-basket').click();await page.locator('#molavi-basket-dialog.is-open').waitFor();assert.equal(await page.locator('#molavi-basket-dialog [data-molavi-lists]').count(),0);
  await page.keyboard.press('Escape');await page.locator('[data-molavi-open-library]').click();await library.locator('[data-molavi-library-tab=products]').click();await page.screenshot({path:'/tmp/molavi-library-mobile.png'});
  await library.locator('[data-molavi-library-tab=products]').focus();await page.keyboard.press('ArrowLeft');assert.equal(await library.locator('[data-molavi-library-tab=carts]').getAttribute('aria-selected'),'true','tabs support keyboard navigation');await page.keyboard.press('Escape');
- failRead=true;await page.locator('[data-molavi-open-library]').click();await library.locator('[data-molavi-library-retry]').waitFor();assert.deepEqual(await page.evaluate(()=>JSON.parse(localStorage.getItem('molavi-wishlist-v1'))),['52','1']);await library.locator('[data-molavi-library-retry]').click();await page.waitForFunction(()=>document.querySelector('[data-molavi-library-retry]').hidden);await page.keyboard.press('Escape');
+ failRead=true;await page.locator('[data-molavi-open-library]').click();await library.locator('[data-molavi-library-retry]').waitFor();assert.deepEqual(await page.evaluate(()=>JSON.parse(localStorage.getItem('molavi-wishlist-v1')).sort()),['1','52']);await library.locator('[data-molavi-library-retry]').click();await page.waitForFunction(()=>document.querySelector('[data-molavi-library-retry]').hidden);await page.keyboard.press('Escape');
  await page.locator('.molavi-purchase-intro [data-molavi-open-help]').click();await page.locator('#molavi-shopping-help[open]').waitFor();await page.keyboard.press('Escape');await page.locator('[data-molavi-more]').click();await page.waitForFunction(()=>document.querySelectorAll('[data-molavi-grid] [data-molavi-card]').length===25);
- const collections=await library.evaluate(node=>node.outerHTML),native=await browser.newPage({viewport:{width:1000,height:900}});
+ const collections=await library.evaluate(node=>node.outerHTML+document.querySelector('[data-molavi-library-prompt]').outerHTML),native=await browser.newPage({viewport:{width:1000,height:900}});
  let nativeQty=12,nativeReads=0,nativeWrites=0;
  function nativeQuote(){return Object.assign({},quote,{qtys:{'52':nativeQty},count:nativeQty,kinds:1,subtotal:Number(quote.units['52'])*nativeQty});}
  await native.route('http://molavi-native.test/**',route=>{
@@ -83,11 +109,11 @@ const source=path.resolve(__dirname,'../shop-wp/molavi-shop'),fixture=process.en
   return route.fulfill({body:'<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"></head><body class="molavi-site-page woocommerce-cart">'+heart+'<main class="molavi-customer-main"><div class="woocommerce"><form class="woocommerce-cart-form"><div class="woocommerce-cart-form__cart-item"><a data-product_id="52"></a><input class="qty" value="'+nativeQty+'"></div><button name="update_cart">به‌روزرسانی</button></form></div></main>'+collections+'</body></html>',contentType:'text/html;charset=utf-8'});
  });
  await native.goto('http://molavi-native.test/cart/');await native.evaluate(config=>window.molaviShop=config,{catalog:data.catalog,initial:nativeQuote(),qtys:{'52':4},buyerType:'household',nonce:'test-nonce',qty:'/?wc-ajax=molavi_qty',catalogEndpoint:'/?wc-ajax=molavi_catalog'});await native.addScriptTag({content:fs.readFileSync(source+'/shop.js','utf8')});
- await native.locator('[data-molavi-open-library]').click();await native.locator('[data-molavi-library-tab=carts]').click();await native.locator('[data-molavi-save-list]').click();assert.deepEqual(await native.evaluate(()=>JSON.parse(localStorage.getItem('molavi-shopping-lists-v1'))[0].items),{'52':12},'native cart saves current form quantities');
+ await native.locator('[data-molavi-open-library]').click();await saveNamedCart(native,'سبد اول');assert.deepEqual(await native.evaluate(()=>JSON.parse(localStorage.getItem('molavi-shopping-lists-v1'))[0].items),{'52':12},'native cart saves current form quantities');
  await native.evaluate(()=>{localStorage.setItem('molavi-wishlist-v1','["52"]');dispatchEvent(new StorageEvent('storage',{key:'molavi-wishlist-v1'}));});await native.locator('[data-molavi-library-tab=products]').click();
  await native.locator('.molavi-library-product .molavi-step button:not([data-molavi-step^="-"])').click();await native.waitForFunction(()=>document.querySelector('form input.qty').value==='16');
  assert.equal(nativeWrites,1);assert.ok(nativeReads>0,'native cart re-renders with a read after library quantity changes');assert.equal(await native.locator('#molavi-favorites-dialog').evaluate(node=>node.open),true,'native cart refresh keeps the heart library open');
- await native.locator('[data-molavi-library-tab=carts]').click();await native.waitForFunction(()=>document.querySelector('[data-molavi-save-list]').disabled===false);await native.locator('[data-molavi-save-list]').click();assert.deepEqual(await native.evaluate(()=>JSON.parse(localStorage.getItem('molavi-shopping-lists-v1'))[0].items),{'52':16});
- await native.keyboard.press('Escape');await native.locator('form input.qty').fill('20');await native.locator('form input.qty').dispatchEvent('change');await native.locator('[data-molavi-open-library]').click();assert.equal(await native.locator('[data-molavi-save-list]').isDisabled(),true,'saved cart waits for native quantity update');
+ await saveNamedCart(native,'سبد دوم');assert.deepEqual(await native.evaluate(()=>JSON.parse(localStorage.getItem('molavi-shopping-lists-v1'))[0].items),{'52':16});
+ await native.keyboard.press('Escape');await native.locator('form input.qty').fill('20');await native.locator('form input.qty').dispatchEvent('change');await native.locator('[data-molavi-open-library]').click();assert.equal(await native.locator('[data-molavi-new-cart]').isDisabled(),true,'saved cart waits for native quantity update');
  await native.close();assert.deepEqual(errors,[]);console.log(JSON.stringify({passed:true,checks:40,cartWrites:writes,collectionReads:reads.length,errors}));await browser.close();
 })().catch(error=>{console.error(error);process.exit(1)});
