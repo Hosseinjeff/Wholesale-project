@@ -120,6 +120,9 @@ def run_runtime_task(queue,payload):
     elif task=='housekeeping':
         from catalog.durable import compact_pipeline_payloads
         compact_pipeline_payloads(queue)
+    elif task=='google_reference_index':
+        from reference_import.index_tasks import run_slice
+        return run_slice(queue, payload)
     else:raise ValueError('invalid runtime task')
     return {'ok':True,'task':task}
 

@@ -1290,6 +1290,17 @@ def runtime_host_route():
     if queue is None:return jsonify({'ok':False,'error':'queue_unavailable'}),503
     if request.method=='POST':
         body=request.get_json(silent=True) or {}
+        if body=={'action':'start_google_reference_index'}:
+            from reference_import.index_tasks import start
+            try:
+                index = start(queue)
+            except LookupError:
+                return jsonify({'ok':False,'error':'reference_unavailable'}),409
+            except ValueError:
+                return jsonify({'ok':False,'error':'reference_embedding_unconfigured'}),503
+            if index['state'] in {'queued','running'}:
+                _start_pipeline_worker(force=True)
+            return jsonify({'ok':True,'reference_index':index}),202
         if body=={'action':'configure_wordpress_connectors'}:
             from catalog.runtime_host import configure_wordpress_connectors
             try:return jsonify(configure_wordpress_connectors()),200
@@ -1300,7 +1311,11 @@ def runtime_host_route():
         except (ValueError,TypeError):return jsonify({'ok':False,'error':'invalid_tasks'}),400
         _start_pipeline_worker(force=True)
         return jsonify({'ok':True,'scheduled':scheduled,'wake_at':next_work_at(queue)}),202
-    response=jsonify({'ok':True,**storage_report(),'next_work_at':next_work_at(queue),'worker':queue.worker_status()})
+    if request.args.get('google_reference_index') == '1':
+        from reference_import.index_tasks import status
+        response = jsonify({'ok':True,'reference_index':status(queue)})
+    else:
+        response=jsonify({'ok':True,**storage_report(),'next_work_at':next_work_at(queue),'worker':queue.worker_status()})
     response.headers['Cache-Control']='no-store'
     return response
 

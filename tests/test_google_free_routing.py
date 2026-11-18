@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import tempfile
 import threading
+import time
 import unittest
 from unittest.mock import patch
 from datetime import datetime
@@ -296,6 +297,45 @@ class FreeRoutingTests(RoutingFixture):
 
 
 class ReferenceAITests(RoutingFixture):
+    def test_durable_reference_index_resumes_same_slice_after_quota_wait(self):
+        from catalog.runtime_host import next_work_at, run_runtime_task
+        from reference_import import index_tasks
+        queue = Handoffs(str(Path(self.temp.name) / 'pipeline.sqlite'))
+        index = EmbeddingIndex(self.embed_router(), 'gemini-embedding-001')
+        snapshot = {'snapshot_id': 'verified', 'rows': [row('one'), row('two'), row('three')]}
+        snapshot['rows'][1][0] = snapshot['rows'][1][1] = 'چای دوم'
+        snapshot['rows'][2][0] = snapshot['rows'][2][1] = 'چای سوم'
+        from contextlib import nullcontext
+        session = Session(self.embedding(), self.embedding(), self.embedding())
+        with patch.object(index_tasks, '_eligible_snapshot', return_value=snapshot), \
+                patch.object(index_tasks, '_configured_index', return_value=index), \
+                patch.object(index_tasks, 'SLICE_SIZE', 2), \
+                patch.object(index_tasks, 'google_api_key', return_value='synthetic'), \
+                patch.object(index_tasks.requests, 'Session', return_value=nullcontext(session)):
+            start = index_tasks.start(queue)
+            self.assertEqual(index_tasks.start(queue)['job_id'], start['job_id'])
+            original = index.router.request
+            retry_at = time.time() + 60
+            with patch.object(index.router, 'request', side_effect=[
+                    ({'embedding': {'values': [1] + [0]*767}}, index.model),
+                    QuotaDeferred(retry_at)]):
+                queue.run_one(finalize=None, publish=None, order_write=None,
+                              runtime_task=lambda payload: run_runtime_task(queue, payload))
+            waiting = queue.get(start['job_id'])
+            self.assertEqual(waiting['attempts'], 0)
+            self.assertEqual(next_work_at(queue), retry_at)
+            with queue.connect() as db:
+                db.execute('UPDATE jobs SET available=0 WHERE id=?', (start['job_id'],))
+            with patch.object(index.router, 'request', wraps=original) as provider:
+                for _ in range(2):
+                    queue.run_one(finalize=None, publish=None, order_write=None,
+                                  runtime_task=lambda payload: run_runtime_task(queue, payload))
+            self.assertEqual(provider.call_count, 2)
+            status = index_tasks.status(queue)
+            self.assertEqual((status['state'], status['covered_rows'], status['total_rows']),
+                             ('complete', 3, 3))
+            self.assertEqual(index_tasks.start(queue)['job_id'], status['job_id'])
+
     def embed_router(self, models=('gemini-embedding-001',)):
         return self.router(*[ModelBudget(name, ('embed',), 100, 1000000, 1000,
                           api='embed', bucket=name) for name in models])
