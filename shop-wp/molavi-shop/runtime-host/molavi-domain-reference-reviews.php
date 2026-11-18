@@ -4,6 +4,51 @@ declare(strict_types=1);
 defined('ABSPATH') || exit;
 
 function molavi_domain_reference_case_id(string $offer,string $snapshot): string {return 'item:'.hash('sha256',$offer."\0".$snapshot);}
+
+function molavi_domain_reference_extracted_titles(array $offers,string $offerId): array {
+    $byId=static fn(string $id): array=>array_values(array_filter($offers,
+        static fn(array $offer): bool=>(string)($offer['Offer ID']??'')===$id));
+    $matches=$byId($offerId);
+    if(count($matches)!==1) molavi_domain_fail('extracted_titles_unavailable',404);
+    $source=$matches[0];
+    $original=(string)($source['Derived From Offer ID']??'');
+    if($original!=='') {
+        $parents=$byId($original);
+        if(count($parents)===1) $source=$parents[0];
+    }
+
+    $sourceOfferId=(string)$source['Offer ID'];
+    $channel=static fn(array $offer): string=>(string)molavi_domain_py_value($offer['Channel Username']??null,$offer['Channel']??'');
+    $sourceChannel=$channel($source);
+    $batch=(string)($source['Batch ID']??'');
+    $message=(string)($source['Message ID']??'');
+    $post=molavi_domain_telegram_source_url($source['Source Post URL']??null);
+    $sourceKey=($message!==''||$post!=='')&&trim((string)($source['Original Message']??''))!==''
+        ? molavi_domain_ai_source_key($source) : '';
+    $latest=[];$generation=null;
+    foreach($offers as $offer) {
+        $id=(string)($offer['Offer ID']??'');
+        $offerBatch=(string)($offer['Batch ID']??'');
+        $offerMessage=(string)($offer['Message ID']??'');
+        if($id===''||$offerBatch===''||!empty($offer['Derived From Offer ID'])||$channel($offer)!==$sourceChannel) continue;
+        $sameReceipt=$offerBatch===$batch&&($message!==''?$offerMessage===$message:
+            $post!==''&&molavi_domain_telegram_source_url($offer['Source Post URL']??null)===$post);
+        if(!$sameReceipt&&($sourceKey===''||molavi_domain_ai_source_key($offer)!==$sourceKey)) continue;
+        // Each extraction appends its offers together. Keep the latest generation of this source.
+        $key=[$offerBatch,$offerMessage];
+        if($key!==$generation) {$latest=[];$generation=$key;}
+        $latest[$id]=$offer;
+    }
+    $titles=[];
+    foreach($latest?:[$source] as $offer) {
+        $name=trim((string)($offer['Product Name']??''));
+        if($name==='') continue;
+        $titles[]=['title'=>$name,'variant'=>trim((string)($offer['Variation Type']??'')),
+            'current'=>(string)$offer['Offer ID']===$sourceOfferId];
+    }
+    return $titles;
+}
+
 function molavi_domain_reference_latest(string $case): ?array {
     return molavi_domain_read('reference',static fn(SQLite3 $db)=>molavi_domain_row($db,'SELECT * FROM reference_item_decisions WHERE case_id=? ORDER BY sequence DESC LIMIT 1',[$case]));
 }
@@ -175,6 +220,12 @@ function molavi_domain_reference_proceed(array $body,string $actor,?string $cloc
 
 function molavi_domain_reference_reviews_api(string $method,?array $body,string $actor,?string $clock=null,array $query=[]): array {
     if ($method==='GET' && ($query['online']??'')==='1') return molavi_domain_search_online_reference($query);
+    if ($method==='GET' && ($query['view']??'')==='extracted-titles') {
+        $offerId=$query['offer_id']??null;
+        if(!is_string($offerId)||trim($offerId)===''||strlen($offerId)>300) molavi_domain_fail('invalid_query',400);
+        $tables=molavi_domain_sheets(['Offers']);
+        return ['ok'=>true,'titles'=>molavi_domain_reference_extracted_titles(molavi_domain_records($tables['Offers']),$offerId)];
+    }
     if ($method==='POST' && ($body['action']??'')==='proceed_without_reference') return molavi_domain_reference_proceed($body,$actor,$clock);
     $snapshot=molavi_domain_reference_active();$eligibility=molavi_domain_reference_use();
     if(!$eligibility['allow_automatic']||!$snapshot||$snapshot['snapshot_id']!==$eligibility['snapshot_id']){

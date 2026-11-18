@@ -16,7 +16,7 @@ function molavi_domain_http($method,$url,$options){
         ? [['name'=>'بیسکویت شکلاتی بنیس','permalink'=>'https://rezvanpakhsh.com/product/sample']] : [])];
 }
 foreach(['state-host','domain-core','domain-schemas','domain-orders','domain-gateway','domain-reference-parser','domain-reference-store','domain-reference-workflow','domain-products','domain-publisher',
-    'domain-product-derivation','domain-sheet-conflicts','domain-jobs','domain-bot-capabilities','domain-reference-matching','domain-reference-reviews'] as $file)require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-'.$file.'.php';
+    'domain-product-derivation','domain-sheet-conflicts','domain-jobs','domain-bot-capabilities','domain-reference-matching','domain-ai-review-model','domain-reference-reviews'] as $file)require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-'.$file.'.php';
 $GLOBALS['review_options']=['molavi_bot_capabilities_v1'=>['schema_version'=>1,'ai_configured'=>true,'extraction_policy_version'=>'gemini-'.str_repeat('a',16),'suggestion_policy_version'=>str_repeat('b',64),'image_extraction_enabled'=>false]];
 function molavi_domain_reference_use(){return $GLOBALS['review_eligibility'];}
 function molavi_domain_sheets($names,$fresh=false){return $GLOBALS['review_tables'];}
@@ -29,6 +29,22 @@ review_same($search['matched_query'],'بیسکویت شکلاتی','search retri
 review_same(count($search['results']),1,'fallback returns a comparison result');
 review_same(molavi_domain_search_online_reference($searchQuery),$search,'fallback reply is cached');
 review_same($GLOBALS['search_terms'],['بیسکویت شکلاتی ۱۲ عددی','بیسکویت شکلاتی'],'fallback stops after the first useful query');
+$columns=['Offer ID','Product Name','Variation Type','Batch ID','Channel Username','Message ID','Message Timestamp','Original Message','Derived From Offer ID'];
+$stamp='2026-11-17T05:00:00+00:00';
+$entries=[['old','Previous title','','original','supplier','11',$stamp,'Shared source','']];
+for($i=1;$i<=24;$i++) $entries[]=['new-'.$i,'Extraction title '.$i,$i===2?'Orange':'','reextract:run:message','supplier','12',$stamp,'Shared source',''];
+$entries[]=['other','Another message','','reextract:run:message','supplier','13',$stamp,'Different source',''];
+$entries[]=['derived','Owner edited title','','owner-batch','supplier','12',$stamp,'Shared source','new-2'];
+$GLOBALS['review_tables']=['Offers'=>[$columns,...$entries]];
+$extracted=static fn(string $id): array=>molavi_domain_reference_reviews_api('GET',null,'wp:7',null,
+    ['view'=>'extracted-titles','offer_id'=>$id])['titles'];
+$titles=$extracted('old');
+review_same(array_column($titles,'title'),array_map(static fn(int $i): string=>'Extraction title '.$i,range(1,24)),
+    'all titles from the newest extraction of the source, including titles beyond the first twenty');
+review_same($titles[1],['title'=>'Extraction title 2','variant'=>'Orange','current'=>false],
+    'an older offer does not mark an unrelated new title as the current one');
+review_same($extracted('derived')[1]['current'],true,'a derived offer marks its original extraction title');
+review_same(array_column($extracted('other'),'title'),['Another message'],'separate messages in one batch keep separate title lists');
 function review_seed($store,$seed){$db=molavi_domain_db($store);foreach($store==='pipeline'?['jobs','ai_confirmation_decisions','sheet_projection_state','sheet_sync_conflicts','product_status_snapshots','product_status_records']:
     ['reference_snapshots','reference_active','reference_item_decisions','reference_item_inheritances'] as $table)$db->exec('DELETE FROM '.$table);$db->exec('DELETE FROM sqlite_sequence WHERE name=\'reference_item_decisions\'');
     foreach($seed as $step)molavi_domain_sql($db,$step['sql'],$step['params']);$db->close();}

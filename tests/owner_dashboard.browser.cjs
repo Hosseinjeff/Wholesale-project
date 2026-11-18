@@ -19,7 +19,7 @@ const fixtures={
 (async()=>{
  const browser=await chromium.launch({executablePath:'/usr/bin/chromium',headless:true,args:['--no-sandbox']});
  const page=await browser.newPage({viewport:{width:1365,height:1000}});const errors=[];const writes=[];let failPrices=false;let acceptPrice=false;let offerPreviews=0;let latestRun='';let runComplete=false;let groupedLoads=0;
- let activeReads=0,maxActiveReads=0,transientStatusOnce=true,statusReads=0,changeReads=0,catalogSearches=0;
+ let activeReads=0,maxActiveReads=0,transientStatusOnce=true,statusReads=0,changeReads=0,catalogSearches=0,titleReads=0;
  page.on('pageerror',e=>errors.push(e.message));
  await page.route('**/*',async route=>{
   const req=route.request();if(req.url().includes('/admin-ajax.php')){
@@ -96,6 +96,13 @@ const fixtures={
     if (path==='/reference/item-reviews'&&new URLSearchParams(f.get('query')).get('online')==='1') {
      catalogSearches++;
      return await route.fulfill({json:{ok:true,results:[{title:'نمونه آنلاین',url:'https://rezvanpakhsh.com/product/example'}]}});
+    }
+    if(path==='/reference/item-reviews'&&new URLSearchParams(f.get('query')).get('view')==='extracted-titles'){
+     titleReads++;
+     const offer=new URLSearchParams(f.get('query')).get('offer_id');
+     assert(['offer-4','offer-10'].includes(offer));
+     return await route.fulfill({json:{ok:true,titles:[{title:offer==='offer-10'?'سس کچاپ':'بیسکویت شکلاتی',current:true},
+      {title:'سس فلفل تند'},{title:'سس خردل',variant:'بدون شکر'}]}});
     }
     if(path==='/pipeline/ai-confirmations'){
      const query=new URLSearchParams(f.get('query'));
@@ -274,6 +281,18 @@ const fixtures={
  await page.locator('.md-card-panel').getByText(/گام فعلی/).waitFor();
  cases.pop();
  assert.equal(writes.filter(entry=>entry.payload && JSON.parse(entry.payload).action==='start_offer_reextraction').length,1);
+ const referenceCases=fixtures['/reference/item-reviews'].cases;
+ referenceCases.push({case_id:'reference-10',offer_id:'offer-10',product_id:'10',product_name:'سس کچاپ',snapshot_id:'snapshot-A',candidates:[]});
+ await mount('&offer_id=offer-10');
+ await page.getByRole('tab',{name:'مرجع؛ نیازمند اقدام'}).waitFor();
+ const referenceTitles=page.locator('.md-card-panel .molavi-extracted-titles');
+ assert.equal(titleReads,0,'opening the reference tab leaves the source title fetch on demand');
+ await referenceTitles.getByText('عنوان‌های آخرین استخراج این پیام',{exact:true}).click();
+ await referenceTitles.getByText('سس خردل · بدون شکر',{exact:true}).waitFor();
+ assert.equal(await referenceTitles.locator('li').count(),3);
+ await referenceTitles.locator('li').filter({hasText:'این پیشنهاد'}).getByText('سس کچاپ').waitFor();
+ assert.equal(titleReads,1);
+ referenceCases.pop();
  const extraction=fixtures['/pipeline/ai-confirmations'].cases[0];
  extraction.reference_candidates=[{name:'مرجع بیسکویت',reference_id:'ref-4',price_role_hint:{role:'unit'}}];
  extraction.source_current_check_required=true;
@@ -283,6 +302,9 @@ const fixtures={
  assert.equal(await page.getByRole('tab',{name:/^قیمت/}).count(),0,'a deep link cannot skip extraction');
  assert.equal(await page.getByRole('button',{name:'منبع فعلی را دیدم؛ قیمت تأیید است'}).count(),0);
  await page.getByText('گام فعلی · انتخاب مرجع و مبنای قیمت',{exact:true}).waitFor();
+ const assignmentTitles=page.locator('.md-card-panel .molavi-extracted-titles');
+ await assignmentTitles.getByText('عنوان‌های آخرین استخراج این پیام',{exact:true}).click();
+ await assignmentTitles.getByText('بیسکویت شکلاتی',{exact:true}).waitFor();
  assert.equal(await page.getByText('قیمت و موجودی امروز',{exact:true}).count(),0,'freshness follows reference selection');
  assert.equal(await page.locator('.molavi-ai-confirmation-step').count(),0,'reference must be saved before confirmation');
  await page.getByRole('combobox',{name:'انتخاب کالای مرجع'}).selectOption('ref-4');

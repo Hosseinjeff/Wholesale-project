@@ -329,6 +329,7 @@
             package_count_required: 'برای انتخاب قیمت بسته، تعداد در بسته یا کارتن باید مشخص باشد.',
             unknown_reference: 'این مرجع در نسخه فعال فهرست نیست؛ فهرست را تازه کنید.',
             online_reference_unavailable: 'کاتالوگ آنلاین رزوان در دسترس نیست؛ دوباره تلاش کنید.',
+            extracted_titles_unavailable: 'عنوان‌های استخراج‌شدهٔ این پیشنهاد در دسترس نیست.',
             invalid_search_query: 'برای جست‌وجو بین ۲ تا ۱۲۰ حرف وارد کنید.'
         };
         return labels[code] || 'ارتباط با سرور برقرار نشد. کد پیگیری: ' + (code || 'نامشخص');
@@ -2505,12 +2506,52 @@
         return container;
     }
 
+    function extractedTitles(offerId) {
+        const details=node('details',null,'molavi-extracted-titles');
+        const label='عنوان‌های آخرین استخراج این پیام';
+        const summary=node('summary',label);
+        const status=node('p');status.setAttribute('role','status');
+        const list=node('ul');list.hidden=true;
+        details.append(summary,status,list);
+        let requested=false;
+        const load=async()=>{
+            if (requested) return;
+            requested=true;status.hidden=false;status.textContent='در حال دریافت عنوان‌ها…';
+            try {
+                const url=new URL('/reference/item-reviews',config.apiUrl);
+                url.searchParams.set('view','extracted-titles');url.searchParams.set('offer_id',offerId);
+                const {titles}=await request('GET',undefined,url.toString(),'reference_items');
+                if (!titles.length) {
+                    status.textContent='عنوانی برای این پیام ثبت نشده است.';
+                    return;
+                }
+                summary.textContent=`${label} · ${titles.length.toLocaleString('fa-IR')}`;
+                for (const item of titles) {
+                    const variant=aiDisplayKey(item.variant);
+                    const text=variant&&!aiDisplayKey(item.title).includes(variant) ? `${item.title} · ${item.variant}` : item.title;
+                    const row=node('li');
+                    if (item.current) row.append(node('strong',text),node('small',' · این پیشنهاد'));
+                    else row.textContent=text;
+                    list.appendChild(row);
+                }
+                status.hidden=true;list.hidden=false;
+            } catch (error) {
+                requested=false;
+                const retry=node('button','دریافت دوبارهٔ عنوان‌ها','button');retry.type='button';
+                retry.addEventListener('click',load);
+                status.replaceChildren(document.createTextNode(`${errorText(error.message)} `),retry);
+            }
+        };
+        details.addEventListener('toggle',()=>{if (details.open) load();});
+        return details;
+    }
+
     function productReferenceTools(product) {
         const status=product.status;
         const offerId=status?.latest_offer_id;
         if (!offerId || status.reference_match_id) return null;
         const tools=node('details');
-        tools.append(node('summary','مرجع کالا'),onlineProductSearch(product.name));
+        tools.append(node('summary','مرجع کالا'),extractedTitles(offerId),onlineProductSearch(product.name));
         if (status.reference_approval_state!=='owner_without_reference') {
             tools.appendChild(proceedWithoutReference([{offer_id:offerId}],'reference'));
             return tools;
@@ -2529,7 +2570,8 @@
                     match.disabled=false;
                     return;
                 }
-                match.replaceWith(referenceItemCard(cases[0],Boolean(config.reviewStoreNonce),{embedded:true,apiKey:'reference_items'}));
+                match.replaceWith(referenceItemCard(cases[0],Boolean(config.reviewStoreNonce),{
+                    embedded:true,apiKey:'reference_items',hideExtractedTitles:true}));
             } catch (error) {
                 tools.appendChild(notice(errorText(error.message),'error'));
                 match.disabled=false;
@@ -2898,7 +2940,7 @@
             candidate?.reference_id && String(candidate.name || '').trim()));
         const assignmentOptions={...options,groupedVariants:relatedItems.length>1};
         if (matching.length) {
-            card.appendChild(node('h4','گام فعلی · انتخاب مرجع و مبنای قیمت'));
+            card.append(node('h4','گام فعلی · انتخاب مرجع و مبنای قیمت'),extractedTitles(item.offer_id));
             matching.forEach(row=>{
                 if (relatedItems.length>1) card.appendChild(node('h5',row.variation_type || row.product_name));
                 card.appendChild(aiReferenceAssignmentSection(row,contextStored,decisionsEnabled,assignmentOptions));
@@ -2909,8 +2951,7 @@
         }
         if (unmatched.length || relatedItems.some(row=>row.reference_waived)) {
             const suggestions=node('details');
-            suggestions.appendChild(node('summary','پیشنهاد مرجع'));
-            suggestions.appendChild(onlineProductSearch(cardName));
+            suggestions.append(node('summary','پیشنهاد مرجع'),extractedTitles(item.offer_id),onlineProductSearch(cardName));
             relatedItems.filter(row=>row.reference_snapshot_id && (unmatched.includes(row)||row.reference_waived))
                 .forEach(row=>suggestions.appendChild(aiReferenceAssignmentSection(row,contextStored,decisionsEnabled,assignmentOptions)));
             if (unmatched.length) suggestions.appendChild(proceedWithoutReference(unmatched,'ai',{
@@ -3055,7 +3096,7 @@
         const savedReferences=relatedItems.filter(row=>row.reference_snapshot_id && (row.reference_assignment?.choice==='match'||row.reference_match_id));
         if (savedReferences.length) {
             const saved=node('details');
-            saved.appendChild(node('summary','مرجع ثبت‌شده'));
+            saved.append(node('summary','مرجع ثبت‌شده'),extractedTitles(item.offer_id));
             savedReferences.forEach(row=>saved.appendChild(aiReferenceAssignmentSection(row,contextStored,decisionsEnabled,assignmentOptions)));
             confirmation.appendChild(saved);
         }
@@ -3892,6 +3933,7 @@
         const duplicateParentName = Boolean(options.embedded && options.parentName
             && aiDisplayKey(options.parentName) === aiDisplayKey(item.product_name));
         card.appendChild(reviewCardHeader(duplicateParentName ? '' : item.product_name || 'کالای بدون نام', 'تطبیق مرجع'));
+        if (!options.hideExtractedTitles) card.appendChild(extractedTitles(item.offer_id));
         card.appendChild(onlineProductSearch(item.product_name));
         if (!item.reference_waived) card.appendChild(proceedWithoutReference([item],'reference',{
             enabled:contextStored,refresh:options.refresh}));
