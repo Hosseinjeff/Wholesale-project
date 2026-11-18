@@ -18,7 +18,7 @@ const fixtures={
 };
 (async()=>{
  const browser=await chromium.launch({executablePath:'/usr/bin/chromium',headless:true,args:['--no-sandbox']});
- const page=await browser.newPage({viewport:{width:1365,height:1000}});const errors=[];const writes=[];let failPrices=false;let acceptPrice=false;let offerPreviews=0;
+ const page=await browser.newPage({viewport:{width:1365,height:1000}});const errors=[];const writes=[];let failPrices=false;let acceptPrice=false;let offerPreviews=0;let latestRun='';let runComplete=false;
  let activeReads=0,maxActiveReads=0,transientStatusOnce=true,statusReads=0;
  page.on('pageerror',e=>errors.push(e.message));
  await page.route('**/*',async route=>{
@@ -31,7 +31,16 @@ const fixtures={
       assert.equal(payload.offer_id,'offer-4');
       assert.equal(payload.policy_version,'gemini-2222222222222222');
       assert.equal(payload.expected_digest,'a'.repeat(64));
+      latestRun=payload.run_id;
       return route.fulfill({status:202,json:{ok:true,run_id:payload.run_id,queued:1,policy_version:payload.policy_version,digest:payload.expected_digest}});
+    }
+    if(path==='/reference/item-reviews'&&JSON.parse(f.get('payload')||'{}').action==='assign_ai_reference'){
+      const payload=JSON.parse(f.get('payload'));
+      const decision={choice:'match',reference_id:payload.reference_id,
+        price_role:payload.price_role,decision_id:'b'.repeat(64)};
+      fixtures['/pipeline/ai-confirmations'].cases[0].reference_assignment=decision;
+      return route.fulfill({json:{ok:true,...decision,case_id:payload.case_id,offer_id:payload.offer_id,snapshot_id:payload.snapshot_id,
+        projection_state:'awaiting_ai_confirmation',publish_job:null}});
     }
     if(path==='/reference/item-reviews'&&JSON.parse(f.get('payload')||'{}').action==='suggest_reference'){
       const payload=JSON.parse(f.get('payload'));
@@ -66,13 +75,20 @@ const fixtures={
      const common={ok:true,ai_configured:true,policy_version:fixtures[path].extraction_policy_version,digest:'a'.repeat(64)};
      if(query.get('reextract')==='offer'){
       offerPreviews++;
-      return await route.fulfill({json:{...common,reason:'updated_policy',offer_id:query.get('offer_id')}});
+      return await route.fulfill({json:{...common,reason:latestRun?'already_current':'updated_policy',
+       latest_run_id:latestRun||null,digest:latestRun?null:common.digest,offer_id:query.get('offer_id')}});
      }
      if(query.get('reextract')==='preview'){
       return await route.fulfill({json:{...common,recent_policy:{...common,eligible_count:2},
        ...(query.get('selection')==='1'?{selection:{count:2,digest:'a'.repeat(64),scope:'all',source_channels:[]}}:{})}});
      }
-     if(query.get('reextract')==='run') return await route.fulfill({json:{...common,state:'running',total:1,completed:0,counts:{queued:1}}});
+     if(query.get('reextract')==='run'){
+      assert.equal(query.get('summary'),'1');
+      return await route.fulfill({json:{...common,total:1,...(runComplete
+        ?{state:'complete',completed:1,counts:{done:1},outcomes:{reprocessed:1},products_found:3,offers_written:3,open_cases_remaining:2,
+          catalog_publication:{state:'waiting_publication'}}
+        :{state:'running',completed:0,counts:{queued:1}})}});
+     }
     }
     return await route.fulfill({json:{ok:true,...(fixtures[path]||{})}});
    }finally{activeReads--;}
@@ -115,7 +131,8 @@ const fixtures={
  await page.locator('.md-product-card').getByRole('button',{name:'بررسی مشخصات',exact:true}).click();
  await page.getByText('اصلاح دستی؛ فقط اگر داده استخراج‌شده اشتباه است',{exact:true}).click();
  await page.locator('input[name="sale_price"]').fill('130000');
- await page.getByRole('tab',{name:'مرجع',exact:true}).click();
+ assert.equal(await page.getByRole('tab',{name:'مرجع',exact:true}).count(),0,'later tabs are hidden during extraction');
+ await page.getByRole('tab',{name:'منبع',exact:true}).click();
  await page.getByRole('tab',{name:'مشخصات؛ نیازمند اقدام',exact:true}).click();
  assert.equal(await page.locator('input[name="sale_price"]').inputValue(),'130000','draft survives section switch');
  assert.deepEqual(errors,[]);
@@ -144,7 +161,8 @@ const fixtures={
  await page.getByRole('button',{name:'منبع فعلی را دیدم؛ قیمت تأیید است'}).waitFor();
  acceptPrice=true;await page.getByRole('button',{name:'منبع فعلی را دیدم؛ قیمت تأیید است'}).click();
  await page.locator('.md-feedback').filter({hasText:'قیمت تأیید شد و انتشار دوباره در صف قرار گرفت.'}).waitFor();
- await page.waitForFunction(()=>document.querySelectorAll('.md-product-card').length===0);
+ assert.equal(await page.locator('.md-product-card').count(),1,'a focused product stays visible after a decision');
+ await first.getByRole('button',{name:'تأیید قیمت',exact:true}).waitFor({state:'hidden'});
  assert.equal(writes.filter(w=>w.path==='/pipeline/supplier-price-evidence').length,1,'one deliberate revision-bound write');
  assert.equal(writes.filter(w=>w.action==='molavi_owner_review_store').length,2,'pending and accepted receipts');
  await mount('&workbench_action=ai');
@@ -161,6 +179,7 @@ const fixtures={
  await mount('&workbench_action=ai');
  await page.locator('.md-product-card').getByRole('button',{name:'بررسی مشخصات',exact:true}).click();
  const beforeSuggestion=writes.length;
+ await page.getByText('پیشنهاد مرجع',{exact:true}).click();
  await page.getByRole('button',{name:'درخواست پیشنهاد مرجع',exact:true}).click();
  await page.getByText('درخواست ثبت شد؛ برای دیدن نتیجه صفحه را تازه کنید. تأیید مرجع همچنان با شماست.').waitFor();
  assert.equal(writes.length,beforeSuggestion+1,'requesting a suggestion never submits an approval');
@@ -184,8 +203,33 @@ const fixtures={
  assert.equal(writes.length,beforeReplay,'preview never starts a run');
  page.once('dialog',dialog=>dialog.accept());
  await page.getByRole('button',{name:'شروع بازاستخراج همین پیام',exact:true}).click();
- await page.getByText(/بازاستخراج پیام‌ها: 0 از 1/).waitFor();
+ await page.getByText('بازاستخراج در صف است · 0 از 1 پیام',{exact:true}).waitFor();
+ runComplete=true;
+ await page.getByText('3 کالا شناسایی شد · 3 پیشنهاد ذخیره شد · 2 مورد برای بررسی',{exact:true}).waitFor();
+ await page.getByRole('button',{name:'دیدن توقف انتشار',exact:true}).waitFor();
+ await page.waitForTimeout(1500);
+ assert.equal(await page.getByText('بازاستخراج پایان یافت · 1 از 1 پیام',{exact:true}).isVisible(),true,'completion stays visible');
+ await mount('&workbench_action=ai');
+ await page.getByText('بازاستخراج همین پیام',{exact:true}).click();
+ await page.getByText('بازاستخراج پایان یافت · 1 از 1 پیام',{exact:true}).waitFor();
  assert.equal(writes.filter(entry=>entry.payload && JSON.parse(entry.payload).action==='start_offer_reextraction').length,1);
+ const extraction=fixtures['/pipeline/ai-confirmations'].cases[0];
+ extraction.reference_candidates=[{name:'مرجع بیسکویت',reference_id:'ref-4',price_role_hint:{role:'unit'}}];
+ extraction.source_current_check_required=true;
+ fixtures['/pipeline/supplier-price-evidence'].offers=[{product_id:'4',offer_id:'offer-4',name:extraction.product_name,
+   source_revision:'revision-4',source_post_url:extraction.source_post_url}];
+ await mount('&workbench_action=supplier_prices&offer_id=offer-4');
+ assert.equal(await page.getByRole('tab',{name:/^قیمت/}).count(),0,'a deep link cannot skip extraction');
+ assert.equal(await page.getByRole('button',{name:'منبع فعلی را دیدم؛ قیمت تأیید است'}).count(),0);
+ await page.getByText('گام فعلی · انتخاب مرجع و مبنای قیمت',{exact:true}).waitFor();
+ assert.equal(await page.getByText('قیمت و موجودی امروز',{exact:true}).count(),0,'freshness follows reference selection');
+ assert.equal(await page.locator('.molavi-ai-confirmation-step').count(),0,'reference must be saved before confirmation');
+ await page.getByRole('combobox',{name:'انتخاب کالای مرجع'}).selectOption('ref-4');
+ await page.getByRole('button',{name:'ثبت مرجع این مورد',exact:true}).click();
+ await page.getByText('قیمت و موجودی امروز',{exact:true}).waitFor();
+ assert.equal(await page.locator('.molavi-ai-confirmation-step').isVisible(),false,'confirmation remains hidden before current source check');
+ await page.locator('.molavi-reextract-current-check input').check();
+ await page.getByText('گام فعلی · تأیید مشخصات',{exact:true}).waitFor();
  assert.deepEqual(errors,[]);
  console.log(JSON.stringify({passed:true,errors,writes:writes.length,captures:['/tmp/molavi-dashboard-desktop.png','/tmp/molavi-dashboard-mobile.png']}));
  await browser.close();

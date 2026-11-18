@@ -93,11 +93,22 @@ $receipt=molavi_domain_ai_reviews_api('POST',[],$command,'wp:7');
 check_preview($receipt['queued'],1,'one-card request queues exactly one job');
 $db=molavi_domain_db();
 $job=molavi_domain_decode(molavi_domain_row($db,"SELECT payload FROM jobs WHERE kind='reextract'")['payload']);
-check_preview([$job['message_id'],$job['batch_id'],$job['policy_version']],['11','source-batch',$policy],'job targets the exact saved message and policy');
+check_preview([$job['message_id'],$job['batch_id'],$job['policy_version'],$job['requested_offer_id']],
+    ['11','source-batch',$policy,$offer],'job targets the exact saved message and policy');
+check_preview(molavi_domain_ai_offer_preview(['offer_id'=>$offer],$GLOBALS['preview_tables'])['latest_run_id'],$command['run_id'],
+    'the card can reopen the persisted run');
+molavi_domain_sql($db,"UPDATE jobs SET state='done',result=? WHERE kind='reextract'",
+    [molavi_domain_json(['status'=>'reprocessed','products_found'=>3,'offers_written'=>3,'open_cases_remaining'=>2])]);
+molavi_domain_sql($db,"INSERT INTO jobs (id,kind,payload,state,available) VALUES (?,?,?,'waiting_publication',0)",
+    ['publish:ai-reextraction:'.$command['run_id'],'publish','{}']);
+$result=molavi_domain_ai_reviews_api('GET',['reextract'=>'run','run_id'=>$command['run_id'],'summary'=>'1'],null,'wp:7');
+check_preview([$result['state'],$result['offers_written'],$result['open_cases_remaining'],$result['catalog_publication']['state']],
+    ['complete',3,2,'waiting_publication'],'run summary separates completed extraction from held publication');
 molavi_domain_sql($db,'UPDATE ai_source_reextractions SET policy_version=? WHERE source_key=?',[$policy,$sourceKey]);
 $db->close();
 $preview=molavi_domain_ai_offer_preview(['offer_id'=>$offer],$GLOBALS['preview_tables']);
 check_preview($preview['reason'],'already_current','same-version run already recorded');
+check_preview($preview['latest_run_id'],$command['run_id'],'finished run remains available after same-version guard');
 $GLOBALS['preview_tables']['Offers'][1][7]='owner-final';
 $preview=molavi_domain_ai_offer_preview(['offer_id'=>$offer],$GLOBALS['preview_tables']);
 check_preview($preview['reason'],'owner_decision','protect the owner decision');

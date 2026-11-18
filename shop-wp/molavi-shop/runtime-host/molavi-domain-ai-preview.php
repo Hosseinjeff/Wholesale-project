@@ -18,6 +18,19 @@ function molavi_domain_ai_active_run(): ?array {
     if(!$row)return null;$payload=molavi_domain_decode($row['payload']);$status=molavi_domain_ai_run_status((string)molavi_domain_py_value($payload['run_id']??null));
     if(!$status)return null;unset($status['items']);return $status;
 }
+function molavi_domain_ai_latest_run_id(string $offerId='', string $sourceKey=''): ?string {
+    return molavi_domain_read('pipeline',static function(SQLite3 $db)use($offerId,$sourceKey): ?string {
+        if ($offerId==='') {
+            $job=molavi_domain_row($db,"SELECT id FROM jobs WHERE kind='reextract' ORDER BY rowid DESC LIMIT 1");
+        } else {
+            $job=molavi_domain_row($db,"SELECT id FROM jobs WHERE kind='reextract' AND json_valid(payload)
+                AND (json_extract(payload,'$.requested_offer_id')=? OR (?<>'' AND json_extract(payload,'$.source_key')=?))
+                ORDER BY rowid DESC LIMIT 1",[$offerId,$sourceKey,$sourceKey]);
+        }
+        return preg_match('/^reextract:([a-f0-9]{32}):/D',(string)($job['id']??''),$match)?$match[1]:null;
+    });
+}
+
 function molavi_domain_ai_preview(array $query,array $tables,?float $clock=null): array {
     $caps=molavi_domain_bot_capabilities();$images=$caps['image_extraction_enabled'];$inventory=molavi_domain_ai_inventory($tables,$images);
     $selection=null;
@@ -39,6 +52,7 @@ function molavi_domain_ai_preview(array $query,array $tables,?float $clock=null)
     $result=['ok'=>true,'counts'=>$inventory['counts'],'ai_configured'=>$caps['ai_configured'],'recent_policy'=>$recentInfo,'pending_digest'=>molavi_domain_hash($keys),
         'media_review_messages'=>[],'media_review_total'=>0,'media_review_next_after'=>null,'open_cases'=>['case_count'=>$open['case_count'],'message_count'=>$open['message_count'],
             'unmatched_case_count'=>count($open['unmatched_case_ids']),'digest'=>$open['digest']],'active_run'=>molavi_domain_ai_active_run()];
+    if(($query['latest_run']??'')==='1') $result['latest_run_id']=molavi_domain_ai_latest_run_id();
     if(!$images){$result['image_extraction_enabled']=false;return $result;}
     $media=$inventory['media_review_messages'];$keys=array_column($media,'message_key');sort($keys,SORT_STRING);$result['media_review_digest']=molavi_domain_hash($keys);
     usort($media,static fn($a,$b)=>strcmp((string)($a['message_key']??''),(string)($b['message_key']??'')));$after=(string)($query['media_after']??'');
@@ -57,16 +71,17 @@ function molavi_domain_ai_offer_preview(array $query,array $tables): array {
     return [
         'ok'=>true,'offer_id'=>$offerId,'ai_configured'=>$caps['ai_configured'],'policy_version'=>$policy,
         'reason'=>$selection['reason'],'digest'=>$selection['digest']??null,'active_run'=>molavi_domain_ai_active_run(),
+        'latest_run_id'=>molavi_domain_ai_latest_run_id($offerId,$selection['source_key']??''),
         'source'=>$message?array_intersect_key($message,array_flip(['timestamp','source_post_url'])):null,
     ];
 }
 
-function molavi_domain_ai_run_report(array $query,array $tables,?float $clock=null): array {
-    $run=$query['run_id']??'';$status=molavi_domain_ai_run_status($run);if(!$status)molavi_domain_fail('unknown_reextraction_run',404);$outcomes=[];$products=0;$offers=0;
+function molavi_domain_ai_run_report(array $query,?array $tables,?float $clock=null): array {
+    $run=$query['run_id']??'';$status=molavi_domain_ai_run_status($run);if(!$status)molavi_domain_fail('unknown_reextraction_run',404);$outcomes=[];$products=0;$offers=0;$reviewCases=0;
     foreach($status['items'] as $item){$result=$item['result']??[];$outcome=(string)molavi_domain_py_value($result['status']??null,molavi_domain_py_value($item['state']??null,'unknown'));
-        $outcomes[$outcome]=($outcomes[$outcome]??0)+1;$products+=(int)molavi_domain_py_value($result['products_found']??null,0);$offers+=(int)molavi_domain_py_value($result['offers_written']??null,molavi_domain_py_value($result['staged_offers']??null,0));}
+        $outcomes[$outcome]=($outcomes[$outcome]??0)+1;$reviewCases+=(int)($result['open_cases_remaining']??0);$products+=(int)molavi_domain_py_value($result['products_found']??null,0);$offers+=(int)molavi_domain_py_value($result['offers_written']??null,molavi_domain_py_value($result['staged_offers']??null,0));}
     $publication=molavi_domain_read('pipeline',static fn(SQLite3 $db)=>molavi_domain_row($db,'SELECT state,result FROM jobs WHERE id=?',['publish:ai-reextraction:'.$run]));$response=$status;unset($response['items']);
-    $response=['ok'=>true]+$response+['outcomes'=>$outcomes,'products_found'=>$products,'offers_written'=>$offers,'open_cases_remaining'=>count(molavi_domain_ai_review_cases($tables,null,false,1000,$clock)),
+    $response=['ok'=>true]+$response+['outcomes'=>$outcomes,'products_found'=>$products,'offers_written'=>$offers,'open_cases_remaining'=>$tables===null?$reviewCases:count(molavi_domain_ai_review_cases($tables,null,false,1000,$clock)),
         'catalog_publication'=>['state'=>$publication?(string)molavi_domain_py_value($publication['state']):'','result'=>$publication?molavi_domain_decode($publication['result'],(object)[]):(object)[]]];
     if($response['catalog_publication']['result']===[])$response['catalog_publication']['result']=(object)[];return $response;
 }

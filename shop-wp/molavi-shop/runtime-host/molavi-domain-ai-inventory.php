@@ -59,14 +59,15 @@ function molavi_domain_ai_offer_selection(array $tables, string $offerId, string
     if(count($matches)!==1) return ['reason'=>'missing_offer','messages'=>[]];
     $offer=$matches[0];
     $sourceKey=molavi_domain_ai_source_key($offer);
+    $source=['source_key'=>$sourceKey];
     $sameSource=array_filter($offers,static fn($row)=>molavi_domain_ai_source_key($row)===$sourceKey);
     foreach($sameSource as $row) {
-        if(trim((string)($row['Owner Decision ID']??''))!=='') return ['reason'=>'owner_decision','messages'=>[]];
+        if(trim((string)($row['Owner Decision ID']??''))!=='') return ['reason'=>'owner_decision','messages'=>[]]+$source;
     }
     $previous=molavi_domain_read('pipeline',static fn(SQLite3 $db)=>molavi_domain_row($db,
         'SELECT policy_version FROM ai_source_reextractions WHERE source_key=? ORDER BY completed_at DESC LIMIT 1',[$sourceKey]));
     $lastPolicy=(string)($previous['policy_version']??'');
-    if($lastPolicy===$policy) return ['reason'=>'already_current','messages'=>[]];
+    if($lastPolicy===$policy) return ['reason'=>'already_current','messages'=>[]]+$source;
     $inventory=molavi_domain_ai_inventory($tables,false,$policy);
     $messages=array_values(array_filter($inventory['all_messages'],
         static fn($message)=>molavi_domain_ai_saved_source_key($message)===$sourceKey));
@@ -77,14 +78,14 @@ function molavi_domain_ai_offer_selection(array $tables, string $offerId, string
             $message['message_id']===$messageId && $message['batch_id']===$batchId));
         if(count($exact)===1) $messages=$exact;
     }
-    if(count($messages)!==1) return ['reason'=>count($messages)?'ambiguous_source':'source_unavailable','messages'=>[]];
+    if(count($messages)!==1) return ['reason'=>count($messages)?'ambiguous_source':'source_unavailable','messages'=>[]]+$source;
     $item=$messages[0];
-    if(molavi_domain_ai_held(molavi_domain_ai_hold_scope(),$item)) return ['reason'=>'held','messages'=>[]];
+    if(molavi_domain_ai_held(molavi_domain_ai_hold_scope(),$item)) return ['reason'=>'held','messages'=>[]]+$source;
     return [
         'reason'=>$lastPolicy!==''?'updated_policy':'ready',
-        'messages'=>[$item+['source_key'=>$sourceKey]],
+        'messages'=>[$item+$source],
         'digest'=>molavi_domain_hash([$policy,$offerId,$sourceKey,$item['message_key']]),
-    ];
+    ]+$source;
 }
 
 function molavi_domain_ai_case_inventory(array $tables,?float $clock=null): array {

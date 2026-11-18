@@ -164,6 +164,7 @@ function molavi_domain_ai_start(array $body, string $actor): array {
                 $payload += ['content_sha256'=>$hash,'reextraction_scope'=>$scope];
                 if ($scope==='recent_policy') {
                     $payload += ['source_key'=>$item['source_key'],'policy_version'=>$policy];
+                    if(isset($body['offer_id'])) $payload['requested_offer_id']=$body['offer_id'];
                     if ($images) $payload['media_ocr'] = !empty($item['media_ocr']);
                 } elseif (!$images) {
                     $payload['media_ocr'] = false;

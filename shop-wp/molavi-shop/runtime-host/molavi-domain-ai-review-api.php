@@ -8,9 +8,11 @@ function molavi_domain_ai_reviews_api(string $method, array $query, ?array $body
         $mode = $query['reextract'] ?? '';
         if ($mode==='offer') return molavi_domain_ai_offer_preview($query,molavi_domain_sheets(['MessageData','Offers'],true));
         if ($mode==='preview') return molavi_domain_ai_preview($query,molavi_domain_sheets(['MessageData','Offers'],true));
-        $tables = molavi_domain_sheets(['Offers'],true);
-        if ($mode==='run') return molavi_domain_ai_run_report($query,$tables);
-        return molavi_domain_ai_reviews_get($tables);
+        if ($mode==='run') {
+            $tables=($query['summary']??'')==='1'?null:molavi_domain_sheets(['Offers'],true);
+            return molavi_domain_ai_run_report($query,$tables);
+        }
+        return molavi_domain_ai_reviews_get(molavi_domain_sheets(['Offers'],true));
     }
     return match ($body['action'] ?? '') {
         'start_reextraction','start_open_case_reextraction','start_recent_policy_reextraction','start_offer_reextraction','start_media_reextraction' => molavi_domain_ai_start($body,$actor),

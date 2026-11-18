@@ -147,7 +147,7 @@
                 };
                 if(!(groups[state.focusType]||[]).filter(Boolean).map(String).includes(state.focus))return false;
             }
-            if(state.action&&!model.queueMatches(product,state.action))return false;
+            if(state.action&&!state.focus&&next(product)!==state.action)return false;
             if(state.action||state.focus)return true;
             if(state.scope==='ready')return Boolean(ready(product));
             if(state.scope==='waiting')return next(product)!=='next'&&!ready(product);
@@ -219,36 +219,35 @@
         function productCard(product) {
             const record=product.status||{};
             const source=sourceFor(product);
-            const preferred=state.action&&model.queueMatches(product,state.action)?state.action:next(product);
+            const preferred=next(product);
             const [label,tone]=stateLabel(product);
             const card=el('article',null,'md-product-card');card.dataset.productKey=product.key;
             const header=el('header',null,'md-card-header');
             const icon=el('span',(product.name||'ک').slice(0,1),'md-product-mark');icon.setAttribute('aria-hidden','true');
             const identity=el('div',null,'md-product-identity');identity.append(el('h2',product.name),el('p',product.channel||'تأمین‌کننده ثبت نشده'));
             header.append(icon,identity,el('span',label,`md-badge md-${tone}`));card.append(header);
-            const summary=el('div',null,'md-card-summary');
-            const price=source.sale_price||source.detected_price;
-            if(price)summary.append(el('span',`قیمت منبع: ${model.amount(price)}`));
-            const referenceId=record.reference_match_id||source.reference_assignment?.reference_id||source.reference_match_id;
-            summary.append(el('span',referenceId?'مرجع متصل است':'مرجع تأیید نشده'));
-            card.append(summary);
             const nextLine=el('div',null,'md-next-action');
-            if(preferred!=='next'){
+            if(preferred==='deferred'){
+                nextLine.append(el('p',model.nextStep(product,preferred)),button('کارهای کنارگذاشته‌شده',()=>navigate('system'),'md-link'));
+            }else if(preferred!=='next'){
                 const reason=el('div');reason.append(el('p',model.nextStep(product,preferred)));
                 const actionable=ready(product)===preferred;
                 const label=!actionable&&preferred==='supplier_prices'?'مدرک قیمت':actionLabels[preferred];
                 const proceed=button(label,()=>activate(preferred),actionable?'md-button md-primary':'md-button');
                 nextLine.append(reason,proceed);
-            }else nextLine.append(el('p','برای این کالا کار بازی ثبت نشده است. وضعیت فروشگاه را در بخش فروشگاه ببینید.'));
-            card.append(nextLine);
+            }
+            if (nextLine.childNodes.length) card.append(nextLine);
             const detailsGroup=el('div',null,'md-card-sections');
             const tabBar=el('div',null,'md-card-tabs');tabBar.setAttribute('role','tablist');
             tabBar.setAttribute('aria-label',`بخش‌های ${product.name}`);
             const panelHost=el('div',null,'md-card-panel');panelHost.setAttribute('role','tabpanel');
             panelHost.id=`md-panel-${++sequence}`;panelHost.hidden=true;
             const detailsMap=new Map();
-            const productSections=[...sections];
-            if(record.update_needed&&!product.holds.length)productSections.splice(5,1,['status','انتشار']);
+            const currentSection=preferred==='status'?['status','انتشار']:sections.find(([key])=>key===preferred);
+            const sourceSection=sections[0];
+            const productSections=currentSection
+                ? (currentSection===sourceSection?[sourceSection]:[currentSection,sourceSection])
+                : preferred==='deferred'?[sourceSection]:[sourceSection,sections.at(-1)];
             function activate(key, scroll=true) {
                 state.active=product.key;state.section=key;
                 main.querySelectorAll('.md-card-panel').forEach(item=>{if(item!==panelHost)item.hidden=true;});
@@ -271,7 +270,7 @@
                 let panel=state.panels.get(cacheKey);
                 if(!panel){
                     panel=el('div',null,'md-section-body');
-                    const hasAction=model.queueMatches(product,key);
+                    const hasAction=key===preferred;
                     const sourceURL=record.source_post_url||source.source_post_url||source.source_url;
                     if(key==='source_integrity'){
                         if(!hasAction){
@@ -283,31 +282,14 @@
                             if (offer) panel.append(model.renderOfferReextraction(String(offer)));
                             else panel.append(button('جست‌وجوی پیام منبع',()=>navigate('sources',product)));
                         }
-                    }else if(key==='references'){
-                        panel.append(facts([['مرجع ثبت‌شده',record.reference_match_name||record.reference_match_id||'تطبیق ثبت نشده'],
-                            ['مبنای قیمت',record.reference_price_role==='unit'?'هر واحد':record.reference_price_role==='package'?'بسته':'ثبت نشده'],
-                            ['نتیجهٔ بررسی',model.readable(record.reference_approval_state)]]));
-                        if(!hasAction){
-                            panel.append(el('p',product.ai.length?'انتخاب مرجع همراه با بررسی مشخصات انجام می‌شود.':'پیشنهاد مرجع بازی برای این کالا دریافت نشده است.'));
-                            if(product.ai.length)panel.append(button('بررسی مشخصات و انتخاب مرجع',()=>activate('ai')));
-                            panel.append(button('دیدن فهرست مرجع',()=>navigate('references'),'md-link'));
-                        }
-                    }else if(key==='supplier_prices'&&!hasAction){
-                        panel.append(facts([['وضعیت قیمت',model.readable(record.supplier_price_state)],['آخرین تأیید',model.formatDate(record.supplier_price_verified_at)]]));
-                        panel.append(el('p','مدرک قیمت قابل تأییدی در این صف نیست. پیام فعلی تأمین‌کننده را بررسی کنید.'));
-                        if(sourceURL){const link=model.sourceLink(sourceURL);if(link)panel.append(link);}
-                        panel.append(button('بازبینی منبع',()=>navigate('sources',product)));
-                    }else if(key==='ai'&&!hasAction){
-                        panel.append(el('p',product.ai.length?'بررسی مشخصات تا رفع توقف انتشار بسته است.':'استخراجی در انتظار تأیید نیست.'));
-                        if(product.holds.length)panel.append(button('بررسی توقف انتشار',()=>activate('holds')));
-                    }else if(key==='conflicts'&&!hasAction)panel.append(el('p','تعارض بازی در اطلاعات این کالا ثبت نشده است.'));
-                    else if((key==='holds'||key==='status')&&!hasAction)panel.append(el('p','توقف انتشار یا درخواست به‌روزرسانی بازی ثبت نشده است.'));
+                    }
                     else if(key==='storefront'){
                         panel.append(el('p',model.wooLabel(model.wooState(product))));
                         panel.append(button('بررسی وضعیت فروشگاه',event=>model.reconcile(event.currentTarget)));
                     }
                     if(hasAction&&key!=='storefront'){
-                        const action=model.renderAction(product,key);panel.append(action);
+                        const action=model.renderAction(product,key);
+                        if (action) panel.append(action);
                         panel.append(button('کنارگذاشتن این کار',()=>dismissTask(model.dismissalTask(product,key)),'md-link md-muted'));
                     }
                     state.panels.set(cacheKey,panel);
@@ -325,7 +307,7 @@
                 tab.id=`${panelHost.id}-${key}`;tab.setAttribute('role','tab');
                 tab.setAttribute('aria-controls',panelHost.id);tab.setAttribute('aria-selected','false');
                 tab.tabIndex=index===0?0:-1;
-                if(model.queueMatches(product,key)){tab.dataset.attention='true';tab.setAttribute('aria-label',`${title}؛ نیازمند اقدام`);}
+                if(key===preferred){tab.dataset.attention='true';tab.setAttribute('aria-label',`${title}؛ نیازمند اقدام`);}
                 tab.addEventListener('keydown',event=>{
                     if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;
                     event.preventDefault();const buttons=[...detailsMap.values()];
@@ -431,10 +413,21 @@
             else {state.view='products';state.action=url.searchParams.get('workbench_action')||'';saveURL();paint();}
         });
         function update(value) {
+            const previous=model?.products.find(product=>product.key===state.active);
+            const previousStep=previous&&next(previous);
             model=value;
+            const current=model.products.find(product=>product.key===state.active);
+            if(current&&previousStep&&previousStep!==next(current)&&next(current)!=='deferred'){
+                if(state.action===previousStep && next(current)!=='next')state.action='';
+                state.section=['next','deferred'].includes(next(current))?'source_integrity':next(current);
+                if(!matches(current)){
+                    state.scope='all';
+                }
+                saveURL();
+            }
             if(!state.active&&(state.action||state.focus)){
                 const focused=model.products.find(matches);
-                if(focused){state.active=focused.key;state.section=state.action||model.primaryAction(focused);}
+                if(focused){state.active=focused.key;state.section=next(focused)==='next'?'source_integrity':next(focused);}
             }
             state.panels.clear();state.pageCache.clear();healthView();paint();
         }
@@ -448,7 +441,12 @@
             batch.scrollIntoView({block:'start',behavior:'smooth'});
             batch.focus({preventScroll:true});
         }
-        return {update,loading,navigate,dismissTask,reviewHold,reviewSource:product=>navigate('sources',product)};
+        function showReviewResults() {
+            state.scope='ready';state.action='';state.focus='';state.search='';state.channel='';
+            navigate('products');
+            hooks.refresh();
+        }
+        return {update,loading,navigate,dismissTask,reviewHold,showReviewResults,reviewSource:product=>navigate('sources',product)};
     }
     window.MolaviDashboard={create,normalize,identities};
 })();
