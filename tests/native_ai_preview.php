@@ -173,5 +173,11 @@ molavi_domain_ai_save_dismissals($pending,'wp:7','Archive pending source queue')
 check_preview(molavi_domain_ai_inventory($GLOBALS['preview_tables'],false)['counts']['pending'],0,'archived source leaves pending queue');
 check_preview(molavi_domain_ai_offer_preview(['offer_id'=>'archived-offer'],$GLOBALS['preview_tables'])['reason'],'ready',
     'an exact offer can still re-extract its archived message');
+$GLOBALS['preview_tables']['MessageData'][]=['26','recent-batch','supplier','Tea is available',gmdate('c',time()-60),'https://t.me/supplier/26'];
+$preview=molavi_domain_ai_reviews_api('GET',['reextract'=>'preview'],null,'wp:7');
+check_preview($preview['recent_policy']['eligible_count'],1,'recent queue has a separate preview');
+$dismiss=['action'=>'dismiss_recent_policy_messages','expected_count'=>1,'expected_digest'=>$preview['recent_policy']['digest'],'note'=>'Archive recent queue'];
+check_preview(molavi_domain_ai_reviews_api('POST',[],$dismiss,'wp:7')['dismissed_count'],1,'dismiss only the previewed recent queue');
+check_preview(molavi_domain_ai_reviews_api('GET',['reextract'=>'preview'],null,'wp:7')['recent_policy']['eligible_count'],0,'recent suggestion leaves the queue');
 foreach(glob($root.'/*') as $file)unlink($file);rmdir($root);
 echo 'PASS native AI previews and commands '.$count." checks\n";

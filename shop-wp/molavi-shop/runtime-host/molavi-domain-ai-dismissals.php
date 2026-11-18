@@ -81,7 +81,9 @@ function molavi_domain_ai_save_dismissals(array $messages, string $actor, string
 }
 
 function molavi_domain_ai_dismiss_messages(array $body, string $actor): array {
-    $images = molavi_domain_bot_capabilities()['image_extraction_enabled'];
+    $caps = molavi_domain_bot_capabilities();
+    $images = $caps['image_extraction_enabled'];
+    $policy = $body['action']==='dismiss_recent_policy_messages' ? $caps['extraction_policy_version'] : null;
     $media = $body['action']==='dismiss_media_message';
     if ($media) {
         if (!$images) molavi_domain_fail('image_extraction_disabled',410);
@@ -91,14 +93,14 @@ function molavi_domain_ai_dismiss_messages(array $body, string $actor): array {
         || !is_string($body['note'] ?? null) || molavi_domain_strlen($body['note'])>1000) {
         molavi_domain_fail('invalid_dismissal_request',400);
     }
-    return molavi_domain_lock('publication', static function () use ($body,$actor,$images,$media): array {
+    return molavi_domain_lock('publication', static function () use ($body,$actor,$images,$media,$policy): array {
         if (molavi_domain_ai_active_run()) molavi_domain_fail('reextraction_active');
         if ($media) {
             $key = $body['message_key'];
             $existing = molavi_domain_read('pipeline',static fn(SQLite3 $db)=>molavi_domain_row($db,'SELECT message_id FROM ai_message_dismissals WHERE message_key=?',[$key]));
             if ($existing) return ['ok'=>true,'decision_id'=>$key,'already_decided'=>true,'choice'=>'not_product','message_id'=>$existing['message_id']];
         }
-        $inventory = molavi_domain_ai_inventory(molavi_domain_sheets(['MessageData','Offers'],true),$images);
+        $inventory = molavi_domain_ai_inventory(molavi_domain_sheets(['MessageData','Offers'],true),$images,$policy);
         if ($media) {
             $items = array_column($inventory['media_review_messages'],null,'message_key');
             $item = $items[$key] ?? null;
@@ -107,10 +109,17 @@ function molavi_domain_ai_dismiss_messages(array $body, string $actor): array {
             molavi_domain_ai_write_message_state($item['message_id'],$item['batch_id'],$item['channel'],'owner_rejected',[]);
             return ['ok'=>true,'decision_id'=>$key,'choice'=>'not_product','message_id'=>$item['message_id']];
         }
-        $selected = $inventory['pending_messages'];
-        $keys = array_column($selected,'message_key');
-        sort($keys,SORT_STRING);
-        if (count($selected)!==$body['expected_count'] || molavi_domain_hash($keys)!==$body['expected_digest']) {
+        if ($policy!==null) {
+            $recent = molavi_domain_ai_recent_inventory($inventory,$policy,$images);
+            $selected = $recent['messages'];
+            $digest = $recent['digest'];
+        } else {
+            $selected = $inventory['pending_messages'];
+            $keys = array_column($selected,'message_key');
+            sort($keys,SORT_STRING);
+            $digest = molavi_domain_hash($keys);
+        }
+        if (count($selected)!==$body['expected_count'] || $digest!==$body['expected_digest']) {
             molavi_domain_fail('reextraction_preview_changed',409,['current_count'=>count($selected)]);
         }
         molavi_domain_ai_save_dismissals($selected,$actor,$body['note']);

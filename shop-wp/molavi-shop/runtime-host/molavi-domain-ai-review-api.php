@@ -22,7 +22,7 @@ function molavi_domain_ai_reviews_api(string $method, array $query, ?array $body
     return match ($body['action'] ?? '') {
         'start_reextraction','start_open_case_reextraction','start_recent_policy_reextraction','start_offer_reextraction','start_media_reextraction' => molavi_domain_ai_start($body,$actor),
         'dismiss_cases' => molavi_domain_ai_dismiss_cases($body,$actor),
-        'dismiss_pending_messages','dismiss_media_message' => molavi_domain_ai_dismiss_messages($body,$actor),
+        'dismiss_pending_messages','dismiss_recent_policy_messages','dismiss_media_message' => molavi_domain_ai_dismiss_messages($body,$actor),
         'cancel_reextraction' => molavi_domain_ai_cancel($body,$actor),
         default => molavi_domain_ai_reviews_decide($body,$actor),
     };
