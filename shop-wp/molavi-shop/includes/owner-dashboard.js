@@ -32,11 +32,12 @@
             focusType,
             view:['products','references','sources','system'].includes(params.get('view')) ? params.get('view')
                 : params.get('workbench_action') === 'reextract' || location.hash.includes('reextract') ? 'sources' : 'products',
-            scope:params.get('scope') || 'attention',action:params.get('workbench_action') || '',
+            scope:params.get('scope') || 'ready',action:params.get('workbench_action') || '',
             focus:['product_id','offer_id','case_id','conflict_id','hold_id','reference_id'].map(key=>params.get(key)).find(Boolean) || '',
             search:params.get('q') || '',channel:params.get('channel') || '',limit:24,
             active:'',section:'',panels:new Map(),pageCache:new Map()
         };
+        if (state.scope === 'attention') state.scope = 'ready';
         if (!Object.hasOwn(actionLabels,state.action)) state.action = '';
         if (state.focus) state.scope = 'all';
         let model = null;
@@ -101,9 +102,11 @@
             box.append(button('دریافت دوباره',()=>hooks.refresh()));health.append(box);
         }
         function next(product) { return model.primaryAction(product); }
+        function ready(product) { return model.readyAction(product); }
         function stateLabel(product) {
             if(product.holds.length)return ['انتشار متوقف','blocked'];
-            if(next(product)!=='next')return ['نیازمند رسیدگی','attention'];
+            if(ready(product))return ['آمادهٔ بررسی','attention'];
+            if(next(product)!=='next')return ['در انتظار پیگیری','unknown'];
             const woo=model.wooState(product);
             if(woo==='purchasable')return ['قابل خرید','good'];
             if(!product.status)return ['در انتظار تکمیل','unknown'];
@@ -125,22 +128,27 @@
             }
             if(state.action&&!model.queueMatches(product,state.action))return false;
             if(state.action||state.focus)return true;
-            if(state.scope==='attention')return next(product)!=='next';
-            if(state.scope==='waiting')return !product.status||product.holds.length>0;
+            if(state.scope==='ready')return Boolean(ready(product));
+            if(state.scope==='waiting')return next(product)!=='next'&&!ready(product);
             return true;
         }
         function productsView() {
             const view=el('section',null,'md-products');
             const title=el('div',null,'md-page-heading');
-            const copy=el('div');copy.append(el('h1','محصولات'),el('p','وضعیت هر کالا و کار بعدی آن، در یک کارت.'));
+            const copy=el('div');copy.append(el('h1','محصولات'));
             title.append(copy);
             const stamp=model.data.product_status?.generated_at;
             if(stamp)title.append(el('small',`آخرین دریافت: ${model.formatDate(stamp)}`,'md-last-read'));
             view.append(title);
+            const pendingBatches=model.data.publication_holds?.holds || [];
+            if (pendingBatches.length&&!model.errors.publication_holds) {
+                const label=`توقف‌های انتشار · ${fa(pendingBatches.length)}`;
+                view.append(button(label,()=>reviewHold(),'md-button md-link'));
+            }
             const scopeBar=el('div',null,'md-scopes');scopeBar.setAttribute('aria-label','فهرست محصولات');
-            [['attention','نیازمند رسیدگی',model.products.filter(p=>next(p)!=='next').length],
-                ['all','همهٔ محصولات',model.products.length],
-                ['waiting','در انتظار تکمیل',model.products.filter(p=>!p.status||p.holds.length).length]].forEach(([key,label,count])=>{
+            [['ready','آمادهٔ بررسی',model.products.filter(ready).length],
+                ['waiting','در انتظار پیگیری',model.products.filter(p=>next(p)!=='next'&&!ready(p)).length],
+                ['all','همهٔ محصولات',model.products.length]].forEach(([key,label,count])=>{
                 const item=button(`${label}  ${fa(count)}`,()=>{
                     state.scope=key;state.action='';state.focus='';state.limit=24;saveURL();paint();
                 },'md-scope');item.setAttribute('aria-pressed',String(!state.action&&state.scope===key));scopeBar.append(item);
@@ -164,12 +172,16 @@
             const list=el('div',null,'md-product-list');
             const more=button('نمایش بیشتر',()=>{state.limit+=24;paintList();},'md-button md-more');
             const paintList=()=>{
-                const rows=model.products.filter(matches).sort((a,b)=>Number(next(a)==='next')-Number(next(b)==='next')||a.name.localeCompare(b.name,'fa'));
+                const rows=model.products.filter(matches).sort((a,b)=>model.actionRank(next(a))-model.actionRank(next(b))||a.name.localeCompare(b.name,'fa'));
                 count.textContent=`${fa(rows.length)} کالا`;
                 list.replaceChildren();
                 rows.slice(0,state.limit).forEach(product=>list.append(productCard(product)));
-                if(!rows.length)list.append(empty(model.products.length?'موردی در این فهرست نیست':'اطلاعات محصولی دریافت نشده',
-                    model.products.length?'فهرست یا عبارت جست‌وجو را تغییر دهید.':'وضعیت اتصال را بررسی و دوباره تازه‌سازی کنید.'));
+                if(!rows.length) {
+                    const readyScope = state.scope==='ready'&&!state.action&&!state.search&&!state.channel;
+                    list.append(empty(readyScope
+                        ? (Object.values(model.errors).some(Boolean) ? 'فهرست کارهای آماده کامل نیست' : 'کار آمادهٔ بررسی در این فهرست نیست')
+                        : 'موردی در این فهرست نیست'));
+                }
                 more.hidden=rows.length<=state.limit;
             };
             let searchTimer;
@@ -199,8 +211,11 @@
             card.append(summary);
             const nextLine=el('div',null,'md-next-action');
             if(preferred!=='next'){
-                const reason=el('div');reason.append(el('strong',actionLabels[preferred]),el('p',model.nextStep(product,preferred)));
-                const proceed=button('رسیدگی',()=>activate(preferred),'md-button md-primary');nextLine.append(reason,proceed);
+                const reason=el('div');reason.append(el('p',model.nextStep(product,preferred)));
+                const actionable=ready(product)===preferred;
+                const label=!actionable&&preferred==='supplier_prices'?'مدرک قیمت':actionLabels[preferred];
+                const proceed=button(label,()=>activate(preferred),actionable?'md-button md-primary':'md-button');
+                nextLine.append(reason,proceed);
             }else nextLine.append(el('p','برای این کالا کار بازی ثبت نشده است. وضعیت فروشگاه را در بخش فروشگاه ببینید.'));
             card.append(nextLine);
             const detailsGroup=el('div',null,'md-card-sections');
@@ -314,7 +329,7 @@
         function systemView() {
             const view=el('section');view.append(el('h1','وضعیت سیستم'),model.renderSystem());
             if(model.data.publication_holds?.holds?.length){
-                const group=el('details');group.append(el('summary',`توقف‌های مشترک پردازش · ${fa(model.data.publication_holds.holds.length)}`));
+                const group=el('details');group.className='md-publication-holds';group.tabIndex=-1;group.append(el('summary',`توقف‌های مشترک پردازش · ${fa(model.data.publication_holds.holds.length)}`));
                 model.data.publication_holds.holds.forEach(hold=>group.append(model.renderBatch(hold)));view.append(group);
             }
             const hidden=el('details');hidden.append(el('summary',`کارهای کنارگذاشته‌شده · ${fa(model.dismissals.length)}`));
@@ -380,7 +395,17 @@
             }
             state.panels.clear();state.pageCache.clear();healthView();paint();
         }
-        return {update,loading,navigate,dismissTask,reviewSource:product=>navigate('sources',product)};
+        function reviewHold(id) {
+            navigate('system');
+            const group=main.querySelector('.md-publication-holds');
+            if (!group) return;
+            group.open=true;
+            const batch=id ? document.getElementById(id) : group;
+            if (!batch) return;
+            batch.scrollIntoView({block:'start',behavior:'smooth'});
+            batch.focus({preventScroll:true});
+        }
+        return {update,loading,navigate,dismissTask,reviewHold,reviewSource:product=>navigate('sources',product)};
     }
     window.MolaviDashboard={create,normalize,identities};
 })();

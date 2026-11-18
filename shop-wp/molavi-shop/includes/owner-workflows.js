@@ -856,16 +856,38 @@
         return labels[String(state || '')] || 'وضعیت فروشگاه ثبت نشده';
     }
 
+    const workbenchActionOrder = ['holds','source_integrity','ai','references','conflicts',
+        'supplier_prices','status','storefront','next'];
+    const workbenchActionSections = {
+        holds:'publication_holds',ai:'ai_confirmations',references:'reference_items',
+        conflicts:'sheet_conflicts',supplier_prices:'supplier_prices'
+    };
+
+    function workbenchSupplierSource(product, offer) {
+        return safeSourceLink(offer.source_post_url)
+            || safeSourceLink(product.status?.source_post_url, 'باز کردن آخرین پیام ثبت‌شدهٔ کالا');
+    }
+
+    function workbenchReadyAction(product) {
+        if (!config.reviewStoreUrl || !config.reviewStoreNonce) return '';
+        if (workbenchQueueMatches(product,'source_integrity') && !product.holds.length) return '';
+        return workbenchActionOrder.find(key => {
+            const source = workbenchActionSections[key];
+            if (!source || (product.holds.length && key !== 'holds')
+                || workbenchErrors[source] || !workbenchQueueMatches(product,key)) return false;
+            if (key === 'holds') return product.holds.some(hold => hold.context?.messages?.length);
+            if (key === 'ai') return product.ai.some(item => !item.publication_held
+                && (safeSourceLink(aiSourcePostUrl(item)) || (!item.source_current_check_required && !item.historical_reextract && item.original_message))
+                && normalizedAiInteger(item.sale_price || item.detected_price || item.package_price)
+                && item.reference_snapshot_id);
+            if (key === 'supplier_prices') return product.supplierPrices.some(offer =>
+                !offer.acknowledged && offer.source_revision && workbenchSupplierSource(product,offer));
+            return true;
+        }) || '';
+    }
+
     function workbenchActionKey(product) {
-        if (workbenchQueueMatches(product,'source_integrity')) return 'source_integrity';
-        if (workbenchQueueMatches(product,'holds')) return 'holds';
-        if (workbenchQueueMatches(product,'ai')) return 'ai';
-        if (workbenchQueueMatches(product,'references')) return 'references';
-        if (workbenchQueueMatches(product,'conflicts')) return 'conflicts';
-        if (workbenchQueueMatches(product,'supplier_prices')) return 'supplier_prices';
-        if (workbenchQueueMatches(product,'status')) return 'status';
-        if (workbenchQueueMatches(product, 'storefront')) return 'storefront';
-        return 'next';
+        return workbenchActionOrder.find(key => workbenchQueueMatches(product,key)) || 'next';
     }
 
     const workbenchStageModel = [
@@ -903,7 +925,7 @@
 
     function workbenchNextStep(product, queue = workbenchQueue) {
         const key = workbenchActionForQueue(product, queue);
-        if (key === 'source_integrity') return 'پیوند پیشنهاد منبع را بازیابی کنید؛ تا آن زمان کالا روی سایت متوقف می‌ماند.';
+        if (key === 'source_integrity') return 'انتشار متوقف است؛ پیام منبع را پیدا کنید. ترمیم پیوند پیشنهاد به بررسی فنی نیاز دارد.';
         if (key === 'ai') {
             const cases = Array.isArray(product.ai) ? product.ai : [];
             if (cases.some(item => item.publication_held)) return 'جزئیات و اقدام دستهٔ متوقف‌شده را باز کنید؛ تصمیم این استخراج تا رفع همان توقف قفل است.';
@@ -917,9 +939,13 @@
         }
         if (key === 'references') return 'مرجع درست و مبنای قیمت را انتخاب کنید.';
         if (key === 'conflicts') return 'مقدار سرور را نگه دارید؛ فقط اگر خودتان شیت را دستی تغییر داده‌اید، اصلاح شیت را به فروشگاه بفرستید.';
-        if (key === 'supplier_prices') return 'منبع پیام را باز کنید و تازگی قیمت را تأیید کنید.';
+        if (key === 'supplier_prices') return workbenchReadyAction(product) === key
+            ? 'قیمت را با پیام فعلی تأمین‌کننده بسنجید.'
+            : 'برای تأیید، پیام فعلی تأمین‌کننده و نسخهٔ معتبر قیمت لازم است.';
         if (key === 'holds') return 'جزئیات پیام‌های همان دسته را باز کنید و یک‌بار اقدام بازیابی را اجرا کنید.';
-        if (key === 'status') return 'وضعیت انتشار کالا را در جزئیات فنی بررسی کنید.';
+        if (key === 'status') return product.status?.review_reason
+            ? aiReviewReason(product.status.review_reason)
+            : 'به‌روزرسانی لازم ثبت شده؛ دلیل یا اقدام مشخصی در دسترس نیست.';
         if (key === 'storefront') return 'رسید انتشار را با کاتالوگ عمومی ووکامرس تطبیق کنید؛ تا گزارش کامل نباشد وضعیت فروشگاه قطعی نیست.';
         return 'برای این کالا اقدام بازی ثبت نشده است.';
     }
@@ -1128,6 +1154,7 @@
             }
         };
         const openSourceReviewTool = product => dashboardApp.reviewSource(product);
+        const batchCardId = hold => `molavi-batch-${encodeURIComponent(String(hold.hold_id))}`;
         const renderBatch = hold => {
                 const context = hold.context && typeof hold.context === 'object' ? hold.context : {};
                 const messages = Array.isArray(context.messages) ? context.messages : [];
@@ -1135,7 +1162,8 @@
                     && context.batch_state === 'failed' && context.batch_error === 'JobConflict'
                     && context.expected_messages > 0 && messages.length === context.expected_messages;
                 const card = node('section', null, 'molavi-batch-card molavi-review-card');
-                card.id = `molavi-batch-${String(hold.hold_id).replace(/[^a-z0-9]/gi, "")}`;
+                card.id = batchCardId(hold);
+                card.tabIndex = -1;
                 card.appendChild(reviewCardHeader(({batch_in_progress:'نتیجه دسته نیازمند تطبیق است',batch_unverified:'نتیجه پردازش نیاز به بررسی دارد',batch_write_unverified:'ثبت پیام‌های دسته تأیید نشده'}[hold.reason]) || 'دسته متوقف‌شده', 'اقدام دسته‌ای'));
                 card.appendChild(reviewFacts([
                     ['زمان توقف', formatSourceTimestamp(hold.created_at) || 'نامشخص'],
@@ -1220,8 +1248,8 @@
             return card;
         };
         const renderAction = (product, primaryKey) => {
-            const dependency = {ai:'ai_confirmations', references:'reference_items', supplier_prices:'supplier_prices',
-                conflicts:'sheet_conflicts', holds:'publication_holds', source_integrity:'product_status', status:'product_status'}[primaryKey];
+            const dependency = workbenchActionSections[primaryKey]
+                || (['source_integrity','status'].includes(primaryKey) ? 'product_status' : '');
             if (dependency && workbenchErrors[dependency]) {
                 return notice('دادهٔ این بخش تازه دریافت نشده است. پیش از ثبت تصمیم، اطلاعات را تازه‌سازی کنید.', 'warning');
             }
@@ -1275,11 +1303,16 @@
                         ? `${formatSourceTimestamp(offer.source_timestamp)} · ${sourceAgeText(offer.source_timestamp)}`
                         : 'ثبت نشده']
                 ]));
-                const sourceLink = safeSourceLink(offer.source_post_url);
+                const sourceLink = workbenchSupplierSource(product, offer);
                 if (sourceLink) {
                     const tools = node('div', null, 'molavi-card-source-tools');
                     tools.appendChild(sourceLink);
                     section.appendChild(tools);
+                } else if (!offer.acknowledged) {
+                    const findSource = node('button', 'یافتن پیام تأمین‌کننده', 'button button-secondary');
+                    findSource.type = 'button';
+                    findSource.addEventListener('click', () => openSourceReviewTool(product));
+                    section.appendChild(findSource);
                 }
                 if (!offer.source_timestamp_trusted && !offer.acknowledged) {
                     section.appendChild(notice('این پیام از حساب مالک رسیده یا زمان اصلی تأمین‌کننده را ندارد؛ تاریخ ارسال به‌تنهایی تازگی قیمت را ثابت نمی‌کند. قیمت را از منبع فعلی بررسی کنید. این تأیید فقط قیمت است و وضعیت موجودی را تغییر نمی‌دهد.', 'warning'));
@@ -1399,7 +1432,7 @@
                         let warning = '';
                         try { await persistOwnerReviews([reviewRecord(eventId,'sheet_conflict',conflict.conflict_id,'accepted',conflict,decision,receipt)]); }
                         catch (_error) { warning = ' تصمیم ثبت شد، اما رسید وردپرس هنوز همگام نشده است.'; }
-                        const message = `${serverOwned ? 'مقدار سیستمی با سرور همگام شد.' : sheetPreserved ? 'مقدار اصلی شیت حفظ شد.' : 'اصلاح دستی به فروشگاه فرستاده شد.'}${warning}`;
+                        const message = `${serverOwned ? 'مقدار سیستمی با سرور همگام شد.' : sheetPreserved ? 'مقدار اصلی شیت حفظ شد.' : 'تصمیم ذخیره شد؛ همگام‌سازی فروشگاه در صف است.'}${warning}`;
                         updateActionStatus(progressStatus, message, warning ? 'warning' : 'success');
                         await dashboard(message, warning ? 'warning' : 'success',
                             ['sheet_conflicts','product_status','supplier_prices','operations']);
@@ -1428,7 +1461,10 @@
                 addWorkflowSection(section, 'conflicts');
             });
             if (primaryKey === 'holds') product.holds.forEach(hold => {
-                addWorkflowSection(renderBatch(hold), 'holds');
+                const openBatch = node('button', 'باز کردن دستهٔ متوقف‌شده', 'button button-secondary');
+                openBatch.type = 'button';
+                openBatch.addEventListener('click', () => dashboardApp.reviewHold(batchCardId(hold)));
+                addWorkflowSection(openBatch, 'holds');
             });
             if (primaryKey === 'source_integrity' && Array.isArray(status.source_integrity_issues) && status.source_integrity_issues.length) {
                 const section = node('section', null, 'molavi-product-subsection molavi-product-hold');
@@ -1485,7 +1521,7 @@
         } else {
             const ops = operations.operations;
             const counts = ops.by_state || {};
-            technical.appendChild(node('p',`در انتظار: ${ops.queued || counts.queued || 0} · در حال اجرا: ${counts.running || 0} · خطا: ${counts.failed || 0} · نیازمند بررسی: ${counts.needs_review || 0} · توقف انتشار: ${ops.publication_holds || 0}`));
+            technical.appendChild(node('p',`در انتظار: ${ops.queued || counts.queued || 0} · در حال اجرا: ${counts.running || 0} · منتظر انتشار: ${counts.waiting_publication || 0} · خطا: ${counts.failed || 0} · نیازمند بررسی: ${counts.needs_review || 0} · توقف انتشار: ${ops.publication_holds || 0}`));
             const worker = ops.worker || {};
             const workerLabels = {alive:'فعال',stale:'بی‌پاسخ',stopped:'متوقف',unknown:'وضعیت نامشخص'};
             const workerProgressLabels = {active:'فعال',idle:'صف بدون کار باز است',stalled:'بیش از ۵ دقیقه بدون پیشرفت',
@@ -1788,9 +1824,11 @@
             technical.appendChild(delivery);
             return technical;
         };
+        const readyActions = new Map(products.map(product => [product,workbenchReadyAction(product)]));
         dashboardApp.update({
             products,data,errors:workbenchErrors,dismissals:workbenchDismissals,
-            queueMatches:workbenchQueueMatches,primaryAction:workbenchActionKey,
+            queueMatches:workbenchQueueMatches,primaryAction:product=>readyActions.get(product)||workbenchActionKey(product),
+            readyAction:product=>readyActions.get(product),actionRank:key=>workbenchActionOrder.indexOf(key),
             nextStep:(product,key)=>workbenchNextStep(product,key),
             taskMeta:workbenchTaskMeta,wooState:workbenchWooState,wooLabel:workbenchWooLabel,
             renderAction,renderBatch,renderSystem,
@@ -2283,7 +2321,7 @@
                     'accepted', context, decision, receipt)]);
             } catch (_error) { localWarning = true; }
         }
-        const label = choice === 'confirm' ? 'تأیید شد' : 'به‌عنوان «کالا نیست» ثبت شد';
+        const label = choice === 'confirm' ? 'تأیید شد؛ انتشار در صف است' : 'به‌عنوان «کالا نیست» ثبت شد';
         const summary = `${accepted} از ${items.length} مورد ${label}${failed ? `؛ ${failed} مورد ناموفق ماند${firstError ? ` (${firstError})` : ''}` : ''}${localWarning ? ' رسید محلی وردپرس به همگام‌سازی نیاز دارد.' : ''}`;
         updateActionStatus(progressStatus, summary, failed || localWarning ? 'warning' : 'success');
         if (typeof options.refresh === 'function') {

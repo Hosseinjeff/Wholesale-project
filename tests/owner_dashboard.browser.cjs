@@ -69,11 +69,15 @@ const fixtures={
   await page.waitForSelector('.md-product-card');
  }
  await mount();
- assert.equal(await page.locator('.md-product-card').count(),3);assert.equal(writes.length,0);assert.deepEqual(errors,[]);
+ assert.equal(await page.locator('.md-product-card').count(),1,'the default queue contains only ready work');
+ assert.match(await page.locator('.md-product-card').innerText(),/نودل سبزیجات/);
+ await page.getByRole('button',{name:/^در انتظار پیگیری/}).click();
+ assert.equal(await page.locator('.md-product-card').count(),2,'source repair and missing reference remain available');
+ await page.getByRole('button',{name:/^آمادهٔ بررسی/}).click();assert.equal(writes.length,0);assert.deepEqual(errors,[]);
  assert.equal(maxActiveReads,1,'owner reads leave WordPress workers free for state callbacks');
  assert.equal(statusReads,2,'one temporary read failure gets one bounded retry');
  const first=page.locator('.md-product-card').filter({hasText:'نودل سبزیجات'});
- await first.getByRole('button',{name:'رسیدگی',exact:true}).click();
+ await first.getByRole('button',{name:'تأیید قیمت',exact:true}).click();
  await first.getByRole('button',{name:'منبع فعلی را دیدم؛ قیمت تأیید است'}).waitFor({state:'visible'});
  assert.equal(await page.locator('.md-card-panel:not([hidden])').count(),1);
  await page.getByRole('button',{name:'فهرست مرجع',exact:true}).click();await page.getByText('مرجع فعال نیست',{exact:true}).waitFor();
@@ -88,7 +92,7 @@ const fixtures={
  assert.equal(await page.locator('.md-product-card').count(),1,'exact ID, excludes product 10');
  await mount('&workbench_action=ai');
  assert.equal(await page.locator('.md-product-card').count(),1,'extraction without catalog product remains visible');
- await page.locator('.md-product-card').getByRole('button',{name:'رسیدگی',exact:true}).click();
+ await page.locator('.md-product-card').getByRole('button',{name:'بررسی مشخصات',exact:true}).click();
  await page.getByText('اصلاح دستی؛ فقط اگر داده استخراج‌شده اشتباه است',{exact:true}).click();
  await page.locator('input[name="sale_price"]').fill('130000');
  await page.getByRole('tab',{name:'مرجع',exact:true}).click();
@@ -127,12 +131,19 @@ const fixtures={
  await page.locator('.md-product-card').waitFor();
  fixtures['/pipeline/ai-confirmations'].cases[0].reference_snapshot_id='snapshot-A';
  await mount('&workbench_action=ai');
- await page.locator('.md-product-card').getByRole('button',{name:'رسیدگی',exact:true}).click();
+ await page.locator('.md-product-card').getByRole('button',{name:'بررسی مشخصات',exact:true}).click();
  const beforeSuggestion=writes.length;
  await page.getByRole('button',{name:'درخواست پیشنهاد مرجع',exact:true}).click();
  await page.getByText('درخواست ثبت شد؛ برای دیدن نتیجه صفحه را تازه کنید. تأیید مرجع همچنان با شماست.').waitFor();
  assert.equal(writes.length,beforeSuggestion+1,'requesting a suggestion never submits an approval');
  assert.equal(JSON.parse(writes.at(-1).payload).case_kind,'ai');
+ assert.deepEqual(errors,[]);
+ fixtures['/pipeline/publication-holds'].holds=[{hold_id:'batch-4',reason:'batch_in_progress',
+  context:{product_ids:['1'],messages:[{channel:'@supplier',content:'Source message'}],expected_messages:1}}];
+ await mount('&hold_id=batch-4');
+ await page.getByRole('button',{name:'باز کردن دستهٔ متوقف‌شده',exact:true}).click();
+ await page.locator('.md-publication-holds[open] #molavi-batch-batch-4').waitFor();
+ assert.equal(await page.getByRole('button',{name:'اجرای دوباره این دسته، فقط یک بار',exact:true}).count(),1);
  assert.deepEqual(errors,[]);
  console.log(JSON.stringify({passed:true,errors,writes:writes.length,captures:['/tmp/molavi-dashboard-desktop.png','/tmp/molavi-dashboard-mobile.png']}));
  await browser.close();
