@@ -430,8 +430,8 @@ runtime checks. Railway retained both unattached volumes for recovery.
 Legacy catalog and cart requests on both URLs returned WordPress receipts. The
 live catalog returned 25 products. The old desk endpoint returned retirement status.
 An unsigned owner request and an unauthorized publish request were rejected. Eight
-synthetic quotes matched the original calculations. Two older Staging pricing tests
-also fail on the prior runtime revision.
+synthetic quotes matched the original calculations. The pricing suite now verifies
+the public response fields and uses a synthetic supplier extraction fixture.
 
 The installed dashboards defer Telegram photo downloads until the reviewer opens
 the source image. Both bundles were uploaded and verified. The final protected

@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 import app
 from catalog.pricing import (
@@ -12,15 +13,20 @@ from catalog.pricing import (
 from catalog.sync import MemoryStore, finalize_batch, shop_catalog
 
 
-BONAKDAR = (
-    "کنسرو ماهی ۱۸۰ گرمی تاپ\n"
-    "✅\n"
-    "قیمت هر باکس: ۱,۲۵۰,۰۰۰ تومان\n"
-    "دونه ای: ۵۲,۰۰۰ تومان\n"
-    "قیمت مصرف: ۶۵,۰۰۰ تومان\n"
-    "تعداد در باکس: ۲۴ عددی\n"
-    "موجود ✅"
-)
+SYNTHETIC_OFFER = {
+    "name": "Synthetic wholesale product",
+    "sale_price": 52000,
+    "actual_price": 65000,
+    "price": 52000,
+    "consumer_price": 65000,
+    "price_type": "unit",
+    "package_count": 24,
+    "currency": "IRT",
+    "status": "imported",
+    "stock_status": "Available",
+    "confidence": 0.99,
+}
+
 
 
 class BandTests(unittest.TestCase):
@@ -151,20 +157,22 @@ class ShopSheetTests(unittest.TestCase):
         self.assertNotIn(",", persian[6])
         self.assertIn(";", persian[6])
 
-    def test_an_edited_margin_survives_the_next_import(self):
+    @patch.dict("os.environ", {"PIPELINE_DB_PATH": "", "GOOGLE_FREE_ROUTING": "0"})
+    @patch("catalog.sync._extract_supplier_products", side_effect=lambda *_: [dict(SYNTHETIC_OFFER)])
+    def test_an_edited_margin_survives_the_next_import(self, _extract):
         store = MemoryStore()
         message = {
             "id": "m1",
             "channel": "telegram",
-            "channel_username": "@bonakdarjavan",
-            "content": BONAKDAR,
+            "channel_username": "@synthetic-supplier",
+            "content": "Synthetic product price 52,000 and consumer price 65,000 toman.",
         }
         finalize_batch(store, {"batch_id": "b1", "messages": [message]})
         shop = store.read("Shop")
         self.assertEqual(shop[0], ["Min Margin", 0.12])
         self.assertTrue(str(shop[11][6]).startswith("=MAP"))
         catalog = shop_catalog(store)
-        self.assertEqual(catalog["products"][0]["name"], "کنسرو ماهی ۱۸۰ گرمی تاپ")
+        self.assertEqual(catalog["products"][0]["name"], SYNTHETIC_OFFER["name"])
         self.assertEqual(catalog["products"][0]["floor"], 60190)
         self.assertEqual(catalog["products"][0]["ceiling"], 62270)
 
@@ -193,9 +201,12 @@ class ShopApiTests(unittest.TestCase):
         listed = self.client.get("/api/shop?preview=1").get_json()
         bear = next(product for product in listed["products"] if product["product_id"] == "preview-bear")
         tea = next(product for product in listed["products"] if product["product_id"] == "preview-tea")
-        self.assertEqual(bear["floor"], 43367)
-        self.assertEqual(bear["ceiling"], 53040)
-        self.assertNotIn("cost", bear)
+        self.assertEqual(bear["regular_price"], 60000)
+        self.assertEqual(bear["price"], 53040)
+        self.assertEqual(set(bear), {
+            "product_id", "name", "category", "regular_price", "price",
+            "current_discount", "stock_status",
+        })
 
         alone = self.client.post("/api/cart?preview=1", json={"lines": [{"product_id": "preview-bear", "qty": 1}]}).get_json()
         both = self.client.post("/api/cart?preview=1", json={"lines": [
@@ -204,12 +215,13 @@ class ShopApiTests(unittest.TestCase):
         ]}).get_json()
         back = self.client.post("/api/cart?preview=1", json={"lines": [{"product_id": "preview-bear", "qty": 1}]}).get_json()
 
-        self.assertGreater(both["lines"][0]["discount_rate"], alone["lines"][0]["discount_rate"])
+        self.assertGreater(both["lines"][0]["discount"], alone["lines"][0]["discount"])
         self.assertEqual(sum(line["discount_amount"] for line in both["lines"]), both["discount_total"])
         self.assertAlmostEqual(both["discount_rate"], both["discount_total"] / both["regular_total"])
         self.assertEqual(back["lines"][0]["discount_amount"], alone["lines"][0]["discount_amount"])
         self.assertEqual(back["discount_rate"], alone["discount_rate"])
-        self.assertEqual(tea["max_discount"], price_band(30000, 100000)["max_discount"])
+        self.assertAlmostEqual(tea["current_discount"], price_band(30000, 100000)["opening_rate"])
+        self.assertNotIn("max_discount", tea)
 
     def test_empty_shop_when_the_sheet_is_not_configured(self):
         payload = self.client.get("/api/shop").get_json()
