@@ -1,9 +1,30 @@
 # Free Google quota routing and reference suggestions
 
-Updated 2026-11-18, Asia/Tehran. Staging bot release on `main` at `367cd13`;
-see [release verification and remaining work](free-google-staging-release.md).
-Free routing is disabled pending the project's actual quotas and model qualification.
-The release verification includes bounded live Google checks on synthetic inputs.
+Updated 2026-11-18, Asia/Tehran. Staging runs verified free routing at `b95e93b`,
+Railway deployment `36ca155e-c0b3-487a-a385-84737ef10bbf`. The owner supplied
+the active AI Studio project limits. The lower allocations leave room for other
+project traffic, including the current production executor.
+
+| Model | Google project RPM / TPM / RPD | Staging RPM / TPM / RPD |
+| --- | ---: | ---: |
+| Gemini 3.5 Flash-Lite | 15 / 250,000 / 500 | 3 / 50,000 / 50 |
+| Gemini 3.1 Flash-Lite | 15 / 250,000 / 500 | 12 / 200,000 / 450 |
+| Gemini Embedding 001 | 100 / 30,000 / 1,000 | 80 / 27,000 / 950 |
+
+Both Flash-Lite models passed the synthetic extraction and reference comparison
+checks, including an explicit no-match case. The Embedding 001 allocation reserves
+50 requests for owner review search and allows up to 900 index requests per day.
+
+An owner-authenticated staging request started the durable index for the 3,394-row
+active Rezvan reference. Live synthetic extraction through the staging quota ledger
+returned HTTP 200 on both configured Flash-Lite models. The first 27 vectors
+were verified in the WordPress cache. The owner-authenticated
+`POST /pipeline/runtime` action `start_google_reference_index`
+starts or resumes the job. `GET /pipeline/runtime?google_reference_index=1` reports
+its coverage, state, and next due time. A worker revalidates the active reference,
+then processes one slice of up to 32 rows and queues the next slice. Saved vectors
+are reused across quota waits and reference price changes. WordPress wakes the
+executor when work is due. Production uses the existing model configuration.
 
 The owner uses Google's free API tier and wants independent model allowances used
 efficiently. `catalog/google_quota.py` accepts owner-verified project/model limits;
@@ -45,7 +66,7 @@ billing and actual quotas; local counters cannot turn a billing-enabled project 
 a free project or see requests sent by other clients. There is no paid endpoint,
 automatic billing enablement, API-key rotation or project rotation in this code.
 Other clients must use the same ledger or receive allocations whose sum fits each
-actual model limit. In particular, separate production and staging volumes do not
+actual model limit. In particular, separate production and staging WordPress ledgers do not
 share counters merely because `GOOGLE_QUOTA_PROJECT` is identical: allocate their
 budgets explicitly, or use one authoritative executor. Never configure each isolated
 runtime with the entire same-project allowance.
@@ -97,7 +118,7 @@ with the next retry time instead of sleeping. Existing durable intake/re-extract
 jobs retain that due time and do not consume failure retries. WordPress's established
 due-work scheduler can wake the on-demand executor then. No new idle process or poll
 was added. A rolled-back batch reuses validated cached AI extraction results; explicit
-owner re-extraction still makes a new extraction. Cache data stays private on the volume.
+owner re-extraction still makes a new extraction. Cache data stays private in the configured state store.
 
 ## Reference matching
 
@@ -133,12 +154,11 @@ mapping, freshness, source and 5% reference-price policies remain authoritative.
 Embedding availability is optional: when no vectors exist or embedding quota is
 waiting, the existing lexical shortlist remains usable, with the retrieval wait exposed.
 
-The new reference service is available through explicit Python/CLI tasks. It is not
-installed as an automatic reference worker or added to dashboard GET requests. A
-dashboard integration should consume saved suggestions, with mockup review for any
-new UI, and obtain the active snapshot through `active_reference_use` before scheduling
-work. The CLI trusts its caller to supply that eligible snapshot; `coverage_verified`
-alone does not establish activation, freshness or owner permission to use a stale one.
+Dashboard reads attach saved suggestions. An explicit owner request queues matching
+against the eligible active snapshot. The CLI also supports bounded indexing and
+suggestion runs. Its caller supplies the eligible snapshot because
+`coverage_verified` alone does not establish activation, freshness or owner
+permission to use a stale snapshot.
 
 Run from the repository after configuring verified budgets:
 
