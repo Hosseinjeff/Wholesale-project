@@ -273,17 +273,27 @@ class FreeGoogleRouter:
         raise QuotaConfigurationError('No qualified free model configured for this task')
 
     def cached(self, key):
+        return self.cached_many([key]).get(key)
+
+    def cached_many(self, keys):
+        keys = list(dict.fromkeys(keys))
+        if not keys:
+            return {}
+        if len(keys) > 256:
+            raise ValueError('Cache lookup is limited to 256 keys')
+        placeholders = ','.join('?' for _ in keys)
         with self.connect() as db:
-            row = db.execute('SELECT value FROM google_ai_cache WHERE project=? AND key=?',
-                             (self.project, key)).fetchone()
-        if not row:
-            return None
-        value = row['value']
-        if isinstance(value, str) and value.startswith('zlib:'):
-            value = zlib.decompress(base64.b64decode(value[5:]))
-        elif isinstance(value, bytes):
-            value = zlib.decompress(value)
-        return json.loads(value)
+            rows = db.execute(f'SELECT key,value FROM google_ai_cache WHERE project=? AND key IN ({placeholders})',
+                              (self.project, *keys)).fetchall()
+        decoded = {}
+        for row in rows:
+            value = row['value']
+            if isinstance(value, str) and value.startswith('zlib:'):
+                value = zlib.decompress(base64.b64decode(value[5:]))
+            elif isinstance(value, bytes):
+                value = zlib.decompress(value)
+            decoded[row['key']] = json.loads(value)
+        return decoded
 
     def status(self):
         now = self.clock()

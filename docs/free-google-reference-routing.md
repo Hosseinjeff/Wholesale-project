@@ -110,6 +110,8 @@ owner re-extraction still makes a new extraction. Cache data stays private on th
    return review instead of asking a model to guess.
 3. Optionally index Rezvan identity descriptions using one configured embedding model. Price-only
    changes reuse vectors. Indexing stops at the requested count or quota and can resume.
+   Indexing and search read cached vectors from WordPress in bounded groups. Search generates a
+   query embedding only when at least one compatible reference vector is available.
 4. For unresolved identities only, query cached vectors, keeping only the leading results in memory. Every embedding
    model/dimension/task format has its own cache namespace; vectors never mix models.
 5. Combine semantic and existing lexical candidates using reciprocal rank fusion in code.

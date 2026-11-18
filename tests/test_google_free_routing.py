@@ -330,6 +330,22 @@ class ReferenceAITests(RoutingFixture):
             index.index([row()], session=Session(Response({'embedding': {'values': [float('nan')]*768}})), api_key='key')
         self.assertEqual(index.index([row()], session=Session(self.embedding()), api_key='key')['embedded'], 1)
 
+    def test_semantic_search_batches_state_reads_and_embeds_query_once(self):
+        router = self.embed_router()
+        index = EmbeddingIndex(router, 'gemini-embedding-001')
+        catalog = []
+        for i in range(257):
+            reference = row('r' + str(i))
+            reference[0] = reference[1] = 'محصول ' + str(i)
+            catalog.append(reference)
+        index.index([catalog[-1]], session=Session(self.embedding()), api_key='key')
+        session = Session(self.embedding())
+        with patch.object(router, 'cached_many', wraps=router.cached_many) as lookup:
+            matches = index.search({'name': 'محصول'}, catalog, session=session, api_key='key')
+        self.assertEqual([item['reference_id'] for item in matches], ['r256'])
+        self.assertEqual(len(session.calls), 1)
+        self.assertEqual([len(call.args[0]) for call in lookup.call_args_list], [256, 1, 1])
+
     def test_index_stops_at_daily_quota_and_resumes_from_cache(self):
         item = ModelBudget('gemini-embedding-001', ('embed',), 100, 1000000, 1,
                            api='embed', bucket='embed')

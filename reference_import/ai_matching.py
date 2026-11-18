@@ -84,45 +84,55 @@ class EmbeddingIndex:
             raise ValueError('Unique reference identities required')
         return references
 
+    def _document_groups(self, references):
+        # Bound the vector data returned by WordPress even for 3072 dimensions.
+        size = min(256, 196608 // self.dimensions)
+        for offset in range(0, len(references), size):
+            group = references[offset:offset + size]
+            texts = [_text(reference) for reference in group]
+            keys = [self._key(text, 'document') for text in texts]
+            yield offset, group, texts, keys, self.router.cached_many(keys)
+
     def index(self, rows, *, session, api_key, limit=100):
         if type(limit) is not int or not 1 <= limit <= 1000:
             raise ValueError('Bounded indexing limit required')
         result = {'embedded': 0, 'cached': 0, 'remaining': 0, 'retry_at': None}
         references = self.references(rows)
-        for position, reference in enumerate(references):
-            text = _text(reference)
-            if self.router.cached(self._key(text, 'document')) is not None:
-                result['cached'] += 1
-                continue
-            if result['embedded'] >= limit:
+        for _offset, _group, texts, keys, cached in self._document_groups(references):
+            for text, key in zip(texts, keys):
+                if key in cached:
+                    result['cached'] += 1
+                    continue
+                if result['embedded'] < limit and result['retry_at'] is None:
+                    try:
+                        cached[key] = self._vector(text, 'document', session=session, api_key=api_key,
+                                                   background=True)
+                    except QuotaDeferred as exc:
+                        result['retry_at'] = exc.retry_at
+                    else:
+                        result['embedded'] += 1
+                        continue
                 result['remaining'] += 1
-                continue
-            try:
-                self._vector(text, 'document', session=session, api_key=api_key, background=True)
-            except QuotaDeferred as exc:
-                result['retry_at'] = exc.retry_at
-                result['remaining'] += sum(self.router.cached(self._key(_text(item), 'document')) is None
-                                           for item in references[position:])
-                break
-            result['embedded'] += 1
         return result
 
     def search(self, product, rows, *, session, api_key, limit=12):
         references = self.references(rows)
-        if not any(self.router.cached(self._key(_text(reference), 'document')) is not None
-                   for reference in references):
-            return []
-        query = self._vector(_text(product), 'query', session=session, api_key=api_key)
+        query = None
         best, limit = [], max(1, min(int(limit), 20))
         # Stream cached vectors rather than retaining the whole catalog in RAM.
-        for position, reference in enumerate(references):
-            vector = self.router.cached(self._key(_text(reference), 'document'))
-            if vector is None:
+        for offset, group, _texts, keys, cached in self._document_groups(references):
+            if not cached:
                 continue
-            score = sum(a*b for a, b in zip(query, vector))
-            heapq.heappush(best, (score, -position, {**reference, 'semantic_score': score}))
-            if len(best) > limit:
-                heapq.heappop(best)
+            if query is None:
+                query = self._vector(_text(product), 'query', session=session, api_key=api_key)
+            for position, (reference, key) in enumerate(zip(group, keys), offset):
+                vector = cached.get(key)
+                if vector is None:
+                    continue
+                score = sum(a*b for a, b in zip(query, vector))
+                heapq.heappush(best, (score, -position, {**reference, 'semantic_score': score}))
+                if len(best) > limit:
+                    heapq.heappop(best)
         return [item[2] for item in sorted(best, key=lambda item: (-item[0], -item[1]))]
 
 
