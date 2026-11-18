@@ -13,9 +13,9 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
+from zoneinfo import ZoneInfo
 from catalog.stock import normalize_stock_status
 
-_OCR_MEDIA_TYPES = frozenset({'image','photo','document','image_document','document_image'})
 _DECISION_UNSET = object()
 
 
@@ -28,25 +28,25 @@ class AIConfirmationLedger:
         self.path = os.path.realpath(os.fspath(path))
         Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as db:
-            db.execute('''CREATE TABLE IF NOT EXISTS ai_confirmation_decisions (
+            db.executescript('''CREATE TABLE IF NOT EXISTS ai_confirmation_decisions (
                 decision_id TEXT PRIMARY KEY, case_id TEXT NOT NULL, offer_id TEXT NOT NULL,
                 signature TEXT NOT NULL, choice TEXT NOT NULL, fields_json TEXT NOT NULL,
-                actor_id TEXT NOT NULL, note TEXT NOT NULL, created_at REAL NOT NULL)''')
-            db.execute('''CREATE INDEX IF NOT EXISTS ai_confirmation_case_history
-                ON ai_confirmation_decisions(case_id,created_at)''')
-            db.execute('''CREATE TABLE IF NOT EXISTS ai_message_dismissals (
+                actor_id TEXT NOT NULL, note TEXT NOT NULL, created_at REAL NOT NULL);
+                CREATE INDEX IF NOT EXISTS ai_confirmation_case_history
+                ON ai_confirmation_decisions(case_id,created_at);
+                CREATE TABLE IF NOT EXISTS ai_message_dismissals (
                 message_key TEXT PRIMARY KEY, message_id TEXT NOT NULL, batch_id TEXT NOT NULL,
                 channel_username TEXT NOT NULL, source_timestamp TEXT NOT NULL,
                 content_sha256 TEXT NOT NULL, media_unique_id TEXT NOT NULL DEFAULT '',
                 actor_id TEXT NOT NULL, note TEXT NOT NULL,
-                created_at REAL NOT NULL)''')
+                created_at REAL NOT NULL);
+                CREATE TABLE IF NOT EXISTS ai_source_reextractions (
+                source_key TEXT PRIMARY KEY, batch_id TEXT NOT NULL, outcome TEXT NOT NULL,
+                run_id TEXT NOT NULL, actor_id TEXT NOT NULL, completed_at REAL NOT NULL,
+                policy_version TEXT NOT NULL DEFAULT '');''')
             columns={str(row['name']) for row in db.execute('PRAGMA table_info(ai_message_dismissals)')}
             if 'media_unique_id' not in columns:
                 db.execute("ALTER TABLE ai_message_dismissals ADD COLUMN media_unique_id TEXT NOT NULL DEFAULT ''")
-            db.execute('''CREATE TABLE IF NOT EXISTS ai_source_reextractions (
-                source_key TEXT PRIMARY KEY, batch_id TEXT NOT NULL, outcome TEXT NOT NULL,
-                run_id TEXT NOT NULL, actor_id TEXT NOT NULL, completed_at REAL NOT NULL,
-                policy_version TEXT NOT NULL DEFAULT '')''')
             columns={str(row['name']) for row in db.execute('PRAGMA table_info(ai_source_reextractions)')}
             if 'policy_version' not in columns:
                 db.execute("ALTER TABLE ai_source_reextractions ADD COLUMN policy_version TEXT NOT NULL DEFAULT ''")
@@ -370,9 +370,9 @@ def _annotate_variant_groups(cases):
             case['variant_group_id'] = group_id
 
 
-def find_case(store, ledger, case_id, offer_id):
-    from catalog.sync import _records, _read_sheet_if_present
-    _, offers = _records(_read_sheet_if_present(store, 'Offers'))
+def find_case(store, ledger, case_id, offer_id, *, fresh=False):
+    from catalog.sync import _records, _read_sheet_if_present, _fresh_read
+    _, offers = _records(_fresh_read(store, 'Offers') if fresh else _read_sheet_if_present(store, 'Offers'))
     source = next((item for item in offers if str(item.get('Offer ID') or '') == offer_id), None)
     if source is None or review_case_id(offer_id) != case_id:
         return None
@@ -438,12 +438,18 @@ def review_cases(store, ledger, *, include_history=False, limit=200, reference_s
     source_duplicates = {}
     all_by_offer = {}
     source_results = ledger.source_reextractions()
-    latest_decisions = ledger.latest_for_cases(review_case_id(str(offer.get('Offer ID') or '')) for offer in offers)
+    reviewable_offers = [offer for offer in offers
+        if str(offer.get('Status') or '').strip().lower() == 'needs_review'
+        and str(offer.get('Review Reason') or '')
+        and not _reference_only(offer.get('Review Reason'))]
+    latest_decisions = ledger.latest_for_cases(
+        review_case_id(str(offer.get('Offer ID') or '')) for offer in reviewable_offers)
     reference_decisions = {}
     if reference_item_ledger and active_reference_snapshot_id:
         from reference_import.item_reviews import review_case_id as reference_review_case_id
         reference_decisions = reference_item_ledger.get_for_cases(
-            reference_review_case_id(str(offer.get('Offer ID') or ''), active_reference_snapshot_id) for offer in offers)
+            reference_review_case_id(str(offer.get('Offer ID') or ''), active_reference_snapshot_id)
+            for offer in reviewable_offers)
     reextracted_messages={
         (str(offer.get('Message ID') or ''),str(offer.get('Channel Username') or ''))
         for offer in offers if str(offer.get('Batch ID') or '').startswith('reextract:')
@@ -555,7 +561,7 @@ def review_cases(store, ledger, *, include_history=False, limit=200, reference_s
             if case:
                 recent.append({**case, 'decision': decision})
     histories = ledger.history_for_cases(
-        [item['case_id'] for item in cases] + [item['case_id'] for item in recent], per_case=10)
+        [item['case_id'] for item in cases[:limit]] + [item['case_id'] for item in recent[:limit]], per_case=10)
     _annotate_variant_groups(recent)
     for item in cases:
         item['decision_history'] = histories.get(item['case_id'], [])
@@ -697,6 +703,7 @@ def reextraction_inventory(store, ledger=None, *, policy_version=None):
     dismissed_by_owner=0
     unsupported_media=0
     media_without_file=0
+    attachment_only=0
     already_reprocessed=0
     reprocessed_sources={key for key,value in (ledger.source_reextractions().items() if ledger else [])
                          if (value.get('policy_version')==policy_version if policy_version is not None
@@ -724,8 +731,6 @@ def reextraction_inventory(store, ledger=None, *, policy_version=None):
         ai_status=str(message.get('AI Status') or '').strip().lower()
         media_no_product=ai_status in {'no_product_candidate','not_product'}
         media_candidate=has_media and (not content.strip() or media_no_product)
-        media_review_needed=media_candidate and media_type.lower() in _OCR_MEDIA_TYPES
-        unsupported_media_needed=media_candidate and not media_review_needed
         source_key=reextraction_source_key(
             source_url=message.get('URL'),channel=channel,message_id=message_id,
             timestamp=str(message.get('Timestamp') or ''),content=content)
@@ -735,9 +740,14 @@ def reextraction_inventory(store, ledger=None, *, policy_version=None):
         message_key=reextraction_message_key({
             'message_id':message_id,'batch_id':batch_id,'channel_username':channel,
             'timestamp':str(message.get('Timestamp') or ''),'content':content,
+            'media_identity':media_identity if not content.strip() else '',
+        })
+        legacy_key=reextraction_message_key({
+            'message_id':message_id,'batch_id':batch_id,'channel_username':channel,
+            'timestamp':str(message.get('Timestamp') or ''),'content':content,
             'media_identity':media_identity if media_candidate else '',
         })
-        if message_key in dismissed_keys:
+        if message_key in dismissed_keys or legacy_key in dismissed_keys:
             dismissed_by_owner+=1
             continue
         if ai_status=='owner_rejected':
@@ -752,31 +762,9 @@ def reextraction_inventory(store, ledger=None, *, policy_version=None):
         if marker in staged and policy_version is None:
             already_staged+=1
             continue
-        if unsupported_media_needed:
-            unsupported_media+=1
-            # Preserve caption-bearing messages for text extraction. Empty unsupported
-            # media has no recoverable OCR input and should not flood the image queue.
-            if not content.strip():
-                continue
-        if media_review_needed:
-            if not content.strip():
-                no_content+=1
-            if not image_file_id:
-                media_without_file+=1
-            media_review.append({
-                'message_id':message_id,'batch_id':batch_id,'channel_username':channel,
-                'channel':str(message.get('Channel') or ''),
-                'timestamp':str(message.get('Timestamp') or ''),
-                'source_post_url':str(message.get('URL') or ''),
-                'content':content,
-                'media_type':media_type,
-                'media_group_id':media_group_id,
-                'image_file_id':image_file_id,'image_file_unique_id':image_unique_id,
-                'media_identity':media_identity,
-                'message_key':message_key,
-            })
-            if media_no_product:
-                no_product_candidates+=1
+        if not content.strip():
+            no_content+=1
+            attachment_only+=int(has_media)
             continue
         item={
             'message_id':message_id,'batch_id':batch_id,'channel_username':channel,
@@ -794,16 +782,143 @@ def reextraction_inventory(store, ledger=None, *, policy_version=None):
     return {
         'all_messages':candidates,
         'pending_messages':pending,
-        'media_review_messages':media_review,
+        'media_review_messages':[], 'media_albums':[],
+        'media_album_message_keys':[], 'blocked_media_album_message_keys':[],
         'counts':{
             'all_available':len(candidates),'pending':len(pending),'without_text':no_content,
-            'media_review':len(media_review),
+            'media_review':0,'media_review_images':0,'media_review_missing_images':0,'attachment_only':attachment_only,
             'media_without_file':media_without_file,'unsupported_media':unsupported_media,
             'owner_decisions_preserved':excluded_owner,'not_product_preserved':explicitly_rejected,
             'no_product_candidates':no_product_candidates,
             'already_staged':already_staged,'already_reprocessed':already_reprocessed,
             'dismissed_by_owner':dismissed_by_owner,
         },
+    }
+
+
+def reextraction_selection(inventory, *, scope='all', channels=None,
+                           date_from='', date_to='', group_by='channel'):
+    """Filter ordinary eligible messages and return an immutable selection preview."""
+    from catalog.supplier_freshness import source_datetime
+
+    if scope not in {'all', 'pending', 'linked'}:
+        raise ValueError('invalid re-extraction scope')
+    if group_by not in {'channel', 'date'}:
+        raise ValueError('invalid re-extraction grouping')
+    if channels is None:
+        raw_channels = []
+    elif isinstance(channels, (list, tuple, set)):
+        raw_channels = channels
+    else:
+        raise ValueError('invalid re-extraction channel filter')
+    if len(raw_channels) > 30 or any(not isinstance(value, str) or len(value) > 200
+                                     for value in raw_channels):
+        raise ValueError('invalid re-extraction channel filter')
+
+    def channel_key(value):
+        return str(value or '').strip().lstrip('@').casefold()
+
+    channel_labels = {}
+    for item in inventory.get('all_messages') or []:
+        value = str(item.get('channel_username') or '').strip()
+        key = channel_key(value)
+        if not key:
+            continue
+        channel_labels.setdefault(key, value)
+    selected_channel_keys = {channel_key(value) for value in raw_channels if channel_key(value)}
+    if not selected_channel_keys.issubset(channel_labels):
+        raise ValueError('unknown re-extraction channel')
+
+    def parse_day(value):
+        value = str(value or '').strip()
+        if not value:
+            return None
+        if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', value):
+            raise ValueError('invalid re-extraction date')
+        try:
+            return datetime.strptime(value, '%Y-%m-%d').date()
+        except ValueError as exc:
+            raise ValueError('invalid re-extraction date') from exc
+
+    first_day = parse_day(date_from)
+    last_day = parse_day(date_to)
+    if first_day and last_day and first_day > last_day:
+        raise ValueError('invalid re-extraction date range')
+
+    all_messages = list(inventory.get('all_messages') or [])
+    if scope == 'pending':
+        pending_keys = {str(item.get('message_key') or '')
+                        for item in inventory.get('pending_messages') or []}
+        base = [item for item in all_messages
+                if str(item.get('message_key') or '') in pending_keys]
+    elif scope == 'linked':
+        base = [item for item in all_messages if item.get('catalog_product_ids')]
+    else:
+        base = all_messages
+
+    selected = []
+    date_by_key = {}
+    tehran = ZoneInfo('Asia/Tehran')
+    for item in base:
+        channel = channel_key(item.get('channel_username'))
+        if selected_channel_keys and channel not in selected_channel_keys:
+            continue
+        source_time = source_datetime(item.get('timestamp'))
+        source_day = source_time.astimezone(tehran).date() if source_time else None
+        if first_day or last_day:
+            if source_day is None or (first_day and source_day < first_day) \
+                    or (last_day and source_day > last_day):
+                continue
+        selected.append(item)
+        date_by_key[str(item.get('message_key') or '')] = source_day
+
+    channels_key_order = sorted(selected_channel_keys)
+    digest_payload = {
+        'scope': scope,
+        'channels': channels_key_order,
+        'date_from': str(date_from or ''),
+        'date_to': str(date_to or ''),
+        'message_keys': sorted(str(item.get('message_key') or '') for item in selected),
+    }
+    digest = hashlib.sha256(_stable(digest_payload)).hexdigest()
+    groups = {}
+    for item in selected:
+        if group_by == 'date':
+            source_day = date_by_key.get(str(item.get('message_key') or ''))
+            key = source_day.isoformat() if source_day else ''
+            label = key or 'زمان ثبت نشده'
+        else:
+            raw_channel = str(item.get('channel_username') or '').strip()
+            key = channel_key(raw_channel)
+            label = raw_channel or str(item.get('channel') or 'منبع نامشخص')
+        group = groups.setdefault(key, {'key': key, 'label': label, 'count': 0})
+        group['count'] += 1
+    if group_by == 'date':
+        ordered_groups = sorted((item for item in groups.values() if item['key']),
+                                key=lambda item: item['key'], reverse=True)
+        ordered_groups.extend(item for item in groups.values() if not item['key'])
+    else:
+        ordered_groups = sorted(groups.values(), key=lambda item: (item['key'] == '', item['key']))
+    source_channels = {}
+    for item in all_messages:
+        value = str(item.get('channel_username') or '').strip()
+        key = channel_key(value)
+        if not key:
+            continue
+        channel = source_channels.setdefault(key, {'value': channel_labels[key], 'count': 0})
+        channel['count'] += 1
+    ordered_channels = sorted(source_channels.values(), key=lambda item: channel_key(item['value']))
+    return {
+        'scope': scope,
+        'count': len(selected),
+        'digest': digest,
+        'channels': channels_key_order,
+        'date_from': str(date_from or ''),
+        'date_to': str(date_to or ''),
+        'group_by': group_by,
+        'groups': ordered_groups,
+        'source_channels': ordered_channels,
+        'messages': selected,
     }
 
 
@@ -823,9 +938,7 @@ def recent_policy_reextraction_inventory(store, ledger=None, *, policy_version=N
     eligible=[]
     unknown_or_future=0
     outside_window=0
-    candidates=[*inventory['all_messages'],
-        *({**item,'media_ocr':True} for item in inventory['media_review_messages']
-          if str(item.get('image_file_id') or '').strip())]
+    candidates=inventory['all_messages']
     for item in candidates:
         stamp=source_datetime(item.get('timestamp'))
         if stamp is None or stamp>current:
@@ -852,7 +965,7 @@ def recent_policy_reextraction_inventory(store, ledger=None, *, policy_version=N
         'digest':digest,
         'messages':eligible,
         'eligible_count':len(eligible),
-        'media_ocr_count':sum(1 for item in eligible if item.get('media_ocr')),
+        'media_ocr_count':0,'media_ocr_image_count':0,
         'unknown_or_future_timestamp_count':unknown_or_future,
         'outside_window_count':outside_window,
     }

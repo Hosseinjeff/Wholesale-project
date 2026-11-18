@@ -129,10 +129,11 @@ class WordPressStateTests(unittest.TestCase):
             store = MemoryStore()
             store.ensure('Offers', OFFER_HEADERS)
             store.append('Offers', [_row_from_map(OFFER_HEADERS, {'Offer ID': 'offer-'+str(i),
-                'Product Name': 'Synthetic', 'Status': 'approved'}) for i in range(650)])
+                'Product Name': 'Synthetic', 'Status': 'needs_review',
+                'Review Reason': 'missing_stock'}) for i in range(650)])
             with patch.object(ledger, 'latest', side_effect=AssertionError('per-offer query')), \
                     patch.object(ledger, 'connect', wraps=ledger.connect) as calls:
-                self.assertEqual(review_cases(store, ledger), [])
+                self.assertEqual(len(review_cases(store, ledger)), 200)
             self.assertEqual(calls.call_count, 4, 'one source receipt read plus three bounded decision groups')
 
 

@@ -9,22 +9,151 @@ forwarded from WordPress. The live business stores are protected on each WordPre
 Railway's former volumes are detached and retained for recovery.
 See [final cutover and deployed revisions](native-wordpress-workflows.md#final-live-cutover).
 
-Snapshot 4.74. Updated 2026-11-06, Asia/Tehran. The canonical roleplay decisions are in
+## Latest Staging release — 2026-11-17
+
+Owner-requested reference suggestions, code-first matching and text-only supplier
+intake are deployed at `cfd6515`. OCR/image extraction is removed, with photos
+retained as attachments. The current Staging UI, WordPress-hosted state and
+on-demand runtime are preserved. Suggestions run as bounded durable tasks and
+never approve matches. Dashboard reads are serial with one bounded gateway retry;
+supplier evidence uses bulk state transactions, and unchanged review schema setup
+is cached. Actual free quotas, model benchmarks and the optional embedding index
+remain prerequisites for Google routing activation.
+Final authenticated acceptance passed all eight dashboard GETs with no browser
+errors or desktop/mobile overflow. Supplier evidence took 4.9s; AI review still took
+40.4s, so read latency remains a performance task. Concurrent native WordPress work
+through `9234851` is preserved.
+See [release evidence and remaining work](free-google-staging-release.md).
+
+
+Snapshot 4.82. Updated 2026-11-16, Asia/Tehran. The canonical roleplay decisions are in
 `roleplay-state.json`; current live evidence and release gates are in
 `pipeline-readiness.md` and `pipeline-readiness-evidence.json`.
 The product intake and shelf policy is documented in `products-streamline-integrity.md`.
+
+## Current Railway resource policy and bot workflow — 2026-11-16
+
+The owner explicitly authorized the low-memory/sleep fix on both production and
+Staging. Continue from [`railway-on-demand-runtime.md`](railway-on-demand-runtime.md).
+Both services use `PIPELINE_RUNTIME_MODE=on_demand`, one Gunicorn worker and no
+Supervisor or idle external polling. WordPress owns real minute-cron due checks,
+hourly Sheet observation, daily reference refresh/housekeeping and retry wake times.
+The independent runtime MU-plugin preserves each site's existing storefront plugin.
+Both real cron timestamps and worker completion receipts were verified, with no
+scheduler failures and no outstanding wake. Both services were observed sleeping;
+subsequent release verification wakes them. Most recent Railway RAM samples were
+approximately 55 MB Staging and 65 MB production, versus approximately 130–150 MB
+before. No business records were deleted. The separate FollowUP-bot is unchanged.
+
+Railway backend releases are now pinned: Staging `c189e8e` (deployment
+`9b144a39-bd75-4448-866d-7dd83e91c7ed`) and production `076fee3` (deployment
+`44e30aca-11cf-49ea-8ed0-f1a833455283`) both reached `SUCCESS`. Future code pushes
+alone will not deploy: use a reviewed environment-scoped source pin and release.
+Frontend/docs edits must not rebuild or keep Railway awake.
+
+Both Telegram bots now offer buttons for reports, help, opening pending questions,
+confirming/rejecting/correcting prices, and opening the existing owner dashboard.
+Correction needs only a numeric toman reply. Prompt-bound signed callbacks and
+expiring input context reuse the existing review/publication path and durable queue;
+there is no new polling worker. See [`bot-button-workflow.md`](bot-button-workflow.md).
+The most recent pending Staging sender was approved through the owner endpoint with
+an accepted WordPress audit receipt; resend the previously blocked post because it
+was not retained. Personal identifiers and receipts remain outside Git.
+
+## Current Staging customer storefront — 2026-11-16
+
+The owner clarified that the header heart must own both favorite products and saved
+carts, outside the cart drawer. The owner also selected a new visual direction and
+prioritized overall layout, spacing and typography. Continue from plugin revision
+`8abbe3d`: warm-white/ink/blue styling with consistent page widths, quieter controls,
+complete/aligned catalog cards, contained phone galleries, aligned account forms and
+an intentional empty cart. The count badge is inside the cart icon's upper right and
+hidden at zero; the lower-left compact cart still peeks with the current discount.
+
+The heart opens one modal on all customer pages, with product and saved-cart tabs.
+Saving all favorites creates a saved cart without changing the active Woo cart.
+Saved carts have expandable previews, automatic names, inline rename, add/new-active-
+cart actions and deletion. Saving an active cart does not add individual favorites.
+The existing browser keys and Woo cart remain authoritative; old browser records are
+preserved. Bounded collection reads reuse the public catalog endpoint. Native cart
+mutations re-read its Woo HTML with GET, keeping the heart panel open and avoiding
+submitting stale form quantities. Existing replacement rollback/idempotence remains.
+
+Implementation `3e25688` and native-cart/small-screen refinement `8abbe3d` are pushed.
+All six changed plugin files were read back by the Staging uploader successfully.
+The synthetic runtime passed 20 checks; Chromium passed 40 interaction/layout checks,
+including 320/390px, off-page favorites, no cart writes from saving favorites, recovery,
+quantity controls and native-cart refresh. Local visual review also used captured
+anonymous Staging HTML/assets for catalog, product, cart and account pages. It is not
+a connected-browser payment/fulfillment test. Connected anonymous HTTP checks passed
+for all five customer pages, one heart modal per page, a bounded collection read,
+cart-only shipping deferral and merge/replacement retries. The isolated guest test
+cart was emptied; no order/payment was made. Architecture and release details are in
+[`storefront-customer-upgrade.md`](storefront-customer-upgrade.md) and
+[`site-change-workflow.md`](site-change-workflow.md).
+
+Pricing, shipping business rules and product/reference data are unchanged. The checked
+connected checkout still had no available payment method; payment completion is outside
+this visual change. Product-data repairs remain with the pipeline; production is unchanged.
+
+## Current Staging dashboard — 2026-11-15
+
+The owner requested a ground-up rebuild after the staged queue/card changes remained
+confusing. Commit `b20083b9a585c967fbe8e6533a509a048364e356` is deployed to WordPress
+Staging and replaces those competing views with one application and one product card
+renderer. Continue from [`../design/product-dashboard-v2/README.md`](../design/product-dashboard-v2/README.md)
+for the navigation, state and dataset responsibilities. The latest release and verification
+evidence are in [`site-change-workflow.md`](site-change-workflow.md). The old stage board,
+queue workspace and separate product page renderers are removed; retain the shared audited
+action routines when evolving the new interface. The data-authority cutover under D-043
+is still separate from this interface rebuild. No business data was migrated in this release.
+
+## Current reference refresh behavior — 2026-11-13 (D-045)
+
+The reference catalog is saved locally for future bot-product comparisons. Each source
+item is keyed by its stable Rezvan API ID and its latest raw record is retained. Refresh
+recomputes only changed source nodes; unchanged items are reused. Validated updates go
+directly to the active local dataset and only changed cells in `ReferencePrices`; linked
+product approvals are revisited only for changed reference prices or identities. The
+store's own WooCommerce catalog is not read during bot comparisons. The public Rezvan
+Store API remains a separate read-only refresh source, and reference refresh uses no
+Gemini. D-045 supersedes the manual review requirement in D-036 for later refreshes; an
+initial reference version still needs review.
+
+## Staging product workflow consolidation — 2026-11-14
+
+The live Products view now reuses the same review controls as the work queues inside
+each product tab, reducing parallel product-action UI. Source-integrity recovery stays
+in the same workbench. The reference warning correctly identifies Rezvan's API as the
+external reference source and excludes the store's own WooCommerce catalog. Commit
+`226bd691024cc78d6d50f6213d62ab8e59188f9c` was deployed to WordPress Staging and read
+back successfully. This is a presentation consolidation only. D-043 still governs the
+data cutover: one domain at a time, shadow-compare IDs/revisions/hashes, switch one
+writer, and retain the old ledger until its receipts reconcile. No source dataset was
+deleted or made non-authoritative in this slice. See
+[`site-change-workflow.md`](site-change-workflow.md) for verification limits.
 
 ## Current incident — staging owner-workflow fetch error (2026-11-11)
 
 The current user-facing issue is `Failed to fetch` in the WordPress owner workflow,
 including the recent-post review/reprocessing tab. Continue from
 [`session-handoff-staging-owner-fetch.md`](session-handoff-staging-owner-fetch.md).
-The WordPress-to-Railway proxy and staging-origin CORS changes are deployed and their
-transport checks passed. The authenticated staging page has not yet been inspected:
-the current task runtime did not receive the staging-specific admin variables
-`MOLAVISTAGE_ADMIN_USERNAME` and `MOLAVISTAGE_ADMIN_PASSWORD`, and the staging URL
-redirected to WordPress login. No owner workflow action has been submitted during this
-incident. Keep follow-up work on staging unless the user explicitly names production.
+The WordPress-to-Railway proxy and staging-origin CORS changes are deployed. A staging
+sign-in succeeded in the current runtime; both the owner dashboard and AI-confirmation
+page returned HTTP 200 and showed neither the reported Persian error nor `Failed to
+fetch`. The first capture saw 20 `admin-ajax.php` POSTs return HTTP 200 but did not map
+each request to its backend route, so this is not a complete endpoint-by-endpoint
+verification. The dashboard also drains queued owner decisions on page load; the first
+inspection did not block this behavior, and whether a queued command was delivered is
+unknown. Further browser checks must block outbox claims, review-store writes, and all
+owner-proxy POSTs. Keep follow-up work on staging unless the user explicitly names
+production. The core owner-workbench redesign is deployed only to Staging at
+`7d265d1cb5c1740c474594d7e976e6e2c839cbf4`; follow-up album OCR and dashboard filters
+are deployed only to Staging at `41ac5c25f0e7a3723ece656380eca37ebcad84c9`. No
+supplier re-extraction was run for the latest release, and this newer commit has not
+received an authenticated page check. Deployment details and remaining verification
+limits are recorded in [`site-change-workflow.md`](site-change-workflow.md). See also
+[`session-handoff-staging-owner-fetch.md`](session-handoff-staging-owner-fetch.md).
 
 ## 2026-11-06 User-confirmed pack-size quantity steps
 

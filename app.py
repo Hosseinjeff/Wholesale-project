@@ -27,6 +27,7 @@ from catalog.media import safe_file_id, stamp_inbound
 from catalog.memory import start_background
 from catalog.state import initialize as initialize_state
 initialize_state()
+from catalog.google_quota import QuotaDeferred
 from catalog.orders import format_order_notice, operator_chat_ids, remember_operator, upsert_shop_order
 from catalog.pricing import catalog_from_records, default_settings, preview_records, resolve_quote
 from catalog.status import command_name, private_chat, reply_for_command
@@ -51,7 +52,7 @@ app = Flask(__name__)
 WEB_APP_URL = os.getenv('GOOGLE_WEB_APP_URL')
 BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 BALE_BOT_TOKEN = os.getenv('BALE_BOT_TOKEN')
-APP_VERSION = "2026-11-16-wordpress-state-executor"
+APP_VERSION = "2026-11-17-owner-reference-suggestions"
 setup_logger(logging.INFO, log_file=None)
 logger = logging.getLogger(__name__)
 
@@ -291,6 +292,10 @@ def run_durable_handoff(queue, job_id=None, worker_id=None):
                 if latest is None or latest['snapshot_id'] != reference['snapshot_id']:
                     queue.hold_publication(payload['batch_id'], 'reference_changed_during_batch')
                     raise ReferenceChanged('reference snapshot changed during intake')
+        except QuotaDeferred:
+            queue.resolve_publication_hold(payload['batch_id'], expected_reason='batch_in_progress',
+                actor_id='system:quota', note='Rolled back batch awaits free Google quota')
+            raise
         except Exception:
             queue.hold_publication(payload['batch_id'], 'batch_write_unverified')
             raise
@@ -415,11 +420,21 @@ def run_durable_handoff(queue, job_id=None, worker_id=None):
             finally:
                 reference_locks.close()
 
+    def reference_suggest(payload):
+        from reference_import.snapshots import ReferenceStore
+        from reference_import.suggestion_tasks import run_suggestion
+        path = os.getenv('REFERENCE_STORE_PATH') or ''
+        if not path:
+            return {'ok': True, 'state': 'superseded'}
+        owners = [value.strip() for value in (os.getenv('REFERENCE_OWNER_IDS') or '').split(',')
+                  if value.strip()]
+        return run_suggestion(queue, payload, build_store(), ReferenceStore(path, owner_ids=owners))
+
     from catalog.runtime_host import run_runtime_task
     return queue.run_one(runtime_task=lambda payload:run_runtime_task(queue,payload),finalize=finalize, publish=publish_projection,
                          publish_with_payload=publish_projection,
                          order_write=order_write, notify=notify, job_id=job_id,
-                         reextract=reextract, worker_id=worker_id)
+                         reextract=reextract, worker_id=worker_id, reference_suggest=reference_suggest)
 
 
 def _wake_reference_waiters_if_eligible(queue, reference_store):
@@ -526,9 +541,9 @@ def _stop_pipeline_worker():
 atexit.register(_stop_pipeline_worker)
 
 # This is source-ingestion completion, not product approval or publication. A
-# photo-only source is safely staged when it enters its separate owner-review queue.
+# Photo-only sources are stored as attachments and do not enter extraction review.
 _SOURCE_TERMINAL_AI_STATUSES = frozenset({
-    'needs_confirmation', 'needs_media_review', 'ai_processed',
+    'needs_confirmation', 'attachment_only', 'needs_media_review', 'ai_processed',
     'no_product_candidate', 'owner_rejected', 'not_product',
 })
 
@@ -1567,7 +1582,7 @@ def pipeline_reconciliation_route():
 
 @app.route('/pipeline/product-status-snapshots', methods=['GET', 'POST'])
 def product_status_snapshots_route():
-    """Owner view and explicit capture for immutable product status history."""
+    """Owner current product view and immutable status history operations."""
     token = os.getenv('REFERENCE_BRIDGE_TOKEN') or ''
     owners = {value.strip() for value in (os.getenv('REFERENCE_OWNER_IDS') or '').split(',') if value.strip()}
     queue = handoff_queue()
@@ -1578,7 +1593,12 @@ def product_status_snapshots_route():
         return jsonify({'ok': False, 'error': 'unauthorized' if auth_error == 401 else 'owner_required'}), auth_error
     try:
         from datetime import datetime, timedelta, timezone
-        from catalog.product_status import ProductStatusLedger, capture_from_store
+        from catalog.product_status import ProductStatusLedger, capture_from_store, read_current_from_store
+        if request.method == 'GET' and request.args.get('view') == 'current':
+            payload = read_current_from_store(build_store(), queue.path)
+            response = jsonify({'ok': True, **payload})
+            response.headers['Cache-Control'] = 'no-store'
+            return response
         ledger = ProductStatusLedger(queue.path)
         if request.method == 'POST':
             body = request.get_json(silent=True)
@@ -2303,6 +2323,49 @@ def _owner_api_actor(scope, bridge_token, owners):
     return actor, (None if actor else 401)
 
 
+def _complete_reference_activation(reference_store, snapshot, previous_snapshot, *, owners,
+                                   incremental=False):
+    """Project an activated reference version and reconcile only affected bot products."""
+    from reference_import.projection import project_reference_prices, project_reference_delta
+    snapshot_id=str(snapshot.get('snapshot_id') or '')
+    if reference_store.projection_snapshot_id()==snapshot_id:
+        projection={'sheet':'ReferencePrices','row_count':snapshot.get('row_count') or 0,
+                    'verified':True,'snapshot_id':snapshot_id,'mode':'already_projected'}
+    elif incremental:
+        projection=project_reference_delta(build_store(),snapshot,previous_snapshot,reference_store)
+    else:
+        projection=project_reference_prices(build_store(),snapshot)
+        reference_store.mark_projected(snapshot_id)
+
+    update_summary={'checked':0,'retained':0,'needs_review':0}
+    status_snapshot=None
+    reconciliation_state='complete'
+    if reference_store.reconciliation_snapshot_id()!=snapshot_id:
+        try:
+            from reference_import.item_reviews import ItemReviewLedger
+            ItemReviewLedger(reference_store.database,owner_ids=owners).inherit_mappings(
+                snapshot_id,max_price_change=0.05)
+            affected=(snapshot.get('change_summary') or {}).get('reconcile_reference_ids') if incremental else None
+            if not incremental or affected:
+                from catalog.sync import reconcile_reference_price_approvals
+                catalog_store=build_store()
+                update_summary=reconcile_reference_price_approvals(
+                    catalog_store,previous_snapshot,snapshot,reference_store,max_price_change=0.05,
+                    affected_reference_ids=affected)
+                if update_summary.get('checked'):
+                    from catalog.product_status import capture_from_store
+                    queue=handoff_queue()
+                    if queue is not None:
+                        status_snapshot=capture_from_store(catalog_store,queue.path,
+                            reason=f'reference_snapshot:{snapshot_id}')
+            reference_store.mark_reconciled(snapshot_id)
+        except Exception:
+            reconciliation_state='failed'
+            logger.exception('Could not reconcile products for activated reference snapshot')
+    return {'projection':projection,'product_reconciliation_state':reconciliation_state,
+            'product_reference_updates':update_summary,'product_status_snapshot':status_snapshot}
+
+
 @app.after_request
 def reference_snapshots_browser_cors(response):
     browser_paths = {
@@ -2412,11 +2475,45 @@ def reference_snapshots_route():
                     'retry_after_seconds':outcome.get('retry_after_seconds')}),429
             if outcome.get('state')=='not_due':
                 return jsonify({'ok':False,'error':'refresh_not_retryable'}),409
-            state=scheduler.state() or {}
-            result={'ok':True,'action':'refresh','state':state.get('state'),
-                'last_attempt_at':state.get('last_attempt_at'),'error_code':state.get('error_code')}
-            if state.get('snapshot_id'):
-                result['snapshot_id']=state['snapshot_id']
+            refresh_state=scheduler.state() or {}
+            refresh_result={'projection_state':None,'product_reconciliation_state':'complete',
+                            'product_reference_updates':{'checked':0,'retained':0,'needs_review':0}}
+            snapshot_id=outcome.get('snapshot_id') or refresh_state.get('snapshot_id')
+            if outcome.get('state')=='staged' and outcome.get('automatic_update'):
+                if not USE_SHEETS:
+                    return jsonify({'ok':False,'error':'sheets_unavailable'}),503
+                candidate=store.snapshot(snapshot_id)
+                previous_id=(candidate or {}).get('previous_snapshot_id')
+                previous=store.snapshot(previous_id) if previous_id else None
+                store.activate_incremental(snapshot_id,expected_active_id=previous_id)
+                active=store.active_snapshot()
+                refresh_result=_complete_reference_activation(store,active,previous,
+                    owners=owners,incremental=True)
+                scheduler.mark_completed(snapshot_id,state='updated')
+                refresh_state=scheduler.state() or {}
+                if refresh_result['product_reconciliation_state']=='complete':
+                    _wake_reference_waiters_if_eligible(handoff_queue(),store)
+            elif outcome.get('state')=='unchanged':
+                active=store.active_snapshot()
+                if (active and (store.projection_snapshot_id()!=active.get('snapshot_id')
+                                or store.reconciliation_snapshot_id()!=active.get('snapshot_id'))):
+                    if not USE_SHEETS:
+                        return jsonify({'ok':False,'error':'sheets_unavailable'}),503
+                    previous_id=active.get('previous_snapshot_id')
+                    previous=store.snapshot(previous_id) if previous_id else None
+                    refresh_result=_complete_reference_activation(store,active,previous,
+                        owners=owners,incremental=bool(active.get('automatic_update')))
+                if active:
+                    snapshot_id=active.get('snapshot_id')
+                    scheduler.mark_completed(snapshot_id,state='unchanged')
+                    refresh_state=scheduler.state() or {}
+            result={'ok':True,'action':'refresh','state':refresh_state.get('state'),
+                'last_attempt_at':refresh_state.get('last_attempt_at'),'error_code':refresh_state.get('error_code'),
+                'change_summary':refresh_state.get('change_summary'),
+                'product_reconciliation_state':refresh_result['product_reconciliation_state'],
+                'product_reference_updates':refresh_result['product_reference_updates']}
+            if snapshot_id:
+                result['snapshot_id']=snapshot_id
             if outcome.get('row_count'):
                 result['row_count']=outcome['row_count']
             response=jsonify(result)
@@ -2453,34 +2550,14 @@ def reference_snapshots_route():
                     return jsonify({'ok':False,'error':'sheets_unavailable'}),503
                 store._activate_locked(snapshot_id,actor_id=actor,expected_active_id=expected)
                 active=store.active_snapshot()
-                from reference_import.projection import project_reference_prices
-                projection=project_reference_prices(build_store(),active)
-                reference_update_summary = {'checked': 0, 'retained': 0, 'needs_review': 0}
-                status_snapshot = None
-                reconciliation_state = 'complete'
-                try:
-                    from reference_import.item_reviews import ItemReviewLedger
-                    ItemReviewLedger(path, owner_ids=owners).inherit_mappings(
-                        snapshot_id, max_price_change=0.05)
-                    from catalog.sync import reconcile_reference_price_approvals
-                    from catalog.product_status import capture_from_store
-                    catalog_store = build_store()
-                    reference_update_summary = reconcile_reference_price_approvals(
-                        catalog_store, current, active, store, max_price_change=0.05)
-                    queue = handoff_queue()
-                    if queue is not None:
-                        status_snapshot = capture_from_store(catalog_store, queue.path,
-                            reason=f'reference_snapshot:{snapshot_id}')
-                except Exception:
-                    reconciliation_state = 'failed'
-                    logger.exception('Could not reconcile product approvals for activated reference snapshot')
+                completed=_complete_reference_activation(store,active,current,owners=owners)
                 result={'ok':True,'action':'activate','snapshot_id':snapshot_id,
                     'active_snapshot_id':active['snapshot_id'],'projection_state':'written',
-                    'row_count':projection['row_count'],
-                    'product_reconciliation_state':reconciliation_state,
-                    'product_reference_updates':reference_update_summary,
-                    'product_status_snapshot':status_snapshot}
-                if reconciliation_state == 'complete':
+                    'row_count':completed['projection']['row_count'],
+                    'product_reconciliation_state':completed['product_reconciliation_state'],
+                    'product_reference_updates':completed['product_reference_updates'],
+                    'product_status_snapshot':completed['product_status_snapshot']}
+                if completed['product_reconciliation_state'] == 'complete':
                     _wake_reference_waiters_if_eligible(handoff_queue(),store)
         response=jsonify(result)
         response.headers['Cache-Control']='no-store'
@@ -2498,7 +2575,7 @@ def ai_confirmations_route():
     from catalog.ai_confirmations import (
         AIConfirmationLedger, ConfirmationConflict, apply_decision, find_case,
         case_reextraction_inventory, recent_policy_reextraction_inventory,
-        reextraction_inventory, reextraction_message_key,
+        reextraction_inventory, reextraction_message_key, reextraction_selection,
         review_cases, validate_choice,
     )
     from catalog.gemini import ai_extraction_configured, extraction_policy_version
@@ -2517,29 +2594,28 @@ def ai_confirmations_route():
             reextract_action=request.args.get('reextract') or ''
             if reextract_action=='preview':
                 inventory=reextraction_inventory(store,ledger)
+                raw_channels=request.args.get('channels')
+                if raw_channels is None:
+                    selected_channels=request.args.getlist('channel')
+                else:
+                    try:
+                        selected_channels=json.loads(raw_channels)
+                    except (TypeError, ValueError):
+                        return jsonify({'ok':False,'error':'invalid_reextraction_filter'}),400
+                try:
+                    selection=reextraction_selection(inventory,
+                        scope=request.args.get('scope') or 'all',
+                        channels=selected_channels,
+                        date_from=request.args.get('date_from') or '',
+                        date_to=request.args.get('date_to') or '',
+                        group_by=request.args.get('group_by') or 'channel')
+                except ValueError:
+                    return jsonify({'ok':False,'error':'invalid_reextraction_filter'}),400
                 recent_inventory=recent_policy_reextraction_inventory(store,ledger)
                 open_case_inventory=case_reextraction_inventory(store,ledger)
                 pending_digest=hashlib.sha256(json.dumps(
                     sorted(item['message_key'] for item in inventory['pending_messages']),
                     separators=(',',':')).encode()).hexdigest()
-                media_items=inventory.get('media_review_messages') or []
-                media_digest=hashlib.sha256(json.dumps(
-                    sorted(item['message_key'] for item in media_items),
-                    separators=(',',':')).encode()).hexdigest()
-                media_items.sort(key=lambda item:str(item.get('message_key') or ''))
-                media_after=str(request.args.get('media_after') or '')
-                if media_after and not re.fullmatch(r'[a-f0-9]{64}',media_after):
-                    return jsonify({'ok':False,'error':'invalid_media_page'}),400
-                media_limit=12
-                eligible=(item for item in media_items if str(item.get('message_key') or '')>media_after)
-                media_page=[]
-                for item in eligible:
-                    media_page.append(item)
-                    if len(media_page)>=media_limit:
-                        break
-                media_next=(str(media_page[-1]['message_key']) if media_page
-                    and any(str(item.get('message_key') or '')>str(media_page[-1]['message_key'])
-                            for item in media_items) else None)
                 from datetime import datetime, timezone
                 from catalog.supplier_freshness import source_datetime
                 recent_posts=sorted(recent_inventory['messages'],
@@ -2552,6 +2628,7 @@ def ai_confirmations_route():
                         'window_days':recent_inventory['window_days'],
                         'eligible_count':recent_inventory['eligible_count'],
                         'media_ocr_count':recent_inventory['media_ocr_count'],
+                        'media_ocr_image_count':recent_inventory['media_ocr_image_count'],
                         'digest':recent_inventory['digest'],
                         'unknown_or_future_timestamp_count':recent_inventory['unknown_or_future_timestamp_count'],
                         'outside_window_count':recent_inventory['outside_window_count'],
@@ -2560,15 +2637,13 @@ def ai_confirmations_route():
                             'channel':item.get('channel') or item.get('channel_username') or '',
                             'timestamp':item.get('timestamp') or '',
                             'source_post_url':item.get('source_post_url') or '',
-                            'media_ocr':bool(item.get('media_ocr')),
                         } for item in recent_posts[:12]],
                     },
                     'pending_digest':pending_digest,
-                    'media_review_digest':media_digest,
-                    'media_review_messages':media_page,
-                    'media_review_total':len(media_items),
-                    'media_review_after':media_after,
-                    'media_review_next_after':media_next,
+                    'image_extraction_enabled':False,
+                    'media_review_messages':[],
+                    'media_review_total':0,
+                    'media_review_next_after':None,
                     'open_cases':{
                         'case_count':open_case_inventory['case_count'],
                         'message_count':open_case_inventory['message_count'],
@@ -2633,6 +2708,9 @@ def ai_confirmations_route():
             cases, recent = review_cases(store, ledger, include_history=True,
                                          reference_snapshot=reference_snapshot,
                                          reference_item_ledger=reference_item_ledger)
+            if reference_snapshot:
+                from reference_import.suggestion_tasks import attach_receipts
+                attach_receipts(queue, cases, 'ai', reference_snapshot['snapshot_id'])
             hold_scope=_publication_hold_scope(queue)
             for item in [*cases,*recent]:
                 item['publication_held']=_source_blocked_by_publication_hold(hold_scope,item)
@@ -2688,67 +2766,8 @@ def ai_confirmations_route():
                 'case_count':expected_cases,'message_count':expected_messages,'scope':'open_cases'})
             response.headers['Cache-Control']='no-store'
             return response,202
-        if isinstance(body,dict) and body.get('action')=='start_media_reextraction':
-            if set(body)!={'action','message_key','run_id'}:
-                return jsonify({'ok':False,'error':'invalid_media_reextraction'}),400
-            message_key=body.get('message_key')
-            run_id=body.get('run_id')
-            if (not isinstance(message_key,str) or not re.fullmatch(r'[a-f0-9]{64}',message_key)
-                    or not isinstance(run_id,str) or not re.fullmatch(r'[a-f0-9]{32}',run_id)):
-                return jsonify({'ok':False,'error':'invalid_media_reextraction'}),400
-            if not ai_extraction_configured():
-                return jsonify({'ok':False,'error':'ai_extraction_unconfigured'}),409
-            try:
-                with queue.publication_lock():
-                    if queue.active_reextraction_run():
-                        return jsonify({'ok':False,'error':'reextraction_active'}),409
-                    inventory=reextraction_inventory(store,ledger)
-                    item=next((candidate for candidate in inventory.get('media_review_messages',[])
-                        if candidate.get('message_key')==message_key),None)
-                    if not item:
-                        return jsonify({'ok':False,'error':'stale_media_review'}),409
-                    payload={**item,'content_sha256':hashlib.sha256(
-                        str(item.get('content') or '').encode()).hexdigest(),
-                        'reextraction_scope':'media_review'}
-                    queued=queue.enqueue_reextraction(run_id,actor,[payload])
-            except JobConflict as exc:
-                if str(exc).startswith('re-extraction run already active:'):
-                    return jsonify({'ok':False,'error':'reextraction_active'}),409
-                return jsonify({'ok':False,'error':'reextraction_conflict'}),409
-            start_background(_drain_reextraction_run,args=(queue,run_id),
-                name='owner-media-reextract')
-            response=jsonify({'ok':True,'run_id':run_id,'queued':queued,
-                'message_key':message_key,'scope':'media_review'})
-            response.headers['Cache-Control']='no-store'
-            return response,202
-        if isinstance(body,dict) and body.get('action')=='dismiss_media_message':
-            if set(body)!={'action','message_key'}:
-                return jsonify({'ok':False,'error':'invalid_media_decision'}),400
-            message_key=body.get('message_key')
-            if not isinstance(message_key,str) or not re.fullmatch(r'[a-f0-9]{64}',message_key):
-                return jsonify({'ok':False,'error':'invalid_media_decision'}),400
-            with queue.publication_lock():
-                if queue.active_reextraction_run():
-                    return jsonify({'ok':False,'error':'reextraction_active'}),409
-                existing=ledger.message_dismissal(message_key)
-                if existing:
-                    response=jsonify({'ok':True,'decision_id':message_key,'already_decided':True,
-                        'choice':'not_product','message_id':existing.get('message_id')})
-                    response.headers['Cache-Control']='no-store'
-                    return response
-                inventory=reextraction_inventory(store,ledger)
-                item=next((candidate for candidate in inventory.get('media_review_messages',[])
-                           if candidate.get('message_key')==message_key),None)
-                if not item:
-                    return jsonify({'ok':False,'error':'stale_media_review'}),409
-                decision=ledger.dismiss_message(item,actor_id=actor)
-                from catalog.sync import _write_ai_message_status
-                _write_ai_message_status(store,{'id':item['message_id'],'batch_id':item['batch_id'],
-                    'channel':item['channel']},'owner_rejected',[])
-            response=jsonify({'ok':True,'decision_id':decision['message_key'],
-                'choice':'not_product','message_id':item['message_id']})
-            response.headers['Cache-Control']='no-store'
-            return response
+        if isinstance(body,dict) and body.get('action') in {'start_media_reextraction','dismiss_media_message'}:
+            return jsonify({'ok':False,'error':'image_extraction_disabled'}),410
         if isinstance(body,dict) and body.get('action')=='dismiss_pending_messages':
             if set(body)!={'action','expected_count','expected_digest','note'}:
                 return jsonify({'ok':False,'error':'invalid_dismissal_request'}),400
@@ -2857,22 +2876,43 @@ def ai_confirmations_route():
             response.headers['Cache-Control']='no-store'
             return response
         if isinstance(body,dict) and body.get('action')=='start_reextraction':
-            if set(body)!={'action','scope','expected_count'} or body.get('scope') not in {'pending','all'}:
+            legacy_keys={'action','scope','expected_count'}
+            filtered_keys={'action','scope','expected_count','channels','date_from','date_to','expected_digest','run_id'}
+            legacy_request=set(body)==legacy_keys and body.get('scope') in {'pending','all'}
+            filtered_request=set(body)==filtered_keys and body.get('scope') in {'all','pending','linked'}
+            if not (legacy_request or filtered_request):
                 return jsonify({'ok':False,'error':'invalid_reextraction_request'}),400
             if not ai_extraction_configured():
                 return jsonify({'ok':False,'error':'ai_extraction_unconfigured'}),409
             expected_count=body.get('expected_count')
             if isinstance(expected_count,bool) or not isinstance(expected_count,int) or expected_count<1:
                 return jsonify({'ok':False,'error':'invalid_reextraction_count'}),400
-            run_id=uuid.uuid4().hex
+            if filtered_request and (not isinstance(body.get('expected_digest'),str)
+                    or not re.fullmatch(r'[a-f0-9]{64}',body['expected_digest'])):
+                return jsonify({'ok':False,'error':'invalid_reextraction_request'}),400
+            if filtered_request and (not isinstance(body.get('run_id'),str)
+                    or not re.fullmatch(r'[a-f0-9]{32}',body['run_id'])):
+                return jsonify({'ok':False,'error':'invalid_reextraction_request'}),400
+            run_id=body['run_id'] if filtered_request else uuid.uuid4().hex
             try:
                 with queue.publication_lock():
                     inventory=reextraction_inventory(store,ledger)
-                    selected=(inventory['pending_messages'] if body['scope']=='pending'
-                              else inventory['all_messages'])
-                    if len(selected)!=expected_count:
+                    selection=None
+                    if filtered_request:
+                        try:
+                            selection=reextraction_selection(inventory,scope=body['scope'],
+                                channels=body.get('channels'),date_from=body.get('date_from'),
+                                date_to=body.get('date_to'))
+                        except ValueError:
+                            return jsonify({'ok':False,'error':'invalid_reextraction_filter'}),400
+                        selected=selection['messages']
+                    else:
+                        selected=(inventory['pending_messages'] if body['scope']=='pending'
+                                  else inventory['all_messages'])
+                    if len(selected)!=expected_count or (selection and selection['digest']!=body['expected_digest']):
                         return jsonify({'ok':False,'error':'reextraction_preview_changed',
-                            'current_count':len(selected)}),409
+                            'current_count':len(selected),
+                            'current_digest':selection['digest'] if selection else ''}),409
                     if not selected:
                         return jsonify({'ok':False,'error':'no_reextraction_messages'}),409
                     items=[]
@@ -2882,7 +2922,12 @@ def ai_confirmations_route():
                         items.append({'message_id':message['message_id'],'batch_id':message['batch_id'],
                             'channel_username':message['channel_username'],'message_key':message_key,
                             'content_sha256':content_sha256,'timestamp':message['timestamp'],
-                            'reextraction_scope':body['scope']})
+                            'reextraction_scope':body['scope'],
+                            'media_ocr':bool(message.get('media_ocr')),
+                            **({key:message[key] for key in ('media_group_id','group_members',
+                                'image_file_ids','image_file_unique_ids','image_count','message_ids')
+                                if key in message}),
+                            **({'reextraction_digest':selection['digest']} if selection else {})})
                     queued=queue.enqueue_reextraction(run_id,actor,items)
             except JobConflict as exc:
                 if str(exc).startswith('re-extraction run already active:'):
@@ -2934,7 +2979,6 @@ def ai_confirmations_route():
                             'content_sha256':hashlib.sha256(message['content'].encode()).hexdigest(),
                             'timestamp':message['timestamp'],'source_key':message['source_key'],
                             'reextraction_scope':'recent_policy','policy_version':current_policy_version,
-                            'media_ocr':bool(message.get('media_ocr')),
                             'reextraction_digest':current_inventory['digest'],
                         })
                     queued=queue.enqueue_reextraction(run_id,actor,items)
@@ -3032,6 +3076,9 @@ def reference_item_reviews_route():
         snapshot = reference_store.active_snapshot()
         eligibility = active_reference_use(reference_store, now=datetime.now(timezone.utc))
         if not eligibility['allow_automatic'] or not snapshot or snapshot['snapshot_id'] != eligibility['snapshot_id']:
+            rejected_body = request.get_json(silent=True) if request.method == 'POST' else None
+            if isinstance(rejected_body, dict) and rejected_body.get('action') == 'suggest_reference':
+                return jsonify({'ok': False, 'error': 'stale_snapshot'}), 409
             response = jsonify({'ok': True, 'reference_state': eligibility,
                                 'cases': [], 'recent_decisions': []})
             response.headers['Cache-Control'] = 'no-store'
@@ -3048,6 +3095,8 @@ def reference_item_reviews_route():
                     {**(row.get('attributes') or {}),
                      'supplier_price': row.get('supplier_price') or ''},
                     snapshot.get('rows') or [], limit=12)
+            from reference_import.suggestion_tasks import attach_receipts
+            attach_receipts(queue, cases, 'reference', snapshot['snapshot_id'])
             recent_decisions = sorted((row for row in all_cases
                                        if row.get('decision') and not row.get('projection_pending')),
                 key=lambda row: str((row.get('decision') or {}).get('created_at') or ''), reverse=True)[:50]
@@ -3056,6 +3105,27 @@ def reference_item_reviews_route():
             response.headers['Cache-Control'] = 'no-store'
             return response
         body = request.get_json(silent=True)
+        if isinstance(body, dict) and body.get('action') == 'suggest_reference':
+            from reference_import.suggestion_tasks import (eligible_snapshot, policy_version,
+                resolve_case, task_key)
+            required = {'action', 'case_kind', 'case_id', 'offer_id', 'signature', 'snapshot_id'}
+            if (set(body) != required or body.get('case_kind') not in ('ai', 'reference')
+                    or any(not isinstance(body.get(key), str) or not body[key] or len(body[key]) > 300
+                           for key in required - {'action', 'case_kind'})
+                    or not re.fullmatch(r'[a-f0-9]{64}', body.get('signature', ''))):
+                return jsonify({'ok': False, 'error': 'invalid_fields'}), 400
+            context = {key: value for key, value in body.items() if key != 'action'}
+            context['policy_version'] = policy_version()
+            if not eligible_snapshot(reference_store, context):
+                return jsonify({'ok': False, 'error': 'stale_snapshot'}), 409
+            if resolve_case(sheet_store, snapshot, ledger, queue, context) is None:
+                return jsonify({'ok': False, 'error': 'stale_case'}), 409
+            job_id = queue.put('reference_suggest', task_key(context), context)
+            _start_pipeline_worker(force=True)
+            response = jsonify({'ok': True, 'job_id': job_id, 'state': 'queued',
+                                'snapshot_id': context['snapshot_id'], 'case_id': context['case_id']})
+            response.headers['Cache-Control'] = 'no-store'
+            return response, 202
         if isinstance(body, dict) and body.get('action') == 'assign_ai_reference':
             required = {'action', 'case_id', 'offer_id', 'signature', 'snapshot_id',
                         'reference_id', 'price_role', 'expected_decision_id'}

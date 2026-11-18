@@ -559,6 +559,7 @@ class Handoffs:
                 'receipt_id': str(row['id']),
                 'message_id': str(source.get('id') or ''),
                 'channel': str(source.get('channel_username') or source.get('channel') or ''),
+                'source_channel': str(source.get('source_channel') or ''),
                 'source_timestamp': str(source.get('timestamp') or ''),
                 'source_timestamp_basis': str(source.get('source_timestamp_basis') or ''),
                 'source_created_at': str(source.get('source_created_at') or ''),
@@ -1014,11 +1015,14 @@ class Handoffs:
                        (lease,now+900,row['id']))
         return {**dict(row),'payload':json.loads(row['payload']),'lease':lease,'attempts':row['attempts']+1}
 
-    def finish(self, job, result, *, state='done', error=None):
+    def finish(self, job, result, *, state='done', error=None, retry_at=None, count_attempt=True):
+        available = (time.time()+min(300,2**min(job['attempts'],8))
+                     if retry_at is None else float(retry_at))
         with self.connect() as db:
-            updated=db.execute('''UPDATE jobs SET state=?,result=?,error=?,available=?,lease=NULL,expires=NULL
+            updated=db.execute('''UPDATE jobs SET state=?,result=?,error=?,available=?,lease=NULL,expires=NULL,
+                attempts=MAX(0,attempts-?)
                 WHERE id=? AND state='running' AND lease=?''',
-                (state,self.encode(result),error,time.time()+min(300,2**min(job['attempts'],8)),
+                (state,self.encode(result),error,available,int(not count_attempt),
                  job['id'],job['lease']))
             if updated.rowcount!=1: raise JobConflict('Worker lease no longer owns this receipt')
 
@@ -1028,7 +1032,8 @@ class Handoffs:
         return {**dict(row),'result':json.loads(row['result']) if row['result'] else None} if row else None
 
     def run_one(self, *, finalize, publish, order_write, notify=None, job_id=None,
-                publish_with_payload=None, reextract=None, worker_id=None, runtime_task=None):
+                publish_with_payload=None, reextract=None, worker_id=None, runtime_task=None,
+                reference_suggest=None):
         job=self.claim(job_id)
         if not job:return False
         self._worker_job_started(worker_id,job['id'])
@@ -1076,6 +1081,10 @@ class Handoffs:
                 if reextract is None:raise RuntimeError('re-extraction_worker_unconfigured')
                 result=reextract(job['payload'])
                 if result.get('ok') is not True:raise RuntimeError('re-extraction_failed')
+            elif job['kind']=='reference_suggest':
+                if reference_suggest is None:raise RuntimeError('reference_suggestion_worker_unconfigured')
+                result=reference_suggest(job['payload'])
+                if result.get('ok') is not True:raise RuntimeError('reference_suggestion_failed')
             else:raise RuntimeError('unknown_handoff')
             self.finish(job,result)
         except ReferencePending:
@@ -1085,7 +1094,13 @@ class Handoffs:
         except BatchRecoveryRequired:
             self.finish(job,{},state='needs_review',error='batch_recovery_requires_owner_review')
         except Exception as error:
-            self.finish(job,{},state='failed' if job['attempts']>=8 else 'queued',error=type(error).__name__)
+            from catalog.google_quota import QuotaDeferred
+            if isinstance(error, QuotaDeferred):
+                # Quota waits are scheduling events, not exhausted failure retries.
+                self.finish(job,{'retry_at':error.retry_at},state='queued',
+                            error=error.reason,retry_at=error.retry_at,count_attempt=False)
+            else:
+                self.finish(job,{},state='failed' if job['attempts']>=8 else 'queued',error=type(error).__name__)
         finally:
             self._worker_job_finished(worker_id,job['id'])
         return True

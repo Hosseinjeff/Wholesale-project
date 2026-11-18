@@ -7,7 +7,7 @@ from reference_import.decisions import DecisionConflict
 from reference_import.importer import HEADERS, PDF_SOURCE_URL, parse_rows
 from reference_import.snapshots import ReferenceStore
 from reference_import.workflow import active_reference_use, reference_use
-from reference_fixtures import staged_candidate
+from reference_fixtures import staged_candidate, woocommerce_product
 
 
 class SnapshotTests(unittest.TestCase):
@@ -60,7 +60,11 @@ class SnapshotTests(unittest.TestCase):
 
     def test_stale_activation_loses_without_replacing_active_data(self):
         first=self.activate(2)
-        candidate=self.store.stage(self.candidate(1))
+        product=woocommerce_product()
+        product['prices']['price']=product['prices']['sale_price']='475000'
+        timestamp=(self.now-timedelta(hours=1)).isoformat()
+        candidate=self.store.stage(staged_candidate(timestamp, [product]))
+        self.assertNotEqual(candidate,first)
         self.store.review(candidate,actor_id='wp:7',note='Synthetic review')
         with self.assertRaises(DecisionConflict):
             self.store.activate(candidate,actor_id='wp:7',expected_active_id=None)
@@ -73,12 +77,16 @@ class SnapshotTests(unittest.TestCase):
 
     def test_invalid_candidate_cannot_replace_previous_snapshot(self):
         version=self.activate()
-        candidate=self.candidate(0.5);candidate['rows'][0][3]=-1
+        candidate=self.candidate(0.5)
+        candidate.pop('_source_products')
+        candidate['rows'][0][3]=-1
         with self.assertRaises(ValueError):self.store.stage(candidate)
         self.assertEqual(self.store.active_snapshot()['snapshot_id'],version)
 
     def test_candidate_without_coverage_metadata_cannot_be_staged(self):
-        candidate=self.candidate();candidate.pop('coverage_verified')
+        candidate=self.candidate()
+        candidate.pop('_source_products')
+        candidate.pop('coverage_verified')
         with self.assertRaises(ValueError):self.store.stage(candidate)
 
     def test_legacy_pdf_candidate_is_rejected_even_with_complete_row_metadata(self):

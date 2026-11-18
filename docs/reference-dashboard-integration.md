@@ -1,5 +1,18 @@
 # WordPress dashboard integration
 
+## Incremental reference refresh — 2026-11-13 (D-045)
+
+The reference catalog is a saved comparison dataset for bot-imported products. Refresh
+retains source records by stable Rezvan API product ID, compares the raw product fields,
+and reprocesses only a new product or a changed title, price, SKU, category, or attribute
+node. A no-change refresh writes no snapshot or sheet cells. A normal update activates
+automatically, writes only affected ReferencePrices cells, and rechecks linked product
+approvals only where the reference price or identity changed. Additions, removals, the
+initial metadata migration, or reordered source data use a full sheet projection. Bot
+comparisons read the local active dataset; the store's own WooCommerce catalog is not
+queried. The public Rezvan Store API remains the read-only source for refreshes, and this
+path does not use Gemini. The first reference version still requires owner review.
+
 ## Persian slash notation correction — 2026-10-31
 
 The parser and Gemini prompt now treat ASCII `/` in Persian measurements as a decimal

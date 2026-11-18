@@ -36,6 +36,14 @@ GOOGLE_API_KEY=
 AI_MODEL=gemini-3.5-flash-lite
 EXTRACTION_MODE=ai
 
+# Optional free-tier routing. Leave disabled until the actual API project limits
+# and each model's task quality are verified; never put an API key in the model list.
+# See docs/free-google-reference-routing.md. Empty budgets deliberately admit no calls.
+GOOGLE_FREE_ROUTING=0
+GOOGLE_QUOTA_PROJECT=
+GOOGLE_QUOTA_DB_PATH=/data/google-quota.sqlite
+GOOGLE_FREE_MODELS=[]
+
 # === DURABLE SERVER PIPELINE / REFERENCE REFRESH ===
 # Use a private persistent Railway volume; do not enable the worker with ephemeral storage.
 # The reference store may share the pipeline database file on that same volume.

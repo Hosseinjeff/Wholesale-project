@@ -153,6 +153,10 @@ class AIConfirmationTests(unittest.TestCase):
         self.assertTrue(all('variant_group_id' not in item for item in cases))
 
     def test_identical_reextractions_from_one_source_post_share_one_review_decision(self):
+        stamp=datetime.now(timezone.utc).isoformat()
+        self.source.update({'Message Timestamp':stamp,'Source Post Created At':stamp,
+                            'Source Post Updated At':stamp})
+        self.store.write_rows('Offers',2,[_row_from_map(OFFER_HEADERS,self.source)])
         repeated = dict(self.source, **{
             'Offer ID':'reextract:run-2:msg-2:0', 'Message ID':'msg-2',
             'Batch ID':'reextract:run-2', 'Import Timestamp':'2026-10-28T11:00:00Z',
@@ -214,9 +218,11 @@ class AIConfirmationTests(unittest.TestCase):
             'confidence':0.98,'extraction_confidence':0.98,'price_type':'unit'}]
 
         with patch.dict(os.environ, {'PIPELINE_DB_PATH':self.path,'REFERENCE_STORE_PATH':''}), \
-                patch('catalog.sync._extract_supplier_products', return_value=extracted):
+                patch('catalog.sync._extract_supplier_products', return_value=extracted), \
+                patch('requests.sessions.Session.post') as network:
             result = reextract_saved_message(store, payload)
 
+        network.assert_not_called()
         self.assertEqual(result['status'], 'reprocessed')
         self.assertEqual(result['offers_written'], 1)
         self.assertEqual(result['open_cases_remaining'], 0)
@@ -346,29 +352,23 @@ class AIConfirmationTests(unittest.TestCase):
         self.assertEqual(inventory['counts']['no_product_candidates'],1)
         self.assertEqual(inventory['pending_messages'][0]['ai_status'],'no_product_candidate')
 
-    def test_photo_only_message_remains_in_media_review_until_owner_decision(self):
+    def test_photo_only_message_is_an_attachment_without_an_extraction_task(self):
         store=MemoryStore()
-        store.ensure('Offers',OFFER_HEADERS)
-        store.ensure('MessageData',MESSAGE_HEADERS)
+        store.ensure('Offers',OFFER_HEADERS);store.ensure('MessageData',MESSAGE_HEADERS)
         store.append('MessageData',[_row_from_map(MESSAGE_HEADERS,{
             'ID':'msg-photo','Channel':'telegram','Channel Username':'@supplier','Content':'',
             'Timestamp':'2026-11-05T10:00:00Z','Status':'product','Batch ID':'batch-photo',
             'Has Media':True,'Media Type':'photo','Image File ID':'AgACAgQAAxkBAAIB',
             'Image File Unique ID':'photo-unique-1','AI Status':'pending_ai'})])
-
         self.assertTrue(refresh_ai_message_status(store,{'id':'msg-photo','batch_id':'batch-photo',
             'channel':'telegram','has_media':True}))
         _,messages=_records(store.read('MessageData'))
-        self.assertEqual(messages[0]['AI Status'],'needs_media_review')
+        self.assertEqual(messages[0]['AI Status'],'attachment_only')
+        self.assertEqual(messages[0]['Image File Unique ID'],'photo-unique-1')
         inventory=reextraction_inventory(store,self.ledger)
-        self.assertEqual(inventory['counts']['media_review'],1)
-        item=inventory['media_review_messages'][0]
-        self.assertEqual(item['image_file_unique_id'],'photo-unique-1')
-        self.assertEqual(inventory['counts']['pending'],0)
-
-        decision=self.ledger.dismiss_message(item,actor_id='wp:7')
-        self.assertEqual(decision['message_key'],item['message_key'])
-        self.assertEqual(reextraction_inventory(store,self.ledger)['counts']['media_review'],0)
+        self.assertEqual(inventory['counts']['attachment_only'],1)
+        self.assertEqual(inventory['media_review_messages'],[])
+        self.assertEqual(inventory['pending_messages'],[])
 
     def test_sticker_only_message_is_reported_without_flooding_ocr_review(self):
         store=MemoryStore()
@@ -382,7 +382,7 @@ class AIConfirmationTests(unittest.TestCase):
         inventory=reextraction_inventory(store,self.ledger)
 
         self.assertEqual(inventory['counts']['media_review'],0)
-        self.assertEqual(inventory['counts']['unsupported_media'],1)
+        self.assertEqual(inventory['counts']['attachment_only'],1)
         self.assertEqual(inventory['media_review_messages'],[])
         self.assertEqual(inventory['pending_messages'],[])
 
@@ -397,115 +397,58 @@ class AIConfirmationTests(unittest.TestCase):
         repeated=self.ledger.dismiss_message(first,actor_id='wp:7')
         self.assertEqual(saved['message_key'],repeated['message_key'])
 
-    def test_photo_with_failed_caption_extraction_uses_only_the_media_review_queue(self):
-        from catalog.ai_confirmations import reextraction_message_key
-        caption='لطفاً متن روی عکس را بررسی کنید'
-        store=MemoryStore()
-        store.ensure('Offers',OFFER_HEADERS)
-        store.ensure('MessageData',MESSAGE_HEADERS)
+    def test_photo_caption_without_products_stays_in_the_text_queue(self):
+        caption='caption with missing product details'
+        store=MemoryStore();store.ensure('Offers',OFFER_HEADERS);store.ensure('MessageData',MESSAGE_HEADERS)
         store.append('MessageData',[_row_from_map(MESSAGE_HEADERS,{
             'ID':'photo-caption','Channel':'telegram','Channel Username':'@supplier',
             'Content':caption,'Timestamp':'2026-11-05T10:00:00Z','Status':'product',
             'Batch ID':'photo-caption-batch','Has Media':True,'Media Type':'photo',
             'Image File ID':'AgACAgQAAxkBAAIB','Image File Unique ID':'photo-caption-unique',
             'AI Status':'no_product_candidate'})])
-
         inventory=reextraction_inventory(store,self.ledger)
-
-        self.assertEqual(inventory['counts']['media_review'],1)
+        self.assertEqual(inventory['media_review_messages'],[])
         self.assertEqual(inventory['counts']['no_product_candidates'],1)
-        self.assertEqual(inventory['pending_messages'],[],
-            'a caption that already produced no candidate must not also appear as a text-only retry')
-        item=inventory['media_review_messages'][0]
-        self.assertEqual(item['content'],caption)
-        self.assertEqual(item['image_file_unique_id'],'photo-caption-unique')
-        self.assertEqual(item['message_key'],reextraction_message_key({
-            **item,'media_identity':item['media_identity']}))
+        self.assertEqual(inventory['pending_messages'][0]['content'],caption)
 
-    def test_photo_ocr_reextraction_attaches_transcript_and_keeps_offer_in_review(self):
-        from catalog.ai_confirmations import reextraction_message_key
+    def test_legacy_image_jobs_stop_before_source_reads_or_network_requests(self):
         from catalog.sync import reextract_saved_message
-        content='آبمیوه تتراپک سون، ۲۲۰ میلی لیتر\nقیمت فروش ما: ۱۸/۵۰۰ تومان'
-        timestamp=datetime.now(timezone.utc).isoformat()
-        store=MemoryStore()
-        store.ensure('Offers',OFFER_HEADERS)
-        store.ensure('Products',PRODUCT_HEADERS)
-        store.ensure('MessageData',MESSAGE_HEADERS)
-        store.append('MessageData',[_row_from_map(MESSAGE_HEADERS,{
-            'ID':'photo-ocr-1','Channel':'telegram','Channel Username':'@supplier',
-            'Content':'','Timestamp':timestamp,'Source Timestamp Basis':'supplier_post',
-            'Status':'product','Batch ID':'photo-batch-1','AI Status':'needs_media_review',
-            'Has Media':True,'Media Type':'photo','Image File ID':'AgACAgQAAxkBAAIB',
-            'Image File Unique ID':'photo-ocr-unique','URL':'https://t.me/supplier/21'})])
-        item=reextraction_inventory(store,self.ledger)['media_review_messages'][0]
-        payload={**item,'content_sha256':hashlib.sha256(b'').hexdigest(),
-            'run_id':'d'*32,'actor_id':'wp:7'}
-        payload['message_key']=reextraction_message_key(payload)
-        transcript='آبمیوه تتراپک سون، ۲۲۰ میلی لیتر\nقیمت فروش ما: ۱۸/۵۰۰ تومان'
-        product={'name':'آبمیوه تتراپک سون، ۲۲۰ میلی لیتر','sale_price':18500,
-            'price':18500,'actual_price':50000,'consumer_price':50000,
-            'price_type':'unit','currency':'IRT','confidence':0.99,
-            'extraction_confidence':0.99,'stock_status':'Unknown'}
-        with patch.dict(os.environ,{'PIPELINE_DB_PATH':self.path},clear=True), \
-                patch('catalog.media.fetch_telegram_image',return_value=(b'image','image/jpeg')) as fetch, \
-                patch('catalog.gemini.extract_text_from_image',return_value=transcript) as ocr, \
-                patch('catalog.sync._extract_supplier_products',return_value=[product]) as extract:
-            result=reextract_saved_message(store,payload)
+        payload={'message_id':'legacy-image','batch_id':'legacy-batch','actor_id':'wp:7',
+            'run_id':'d'*32,'message_key':'e'*64,'content_sha256':hashlib.sha256(b'').hexdigest(),
+            'reextraction_scope':'media_review'}
+        with patch.object(self.store,'read',side_effect=AssertionError('source must not be read')), \
+                patch('requests.sessions.Session.post') as network:
+            result=reextract_saved_message(self.store,payload)
+        self.assertEqual(result['status'],'image_extraction_disabled')
+        self.assertEqual(result['offers_written'],0)
+        network.assert_not_called()
 
-        self.assertEqual(result['status'],'reprocessed')
-        fetch.assert_called_once_with('AgACAgQAAxkBAAIB')
-        ocr.assert_called_once_with(b'image','image/jpeg',caption='')
-        extract.assert_called_once_with(transcript,'@supplier')
-        _,offers=_records(store.read('Offers'))
-        self.assertEqual(len(offers),1)
-        self.assertEqual(offers[0]['Original Message'],'')
-        self.assertEqual(offers[0]['Media OCR Text'],transcript)
-        self.assertEqual(offers[0]['Image File Unique ID'],'photo-ocr-unique')
-        self.assertEqual(offers[0]['Status'],'needs_review')
-        self.assertIn('Image OCR requires owner verification',offers[0]['Review Reason'])
-        cases=review_cases(store,AIConfirmationLedger(self.path))
-        self.assertEqual(len(cases),1)
-        self.assertEqual(cases[0]['media_ocr_text'],transcript)
-        self.assertEqual(cases[0]['original_message'],'')
-        _,messages=_records(store.read('MessageData'))
-        self.assertEqual(messages[0]['AI Status'],'needs_confirmation')
-
-    def test_media_ocr_reextraction_combines_caption_with_image_text(self):
-        from catalog.ai_confirmations import reextraction_message_key
+    def test_photo_caption_uses_text_only_and_preserves_the_photo(self):
         from catalog.sync import reextract_saved_message
-        caption='لطفاً قیمت و نام کالا را از عکس بخوانید'
-        transcript='آبمیوه تتراپک سون، ۲۲۰ میلی لیتر\nقیمت فروش ما: ۱۸/۵۰۰ تومان'
-        timestamp=datetime.now(timezone.utc).isoformat()
-        store=MemoryStore()
-        store.ensure('Offers',OFFER_HEADERS)
-        store.ensure('Products',PRODUCT_HEADERS)
-        store.ensure('MessageData',MESSAGE_HEADERS)
+        now=datetime.now(timezone.utc).isoformat()
+        caption='Beans, supplier price 100000 toman'
+        store=MemoryStore();store.ensure('Offers',OFFER_HEADERS);store.ensure('MessageData',MESSAGE_HEADERS)
         store.append('MessageData',[_row_from_map(MESSAGE_HEADERS,{
-            'ID':'photo-caption-ocr','Channel':'telegram','Channel Username':'@supplier',
-            'Content':caption,'Timestamp':timestamp,'Source Timestamp Basis':'supplier_post',
-            'Status':'product','Batch ID':'photo-caption-ocr-batch',
+            'ID':'photo-caption','Channel':'telegram','Channel Username':'@supplier',
+            'Content':caption,'Timestamp':now,'Status':'product','Batch ID':'photo-batch',
             'Has Media':True,'Media Type':'photo','Image File ID':'AgACAgQAAxkBAAIB',
-            'Image File Unique ID':'photo-caption-ocr-unique','AI Status':'no_product_candidate'})])
-        item=reextraction_inventory(store,self.ledger)['media_review_messages'][0]
+            'Image File Unique ID':'photo-unique','AI Status':'no_product_candidate'})])
+        item=reextraction_inventory(store,self.ledger)['pending_messages'][0]
         payload={**item,'content_sha256':hashlib.sha256(caption.encode()).hexdigest(),
-            'reextraction_scope':'media_review','run_id':'f'*32,'actor_id':'wp:7'}
-        payload['message_key']=reextraction_message_key(payload)
-        product={'name':'آبمیوه تتراپک سون، ۲۲۰ میلی لیتر','sale_price':18500,
-            'price':18500,'actual_price':50000,'consumer_price':50000,
-            'price_type':'unit','currency':'IRT','confidence':0.99,
-            'extraction_confidence':0.99,'stock_status':'Unknown'}
+                 'run_id':'f'*32,'actor_id':'wp:7','media_ocr':True}
+        product={'name':'Beans','sale_price':100000,'price':100000,'price_type':'unit',
+            'currency':'IRT','confidence':.99,'extraction_confidence':.99,'stock_status':'Unknown'}
         with patch.dict(os.environ,{'PIPELINE_DB_PATH':self.path},clear=True), \
-                patch('catalog.media.fetch_telegram_image',return_value=(b'image','image/jpeg')), \
-                patch('catalog.gemini.extract_text_from_image',return_value=transcript), \
-                patch('catalog.sync._extract_supplier_products',return_value=[product]) as extract:
+                patch('catalog.sync._extract_supplier_products',return_value=[product]) as extract, \
+                patch('requests.sessions.Session.post') as network:
             result=reextract_saved_message(store,payload)
-
         self.assertEqual(result['status'],'reprocessed')
-        extract.assert_called_once_with(caption+'\n'+transcript,'@supplier')
+        extract.assert_called_once_with(caption,'@supplier')
+        network.assert_not_called()
         _,offers=_records(store.read('Offers'))
         self.assertEqual(offers[0]['Original Message'],caption)
-        self.assertEqual(offers[0]['Media OCR Text'],transcript)
-        self.assertEqual(offers[0]['Status'],'needs_review')
+        self.assertEqual(offers[0]['Image File Unique ID'],'photo-unique')
+        self.assertEqual(offers[0]['Media OCR Text'],'')
 
     def test_model_not_product_output_is_not_treated_as_owner_rejection(self):
         store=MemoryStore()
@@ -598,21 +541,17 @@ class AIConfirmationTests(unittest.TestCase):
         self.assertEqual(same_policy['eligible_count'],0,
             'even a no-product result is not repeatedly charged to the same extraction policy')
 
-    def test_recent_policy_inventory_includes_image_posts_as_review_only_ocr_work(self):
+    def test_recent_policy_inventory_does_not_schedule_photo_only_posts(self):
         now=datetime.now(timezone.utc)
-        store=MemoryStore()
-        store.ensure('Offers',OFFER_HEADERS);store.ensure('MessageData',MESSAGE_HEADERS)
+        store=MemoryStore();store.ensure('Offers',OFFER_HEADERS);store.ensure('MessageData',MESSAGE_HEADERS)
         store.append('MessageData',[_row_from_map(MESSAGE_HEADERS,{
-            'ID':'recent-photo','Channel':'telegram','Channel Username':'@supplier',
-            'Content':'','Timestamp':(now-timedelta(hours=4)).isoformat(),
-            'Status':'product','Batch ID':'photo-batch','Has Media':True,'Media Type':'photo',
-            'Image File ID':'AgACAgQAAxkBAAIB','Image File Unique ID':'photo-unique',
-            'AI Status':'needs_media_review'})])
+            'ID':'recent-photo','Channel':'telegram','Channel Username':'@supplier','Content':'',
+            'Timestamp':(now-timedelta(hours=4)).isoformat(),'Batch ID':'photo-batch',
+            'Has Media':True,'Media Type':'photo','Image File ID':'AgACAgQAAxkBAAIB',
+            'Image File Unique ID':'photo-unique','AI Status':'needs_media_review'})])
         preview=recent_policy_reextraction_inventory(store,self.ledger,now=now)
-        self.assertEqual(preview['eligible_count'],1)
-        self.assertEqual(preview['media_ocr_count'],1)
-        self.assertTrue(preview['messages'][0]['media_ocr'])
-        self.assertEqual(preview['messages'][0]['image_file_unique_id'],'photo-unique')
+        self.assertEqual(preview['eligible_count'],0)
+        self.assertEqual(preview['messages'],[])
 
     def test_recent_policy_job_stops_when_the_policy_changes_after_enqueue(self):
         from catalog.gemini import extraction_policy_version
@@ -797,7 +736,7 @@ class AIConfirmationRouteTests(unittest.TestCase):
             payload = {'case_id':case['case_id'],'offer_id':case['offer_id'],'signature':case['signature'],
                 'choice':'confirm','fields':{'price_role':'unit','sale_price':100000,'actual_price':150000,
                     'package_count':'','min_qty':1,'stock_status':'Available'},
-                'note':'Verified against post','expected_decision_id':None}
+                'note':'Verified against post','expected_decision_id':None,'source_current_verified':True}
             old_sheets = server.USE_SHEETS
             with patch.dict(os.environ, {'PIPELINE_DB_PATH':path,'REFERENCE_BRIDGE_TOKEN':'x'*40,
                     'REFERENCE_OWNER_IDS':'wp:7'}), patch.object(server,'USE_SHEETS',True), \
@@ -876,7 +815,7 @@ class AIConfirmationRouteTests(unittest.TestCase):
                         'signature':case['signature'],'choice':'confirm',
                         'fields':{'price_role':'unit','sale_price':100000,'actual_price':150000,
                             'package_count':'','min_qty':1,'stock_status':'Available'},
-                        'note':'Verified against source post','expected_decision_id':None}
+                        'note':'Verified against source post','expected_decision_id':None,'source_current_verified':True}
                 blocked=client.post('/pipeline/ai-confirmations',json=payload(held),headers=headers)
                 self.assertEqual(blocked.status_code,409,blocked.get_json())
                 accepted=client.post('/pipeline/ai-confirmations',json=payload(free),headers=headers)

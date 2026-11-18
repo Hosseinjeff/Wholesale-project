@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>پیش‌نمونه میز کار مالک</title>
+  <link rel="stylesheet" href="prototype.css">
+</head>
+<body>
+  <main class="app-shell">
+    <header class="topbar">
+      <div class="brand-mark" aria-hidden="true">م</div>
+      <div class="brand-copy">
+        <p class="eyebrow">مدیریت فروشگاه</p>
+        <h1>میز کار مولوی‌سل</h1>
+      </div>
+      <div class="topbar-spacer"></div>
+      <span class="prototype-pill">پیش‌نمونه تعاملی</span>
+      <button class="quiet-button" type="button">به‌روزرسانی وضعیت</button>
+    </header>
+
+    <section class="welcome-row">
+      <div>
+        <p class="eyebrow">نمای کلی کارها</p>
+        <h2>کار بعدی را از مرحله‌اش انتخاب کنید</h2>
+        <p class="muted">هر مرحله فقط کارهای مرتبط را نشان می‌دهد. هر کارت یک اقدام اصلی دارد.</p>
+      </div>
+      <div class="health-chip"><span class="health-dot"></span> صف پردازش فعال · وضعیت نمونه</div>
+    </section>
+
+    <section class="stage-grid" aria-label="مراحل کار">
+      <button class="stage-card is-active" type="button" data-stage="inbox" aria-pressed="true">
+        <span class="stage-index">۰۱</span><span class="stage-title">ورودی و استخراج</span>
+        <span class="stage-count">۲۱</span><span class="stage-hint">پیام و بررسی مالک</span>
+      </button>
+      <button class="stage-card" type="button" data-stage="identity" aria-pressed="false">
+        <span class="stage-index">۰۲</span><span class="stage-title">هویت محصول</span>
+        <span class="stage-count">۸</span><span class="stage-hint">تطبیق و مرجع</span>
+      </button>
+      <button class="stage-card" type="button" data-stage="price" aria-pressed="false">
+        <span class="stage-index">۰۳</span><span class="stage-title">قیمت و مدرک</span>
+        <span class="stage-count">۱۲</span><span class="stage-hint">قیمت تأمین‌کننده و منبع</span>
+      </button>
+      <button class="stage-card" type="button" data-stage="publish" aria-pressed="false">
+        <span class="stage-index">۰۴</span><span class="stage-title">انتشار و همگام‌سازی</span>
+        <span class="stage-count">۵</span><span class="stage-hint">توقف و تعارض کاتالوگ</span>
+      </button>
+    </section>
+
+    <nav class="work-tabs" aria-label="نمایش میز کار">
+      <button class="work-tab is-active" type="button" data-view="tasks" aria-pressed="true">کارهای این مرحله</button>
+      <button class="work-tab" type="button" data-view="reextract" aria-pressed="false">بازاستخراج پیام‌ها</button>
+      <button class="work-tab" type="button" data-view="store" aria-pressed="false">عملیات فروشگاه</button>
+    </nav>
+
+    <section class="view-panel" data-panel="tasks">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">مرحله ۰۱ · ورودی و استخراج</p>
+          <h2>صف بررسی استخراج</h2>
+        </div>
+        <div class="queue-filters" role="group" aria-label="فیلتر صف استخراج">
+          <button class="filter-chip is-selected" type="button">همه · ۲۱</button>
+          <button class="filter-chip" type="button">منتظر بررسی · ۱۲</button>
+          <button class="filter-chip" type="button">رسانه و OCR · ۴</button>
+        </div>
+      </div>
+
+      <div class="task-layout">
+        <article class="task-card focus-card">
+          <div class="task-topline">
+            <span class="stage-tag tag-orange">نیازمند بررسی استخراج</span>
+            <span class="task-source">کانال نمونه الف · امروز ۱۰:۳۵</span>
+          </div>
+          <div class="task-main">
+            <div>
+              <h3>نمونه محصول شماره یک</h3>
+              <p class="muted">پیام اصلی برای بررسی قیمت و بسته‌بندی پیوند شده است.</p>
+            </div>
+            <span class="task-count">۱ پیشنهاد</span>
+          </div>
+          <div class="task-summary">
+            <div><span>قیمت فروش</span><strong>نیازمند تطبیق با پیام</strong></div>
+            <div><span>بسته‌بندی</span><strong>ثبت شده در پیشنهاد</strong></div>
+            <div><span>گام بعدی</span><strong>بررسی اطلاعات استخراج‌شده</strong></div>
+          </div>
+          <div class="task-actions">
+            <button class="primary-button" type="button" data-message="پیش‌نمونه است؛ هیچ تصمیمی ثبت نمی‌شود.">بررسی پیشنهاد</button>
+            <button class="text-button" type="button" data-toggle="task-context">جزئیات منبع</button>
+          </div>
+          <div class="context-box" id="task-context" hidden>
+            <p>نمونه پیام و پیوند منبع در این بخش قرار می‌گیرد. تصمیم‌های قبلی و وضعیت انتشار در تاریخچه می‌مانند.</p>
+          </div>
+          <details class="secondary-details">
+            <summary>وضعیت‌های دیگر این محصول</summary>
+            <div class="secondary-row"><span class="stage-tag tag-violet">تطبیق مرجع</span><span>هنوز برای این نمونه نیازمند اقدام نیست</span></div>
+            <div class="secondary-row"><span class="stage-tag tag-teal">قیمت تأمین‌کننده</span><span>در صف جداگانه بررسی می‌شود</span></div>
+          </details>
+        </article>
+
+        <aside class="side-rail">
+          <section class="side-card">
+            <h3>کارهای همین مرحله</h3>
+            <button class="work-link is-current" type="button"><span>تأیید استخراج</span><b>۱۲</b></button>
+            <button class="work-link" type="button"><span>خطای پیوند منبع</span><b>۲</b></button>
+            <button class="work-link" type="button"><span>بازبینی رسانه</span><b>۴</b></button>
+          </section>
+          <section class="side-card quiet-card">
+            <h3>تصمیم‌های محفوظ</h3>
+            <p>پیام‌های تأییدشده، ردشده یا کنارگذاشته‌شده از بازاستخراج عادی خارج می‌مانند.</p>
+            <a href="#reextract" class="inline-link" data-open-view="reextract">تنظیم بازاستخراج</a>
+          </section>
+        </aside>
+      </div>
+    </section>
+
+    <section class="view-panel" data-panel="reextract" id="reextract" hidden>
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">ابزار جداگانه · فقط بازبینی و انتخاب</p>
+          <h2>انتخاب پیام‌ها برای بازاستخراج</h2>
+          <p class="muted">ابتدا دامنه را انتخاب کنید؛ کانال و بازه تاریخ می‌توانند هم‌زمان محدودش کنند.</p>
+        </div>
+        <span class="safe-badge">تا تأیید نهایی چیزی اجرا نمی‌شود</span>
+      </div>
+
+      <div class="reextract-layout">
+        <div class="filter-card">
+          <fieldset class="scope-fieldset">
+            <legend>کدام پیام‌ها؟</legend>
+            <label class="scope-option"><input type="radio" name="scope" value="all" checked><span><strong>همه ورودی‌های واجد شرایط</strong><small>پیام‌های ذخیره‌شده‌ای که تصمیم نهایی یا رد مالک ندارند</small></span><b>۷</b></label>
+            <label class="scope-option"><input type="radio" name="scope" value="pending"><span><strong>منتظر بررسی مالک</strong><small>استخراج‌های باز یا در صف تأیید</small></span><b>۵</b></label>
+            <label class="scope-option"><input type="radio" name="scope" value="linked"><span><strong>پیوندشده به محصول فروشگاه</strong><small>منظور دقیق این فیلتر در حال تأیید است</small></span><b>۴</b></label>
+            <label class="scope-option"><input type="radio" name="scope" value="recent"><span><strong>قواعد فعلی · ۱۴ روز اخیر</strong><small>فقط پیام‌های دارای زمان معتبر؛ نسخه فعلی استخراج</small></span><b>۷</b></label>
+          </fieldset>
+
+          <div class="filter-divider"></div>
+          <div class="filter-grid">
+            <label class="control-label">از تاریخ پیام
+              <input type="date" id="date-from" value="">
+            </label>
+            <label class="control-label">تا تاریخ پیام
+              <input type="date" id="date-to" value="">
+            </label>
+          </div>
+
+          <fieldset class="channel-fieldset">
+            <legend>کانال منبع <small>چند انتخابی</small></legend>
+            <label class="check-row"><input type="checkbox" value="alpha"><span>کانال نمونه الف</span><b>۳</b></label>
+            <label class="check-row"><input type="checkbox" value="beta"><span>کانال نمونه ب</span><b>۲</b></label>
+            <label class="check-row"><input type="checkbox" value="gamma"><span>کانال نمونه ج</span><b>۲</b></label>
+          </fieldset>
+          <button class="text-button clear-filters" type="button" id="clear-filters">پاک‌کردن محدودیت‌ها</button>
+        </div>
+
+        <aside class="selection-card" aria-live="polite">
+          <p class="eyebrow">پیش‌نمایش انتخاب</p>
+          <div class="selection-total"><strong id="selection-count">۳۴</strong><span>پیام واجد شرایط</span></div>
+          <div class="selection-breakdown">
+            <div><span>کانال انتخابی</span><strong id="selection-channels">همه کانال‌ها</strong></div>
+            <div><span>بازه تاریخ</span><strong id="selection-dates">همه تاریخ‌ها</strong></div>
+            <div><span>نوع کار</span><strong id="selection-scope">همه ورودی‌های واجد شرایط</strong></div>
+          </div>
+          <div class="excluded-note"><strong>خارج از انتخاب:</strong> تصمیم‌های قطعی مالک، موارد ردشده، کنارگذاشته‌شده و مواردی که همین حالا در حال اجرا هستند.</div>
+          <button class="primary-button wide-button" type="button" data-message="پیش‌نمونه است؛ درخواست به سرویس ارسال نشد.">پیش‌نمایش پیام‌های انتخاب‌شده</button>
+          <p class="fine-print">در نسخه نهایی، شمارش از سرور تازه می‌شود و شروع هر اجرا به پیش‌نمایش معتبر و تأیید مالک نیاز دارد.</p>
+        </aside>
+      </div>
+
+      <section class="sample-results">
+        <div class="section-heading compact-heading"><div><p class="eyebrow">نمونه نمایشی</p><h3>چند مورد از گروه انتخاب‌شده</h3><span class="muted" id="result-caption">۷ پیام</span></div><label class="group-control">گروه‌بندی
+          <select id="group-by"><option value="channel">کانال منبع</option><option value="date">روز پیام</option></select>
+        </label></div>
+        <div class="result-list" id="result-list"></div>
+      </section>
+      <div class="decision-safety"><span class="shield" aria-hidden="true">✓</span><p><strong>قواعد تصمیم حفظ می‌شوند.</strong> بازاستخراج معمولی به پیام‌های دارای تصمیم نهایی مالک دست نمی‌زند. OCR تصویر و بازپردازش با سیاست فعلی، مسیرهای جداگانه دارند.</p></div>
+    </section>
+
+    <section class="view-panel" data-panel="store" hidden>
+      <div class="section-heading"><div><p class="eyebrow">کارهای غیر وابسته به یک پیشنهاد</p><h2>عملیات فروشگاه</h2><p class="muted">ابزارهای مدیریتی در بخش خودشان قرار می‌گیرند و با صف بررسی محصول قاطی نمی‌شوند.</p></div></div>
+      <div class="store-grid">
+        <article class="store-card"><span class="store-icon icon-blue">ف</span><div><h3>فهرست مرجع</h3><p>نسخه‌ها، تازگی و به‌روزرسانی فهرست کالا</p></div><b>۲ کار</b></article>
+        <article class="store-card"><span class="store-icon icon-green">م</span><div><h3>موجودی</h3><p>بچ‌ها و ثبت موجودی فیزیکی</p></div><b>۰ کار</b></article>
+        <article class="store-card"><span class="store-icon icon-orange">ح</span><div><h3>قیمت حراج</h3><p>پیشنهادهای حراج و تاریخ انقضا</p></div><b>۳ کار</b></article>
+        <article class="store-card"><span class="store-icon icon-violet">س</span><div><h3>سفارش‌ها</h3><p>سفارش‌های پرداخت‌شده و پیگیری</p></div><b>۵ کار</b></article>
+      </div>
+    </section>
+
+    <footer class="prototype-footer">این پیش‌نمونه فقط برای بررسی چیدمان و دسته‌بندی است؛ هیچ داده یا اقدامی به سامانه واقعی متصل نیست.</footer>
+  </main>
+  <div class="toast" role="status" aria-live="polite" hidden></div>
+  <script src="prototype.js"></script>
+</body>
+</html>

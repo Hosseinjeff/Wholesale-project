@@ -8,6 +8,14 @@ def row(name='چای',brand='الف',variant='',count=12,unit=40000,package=4800
  return r
 
 class MatchingTests(unittest.TestCase):
+ def test_variation_type_cannot_bypass_an_explicit_variant_conflict(self):
+  reference=row(variant='هلو')
+  result=candidate_match({'name':'چای','variation_type':'انبه'},[reference])
+  self.assertEqual(result['state'],'needs_review')
+ def test_equivalent_volume_and_weight_units_match_in_code(self):
+  reference=row();reference[8]='1 لیتر';reference[9]='1 kg'
+  result=candidate_match({'name':'چای','volume':'1000 ml','weight':'۱۰۰۰ گرم'},[reference])
+  self.assertEqual(result['state'],'candidate')
  def test_exact_reference_preserves_supplier_price_and_role_is_only_a_hint(self):
   result=candidate_match({'name':'چای','brand':'الف','package_count':12},[row()])
   self.assertEqual(result['state'],'candidate')

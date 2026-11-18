@@ -7,9 +7,41 @@ function molavi_operations_dashboard_request() {
     return molavi_pipeline_request('/pipeline/operations-dashboard', 'GET');
 }
 
+add_action('admin_init', static function (): void {
+    if (!molavi_reference_owner() || !current_user_can('manage_woocommerce')) { return; }
+    $page = isset($_GET['page']) && is_string($_GET['page'])
+        ? sanitize_key(wp_unslash($_GET['page'])) : '';
+    $routes = [
+        'molavi-ai-confirmations'=>'ai',
+        'molavi-reference-items'=>'references',
+        'molavi-supplier-prices'=>'supplier_prices',
+        'molavi-sheet-conflicts'=>'conflicts',
+        'molavi-publication-holds'=>'holds',
+    ];
+    $views = ['molavi-reference-snapshots'=>'references', 'molavi-reference-decisions'=>'references'];
+    if (isset($views[$page])) {
+        wp_safe_redirect(add_query_arg(['page'=>'molavi-operations','view'=>$views[$page]], admin_url('admin.php')));
+        exit;
+    }
+    if (!isset($routes[$page])) { return; }
+
+    $params = ['page'=>'molavi-operations', 'workbench_action'=>$routes[$page]];
+    if ($page === 'molavi-ai-confirmations'
+        && isset($_GET['reextract']) && is_string($_GET['reextract'])) {
+        $params['workbench_action'] = 'reextract';
+    }
+    foreach (['product_id','offer_id','case_id','conflict_id','hold_id','reference_id'] as $key) {
+        if (!isset($_GET[$key]) || !is_string($_GET[$key])) { continue; }
+        $value = trim(sanitize_text_field(wp_unslash($_GET[$key])));
+        if ($value !== '' && strlen($value) <= 191) { $params[$key] = $value; }
+    }
+    wp_safe_redirect(add_query_arg($params, admin_url('admin.php')));
+    exit;
+}, 1);
+
 add_action('admin_menu', static function (): void {
     if (!molavi_reference_owner()) { return; }
-    add_submenu_page('woocommerce', 'خط لوله مولوی‌سل', 'خط لوله مولوی‌سل',
+    add_submenu_page('woocommerce', 'مدیریت محصولات مولوی‌سل', 'مدیریت محصولات',
         'manage_woocommerce', 'molavi-operations', 'molavi_operations_dashboard_screen');
 }, 20);
 
@@ -33,9 +65,8 @@ add_action('admin_footer', static function (): void {
 function molavi_operations_dashboard_screen(): void {
     if (!molavi_reference_owner()) { wp_die('دسترسی مجاز نیست.', '', ['response'=>403]); }
     nocache_headers();
-    echo '<div class="wrap"><h1>' . esc_html('خط لوله مولوی‌سل') . '</h1>';
-    echo '<p>' . esc_html('برای هر کالا، استخراج، تطبیق مرجع، قیمت تأمین‌کننده، تعارض همگام‌سازی و وضعیت انتشار در یک کارت نمایش داده می‌شود. کارهای سراسری و سفارش‌ها در بخش جداگانهٔ همین صفحه هستند.') . '</p>';
-    molavi_owner_workflow_mount('در حال آماده‌سازی کارت‌های کالا…');
+    echo '<div class="wrap molavi-dashboard-page">';
+    molavi_owner_workflow_mount('در حال دریافت محصولات…');
     echo '<noscript><div class="notice notice-warning"><p>' . esc_html('برای نمایش وضعیت زنده، جاوااسکریپت را فعال کنید.') . '</p>';
     echo '<ul>';
     $labels = [

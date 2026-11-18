@@ -195,4 +195,38 @@ class SupplierFreshnessRouteTests(unittest.TestCase):
    self.assertEqual(response.status_code,200)
    self.assertEqual(response.get_json()['missing'],['product-1'])
 
+class BulkFreshnessTests(unittest.TestCase):
+ def test_bulk_observations_preserve_manual_revision_and_age_rules(self):
+  with tempfile.TemporaryDirectory() as folder:
+   ledger=PriceFreshness(Path(folder)/'bulk.sqlite')
+   legacy=PriceFreshness(Path(folder)/'legacy.sqlite')
+   now=datetime(2026,11,17,tzinfo=timezone.utc)
+   for target in (ledger,legacy):
+    target.verify_manually(offer_id='manual',source_revision='same',actor_id='wp:7',note='synthetic',now=now-timedelta(days=2))
+   sources=[{'offer_id':'manual','source_revision':'same','source_timestamp':now},
+    {'offer_id':'manual','source_revision':'older','source_timestamp':now-timedelta(days=3)},
+    {'offer_id':'manual','source_revision':'new','source_timestamp':now-timedelta(days=1)},
+    {'offer_id':'future','source_revision':'x','source_timestamp':now+timedelta(days=1)},
+    {'offer_id':'unknown','source_revision':'x','source_timestamp':None}]
+   expected=[]
+   for source in sources:
+    if source['source_timestamp'] is not None:
+     try:legacy.observe_source(**source,now=now)
+     except ValueError:pass
+    expected.append(legacy.state(source['offer_id'],now=now,expected_revision=source['source_revision']))
+   self.assertEqual(ledger.observe_and_states(sources,now=now),expected)
+   with ledger._connect() as db:
+    self.assertEqual(db.execute('SELECT COUNT(*) FROM supplier_price_evidence_history').fetchone()[0],2)
+
+ def test_large_inventory_uses_bounded_bulk_connections(self):
+  with tempfile.TemporaryDirectory() as folder:
+   ledger=PriceFreshness(Path(folder)/'bulk.sqlite')
+   now=datetime(2026,11,17,tzinfo=timezone.utc)
+   sources=[{'offer_id':str(i),'source_revision':'x','source_timestamp':None} for i in range(601)]
+   with patch.object(ledger,'_connect',wraps=ledger._connect) as connect:
+    states=ledger.observe_and_states(sources,now=now)
+   self.assertEqual(len(states),601)
+   self.assertEqual(connect.call_count,3)
+   self.assertTrue(all(state['state']=='needs_review' for state in states))
+
 if __name__=='__main__':unittest.main()

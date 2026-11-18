@@ -1,6 +1,5 @@
 (() => {
-    const root = document.getElementById('molavi-reference-snapshots');
-    const config = window.molaviReferenceSnapshots;
+    function mount(root, config) {
     if (!root) return;
 
     function element(tag, text, className) {
@@ -65,9 +64,11 @@
 
     function refreshLabel(state) {
         return ({
+            updated: 'مرجع با تغییرات تازه به‌روز شد',
+            unchanged: 'تغییری پیدا نشد؛ مرجع فعلی معتبر است',
             staged: 'نسخه تازه آماده بررسی است',
-            failed: 'دریافت از API ووکامرس کامل نشد',
-            running: 'دریافت محصولات از API ووکامرس در حال انجام است'
+            failed: 'دریافت فهرست مرجع رزوان کامل نشد',
+            running: 'دریافت فهرست مرجع رزوان در حال انجام است'
         })[state] || 'وضعیت دریافت مشخص نیست';
     }
 
@@ -99,30 +100,30 @@
         }
         if (code === 'extraction_row_gap' || code === 'extraction_row_sequence_invalid'
             || code === 'extraction_too_few_rows') {
-            return 'تلاش قدیمیِ خواندن PDF کامل نبود؛ از این پس فهرست از API ووکامرس دریافت می‌شود.';
+            return 'تلاش قدیمی خواندن PDF کامل نبود؛ فهرست تازه از API رزوان دریافت می‌شود.';
         }
         if (code.startsWith('extraction_') || baseCode.startsWith('gemini_')) {
-            return 'تلاش قبلی از PDF/Gemini بود و کامل نشد؛ پیش‌نویس تازه‌ای ساخته نشد. از این پس فهرست از API ووکامرس دریافت می‌شود.';
+            return 'تلاش قبلی PDF/Gemini کامل نشد؛ فهرست تازه از API رزوان دریافت می‌شود.';
         }
         const transport = code.match(/^woocommerce_transport_(read_timeout|connect_timeout|timeout|tls_failed|connection_failed)_page_(\d+)$/);
         if (transport) {
             const page = 'صفحه ' + transport[2];
-            if (transport[1] === 'read_timeout') return 'API ووکامرس پاسخ کامل ' + page + ' را نفرستاد؛ پیش‌نویس ساخته نشد.';
-            if (transport[1] === 'connect_timeout') return 'اتصال به API ووکامرس برای ' + page + ' به‌موقع برقرار نشد؛ پیش‌نویس ساخته نشد.';
-            if (transport[1] === 'tls_failed') return 'ارتباط امن با API ووکامرس برای ' + page + ' برقرار نشد؛ پیش‌نویس ساخته نشد.';
-            return 'ارتباط با API ووکامرس برای ' + page + ' قطع شد؛ پیش‌نویس ساخته نشد.';
+            if (transport[1] === 'read_timeout') return 'API رزوان صفحه ' + page + ' را کامل نفرستاد.';
+            if (transport[1] === 'connect_timeout') return 'اتصال به API رزوان برای ' + page + ' به‌موقع برقرار نشد.';
+            if (transport[1] === 'tls_failed') return 'ارتباط امن با API رزوان برای ' + page + ' برقرار نشد.';
+            return 'ارتباط با API رزوان برای ' + page + ' قطع شد.';
         }
-        if (code === 'woocommerce_transport_failed') return 'ارتباط با API ووکامرس پایدار نبود.';
+        if (code === 'woocommerce_transport_failed') return 'ارتباط با API رزوان پایدار نبود.';
         if (code === 'woocommerce_currency_unsupported' || code === 'woocommerce_currency_mismatch') {
-            return 'واحد پول محصولات از نوع پشتیبانی‌شده نبود؛ پیش‌نویس تازه ساخته نشد.';
+            return 'واحد پول فهرست مرجع پشتیبانی نمی‌شود؛ نسخه تازه ساخته نشد.';
         }
         if (code === 'woocommerce_pagination_changed' || code === 'woocommerce_pagination_invalid'
             || code.startsWith('woocommerce_page_incomplete_')
             || code === 'woocommerce_product_coverage_incomplete') {
-            return 'همه صفحات فهرست ووکامرس دریافت نشد؛ پیش‌نویس تازه ساخته نشد.';
+            return 'همه صفحه‌های فهرست رزوان دریافت نشد.';
         }
         if (/^woocommerce_http_\d+$/.test(code)) {
-            return 'API ووکامرس پاسخ نداد (' + code.replace('woocommerce_http_', 'HTTP ') + ').';
+            return 'API رزوان پاسخ نداد (' + code.replace('woocommerce_http_', 'HTTP ') + ').';
         }
         return 'استخراج کامل نشد؛ پیش‌نویس تازه ساخته نشد. کد پیگیری: ' + (code || 'نامشخص');
     }
@@ -217,13 +218,13 @@
 
     function appendRefreshForm(parent, refresh) {
         const form = element('form');
-        const button = element('button', 'دریافت نسخه تازه از ووکامرس', 'button');
+        const button = element('button', 'به‌روزرسانی فهرست مرجع', 'button');
         button.type = 'submit';
         form.appendChild(button);
         form.addEventListener('submit', async (event) => {
             event.preventDefault();
             if (!window.confirm(
-                'محصولات منتشرشده و قیمت‌های فعلی از API ووکامرس رزوان دریافت می‌شوند. فقط یک پیش‌نویس ساخته می‌شود و هیچ قیمتی خودکار تغییر نمی‌کند. ادامه می‌دهید؟')) {
+                'فهرست مرجع از منبع رزوان دریافت می‌شود. فقط کالاها و بخش‌هایی که تغییر کرده‌اند در دادهٔ مقایسه و ReferencePrices به‌روز می‌شوند؛ کالاهای bot با همین دادهٔ ذخیره‌شده مقایسه می‌شوند. ادامه می‌دهید؟')) {
                 return;
             }
             button.disabled = true;
@@ -232,13 +233,22 @@
                     action: 'refresh',
                     expected_last_attempt_at: refresh.last_attempt_at || null
                 });
-                if (receipt.action !== 'refresh' || !['staged', 'failed'].includes(receipt.state)
+                if (receipt.action !== 'refresh' || !['updated', 'unchanged', 'staged', 'failed'].includes(receipt.state)
                     || typeof receipt.last_attempt_at !== 'string') {
                     throw new Error('invalid_receipt');
                 }
-                await load(receipt.state === 'staged'
-                    ? 'استخراج تمام شد؛ پیش‌نویس تازه به فهرست اضافه شد.'
-                    : refreshErrorText(receipt.error_code));
+                const summary = receipt.change_summary || {};
+                const count = value => new Intl.NumberFormat('fa-IR').format(Number(value) || 0);
+                const success = receipt.state === 'updated'
+                    ? (summary.metadata_upgrade
+                        ? 'شناسه‌های پایدار و دادهٔ خام به نسخهٔ مرجع فعال پیوند داده شدند.'
+                        : `مرجع به‌روز شد: ${count(summary.added_count)} کالای تازه، ${count(summary.updated_count)} کالای تغییرکرده و ${count(summary.removed_count)} کالای حذف‌شده.`)
+                    : receipt.state === 'unchanged'
+                        ? 'تغییری نبود؛ دادهٔ مرجع قبلی برای مقایسه باقی ماند.'
+                        : receipt.state === 'staged'
+                            ? 'دریافت کامل شد؛ این نسخهٔ اولیه برای بررسی آماده است.'
+                            : refreshErrorText(receipt.error_code);
+                await load(success);
             } catch (error) {
                 root.prepend(notice(messageText(error.message), 'error'));
                 button.disabled = false;
@@ -250,10 +260,8 @@
     function appendRefreshStatus(parent, refresh) {
         if (!refresh || typeof refresh !== 'object') return;
         const card = element('section', undefined, 'card');
-        card.appendChild(element('h2', 'دریافت روزانه محصولات از ووکامرس رزوان'));
-        const label = refresh.state === 'staged'
-            ? 'دریافت موفق بود؛ پیش‌نویس در فهرست پایین است'
-            : refreshLabel(refresh.state);
+        card.appendChild(element('h2', 'دریافت فهرست مرجع رزوان'));
+        const label = refreshLabel(refresh.state);
         card.appendChild(element('p', 'وضعیت: ' + label));
         if (refresh.last_attempt_at) {
             card.appendChild(element('p', 'آخرین تلاش: ' + formatDate(refresh.last_attempt_at), 'description'));
@@ -261,8 +269,15 @@
         if (refresh.state === 'failed' && refresh.error_code) {
             card.appendChild(element('p', 'علت: ' + refreshErrorText(refresh.error_code), 'description'));
         }
-        if (refresh.state === 'failed' || refresh.state === 'staged') {
-            card.appendChild(element('p', 'استخراج تازه فقط یک پیش‌نویس می‌سازد؛ فهرست مرجع با آن تغییر نمی‌کند.', 'description'));
+        if (refresh.state === 'updated' || refresh.state === 'unchanged') {
+            const summary = refresh.change_summary || {};
+            const count = value => new Intl.NumberFormat('fa-IR').format(Number(value) || 0);
+            if (refresh.state === 'updated') {
+                card.appendChild(element('p', `${count(summary.updated_count)} کالا تغییر کرد؛ ${count(summary.added_count)} کالا اضافه و ${count(summary.removed_count)} کالا حذف شد.`, 'description'));
+            }
+            card.appendChild(element('p', 'مقایسهٔ کالاهای bot از دادهٔ مرجع ذخیره‌شده انجام می‌شود؛ ووکامرس فروشگاه شما در این مقایسه خوانده نمی‌شود.', 'description'));
+        }
+        if (['failed', 'staged', 'updated', 'unchanged'].includes(refresh.state)) {
             appendRefreshForm(card, refresh);
         }
         parent.appendChild(card);
@@ -286,7 +301,7 @@
         const table = element('table', undefined, 'widefat striped');
         const head = element('thead');
         const headerRow = element('tr');
-        ['ردیف منبع / کد کالا', 'عنوان کامل ووکامرس', 'مشخصات موجود در API یا عنوان', 'قیمت فعلی API', 'تعداد در بسته'].forEach((label, index) => {
+        ['شناسه پایدار / کد کالا', 'عنوان کامل مرجع', 'مشخصات منبع یا عنوان', 'قیمت فعلی', 'تعداد در بسته'].forEach((label, index) => {
             const th = element('th', label);
             th.setAttribute('scope', 'col');
             if (index === 0) th.className = 'column-primary';
@@ -300,13 +315,14 @@
             if (!item || typeof item !== 'object') return;
             const row = element('tr');
             const idCell = element('td');
-            idCell.appendChild(element('strong', 'ردیف منبع ' + (item.source_row_number || '—')));
+            idCell.appendChild(element('strong', 'شناسه مرجع: ' + (item.source_product_id || 'ثبت نشده')));
+            idCell.appendChild(element('p', 'ردیف منبع ' + (item.source_row_number || '—'), 'description'));
             idCell.appendChild(element('p', 'کد کالا: ' + (item.product_code || 'ثبت نشده'), 'description'));
             row.appendChild(idCell);
 
             const nameCell = element('td');
             nameCell.appendChild(element('strong', item.product_name || 'عنوان پیدا نشد'));
-            nameCell.appendChild(element('p', 'عنوان کامل منبع؛ کلید جست‌وجو: ' + (item.normalized_key || item.clean_name || 'ثبت نشده'), 'description'));
+            nameCell.appendChild(element('p', 'عنوان کامل مرجع؛ کلید جست‌وجو: ' + (item.normalized_key || item.clean_name || 'ثبت نشده'), 'description'));
             row.appendChild(nameCell);
             row.appendChild(element('td', attributeList(item)));
 
@@ -324,7 +340,7 @@
             + ' ردیف از ' + new Intl.NumberFormat('fa-IR').format(Number(snapshot.row_count) || preview.length)
             + ' محصول را نشان می‌دهد. فایل CSV همه ردیف‌ها، عنوان‌های کامل و مشخصات موجود را دارد.', 'description'));
         if (snapshot.coverage_verified === true) {
-            card.appendChild(element('p', 'تعداد محصولات با تعداد اعلام‌شده API و شماره ردیف منبع تطبیق دارد؛ این بررسی درستی اطلاعات فروشنده را ثابت نمی‌کند. عنوان، کد و قیمت را با ووکامرس مقایسه کنید.', 'description'));
+            card.appendChild(element('p', 'تعداد محصولات با تعداد اعلام‌شدهٔ منبع و شماره ردیف تطبیق دارد؛ این بررسی درستی اطلاعات فروشنده را ثابت نمی‌کند. عنوان، کد و قیمت را با منبع مرجع مقایسه کنید.', 'description'));
         }
         try {
             const source = new URL(snapshot.source_url);
@@ -359,8 +375,9 @@
                     throw new Error('invalid_receipt');
                 }
                 const columns = [
+                    ['شناسه پایدار منبع', 'source_product_id'],
                     ['ردیف منبع', 'source_row_number'], ['کد کالا', 'product_code'],
-                    ['عنوان کامل ووکامرس', 'product_name'], ['نام مرتب‌شده', 'clean_name'],
+                    ['عنوان کامل مرجع', 'product_name'], ['نام مرتب‌شده', 'clean_name'],
                     ['برند', 'brand'], ['نوع / طعم', 'variant'], ['دسته', 'category'],
                     ['حجم', 'volume'], ['وزن', 'weight'], ['تعداد در مجموعه', 'set_count'],
                     ['تعداد در بسته', 'package_count'], ['واحد', 'unit_label'],
@@ -391,54 +408,39 @@
     function render(data, successMessage) {
         root.replaceChildren();
         if (successMessage) root.appendChild(notice(successMessage, 'success'));
-        appendRefreshStatus(root, data.refresh_state);
-
-        const snapshots = Array.isArray(data.snapshots) ? data.snapshots : [];
-        if (snapshots.length === 0) {
-            root.appendChild(element('p', 'نسخه قیمتی برای بررسی وجود ندارد.'));
-            return;
+        const snapshots=(Array.isArray(data.snapshots)?data.snapshots:[]).filter(item=>item && /^[a-f0-9]{64}$/.test(item.snapshot_id||''));
+        const active=snapshots.find(item=>item.snapshot_id===data.active_snapshot_id);
+        const usable=Boolean(active && active.source_type==='woocommerce_store_api' && active.coverage_verified===true);
+        const refresh=data.refresh_state || {};
+        const current=element('section',undefined,'card');
+        current.appendChild(element('h2',usable?'مرجع فعال':active?'مرجع نیاز به به‌روزرسانی دارد':'مرجع فعال نیست'));
+        current.appendChild(element('p',active
+            ? `${formatCount(active.row_count,'کالا')} · آخرین دریافت: ${formatDate(active.last_checked_at||active.extracted_at)}`
+            : 'ابتدا داده‌های رزوان را دریافت کنید.'));
+        current.appendChild(element('p','هر کالا با شناسهٔ پایدار ذخیره می‌شود. تازه‌سازی فقط رکوردها و فیلدهای تغییرکرده را به‌روز می‌کند.'));
+        if(refresh.state)current.appendChild(element('p',refreshLabel(refresh.state),'description'));
+        if(refresh.state==='failed')current.appendChild(notice(refreshErrorText(refresh.error_code),'error'));
+        appendRefreshForm(current,refresh);
+        if(active){
+            const preview=element('details');preview.appendChild(element('summary','نمونهٔ داده‌های ذخیره‌شده'));
+            appendPreview(preview,active);current.appendChild(preview);
         }
-
-        snapshots.forEach((snapshot) => {
-            if (!snapshot || typeof snapshot.snapshot_id !== 'string'
-                || !/^[a-f0-9]{64}$/.test(snapshot.snapshot_id)) return;
-            const card = element('section', undefined, 'card');
-            const active = data.active_snapshot_id === snapshot.snapshot_id || Boolean(snapshot.active);
-            const reviewed = Boolean(snapshot.reviewed_by);
-            const supportedSource = snapshot.source_type === 'woocommerce_store_api';
-            const complete = supportedSource && snapshot.coverage_verified === true;
-            const status = active && !supportedSource ? 'فعالِ قدیمی از PDF/Gemini؛ نیازمند جایگزینی'
-                : (active ? 'فعال و در حال استفاده'
-                : (!complete ? 'کامل بودن استخراج تأیید نشده'
-                    : (reviewed ? 'بررسی شده؛ آماده فعال‌سازی' : 'نیاز به بررسی')));
-
-            card.appendChild(element('h2', supportedSource ? 'پیش‌نویس قیمت‌های ووکامرس'
-                : 'پیش‌نویس قدیمی PDF/Gemini'));
-            card.appendChild(element('p', 'وضعیت: ' + status, 'description'));
-            card.appendChild(element('p', 'زمان استخراج: ' + formatDate(snapshot.extracted_at)
-                + ' · تعداد ردیف: ' + new Intl.NumberFormat('fa-IR').format(Number(snapshot.row_count) || 0)
-                + (snapshot.source_page_count ? ' · صفحات API: ' + new Intl.NumberFormat('fa-IR').format(snapshot.source_page_count) : '')
-                + (snapshot.first_source_row_number && snapshot.last_source_row_number
-                    ? ' · ردیف‌های منبع: ' + snapshot.first_source_row_number + ' تا ' + snapshot.last_source_row_number : '')
-                + (snapshot.source_currency ? ' · واحد قیمت API: ' + snapshot.source_currency : '')));
-            appendPreview(card, snapshot);
-
-            if (!supportedSource) {
-                card.appendChild(notice('این پیش‌نویس قدیمی از PDF/Gemini ساخته شده است. منبع رسمی فعلی API ووکامرس است؛ بررسی و فعال‌سازی این نسخه غیرفعال است. نسخه تازه را از API دریافت کنید.', 'error'));
-            } else if (!complete) {
-                card.appendChild(notice(active
-                    ? 'این نسخه در حال حاضر فعال است، اما کامل بودن استخراج آن قابل تأیید نیست؛ از این صفحه نمی‌توان دوباره آن را ثبت یا فعال کرد.'
-                    : 'کامل بودن فهرست دریافتی تأیید نشده؛ بررسی و فعال‌سازی این نسخه غیرفعال است. نسخه تازه را از API ووکامرس دریافت کنید.', 'error'));
-            } else if (reviewed) {
-                if (snapshot.review_note) {
-                    card.appendChild(element('p', 'یادداشت بررسی: ' + snapshot.review_note, 'notice notice-info'));
-                }
-                appendActionForm(card, 'activate', snapshot, data.active_snapshot_id);
-            } else {
-                appendActionForm(card, 'review', snapshot, data.active_snapshot_id);
-            }
+        root.appendChild(current);
+        const initial=snapshots.find(item=>item.snapshot_id!==data.active_snapshot_id
+            && item.source_type==='woocommerce_store_api' && item.coverage_verified===true && !item.automatic_update);
+        if(!usable && initial){
+            const card=element('section',undefined,'card');
+            card.appendChild(element('h2','بررسی اولیهٔ مرجع'));
+            card.appendChild(element('p','این بررسی فقط برای شروع استفاده از نخستین فهرست است. تازه‌سازی‌های بعدی به‌صورت تغییرات رکوردی اعمال می‌شوند.'));
+            appendPreview(card,initial);
+            appendActionForm(card,initial.reviewed_by?'activate':'review',initial,data.active_snapshot_id);
             root.appendChild(card);
-        });
+        }
+        if(snapshots.length){
+            const history=element('details');history.appendChild(element('summary','سابقهٔ دریافت مرجع'));
+            snapshots.forEach(item=>history.appendChild(element('p',`${formatDate(item.last_checked_at||item.extracted_at)} · ${formatCount(item.row_count,'کالا')}${item.snapshot_id===data.active_snapshot_id?' · فعال':''}`)));
+            root.appendChild(history);
+        }
     }
 
     async function load(successMessage) {
@@ -453,11 +455,16 @@
                 throw new Error('invalid_response');
             }
             render(data, successMessage);
+            if (successMessage && typeof config.onUpdated === 'function') config.onUpdated();
         } catch (error) {
             root.replaceChildren(notice(messageText(error.message), 'error'));
             addReloadButton(root);
         }
     }
 
-    load();
+    return load();
+    }
+    window.MolaviReferenceCatalog = {mount};
+    const root = document.getElementById('molavi-reference-snapshots');
+    if (root) mount(root, window.molaviReferenceSnapshots);
 })();

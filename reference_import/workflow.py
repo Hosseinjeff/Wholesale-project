@@ -19,7 +19,7 @@ def reference_use(gate, *, snapshot, now, refresh_failure_id=None):
     if snapshot is None:
         event_id = 'missing-reference'
         gate.open_event(event_id, reason='missing', snapshot_id=None)
-    elif snapshot_is_stale(datetime.fromisoformat(snapshot['extracted_at']), now,
+    elif snapshot_is_stale(datetime.fromisoformat(snapshot.get('last_checked_at') or snapshot['extracted_at']), now,
                            max_age_seconds=REFERENCE_MAX_AGE_SECONDS):
         event_id = 'stale:' + snapshot_id
         gate.open_event(event_id, reason='stale', snapshot_id=snapshot_id)

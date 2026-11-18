@@ -7,8 +7,16 @@
     var lastQuote = molaviShop.initial || { units: {}, qtys: serverQtys, progress: 0, unlock: molaviShop.unlock || 0 };
     var buyerType = molaviShop.buyerType === "shop" ? "shop" : "household";
     var sending = false;
+    var listRestoring = false;
+    var nativeCartUpdating = false;
+    var pricingRevision = 0;
     var dirty = false;
     var retries = 0;
+    var buyerRequestId = 0;
+    var buyerChanging = false;
+    var recommendationIndex = 0;
+    var recommendationBuyerType = "";
+    var recommendationProducts = [];
 
     document.addEventListener("click", function (event) {
         var button = event.target.closest("[data-molavi-buyer]");
@@ -20,20 +28,26 @@
     });
 
     document.addEventListener("click", function (event) {
-        var button = event.target.closest("[data-molavi-step], [data-molavi-clear]");
+        var button = event.target.closest("[data-molavi-step], [data-molavi-clear], [data-molavi-set-qty]");
         if (!button) return;
+        if (buyerChanging || listRestoring || nativeCartUpdating) {
+            event.preventDefault();
+            return;
+        }
         var host = button.closest("[data-product]");
         if (!host) return;
         event.preventDefault();
         var id = host.getAttribute("data-product");
         if (!id) return;
-        showStatus("", id);
+        showStatus("");
         var row = catalog[id] || {};
         var min = Number(host.getAttribute("data-min")) || Number(row.min) || 1;
         var qty = Number(qtys[id] || 0);
         var next = 0;
         var removedForMinimum = false;
-        if (button.hasAttribute("data-molavi-clear")) {
+        if (button.hasAttribute("data-molavi-set-qty")) {
+            next = Number(button.getAttribute("data-molavi-set-qty")) || 0;
+        } else if (button.hasAttribute("data-molavi-clear")) {
             next = 0;
         } else {
             var step = Number(button.getAttribute("data-molavi-step")) || 0;
@@ -48,8 +62,28 @@
         if (next > 0) qtys[id] = next;
         else delete qtys[id];
         paint(localQuote());
-        if (removedForMinimum) showStatus("با کاهش از حداقل خرید " + digits(min) + " عدد، محصول از سبد حذف شد و قیمت‌ها دوباره محاسبه می‌شوند.", id);
+        pulseProduct(id);
+        if (removedForMinimum) showStatus("با کاهش تعداد به کمتر از گام سفارش، این کالا از سبد حذف شد.");
         sync();
+    });
+
+    document.addEventListener("click", function (event) {
+        var checkout = event.target.closest("[data-molavi-checkout]");
+        if (!checkout) return;
+        if (buyerChanging || sending || dirty || listRestoring) {
+            event.preventDefault();
+            showStatus("سبد و قیمت‌ها در حال ذخیره است؛ پس از پایان، ادامه دهید.");
+            return;
+        }
+        if (checkout.getAttribute("aria-disabled") !== "true") return;
+        event.preventDefault();
+        var firstInvalid = document.querySelector(".molavi-bline[data-invalid='1']");
+        if (firstInvalid) {
+            firstInvalid.setAttribute("tabindex", "-1");
+            firstInvalid.focus({ preventScroll: true });
+            firstInvalid.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }
+        showStatus("برای ادامه، تعداد کالاهای مشخص‌شده را با گام سفارش هماهنگ کنید.");
     });
 
     function localQuote() {
@@ -137,16 +171,22 @@
         document.querySelectorAll("[data-molavi-buyer]").forEach(function (button) {
             button.setAttribute("aria-pressed", button.getAttribute("data-molavi-buyer") === buyerType ? "true" : "false");
         });
+        document.querySelectorAll("[data-molavi-buyer-current]").forEach(function (node) {
+            node.textContent = buyerType === "shop" ? "مغازه‌دار" : "خانوار";
+        });
+        document.querySelectorAll("[data-molavi-buyer-icon-house]").forEach(function (icon) {
+            icon.hidden = buyerType !== "household";
+        });
+        document.querySelectorAll("[data-molavi-buyer-icon-store]").forEach(function (icon) {
+            icon.hidden = buyerType !== "shop";
+        });
+        document.querySelectorAll("[data-molavi-buyer-note]").forEach(function (node) {
+            node.textContent = buyerType === "shop"
+                ? "قیمت و گام سفارش فروشگاه نمایش داده می‌شود."
+                : "قیمت و گام سفارش خانوار نمایش داده می‌شود.";
+        });
         document.querySelectorAll("[data-molavi-buyer-help]").forEach(function (node) {
-            var shell = Number(lastQuote.tuna_shell_units) || 24;
-            var household = Number(lastQuote.household_unlock) || 5000000;
-            var shop = Number(lastQuote.shop_unlock) || household * 4;
-            var benchmark = lastQuote.threshold_dynamic
-                ? "مبنای روز: " + (lastQuote.tuna_anchor_name || "قیمت مرجع تن‌ماهی") + "، هر قوطی " + toman(lastQuote.tuna_anchor_unit_price) + ". "
-                : "قیمت مرجع تن‌ماهی هنوز در کاتالوگ نیست و آستانه فعلی " + toman(household) + " است. ";
-            node.textContent = benchmark + "آستانه خانوار برابر ارزش " + digits(shell) + " قوطی تن‌ماهی (" + toman(household)
-                + ") است؛ آستانه فروشگاه چهار برابر آن (" + toman(shop)
-                + "). سقف تخفیف فروشگاه تا کف مجاز و نزدیک‌تر به بهای تأمین‌کننده می‌رسد.";
+            node.textContent = "«خانوار» برای مصرف خانه و «فروشگاه» برای خرید مغازه است. هرکدام قیمت و گام سفارش خود را دارد. با تغییر نوع خرید، تعداد سبد حفظ می‌شود؛ اگر لازم باشد، دکمهٔ «اصلاح تعداد» نشان داده می‌شود.";
         });
     }
 
@@ -155,7 +195,7 @@
         var switchSuggestion = quote && quote.switch_suggestion;
         var storeRoot = document.querySelector("[data-molavi-storefront]");
         var basket = document.querySelector("#molavi-basket-dialog");
-        var cartVisible = basket && (!storeRoot || window.matchMedia("(min-width: 761px)").matches
+        var cartVisible = basket && (!storeRoot || window.matchMedia("(min-width: 901px)").matches
             || basket.classList.contains("is-open"));
         var feedbackNodes = document.querySelectorAll("[data-molavi-buyer-feedback]");
         feedbackNodes.forEach(function (node) {
@@ -181,39 +221,35 @@
                     ? "انتخاب فروشگاه" : "انتخاب خانوار";
                 globalFeedback.appendChild(switchButton);
             }
+            if (invalid.length) {
+                globalFeedback.appendChild(document.createTextNode(
+                    "تعداد سبد حفظ شده است؛ برای ادامه، تعداد " + digits(invalid.length) + " کالا را با گام جدید هماهنگ کنید."
+                ));
+            }
             globalFeedback.hidden = !globalFeedback.childNodes.length;
         }
-        document.querySelectorAll("[data-molavi-card-feedback]").forEach(function (box) {
-            box.replaceChildren();
-            var id = String(box.getAttribute("data-product") || "");
-            var invalidLine = invalid.find(function (item) { return String(item.product_id) === id; });
-            if (invalidLine) {
-                box.appendChild(document.createTextNode("تعداد سبد با گام سفارش " + digits(invalidLine.order_unit)
-                    + " هماهنگ نیست."));
-                var fix = document.createElement("button");
-                fix.type = "button";
-                fix.className = "molavi-buyer-fix";
-                fix.setAttribute("data-molavi-fix", id);
-                fix.textContent = "تنظیم تعداد روی " + digits(invalidLine.needed_quantity);
-                box.appendChild(fix);
-            }
-            box.hidden = !box.childNodes.length;
-        });
     }
 
     function chooseBuyer(requested) {
-        if (!molaviShop.buyer) return;
+        if (!molaviShop.buyer || requested === buyerType || buyerChanging || listRestoring) return;
+        if (sending) {
+            window.setTimeout(function () { chooseBuyer(requested); }, 80);
+            return;
+        }
         var previous = buyerType;
-        buyerType = requested;
-        updateBuyerControls();
-        paint(localQuote());
-        showStatus("در حال محاسبه قیمت‌های این نوع خرید…");
+        var requestId = ++buyerRequestId;
+        buyerChanging = true;
+        pricingRevision++;
+        updateCheckoutBusy();
+        showStatus("قیمت و واحد سفارش در حال به‌روزرسانی است…");
+        document.querySelectorAll("[data-molavi-buyer]").forEach(function (button) { button.disabled = true; });
         var body = new FormData();
         body.append("nonce", molaviShop.nonce);
         body.append("buyer_type", requested);
         fetch(molaviShop.buyer, { method: "POST", body: body, credentials: "same-origin" })
             .then(function (res) { return res.json(); })
             .then(function (payload) {
+                if (requestId !== buyerRequestId) return;
                 if (!payload || !payload.success || !payload.data || !payload.data.quote) throw new Error("buyer_profile_failed");
                 buyerType = payload.data.quote.buyer_type === "shop" ? "shop" : "household";
                 lastQuote = payload.data.quote;
@@ -226,28 +262,28 @@
                     return;
                 }
                 paint(payload.data.quote);
-                showStatus("");
+                document.querySelectorAll("[data-molavi-buyer-disclosure]").forEach(function (disclosure) {
+                    disclosure.open = false;
+                });
+                showStatus(payload.data.quote.invalid_lines && payload.data.quote.invalid_lines.length
+                    ? "نوع خرید تغییر کرد؛ تعدادهای سبد حفظ شدند. کالاهای مشخص‌شده را پیش از ادامه اصلاح کنید."
+                    : "نوع خرید تغییر کرد؛ تعدادهای سبد حفظ شدند.");
             })
             .catch(function () {
+                if (requestId !== buyerRequestId) return;
                 buyerType = previous;
                 updateBuyerControls();
                 paint(lastQuote);
-                showStatus("نوع خریدار ذخیره نشد. دوباره تلاش کنید.");
+                showStatus("نوع خرید ذخیره نشد. دوباره تلاش کنید.");
+            })
+            .then(function () {
+                if (requestId !== buyerRequestId) return;
+                buyerChanging = false;
+                updateCheckoutBusy();
+                document.dispatchEvent(new CustomEvent("molavi:buyer"));
+                document.querySelectorAll("[data-molavi-buyer]").forEach(function (button) { button.disabled = false; });
             });
     }
-
-    document.addEventListener("click", function (event) {
-        var fix = event.target.closest("[data-molavi-fix]");
-        if (!fix) return;
-        var id = fix.getAttribute("data-molavi-fix");
-        var row = rowOf(id);
-        if (!row) return;
-        qtys[id] = Number(row.min) || 1;
-        var item = (lastQuote.invalid_lines || []).find(function (line) { return String(line.product_id) === String(id); });
-        if (item) qtys[id] = Number(item.needed_quantity) || Number(row.min) || 1;
-        paint(localQuote());
-        sync();
-    });
 
     function sync() {
         if (sending) {
@@ -258,6 +294,8 @@
         var ids = Object.keys(changed);
         if (!ids.length) return;
         sending = true;
+        pricingRevision++;
+        updateCheckoutBusy();
         dirty = false;
         var body = new FormData();
         body.append("nonce", molaviShop.nonce);
@@ -277,7 +315,8 @@
                     qtys = Object.assign({}, serverQtys);
                     paint(payload.data.quote || {});
                     applyFragments(payload.data.fragments || {});
-                    ids.forEach(function (id) { showStatus("", id); });
+                    showStatus("");
+                    refreshNativeCart();
                 }
             })
             .catch(function () {
@@ -285,14 +324,14 @@
             })
             .then(function () {
                 sending = false;
+                updateCheckoutBusy();
+                document.dispatchEvent(new CustomEvent("molavi:cart"));
                 if (failed) {
                     dirty = false;
                     retries += 1;
                     qtys = Object.assign({}, serverQtys);
                     paint(lastQuote);
-                    ids.forEach(function (id) {
-                        showStatus("سبد به‌روز نشد و تغییر اخیر ذخیره نشده است. دوباره تلاش کنید.", id);
-                    });
+                    showStatus("سبد به‌روز نشد و تغییر اخیر ذخیره نشده است. دوباره تلاش کنید.");
                     return;
                 }
                 if (dirty) sync();
@@ -327,13 +366,21 @@
                 node.setAttribute("data-household-min", String(row.householdUnit));
                 node.setAttribute("data-shop-min", String(row.shopUnit));
                 var orderUnits = node.closest("[data-molavi-card]")?.querySelector("[data-molavi-order-units]");
-                var unitText = "خانوار " + digits(row.householdUnit) + " · فروشگاه " + digits(row.shopUnit);
+                var unitText = "گام سفارش: " + digits(row.min) + " عدد";
                 if (orderUnits && orderUnits.textContent !== unitText) orderUnits.textContent = unitText;
+                if (orderUnits) orderUnits.title = "خانوار " + digits(row.householdUnit) + " عدد؛ فروشگاه " + digits(row.shopUnit) + " عدد";
             }
-            if (amount && amount.textContent !== toman(unit)) amount.textContent = toman(unit);
+            if (amount) {
+                var unitLabel = toman(unit);
+                if (amount.textContent !== unitLabel) amount.textContent = unitLabel;
+                amount.title = unitLabel;
+            }
             node.setAttribute("data-unit", String(unit));
             var card = node.closest("[data-molavi-card]");
-            if (card) card.setAttribute("data-price", String(unit));
+            if (card) {
+                card.setAttribute("data-price", String(unit));
+                card.setAttribute("data-has-discount", shelf > unit ? "1" : "0");
+            }
             var rate = shelf > unit ? (shelf - unit) / shelf : 0;
             var rateNode = node.querySelector(".molavi-rate");
             if (rateNode) {
@@ -345,7 +392,10 @@
             var was = node.querySelector(".molavi-was");
             if (was) {
                 was.hidden = !(shelf > unit);
-                if (shelf > unit) was.textContent = toman(shelf);
+                if (shelf > unit) {
+                    was.textContent = toman(shelf);
+                    was.title = toman(shelf);
+                }
             }
         });
         document.querySelectorAll("[data-molavi-profile-deal]").forEach(function (node) {
@@ -354,21 +404,38 @@
             var maximum = buyerType === "shop" ? row.shopMax : row.householdMax;
             var prefix = node.getAttribute("data-prefix") || "تا";
             node.classList.toggle("molavi-deal-fixed", maximum <= 0);
-            node.textContent = maximum > 0
+            var dealText = maximum > 0
                 ? (prefix === "تا" ? "تا " + percent(maximum) + " تخفیف" : percent(maximum) + " " + prefix)
                 : "قیمت ثابت";
+            var shortDeal = maximum > 0 ? "تا " + percent(maximum) : "ثابت";
+            node.setAttribute("data-short", shortDeal);
+            node.setAttribute("data-short-compact", maximum > 0 ? percent(maximum) : "ثابت");
+            var dealCopy = node.querySelector(".molavi-deal-copy");
+            if (!dealCopy) {
+                node.replaceChildren();
+                dealCopy = document.createElement("span");
+                dealCopy.className = "molavi-deal-copy";
+                node.appendChild(dealCopy);
+            }
+            dealCopy.textContent = dealText;
             node.setAttribute("aria-label", maximum > 0 ? "حداکثر " + percent(maximum) + " تخفیف" : "قیمت ثابت");
         });
         document.querySelectorAll(".e-loop-item [data-molavi-cart]").forEach(function (node) {
             var id = node.getAttribute("data-product");
-            updateCardControl(node, Number(counts[id] || 0), rowOf(id));
+            var row = rowOf(id);
+            var qty = Number(counts[id] || 0);
+            updateCardFacts(node.closest("[data-molavi-card]"), qty, row);
+            updateCardControl(node, qty, row);
         });
         paintBasket(units, counts, quote);
         showBuyerFeedback(quote);
+        updateRecommendations(quote);
+        paintCustomerDetails(quote);
         var count = 0;
         Object.keys(counts).forEach(function (id) { count += Number(counts[id]) || 0; });
         document.querySelectorAll("[data-molavi-count]").forEach(function (badge) {
-            badge.textContent = digits(count);
+            badge.textContent = digits(count>99?"99+":count);
+            badge.hidden = count < 1;
         });
         document.querySelectorAll(".elementor-button-icon-qty").forEach(function (badge) {
             badge.textContent = digits(count);
@@ -376,33 +443,94 @@
         });
     }
 
+    function updateCardFacts(card, qty, row) {
+        if (!card || !row) return;
+        var step = Math.max(1, Number(row.min) || 1);
+        var invalid = qty > 0 && (qty < step || qty % step !== 0);
+        var orderUnits = card.querySelector("[data-molavi-order-units]");
+        var category = card.querySelector(".molavi-card-category");
+        var warning = card.querySelector("[data-molavi-card-step-warning]");
+        var warningText = card.querySelector("[data-molavi-card-step-warning-text]");
+        if (orderUnits) {
+            orderUnits.textContent = "گام سفارش: " + digits(step) + " عدد";
+            orderUnits.title = "خانوار " + digits(row.householdUnit) + " عدد؛ فروشگاه " + digits(row.shopUnit) + " عدد";
+            orderUnits.hidden = invalid;
+        }
+        if (category) category.hidden = invalid;
+        if (warning) warning.hidden = !invalid;
+        if (warningText) warningText.textContent = invalid
+            ? "تعداد " + digits(qty) + " · گام " + digits(step)
+            : "";
+    }
+
+    function cardAdjustment(qty, row) {
+        var step = Math.max(1, Number(row && row.min) || 1);
+        var next = Math.max(step, Math.ceil(qty / step) * step);
+        if (next > 999) next = Math.max(step, Math.floor(999 / step) * step);
+        var label = "اصلاح تعداد از " + digits(qty) + " به " + digits(next);
+        return '<button type="button" class="molavi-card-adjust" data-molavi-set-qty="' + next
+            + '" aria-label="' + escapeHtml(label) + '"><span class="molavi-card-adjust-label" data-compact-label="اصلاح">اصلاح تعداد</span>'
+            + '<span class="molavi-count-shift" aria-hidden="true"><b>' + digits(qty) + '</b><i>→</i><b>' + digits(next)
+            + '</b></span></button>';
+    }
+
     function updateCardControl(node, qty, row) {
         var min = Math.max(1, Number(row && row.min) || Number(node.getAttribute("data-min")) || 1);
         var inCart = node.classList.contains("is-in");
+        var invalid = qty > 0 && (qty < min || qty % min !== 0);
         node.setAttribute("data-min", String(min));
         node.setAttribute("data-qty", String(qty));
 
-        if (qty > 0 && inCart) {
+        if (qty > 0 && inCart && !invalid) {
             var count = node.querySelector(".molavi-step b");
             var buttons = node.querySelectorAll(".molavi-step button[data-molavi-step]");
             if (count && count.textContent !== digits(qty)) count.textContent = digits(qty);
             if (buttons.length >= 2) {
-                buttons[0].setAttribute("data-molavi-step", String(-min));
-                buttons[1].setAttribute("data-molavi-step", String(min));
+                var minusDelta = -min;
+                var plusDelta = min;
+                var minusLabel = "کم کردن " + digits(min) + " عدد";
+                var plusLabel = "افزودن " + digits(min) + " عدد";
+                var disablePlus = false;
+                if (qty < min || qty % min !== 0) {
+                    var previousValid = Math.floor(Math.max(0, qty - 1) / min) * min;
+                    var nextValid = Math.min(999 - (999 % min), Math.max(min, Math.ceil(qty / min) * min));
+                    minusDelta = previousValid - qty;
+                    plusDelta = nextValid - qty;
+                    minusLabel = "تغییر تعداد به " + digits(previousValid) + " عدد";
+                    plusLabel = "تغییر تعداد به " + digits(nextValid) + " عدد";
+                    disablePlus = nextValid <= qty;
+                }
+                buttons[0].setAttribute("data-molavi-step", String(minusDelta));
+                buttons[1].setAttribute("data-molavi-step", String(plusDelta));
+                buttons[0].setAttribute("aria-label", minusLabel);
+                buttons[1].setAttribute("aria-label", plusLabel);
+                buttons[1].disabled = disablePlus;
+                return;
             }
-            return;
         }
-        if (qty < 1 && !inCart) return;
+        if (qty < 1 && !inCart) {
+            var addCopy=node.querySelector('.molavi-add span');
+            if(addCopy){addCopy.textContent='افزودن '+digits(min)+' عدد';return;}
+        }
+        if (invalid) {
+            var currentAdjustment = node.querySelector(".molavi-card-adjust");
+            var expectedAdjustment = String(Math.max(min, Math.ceil(qty / min) * min));
+            if (Number(expectedAdjustment) > 999) expectedAdjustment = String(Math.max(min, Math.floor(999 / min) * min));
+            if (currentAdjustment && currentAdjustment.getAttribute("data-molavi-set-qty") === expectedAdjustment) return;
+        }
 
         var active = node.contains(document.activeElement) ? document.activeElement : null;
         var activeAction = active && active.hasAttribute("data-molavi-clear") ? "clear"
+            : active && active.hasAttribute("data-molavi-set-qty") ? "adjust"
             : active && Number(active.getAttribute("data-molavi-step")) < 0 ? "minus" : "plus";
         node.classList.toggle("is-in", qty > 0);
-        node.innerHTML = qty > 0 ? stepper(qty, row) : addButton(row);
+        node.innerHTML = qty > 0 ? (invalid ? cardAdjustment(qty, row) : stepper(qty, row)) : addButton(row);
 
         if (active) {
             var replacement = qty < 1 ? node.querySelector(".molavi-add")
                 : activeAction === "clear" ? node.querySelector("[data-molavi-clear]")
+                : activeAction === "adjust" ? Array.prototype.slice.call(node.querySelectorAll(".molavi-step button[data-molavi-step]"))
+                    .find(function (button) { return Number(button.getAttribute("data-molavi-step")) > 0; })
                 : activeAction === "minus" ? node.querySelector('.molavi-step button[data-molavi-step^="-"]')
                 : Array.prototype.slice.call(node.querySelectorAll(".molavi-step button[data-molavi-step]"))
                     .find(function (button) { return Number(button.getAttribute("data-molavi-step")) > 0; });
@@ -439,13 +567,19 @@
                 if (Number(row.discountable) === 1) eligibleReference += shelf * qty;
             }
             kinds += 1;
-            var invalidLine = Array.isArray(quote && quote.invalid_lines) && quote.invalid_lines.some(function (line) { return String(line.product_id) === String(id); });
-            html += '<article class="molavi-bline" data-product="' + escapeHtml(id) + '" data-min="' + min + '" data-qty="' + qty + '">'
+            var invalidLine = Array.isArray(quote && quote.invalid_lines)
+                ? quote.invalid_lines.find(function (line) { return String(line.product_id) === String(id); }) : null;
+            var stepMarkup = '<small class="molavi-order-step">گام سفارش: ' + digits(min) + ' عدد</small>';
+            if (invalidLine) {
+                stepMarkup += '<small class="molavi-buyer-line-warning">تعداد فعلی با این گام هماهنگ نیست.</small>'
+                    + '<button type="button" class="molavi-line-update" data-molavi-set-qty="'
+                    + Number(invalidLine.needed_quantity) + '">تغییر به ' + digits(invalidLine.needed_quantity) + ' عدد</button>';
+            }
+            html += '<article class="molavi-bline' + (invalidLine ? ' is-invalid' : '') + '" data-product="' + escapeHtml(id) + '" data-min="' + min + '" data-qty="' + qty + '" data-invalid="' + (invalidLine ? '1' : '0') + '">'
                 + '<div class="molavi-bline-image"><img src="' + escapeHtml(row.image || "") + '" alt="' + escapeHtml(row.name || "") + '" loading="lazy"></div>'
                 + '<div class="molavi-bline-copy"><h3>' + escapeHtml(row.name || "") + "</h3><p><strong>"
-                + toman(unit) + "</strong> × " + digits(qty) + "</p><small>گام سفارش: " + digits(min)
-                + " عدد</small>"
-                + (invalidLine ? '<strong class="molavi-buyer-line-warning">نیازمند اصلاح تعداد</strong>' : "") + "</div>"
+                + toman(unit) + "</strong> × " + digits(qty) + "</p>" + stepMarkup
+                + "</div>"
                 + stepper(qty, row) + "</article>";
         });
         lines.innerHTML = html || '<p class="molavi-basket-empty" data-molavi-empty-basket>سبد خالی است.</p>';
@@ -470,15 +604,36 @@
         var countNode = document.querySelector("[data-molavi-basket-count]");
         if (countNode) countNode.textContent = kinds > 0 ? "(" + digits(kinds) + " محصول)" : "";
         var checkout = document.querySelector("[data-molavi-checkout]");
+        var mobileBasketTrigger = document.querySelector(".molavi-mobile-basket[data-molavi-open-basket]");
+        if (mobileBasketTrigger) {
+            mobileBasketTrigger.hidden = false;
+            mobileBasketTrigger.setAttribute("aria-label", "سبد خرید و علاقه‌مندی‌ها؛ " + digits(kinds) + " کالا؛ " + percent(referenceTotal > 0 ? saved / referenceTotal : 0) + " تخفیف فعلی؛ " + toman(total));
+        }
         var invalidCount = Array.isArray(quote && quote.invalid_lines) ? quote.invalid_lines.length : 0;
-        if (checkout) checkout.hidden = kinds < 1 || invalidCount > 0;
+        var checkoutHelp = document.querySelector("[data-molavi-checkout-help]");
+        if (checkout) {
+            checkout.hidden = kinds < 1;
+            checkout.classList.toggle("is-invalid", invalidCount > 0);
+            checkout.setAttribute("aria-disabled", invalidCount > 0 ? "true" : "false");
+            checkout.href = invalidCount > 0 ? "#molavi-basket-lines" : (molaviShop.checkout || checkout.href);
+            var checkoutLabel = checkout.querySelector("[data-molavi-checkout-label]") || checkout.querySelector("span") || checkout;
+            checkoutLabel.textContent = invalidCount > 0 ? "اصلاح تعداد برای ادامه" : "ادامه سفارش";
+        }
+        if (checkoutHelp) {
+            checkoutHelp.hidden = invalidCount < 1;
+            checkoutHelp.textContent = invalidCount > 0
+                ? "برای ادامه، تعداد کالاهای مشخص‌شده در سبد را اصلاح کنید."
+                : "";
+        }
         setText("[data-molavi-reference]", toman(referenceTotal));
         setText("[data-molavi-savings]", toman(saved));
         setText("[data-molavi-subtotal]", toman(total));
         setText("[data-molavi-savings-rate]", percent(referenceTotal > 0 ? saved / referenceTotal : 0));
         setText("[data-molavi-mobile-total]", toman(total));
         setText("[data-molavi-mobile-saving]", toman(saved));
-        setText("[data-molavi-mobile-count]", digits(Object.keys(counts).reduce(function (sum, id) { return sum + (Number(counts[id]) || 0); }, 0)));
+        setText("[data-molavi-mobile-rate]", percent(referenceTotal > 0 ? saved / referenceTotal : 0));
+        var cartCount=Object.keys(counts).reduce(function(sum,id){return sum+(Number(counts[id])||0);},0);
+        var floatingCount=document.querySelector('[data-molavi-mobile-count]');if(floatingCount){floatingCount.hidden=cartCount<1;floatingCount.textContent=digits(cartCount>99?'99+':cartCount);}
         var progress = Math.max(0, Math.min(1, Number(quote && quote.progress) || 0));
         var progressPct = Math.round(progress * 100);
         var progressBar = document.querySelector("[data-molavi-progressbar]");
@@ -487,10 +642,212 @@
         if (progressFill) progressFill.style.width = progressPct + "%";
         var progressTitle = document.querySelector("[data-molavi-progress-title]");
         var remainingNode = document.querySelector("[data-molavi-remaining]");
-        if (progressTitle) progressTitle.textContent = progress >= 1 ? "به سقف تخفیف این نوع خرید رسیدید" : "با افزایش مبلغ سبد، تخفیف بیشتر می‌شود";
+        if (progressTitle) progressTitle.textContent = progress >= 1 ? "سقف تخفیف تکمیل شده" : "پیشرفت تخفیف";
         if (remainingNode) remainingNode.textContent = progress >= 1
-            ? "سقف تخفیف " + (buyerType === "shop" ? "فروشگاه" : "خانوار") + " فعال است."
-            : "تا سقف تخفیف " + (buyerType === "shop" ? "فروشگاه" : "خانوار") + " " + toman(Number(quote && quote.remaining) || 0) + " مانده است.";
+            ? "سقف تخفیف " + (buyerType === "shop" ? "مغازه‌دار" : "خانوار") + " فعال است."
+            : "تا سقف " + (buyerType === "shop" ? "مغازه‌دار" : "خانوار") + ": " + toman(Number(quote && quote.remaining) || 0);
+    }
+
+    function normalizeSearch(value) {
+        return String(value||'').normalize('NFKC').toLocaleLowerCase('fa').replace(/[يى]/g,'ی').replace(/ك/g,'ک')
+            .replace(/[۰-۹]/g,function(c){return '۰۱۲۳۴۵۶۷۸۹'.indexOf(c);}).replace(/[٠-٩]/g,function(c){return '٠١٢٣٤٥٦٧٨٩'.indexOf(c);})
+            .replace(/[\s\u200c]+/g,' ').trim();
+    }
+    function updateCheckoutBusy() {
+        var pending=sending||buyerChanging||listRestoring||dirty||nativeCartUpdating;
+        document.querySelectorAll('[data-molavi-checkout]').forEach(function(link){
+            var invalid=Array.isArray(lastQuote.invalid_lines)&&lastQuote.invalid_lines.length>0;
+            link.setAttribute('aria-disabled',pending||invalid?'true':'false');
+            link.classList.toggle('is-pending',pending);
+        });
+    }
+    function paintCustomerDetails(quote) {
+        document.querySelectorAll('[data-molavi-product-detail]').forEach(function(panel){
+            var id=panel.getAttribute('data-product'),row=rowOf(id);
+            if(!row)return;
+            var input=document.querySelector('form.cart input.qty');
+            var step=Math.max(1,Number(row.min)||1);
+            if(input){input.min=step;input.step=step;}
+            var count=input?Math.max(step,Number(input.value)||step):step;
+            var label=panel.querySelector('[data-molavi-detail-quantity]');
+            if(label)label.textContent='حداقل خرید و گام تغییر تعداد: '+digits(step)+' عدد';
+            var summary=panel.closest('.summary'),unit=Number(quote.units&&quote.units[id]||0);
+            if(summary){
+                var current=summary.querySelector('.molavi-public-current');if(current)current.textContent=toman(unit);
+                var reference=summary.querySelector('.molavi-public-reference');if(reference)reference.hidden=!(row.shelf>unit);
+                var rate=summary.querySelector('.molavi-rate-label');if(rate){rate.hidden=!(row.shelf>unit);rate.textContent='تخفیف فعلی '+percent(row.shelf>unit?(row.shelf-unit)/row.shelf:0);}
+            }
+            var total=panel.querySelector('[data-molavi-detail-total]');
+            if(total)total.textContent=toman(Number(quote.units&&quote.units[id]||0)*count);
+            var totalLabel=panel.querySelector('[data-molavi-detail-total-label]');if(totalLabel)totalLabel.textContent='مبلغ '+digits(count)+' عدد با قیمت فعلی: ';
+        });
+        document.querySelectorAll('[data-molavi-favorite-price]').forEach(function(node){var id=node.getAttribute('data-molavi-favorite-price');if(quote.units&&quote.units[id]!=null)node.textContent=toman(quote.units[id]);});
+        var guide=document.querySelector('[data-molavi-guide]');
+        if(guide)guide.textContent=(quote.invalid_lines||[]).length
+            ? 'برای ادامهٔ سفارش، تعداد کالاهای مشخص‌شده را اصلاح کنید.'
+            : Number(quote.count)>0
+                ? (Number(quote.progress)>=1?'سقف تخفیف سبد فعال است؛ می‌توانید سفارش را ادامه دهید.':'قیمت‌های نمایش‌داده‌شده شامل تخفیف فعلی سبد شماست.')
+                : 'نوع خرید را انتخاب کنید، بعد کالاها را به سبد اضافه کنید.';
+        updateCheckoutBusy();
+    }
+    function setupShoppingHelp() {
+        document.addEventListener('click',function(event){
+            var opener=event.target.closest('[data-molavi-open-help]'),dialog=document.getElementById('molavi-shopping-help');
+            if(!opener||!dialog)return;event.preventDefault();dialog.showModal();
+        });
+        document.addEventListener('input',function(event){if(event.target.matches('form.cart input.qty'))paintCustomerDetails(lastQuote);});
+    }
+    function readFavoriteIds() {
+        try {
+            var value=JSON.parse(localStorage.getItem('molavi-wishlist-v1')||'[]');
+            return Array.isArray(value)?Array.from(new Set(value.map(String).filter(function(id){return /^[1-9][0-9]*$/.test(id);}))) : [];
+        } catch(error) { return []; }
+    }
+    function setupFavoritesLibrary() {
+        var host=document.querySelector('#molavi-favorites-dialog');if(!host||host._molaviCollectionsReady)return;
+        host._molaviCollectionsReady=true;
+        var feedback=host.querySelector('[data-molavi-lists-status]'),products=host.querySelector('[data-molavi-favorite-products]'),saved=host.querySelector('[data-molavi-saved-carts]');
+        var key='molavi-shopping-lists-v1',lists=[],pendingRestore=null,loading=false,available=null,loadVersion=0,controller=null,lastOpener=null,reloadTimer=null;
+        var tabs=Array.from(host.querySelectorAll('[data-molavi-library-tab]'));
+        function readLists(){
+            try{var value=JSON.parse(localStorage.getItem(key)||'[]');lists=Array.isArray(value)?value.slice(0,10):[];}catch(error){lists=[];}
+            lists=lists.filter(function(item){return item&&typeof item.id==='string'&&typeof item.name==='string'&&item.items&&typeof item.items==='object'&&!Array.isArray(item.items);});
+        }
+        readLists();
+        function busy(){return sending||dirty||buyerChanging||listRestoring||nativeCartUpdating;}
+        function currentItems(){
+            if(!document.body.classList.contains('woocommerce-cart')||document.querySelector('[data-molavi-storefront]'))return Object.assign({},serverQtys);
+            var current={};document.querySelectorAll('.woocommerce-cart-form__cart-item').forEach(function(line){
+                var product=line.querySelector('[data-product_id]'),input=line.querySelector('input.qty');
+                if(product&&input&&Number(input.value)>0)current[product.getAttribute('data-product_id')]=Number(input.value);
+            });return current;
+        }
+        function setTab(name,focus){
+            tabs.forEach(function(tab){var active=tab.getAttribute('data-molavi-library-tab')===name;tab.setAttribute('aria-selected',active?'true':'false');tab.tabIndex=active?0:-1;if(active&&focus)tab.focus();});
+            host.querySelectorAll('[data-molavi-library-panel]').forEach(function(panel){panel.hidden=panel.getAttribute('data-molavi-library-panel')!==name;});
+        }
+        function display(){
+            var favorites=readFavoriteIds();host.querySelector('[data-molavi-favorites-count]').textContent=digits(favorites.length);host.querySelector('[data-molavi-saved-count]').textContent=digits(lists.length);
+            host.querySelector('[data-molavi-save-list]').disabled=busy()||!Object.keys(currentItems()).length;
+            host.querySelector('[data-molavi-save-favorites]').disabled=busy()||loading||!favorites.length;
+            host.querySelectorAll('[data-molavi-load-list],[data-molavi-replace-list],[data-molavi-delete-list],[data-molavi-rename-list]').forEach(function(button){button.disabled=busy();});
+            host.setAttribute('aria-busy',loading||listRestoring?'true':'false');
+        }
+        function persist(next){
+            try{localStorage.setItem(key,JSON.stringify(next));lists=next;renderSaved();display();return true;}
+            catch(error){feedback.textContent='مرورگر اجازهٔ ذخیره نداد؛ تنظیمات ذخیره‌سازی را بررسی کنید.';return false;}
+        }
+        function saveItems(items){
+            var ids=Object.keys(items);if(!ids.length)return false;
+            if(ids.length>40){feedback.textContent='هر سبد ذخیره‌شده می‌تواند حداکثر ۴۰ کالا داشته باشد.';return false;}
+            var number=1;while(lists.some(function(item){return item.name==='سبد '+digits(number);}))number++;
+            var item={id:Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,8),name:'سبد '+digits(number),items:Object.assign({},items)};
+            return persist([item].concat(lists).slice(0,10))?item:false;
+        }
+        function preview(item){
+            return '<ul class="molavi-saved-items">'+Object.keys(item.items).map(function(id){var row=catalog[id];return '<li><span>'+escapeHtml(row&&row.name||'کالایی که فعلاً در دسترس نیست')+'</span><b>'+digits(Number(item.items[id])||0)+' عدد</b></li>';}).join('')+'</ul>';
+        }
+        function renderSaved(){
+            var opened=Array.from(saved.querySelectorAll('details[open]')).map(function(node){return node.getAttribute('data-molavi-saved-cart');});
+            saved.innerHTML=lists.length?lists.map(function(item){var id=escapeHtml(item.id),count=Object.keys(item.items).length;
+                return '<details class="molavi-saved-cart" data-molavi-saved-cart="'+id+'"'+(opened.indexOf(item.id)>=0?' open':'')+'><summary><span><strong>'+escapeHtml(item.name.slice(0,60))+'</strong><small>'+digits(count)+' کالا</small></span><span class="molavi-saved-chevron" aria-hidden="true">⌄</span></summary><div class="molavi-saved-cart-body"><div data-molavi-saved-preview>'+preview(item)+'</div><div class="molavi-saved-actions"><button type="button" data-molavi-load-list="'+id+'">افزودن به سبد خرید</button><button type="button" data-molavi-replace-list="'+id+'">سبد خرید جدید</button><button type="button" data-molavi-rename-list="'+id+'">تغییر نام</button><button type="button" class="molavi-text-danger" data-molavi-delete-list="'+id+'">حذف</button></div></div></details>';
+            }).join(''):'<div class="molavi-library-empty"><strong>سبدهای همیشگی‌تان را اینجا نگه دارید</strong><p>سبد خرید فعلی یا همهٔ کالاهای موردعلاقه را ذخیره کنید؛ نیازی به انتخاب نام نیست.</p></div>';
+            saved.querySelectorAll('details[open]').forEach(function(node){node._molaviRestoredOpen=true;});
+        }
+        function renderProducts(){
+            var focused=products.contains(document.activeElement)?document.activeElement:null,focusedRow=focused&&focused.closest('[data-product]');
+            var focusedId=focusedRow&&focusedRow.getAttribute('data-product'),focusAction=focused&&focused.hasAttribute('data-molavi-favorite')?'favorite':focused&&focused.hasAttribute('data-molavi-clear')?'clear':focused&&Number(focused.getAttribute('data-molavi-step'))<0?'minus':'plus';
+            var ids=readFavoriteIds();
+            products.innerHTML=ids.length?ids.map(function(id){var row=catalog[id],active=row&&available&&available.has(id),profile=rowOf(id),name=active?row.name:'این کالا فعلاً قابل خرید نیست';
+                return '<article class="molavi-library-product e-loop-item" data-product="'+escapeHtml(id)+'">'+(active?'<a class="molavi-library-photo" href="'+escapeHtml(row.url||'#')+'"><img src="'+escapeHtml(row.image||'')+'" alt="" loading="lazy"></a>':'<span class="molavi-library-photo is-unavailable" aria-hidden="true">♡</span>')+'<div class="molavi-library-product-copy"><h3>'+(active?'<a href="'+escapeHtml(row.url||'#')+'">'+escapeHtml(name)+'</a>':escapeHtml(name))+'</h3>'+(active?'<strong class="molavi-library-price" data-molavi-favorite-price="'+escapeHtml(id)+'">'+toman(lastQuote.units&&lastQuote.units[id])+'</strong><div class="molavi-control" data-molavi-cart data-product="'+escapeHtml(id)+'" data-min="'+profile.min+'"></div>':'<small>می‌توانید آن را از علاقه‌مندی‌ها حذف کنید.</small>')+'</div><button class="molavi-library-remove" type="button" data-molavi-favorite="'+escapeHtml(id)+'" aria-pressed="true" aria-label="حذف '+escapeHtml(name)+' از علاقه‌مندی‌ها"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.8 8.8c0 4.4-8.8 10-8.8 10s-8.8-5.6-8.8-10a4.6 4.6 0 0 1 8.8-1.9 4.6 4.6 0 0 1 8.8 1.9Z"></path></svg></button></article>';
+            }).join(''):'<div class="molavi-library-empty"><span aria-hidden="true">♡</span><strong>انتخاب‌های بعدی شما</strong><p>قلب کنار هر کالا را بزنید تا اینجا پیدایش کنید.</p></div>';
+            paint(lastQuote);
+            if(focused&&host.open){
+                var row=products.querySelector('[data-product="'+cssEscape(focusedId||'')+'"]'),target=row&&(focusAction==='favorite'?row.querySelector('[data-molavi-favorite]'):focusAction==='clear'?row.querySelector('[data-molavi-clear]'):row.querySelector(focusAction==='minus'?'.molavi-step button[data-molavi-step^="-"]':'.molavi-step button[data-molavi-step]:not([data-molavi-step^="-"])'));
+                target=target||row&&row.querySelector('.molavi-add')||products.querySelector('[data-molavi-favorite]')||tabs[0];target.focus({preventScroll:true});
+            }
+        }
+        function selectionIds(){
+            var ids=readFavoriteIds();saved.querySelectorAll('details[open]').forEach(function(node){var item=lists.find(function(row){return row.id===node.getAttribute('data-molavi-saved-cart');});if(item)ids=ids.concat(Object.keys(item.items));});
+            return Array.from(new Set(ids)).slice(0,1000);
+        }
+        async function loadFacts(){
+            if(!host.open||busy())return;
+            var ids=selectionIds(),version=++loadVersion,revision=pricingRevision;
+            if(controller)controller.abort();controller=new AbortController();
+            if(!ids.length){loading=false;available=new Set();renderProducts();display();return;}
+            loading=true;display();host.querySelector('[data-molavi-library-retry]').hidden=true;
+            if(!available)products.innerHTML='<p class="molavi-library-loading" role="status">در حال دریافت کالاها…</p>';
+            var facts={},quote=null,page=1,more=true;
+            try{
+                while(more){
+                    var url=new URL(molaviShop.catalogEndpoint,window.location.href);url.searchParams.set('ids',ids.join(','));url.searchParams.set('format','collection');url.searchParams.set('catalog_page',String(page));
+                    var response=await fetch(url,{credentials:'same-origin',signal:controller.signal}),result=await response.json();
+                    if(version!==loadVersion)return;
+                    if(revision!==pricingRevision||busy()||result.data&&result.data.buyer_type!==buyerType){window.clearTimeout(reloadTimer);reloadTimer=window.setTimeout(loadFacts,250);return;}
+                    if(!response.ok||!result.success||!result.data||!result.data.quote)throw new Error('read');
+                    Object.assign(facts,result.data.catalog||{});quote=result.data.quote;more=!!result.data.has_more;page++;
+                    if(more&&page>42)throw new Error('limit');
+                }
+                Object.assign(catalog,facts);available=new Set(Object.keys(facts));lastQuote=quote;serverQtys=Object.assign({},quote.qtys||{});qtys=Object.assign({},serverQtys);
+                renderProducts();saved.querySelectorAll('[data-molavi-saved-preview]').forEach(function(node){var item=lists.find(function(row){return row.id===node.closest('[data-molavi-saved-cart]').getAttribute('data-molavi-saved-cart');});if(item)node.innerHTML=preview(item);});
+            }catch(error){if(error.name!=='AbortError'){feedback.textContent='دریافت کالاها کامل نشد. دوباره امتحان کنید؛ انتخاب‌های شما محفوظ است.';host.querySelector('[data-molavi-library-retry]').hidden=false;}}
+            finally{if(version===loadVersion){loading=false;display();}}
+        }
+        async function restore(item,mode){
+            if(!item||busy())return;
+            var fingerprint=mode+':'+JSON.stringify(item.items),backup=null;
+            if(!pendingRestore||pendingRestore.fingerprint!==fingerprint){var bytes=new Uint8Array(16);window.crypto.getRandomValues(bytes);pendingRestore={fingerprint:fingerprint,id:Array.from(bytes,function(b){return b.toString(16).padStart(2,'0');}).join(''),backup:false};}
+            if(mode==='replace'&&!pendingRestore.backup&&Object.keys(currentItems()).length){backup=saveItems(currentItems());if(!backup)return;pendingRestore.backup=true;}
+            listRestoring=true;pricingRevision++;display();updateCheckoutBusy();feedback.textContent='در حال بررسی کالاها و قیمت‌های فعلی…';
+            var completed=false;
+            try{
+                var body=new FormData();body.append('nonce',molaviShop.nonce);body.append('items',JSON.stringify(item.items));body.append('mode',mode);body.append('request_id',pendingRestore.id);
+                var response=await fetch(molaviShop.restoreList,{method:'POST',credentials:'same-origin',body:body}),result=await response.json();
+                if(!response.ok||!result.success||!result.data||!result.data.quote)throw new Error(result&&result.data&&result.data.message||'سبد به‌روز نشد.');
+                pendingRestore=null;Object.assign(catalog,result.data.catalog||{});lastQuote=result.data.quote;serverQtys=Object.assign({},lastQuote.qtys||{});qtys=Object.assign({},serverQtys);paint(lastQuote);completed=true;
+                feedback.textContent=(mode==='replace'?'سبد خرید جدید آماده شد. ':'')+digits(result.data.added)+' کالا اضافه شد.'+(result.data.skipped.length?' '+digits(result.data.skipped.length)+' کالا فعلاً قابل خرید نبود.':'')+(result.data.adjusted.length?' تعداد '+digits(result.data.adjusted.length)+' کالا با گام خرید هماهنگ شد.':'');
+                refreshNativeCart();
+            }catch(error){feedback.textContent=/[\u0600-\u06ff]/.test(error.message||'')?error.message:'نتیجه تأیید نشد؛ همین درخواست را دوباره امتحان کنید.';}
+            finally{listRestoring=false;display();updateCheckoutBusy();if(completed)document.dispatchEvent(new CustomEvent('molavi:cart'));}
+        }
+        function open(opener){
+            if(host.open)return;var cart=document.querySelector('.molavi-store-basket.is-open [data-molavi-close-basket]');if(cart)cart.click();
+            lastOpener=opener;feedback.textContent='';readLists();renderSaved();display();host.showModal();document.body.classList.add('molavi-library-open');
+            document.querySelectorAll('[data-molavi-open-library]').forEach(function(node){node.setAttribute('aria-expanded','true');});loadFacts();
+        }
+        host.addEventListener('close',function(){loadVersion++;if(controller)controller.abort();loading=false;document.body.classList.remove('molavi-library-open');document.querySelectorAll('[data-molavi-open-library]').forEach(function(node){node.setAttribute('aria-expanded','false');});if(lastOpener&&lastOpener.isConnected)lastOpener.focus();});
+        host.querySelector('[data-molavi-close-library]').addEventListener('click',function(){host.close();});
+        host.addEventListener('click',function(event){if(event.target===host){var box=host.getBoundingClientRect();if(event.clientX<box.left||event.clientX>box.right||event.clientY<box.top||event.clientY>box.bottom)host.close();}});
+        tabs.forEach(function(tab,index){tab.addEventListener('click',function(){setTab(tab.getAttribute('data-molavi-library-tab'));});tab.addEventListener('keydown',function(event){var next=event.key==='ArrowLeft'?index+1:event.key==='ArrowRight'?index-1:event.key==='Home'?0:event.key==='End'?tabs.length-1:null;if(next===null)return;event.preventDefault();setTab(tabs[(next+tabs.length)%tabs.length].getAttribute('data-molavi-library-tab'),true);});});
+        document.addEventListener('click',function(event){
+            var opener=event.target.closest('[data-molavi-open-library]');if(opener){event.preventDefault();open(opener);return;}
+            var button=event.target.closest('[data-molavi-favorite]');if(!button)return;event.preventDefault();var id=button.getAttribute('data-molavi-favorite'),ids=readFavoriteIds(),index=ids.indexOf(id);
+            if(index<0)ids.push(id);else ids.splice(index,1);
+            try{localStorage.setItem('molavi-wishlist-v1',JSON.stringify(ids));}catch(error){feedback.textContent='مرورگر اجازهٔ ذخیرهٔ علاقه‌مندی‌ها را نداد.';return;}
+            document.dispatchEvent(new CustomEvent('molavi:favorites'));
+        });
+        host.querySelector('[data-molavi-save-list]').addEventListener('click',function(){if(busy())return;var item=saveItems(currentItems());if(item)feedback.textContent='«'+item.name+'» ذخیره شد. نام آن را هر وقت خواستید تغییر دهید.';});
+        host.querySelector('[data-molavi-save-favorites]').addEventListener('click',function(){
+            if(busy()||loading)return;var items={};readFavoriteIds().forEach(function(id){var row=rowOf(id);items[id]=row?row.min:1;});var item=saveItems(items);
+            if(item){setTab('carts');feedback.textContent='همهٔ علاقه‌مندی‌ها در «'+item.name+'» ذخیره شد؛ سبد خرید فعلی تغییر نکرد.';}
+        });
+        saved.addEventListener('toggle',function(event){var details=event.target;if(!details.matches('[data-molavi-saved-cart]')||!details.open)return;if(details._molaviRestoredOpen){details._molaviRestoredOpen=false;return;}saved.querySelectorAll('details[open]').forEach(function(other){if(other!==details)other.open=false;});loadFacts();},true);
+        saved.addEventListener('click',function(event){
+            var button=event.target.closest('button');if(!button||busy())return;var id=button.getAttribute('data-molavi-load-list')||button.getAttribute('data-molavi-replace-list')||button.getAttribute('data-molavi-rename-list')||button.getAttribute('data-molavi-delete-list'),item=lists.find(function(row){return row.id===id;});if(!item)return;
+            if(button.hasAttribute('data-molavi-load-list'))return restore(item,'merge');
+            if(button.hasAttribute('data-molavi-replace-list'))return restore(item,'replace');
+            if(button.hasAttribute('data-molavi-delete-list')){if(persist(lists.filter(function(row){return row.id!==id;})))feedback.textContent='«'+item.name+'» حذف شد.';return;}
+            var details=button.closest('details'),summary=details.querySelector('summary'),form=document.createElement('form');form.className='molavi-saved-rename';form.innerHTML='<label>نام سبد <input name="name" maxlength="60" autocomplete="off"></label><button type="submit">ذخیره</button><button type="button" data-cancel>انصراف</button>';form.elements.name.value=item.name;summary.after(form);button.disabled=true;form.elements.name.focus();form.elements.name.select();
+            function finish(){form.remove();display();var row=Array.from(saved.querySelectorAll('[data-molavi-saved-cart]')).find(function(node){return node.getAttribute('data-molavi-saved-cart')===id;});if(row)row.querySelector('summary').focus();}
+            form.querySelector('[data-cancel]').onclick=finish;form.addEventListener('keydown',function(e){if(e.key==='Escape'){e.preventDefault();e.stopPropagation();finish();}});
+            form.onsubmit=function(e){e.preventDefault();var name=form.elements.name.value.trim();if(name){var next=lists.map(function(row){return row.id===id?Object.assign({},row,{name:name}):row;});if(!persist(next))return;feedback.textContent='نام سبد تغییر کرد.';}finish();};
+        });
+        host.querySelector('[data-molavi-library-retry]').addEventListener('click',loadFacts);
+        document.addEventListener('molavi:favorites',function(){display();if(host.open){renderProducts();loadFacts();}});
+        ['molavi:cart','molavi:buyer'].forEach(function(name){document.addEventListener(name,function(){display();if(host.open)loadFacts();});});
+        window.addEventListener('storage',function(event){if(event.key===key){readLists();renderSaved();display();}if(event.key==='molavi-wishlist-v1')document.dispatchEvent(new CustomEvent('molavi:favorites'));});
+        renderSaved();display();
     }
 
     function setText(selector, value) {
@@ -498,31 +855,304 @@
         if (node) node.textContent = value;
     }
 
-    function showStatus(message, productId) {
-        var card = productId
-            ? document.querySelector('[data-molavi-card][data-product="' + cssEscape(String(productId)) + '"]')
-            : null;
-        var node = card ? card.querySelector("[data-molavi-card-status]")
-            : document.querySelector("[data-molavi-status]");
+    function showStatus(message) {
+        var node = document.querySelector("[data-molavi-status]");
         if (!node) return;
         node.textContent = message;
         node.hidden = !message;
     }
 
+    function pulseProduct(id) {
+        var card = document.querySelector('[data-molavi-card][data-product="' + cssEscape(String(id)) + '"]');
+        if (card) {
+            card.classList.remove("is-updating");
+            void card.offsetWidth;
+            card.classList.add("is-updating");
+            window.setTimeout(function () { card.classList.remove("is-updating"); }, 460);
+        }
+        var line = document.querySelector('.molavi-bline[data-product="' + cssEscape(String(id)) + '"]');
+        if (line) {
+            line.classList.remove("is-updating");
+            void line.offsetWidth;
+            line.classList.add("is-updating");
+            window.setTimeout(function () { line.classList.remove("is-updating"); }, 460);
+        }
+    }
+
+    function setupStickyControls(root) {
+        var controls = root.querySelector("[data-molavi-store-controls]");
+        if (!controls) return null;
+        var header = document.querySelector(".molavi-site-header");
+        var expandedBuyer = controls.querySelector(".molavi-buyer-expanded");
+        var compactBuyer = controls.querySelector(".molavi-buyer-compact");
+        var expandedHelp = controls.querySelector(".molavi-buyer-help-trigger");
+        var toolbar = controls.querySelector(".molavi-product-toolbar");
+        var panelTriggers = Array.prototype.slice.call(controls.querySelectorAll("[data-molavi-open-panel]"));
+        var panels = Array.prototype.slice.call(root.querySelectorAll("[data-molavi-control-panel]"));
+        var toolbarSearch = controls.querySelector("[data-molavi-toolbar-search]");
+        var searchToggles = Array.prototype.slice.call(controls.querySelectorAll("[data-molavi-search-toggle]"));
+        var activePanel = null;
+        var activeTrigger = null;
+        var frame = 0;
+
+        function panelFor(name) {
+            return panels.filter(function (panel) {
+                return panel.getAttribute("data-molavi-control-panel") === name;
+            })[0] || null;
+        }
+
+        function canFocus(node) {
+            return Boolean(node && node.getClientRects().length && !node.disabled);
+        }
+
+        function focusTargetFor(name, fallback) {
+            var compact = controls.classList.contains("is-compact");
+            if (name === "help") {
+                var helpTarget = compact ? compactBuyer : expandedHelp;
+                if (canFocus(helpTarget)) return helpTarget;
+            }
+            if (name === "buyer") {
+                if (compactBuyer && canFocus(compactBuyer)) return compactBuyer;
+                return expandedBuyer && expandedBuyer.querySelector('[data-molavi-buyer][aria-pressed="true"]');
+            }
+            if (fallback && canFocus(fallback)) return fallback;
+            return controls.querySelector('[data-molavi-open-panel="' + name + '"]');
+        }
+
+        function nextControlAfterPanel(name) {
+            var compact = controls.classList.contains("is-compact");
+            if (name === "buyer") return controls.querySelector(".molavi-compact-search-trigger");
+            if (name === "help") {
+                return compact
+                    ? controls.querySelector(".molavi-compact-search-trigger")
+                    : controls.querySelector(".molavi-category-trigger");
+            }
+            if (name === "category") return controls.querySelector(".molavi-sort-trigger");
+            if (name === "sort") return controls.querySelector('[data-molavi-view="grid"]');
+            return null;
+        }
+
+        function positionPanel(panel, trigger) {
+            if (!panel || !trigger) return;
+            var rect = trigger.getBoundingClientRect();
+            var width = Math.max(1, Math.min(330, window.innerWidth - 24));
+            panel.style.width = width + "px";
+            panel.style.left = "12px";
+            panel.style.right = "auto";
+            panel.style.top = "12px";
+            var panelRect = panel.getBoundingClientRect();
+            var left = Math.max(12, Math.min(rect.left, window.innerWidth - width - 12));
+            var top = rect.bottom + 8;
+            if (top + panelRect.height > window.innerHeight - 12) {
+                var headerBottom = header ? header.getBoundingClientRect().bottom : 0;
+                top = Math.max(Math.max(12, headerBottom + 8), rect.top - panelRect.height - 8);
+            }
+            panel.style.left = left + "px";
+            panel.style.top = top + "px";
+        }
+
+        function positionSearchOverlay() {
+            if (!toolbarSearch) return;
+            if (toolbarSearch.hidden || !controls.classList.contains("is-compact") || !toolbar) {
+                toolbarSearch.style.removeProperty("left");
+                toolbarSearch.style.removeProperty("right");
+                toolbarSearch.style.removeProperty("width");
+                toolbarSearch.style.removeProperty("top");
+                return;
+            }
+            var controlsRect = controls.getBoundingClientRect();
+            var toolbarRect = toolbar.getBoundingClientRect();
+            toolbarSearch.style.left = (toolbarRect.left - controlsRect.left) + "px";
+            toolbarSearch.style.right = "auto";
+            toolbarSearch.style.width = toolbarRect.width + "px";
+            toolbarSearch.style.top = (toolbarRect.top - controlsRect.top + Math.max(0, (toolbarRect.height - 38) / 2)) + "px";
+        }
+
+        function closePanel(restoreFocus) {
+            if (!activePanel) return;
+            var previousPanel = activePanel;
+            var previousTrigger = activeTrigger;
+            previousPanel.hidden = true;
+            if (previousTrigger) previousTrigger.setAttribute("aria-expanded", "false");
+            activePanel = null;
+            activeTrigger = null;
+            if (restoreFocus) {
+                var name = previousPanel.getAttribute("data-molavi-control-panel");
+                var returnTo = focusTargetFor(name, previousTrigger);
+                if (canFocus(returnTo)) returnTo.focus({ preventScroll: true });
+            }
+            schedule();
+        }
+
+        function openPanel(name, trigger) {
+            var panel = panelFor(name);
+            if (!panel || !trigger) return;
+            if (activePanel === panel) {
+                closePanel(false);
+                return;
+            }
+            closePanel(false);
+            if (toolbarSearch && !toolbarSearch.hidden) {
+                toolbarSearch.hidden = true;
+                controls.classList.remove("is-search-open");
+                searchToggles.forEach(function (toggle) { toggle.setAttribute("aria-expanded", "false"); });
+                positionSearchOverlay();
+            }
+            activePanel = panel;
+            activeTrigger = trigger;
+            trigger.setAttribute("aria-expanded", "true");
+            panel.hidden = false;
+            positionPanel(panel, trigger);
+            var firstFocus = panel.querySelector("[data-molavi-panel-close]") || panel;
+            window.requestAnimationFrame(function () {
+                if (activePanel === panel && canFocus(firstFocus)) firstFocus.focus({ preventScroll: true });
+            });
+        }
+
+        panelTriggers.forEach(function (trigger) {
+            trigger.addEventListener("click", function () {
+                openPanel(trigger.getAttribute("data-molavi-open-panel"), trigger);
+            });
+        });
+        root.addEventListener("click", function (event) {
+            var closeButton = event.target.closest("[data-molavi-panel-close]");
+            if (closeButton && activePanel && activePanel.contains(closeButton)) {
+                closePanel(true);
+                return;
+            }
+            var buyerOption = event.target.closest("[data-molavi-buyer]");
+            if (buyerOption && activePanel && activePanel.contains(buyerOption)) closePanel(true);
+        });
+        panels.forEach(function (panel) {
+            panel.addEventListener("focusout", function () {
+                window.requestAnimationFrame(function () {
+                    if (activePanel === panel && !panel.contains(document.activeElement)) closePanel(false);
+                });
+            });
+        });
+
+        function update() {
+            frame = 0;
+            var headerBottom = header ? Math.max(0, header.getBoundingClientRect().bottom) : 0;
+            controls.style.setProperty("--molavi-header-offset", headerBottom + "px");
+            if (activePanel) {
+                positionPanel(activePanel, activeTrigger);
+                positionSearchOverlay();
+                return;
+            }
+            var shouldCompact = window.scrollY > 0
+                && controls.getBoundingClientRect().top <= headerBottom + 1;
+            var isCompact = controls.classList.contains("is-compact");
+            if (shouldCompact === isCompact) {
+                positionSearchOverlay();
+                if (activePanel) positionPanel(activePanel, activeTrigger);
+                return;
+            }
+
+            var focused = document.activeElement;
+            var focusInExpanded = expandedBuyer && expandedBuyer.contains(focused);
+            var focusInCompactBuyer = compactBuyer && compactBuyer === focused;
+            var nextFocus = null;
+            if (shouldCompact && focusInExpanded) {
+                if (focused.closest("[data-molavi-search-toggle]")) {
+                    nextFocus = controls.querySelector(".molavi-compact-search-trigger");
+                } else if (focused === expandedHelp) {
+                    nextFocus = compactBuyer;
+                } else {
+                    nextFocus = compactBuyer;
+                }
+            } else if (!shouldCompact && focusInCompactBuyer && expandedBuyer) {
+                nextFocus = expandedBuyer.querySelector('[data-molavi-buyer][aria-pressed="true"]');
+            } else if (focused.matches && focused.matches("[data-molavi-search-toggle]")) {
+                nextFocus = shouldCompact
+                    ? controls.querySelector(".molavi-compact-search-trigger")
+                    : controls.querySelector(".molavi-buyer-search-trigger");
+            }
+
+            controls.classList.toggle("is-compact", shouldCompact);
+            positionSearchOverlay();
+            if (activePanel) closePanel(false);
+            if (nextFocus) {
+                window.requestAnimationFrame(function () {
+                    if (canFocus(nextFocus)) nextFocus.focus({ preventScroll: true });
+                });
+            }
+        }
+
+        function schedule() {
+            if (!frame) frame = window.requestAnimationFrame(update);
+        }
+
+        window.addEventListener("scroll", schedule, { passive: true });
+        window.addEventListener("resize", schedule);
+        document.addEventListener("click", function (event) {
+            var trigger = event.target.closest && event.target.closest("[data-molavi-open-panel]");
+            if (activePanel && !activePanel.contains(event.target) && trigger !== activeTrigger) closePanel(false);
+        });
+        controls.addEventListener("focusout", function () {
+            window.requestAnimationFrame(function () { if (!activePanel) schedule(); });
+        });
+        document.addEventListener("keydown", function (event) {
+            if (event.key === "Tab" && activePanel) {
+                var panelStops = Array.prototype.slice.call(activePanel.querySelectorAll("button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex=\"-1\"])")).filter(canFocus);
+                var firstStop = panelStops[0];
+                var lastStop = panelStops[panelStops.length - 1];
+                if (event.shiftKey && document.activeElement === firstStop && canFocus(activeTrigger)) {
+                    event.preventDefault();
+                    var returnTo = activeTrigger;
+                    closePanel(false);
+                    returnTo.focus({ preventScroll: true });
+                    return;
+                }
+                if (!event.shiftKey && document.activeElement === lastStop) {
+                    var nextControl = nextControlAfterPanel(activePanel.getAttribute("data-molavi-control-panel"));
+                    if (canFocus(nextControl)) {
+                        event.preventDefault();
+                        closePanel(false);
+                        nextControl.focus({ preventScroll: true });
+                        return;
+                    }
+                }
+            }
+            if (event.key === "Escape" && activePanel) {
+                event.preventDefault();
+                closePanel(true);
+            }
+        });
+        window.addEventListener("scroll", function () {
+            if (activePanel) positionPanel(activePanel, activeTrigger);
+        }, { passive: true });
+        schedule();
+
+        return { closePanel: closePanel, positionSearchOverlay: positionSearchOverlay };
+    }
+
     function setupCatalog() {
         var root = document.querySelector("[data-molavi-storefront]");
         if (!root) return;
+        var stickyControls = setupStickyControls(root);
         var grid = root.querySelector("[data-molavi-grid]");
-        var search = document.querySelector("[data-molavi-search]");
-        var sort = root.querySelector("[data-molavi-sort]");
-        var categorySelect = root.querySelector("[data-molavi-category-select]");
-        var favoriteView = document.querySelector("[data-molavi-wishlist-view]");
+        var searches = Array.prototype.slice.call(document.querySelectorAll("[data-molavi-search]"));
+        var categoryOptions = Array.prototype.slice.call(root.querySelectorAll("[data-molavi-category-option]"));
+        var sortOptions = Array.prototype.slice.call(root.querySelectorAll("[data-molavi-sort-option]"));
+        var toolbar = root.querySelector(".molavi-product-toolbar");
+        var storeControls = root.querySelector("[data-molavi-store-controls]");
+        var toolbarSearch = root.querySelector("[data-molavi-toolbar-search]");
+        var searchToggles = Array.prototype.slice.call(root.querySelectorAll("[data-molavi-search-toggle]"));
+        var searchClose = root.querySelector("[data-molavi-search-close]");
+        var searchInput = toolbarSearch ? toolbarSearch.querySelector("[data-molavi-search]") : null;
+        var activeSearchToggle = null;
+        var query = searches.reduce(function (value, input) {
+            return value || String(input.value || "").trim();
+        }, "");
+        searches.forEach(function (input) { input.value = query; });
         var viewButtons = root.querySelectorAll("[data-molavi-view]");
         var selectedCategory = "";
+        var selectedSort = "newest";
         var favoritesOnly = new URLSearchParams(window.location.search).get("molavi_favorites") === "1";
         var favorites;
         try {
-            favorites = new Set(JSON.parse(window.localStorage.getItem("molavi-wishlist-v1") || "[]").map(String));
+            favorites = new Set(readFavoriteIds());
         } catch (error) {
             favorites = new Set();
         }
@@ -539,16 +1169,50 @@
                     button.setAttribute("aria-label", active ? "حذف " + name + " از علاقه‌مندی‌ها" : "افزودن " + name + " به علاقه‌مندی‌ها");
                 }
             });
-            if (favoriteView) favoriteView.setAttribute("aria-pressed", favoritesOnly ? "true" : "false");
         }
 
+        var catalogPage=Number(root.getAttribute('data-catalog-page'))||1;
+        var catalogTimer=null,catalogController=null,catalogRequest=0;
+        var more=root.querySelector('[data-molavi-more]');
+        async function loadCatalog(append) {
+            if(!molaviShop.catalogEndpoint)return;
+            var version=++catalogRequest,revision=pricingRevision;
+            if(catalogController)catalogController.abort();catalogController=new AbortController();
+            var page=append?catalogPage+1:1;
+            var url=new URL(molaviShop.catalogEndpoint,window.location.href);
+            url.searchParams.set('catalog_page',page);url.searchParams.set('molavi_q',query);
+            url.searchParams.set('category',selectedCategory);url.searchParams.set('sort',selectedSort);
+            if(favoritesOnly)url.searchParams.set('ids',Array.from(favorites).join(','));
+            if(more)more.disabled=true;grid.setAttribute('aria-busy','true');
+            try{
+                var response=await fetch(url,{credentials:'same-origin',cache:'no-store',signal:catalogController.signal});var result=await response.json();
+                if(version!==catalogRequest)return;
+                if(revision!==pricingRevision||sending||buyerChanging||listRestoring){scheduleCatalog(append);return;}
+                if(!response.ok||!result.success||!result.data||typeof result.data.html!=='string')throw new Error('catalog_failed');
+                var data=result.data;
+                if(data.buyer_type!==buyerType){scheduleCatalog(append);return;}
+                Object.assign(catalog,data.catalog||{});
+                if(!append)grid.replaceChildren();grid.insertAdjacentHTML('beforeend',data.html);
+                catalogPage=Number(data.page)||page;
+                var count=root.querySelector('[data-molavi-result-value]');if(count)count.textContent=digits(data.total);
+                var empty=root.querySelector('[data-molavi-empty]');if(empty)empty.hidden=data.total>0;
+                if(more)more.hidden=!data.has_more;
+                paintFavorites();paint(lastQuote);showStatus('');
+            }catch(error){if(error.name!=='AbortError')showStatus('فهرست تازه نشد؛ دوباره تلاش کنید.');}
+            finally{if(version===catalogRequest){grid.removeAttribute('aria-busy');if(more)more.disabled=false;}}
+        }
+        function scheduleCatalog(append){clearTimeout(catalogTimer);catalogTimer=setTimeout(function(){loadCatalog(Boolean(append));},180);}
+        if(more)more.addEventListener('click',function(){loadCatalog(true);});
+        document.addEventListener('molavi:buyer',function(){if(molaviShop.catalogEndpoint)scheduleCatalog(false);});
+        document.addEventListener('molavi:cart',function(){if(molaviShop.catalogEndpoint&&['cheap','dear'].includes(selectedSort))scheduleCatalog(false);});
         function applyFilters() {
+            if(molaviShop.catalogEndpoint){scheduleCatalog(false);return;}
             if (!grid) return;
-            var term = String(search ? search.value : "").trim().toLocaleLowerCase();
+            var term = normalizeSearch(query);
             var cards = Array.prototype.slice.call(grid.querySelectorAll("[data-molavi-card]"));
             var visible = 0;
             cards.forEach(function (card) {
-                var text = String(card.getAttribute("data-search") || "").toLocaleLowerCase();
+                var text = normalizeSearch(card.getAttribute("data-search") || "");
                 var category = card.getAttribute("data-category") || "";
                 var favoriteButton = card.querySelector("[data-molavi-favorite]");
                 var id = favoriteButton ? String(favoriteButton.getAttribute("data-molavi-favorite") || "") : "";
@@ -560,26 +1224,188 @@
             });
             var count = root.querySelector("[data-molavi-result-count]");
             var empty = root.querySelector("[data-molavi-empty]");
-            if (count) count.textContent = digits(visible) + " کالا";
+            if (count) {
+                var countValue = count.querySelector("[data-molavi-result-value]");
+                if (countValue) countValue.textContent = digits(visible);
+                else count.textContent = digits(visible) + " کالا";
+                count.setAttribute("aria-label", digits(visible) + " کالا");
+            }
             if (empty) empty.hidden = visible > 0;
         }
 
-        if (search) {
-            search.addEventListener("input", applyFilters);
-            if (search.form) {
-                search.form.addEventListener("submit", function (event) {
+        function updateToolbarMenuState() {
+            categoryOptions.forEach(function (button) {
+                var active = (button.getAttribute("data-molavi-category-option") || "") === selectedCategory;
+                button.setAttribute("aria-pressed", active ? "true" : "false");
+            });
+            sortOptions.forEach(function (button) {
+                var active = button.getAttribute("data-molavi-sort-option") === selectedSort;
+                button.setAttribute("aria-pressed", active ? "true" : "false");
+            });
+            var categoryTrigger = root.querySelector(".molavi-category-trigger");
+            var sortTrigger = root.querySelector(".molavi-sort-trigger");
+            if (categoryTrigger) {
+                var categoryButton = categoryOptions.filter(function (button) {
+                    return (button.getAttribute("data-molavi-category-option") || "") === selectedCategory;
+                })[0];
+                var categoryLabelNode = categoryButton && categoryButton.querySelector("span:first-child");
+                var categoryName = categoryLabelNode ? categoryLabelNode.textContent.trim() : "همه دسته‌بندی‌ها";
+                var categoryLabel = selectedCategory ? "فیلتر دسته‌بندی: " + categoryName : "فیلتر دسته‌بندی محصولات";
+                categoryTrigger.classList.toggle("has-active", selectedCategory !== "");
+                categoryTrigger.setAttribute("aria-label", categoryLabel);
+                categoryTrigger.title = categoryLabel;
+                var categoryCurrent = categoryTrigger.querySelector("[data-molavi-category-current]");
+                if (categoryCurrent) categoryCurrent.textContent = selectedCategory ? categoryName : "همه";
+            }
+            if (sortTrigger) {
+                var sortButton = sortOptions.filter(function (button) {
+                    return button.getAttribute("data-molavi-sort-option") === selectedSort;
+                })[0];
+                var sortLabelNode = sortButton && sortButton.querySelector("span:first-child");
+                var sortName = sortLabelNode ? sortLabelNode.textContent.trim() : "جدیدترین";
+                var sortLabel = "مرتب‌سازی: " + sortName;
+                sortTrigger.classList.toggle("has-active", selectedSort !== "newest");
+                sortTrigger.setAttribute("aria-label", sortLabel);
+                sortTrigger.title = sortLabel;
+                var sortCurrent = sortTrigger.querySelector("[data-molavi-sort-current]");
+                if (sortCurrent) sortCurrent.textContent = sortName;
+            }
+        }
+
+        function sortCards() {
+            if(molaviShop.catalogEndpoint){scheduleCatalog(false);return;}
+            if (!grid) return;
+            var cards = Array.prototype.slice.call(grid.querySelectorAll("[data-molavi-card]"));
+            cards.sort(function (a, b) {
+                if (selectedSort === "cheap" || selectedSort === "dear") {
+                    var difference = Number(a.getAttribute("data-price") || 0) - Number(b.getAttribute("data-price") || 0);
+                    return selectedSort === "dear" ? -difference : difference;
+                }
+                if (selectedSort === "name") {
+                    return String(a.getAttribute("data-name") || "").localeCompare(String(b.getAttribute("data-name") || ""), "fa");
+                }
+                return Number(b.getAttribute("data-created") || 0) - Number(a.getAttribute("data-created") || 0);
+            });
+            cards.forEach(function (card) { grid.appendChild(card); });
+        }
+
+        function updateSearch(source) {
+            query = String(source.value || "").trim();
+            searches.forEach(function (input) {
+                if (input !== source && input.value !== source.value) input.value = source.value;
+            });
+            applyFilters();
+        }
+
+        function currentSearchTrigger() {
+            if (activeSearchToggle && activeSearchToggle.getClientRects().length) return activeSearchToggle;
+            return searchToggles.filter(function (toggle) { return toggle.getClientRects().length > 0; })[0] || null;
+        }
+
+        function nextControlAfterSearch() {
+            if (storeControls.classList.contains("is-compact")) {
+                return storeControls.querySelector(".molavi-category-trigger");
+            }
+            return storeControls.querySelector('.molavi-buyer-expanded .molavi-buyer-choice-buttons [data-molavi-buyer="household"]');
+        }
+
+        searches.forEach(function (input) {
+            input.addEventListener("input", function () { updateSearch(input); });
+            if (input.form) {
+                input.form.addEventListener("submit", function (event) {
                     event.preventDefault();
-                    applyFilters();
+                    updateSearch(input);
                     root.scrollIntoView({ behavior: "smooth", block: "start" });
                 });
             }
+        });
+
+        function setToolbarSearchOpen(open, restoreFocus) {
+            if (!toolbarSearch || !toolbar || !storeControls || !searchToggles.length) return;
+            if (open) {
+                if (stickyControls) stickyControls.closePanel(false);
+            }
+            toolbarSearch.hidden = !open;
+            storeControls.classList.toggle("is-search-open", open);
+            if (stickyControls) stickyControls.positionSearchOverlay();
+            searchToggles.forEach(function (toggle) { toggle.setAttribute("aria-expanded", open ? "true" : "false"); });
+            if (open && searchInput) {
+                searchInput.value = query;
+                window.requestAnimationFrame(function () { searchInput.focus({ preventScroll: true }); });
+            } else if (restoreFocus) {
+                var returnTo = currentSearchTrigger();
+                if (returnTo) returnTo.focus({ preventScroll: true });
+            }
+            if (!open) activeSearchToggle = null;
         }
-        if (categorySelect) {
-            categorySelect.addEventListener("change", function () {
-                selectedCategory = categorySelect.value || "";
-                applyFilters();
+
+        if (searchToggles.length && toolbarSearch) {
+            searchToggles.forEach(function (toggle) {
+                toggle.addEventListener("click", function () {
+                    if (!toolbarSearch.hidden) setToolbarSearchOpen(false, true);
+                    else {
+                        if (stickyControls) stickyControls.closePanel(false);
+                        activeSearchToggle = toggle;
+                        setToolbarSearchOpen(true, false);
+                    }
+                });
+            });
+            if (searchClose) searchClose.addEventListener("click", function () { setToolbarSearchOpen(false, true); });
+            toolbarSearch.addEventListener("keydown", function (event) {
+                if (event.key === "Escape" && !toolbarSearch.hidden) {
+                    event.preventDefault();
+                    setToolbarSearchOpen(false, true);
+                    return;
+                }
+                if (event.key === "Tab" && !toolbarSearch.hidden) {
+                    if (event.shiftKey && document.activeElement === searchInput) {
+                        var returnTo = currentSearchTrigger();
+                        if (returnTo) {
+                            event.preventDefault();
+                            setToolbarSearchOpen(false, false);
+                            returnTo.focus({ preventScroll: true });
+                        }
+                    } else if (!event.shiftKey && document.activeElement === searchClose) {
+                        var nextControl = nextControlAfterSearch();
+                        if (nextControl && nextControl.getClientRects().length && !nextControl.disabled) {
+                            event.preventDefault();
+                            setToolbarSearchOpen(false, false);
+                            nextControl.focus({ preventScroll: true });
+                        }
+                    }
+                }
+            });
+            toolbarSearch.addEventListener("focusout", function () {
+                window.requestAnimationFrame(function () {
+                    var focusOnSearchToggle = searchToggles.some(function (toggle) { return toggle === document.activeElement; });
+                    if (!toolbarSearch.hidden && !toolbarSearch.contains(document.activeElement) && !focusOnSearchToggle) {
+                        setToolbarSearchOpen(false, false);
+                    }
+                });
+            });
+            document.addEventListener("click", function (event) {
+                var clickOnSearchToggle = searchToggles.some(function (toggle) { return toggle.contains(event.target); });
+                if (!toolbarSearch.hidden && !toolbarSearch.contains(event.target) && !clickOnSearchToggle) {
+                    setToolbarSearchOpen(false, false);
+                }
             });
         }
+        categoryOptions.forEach(function (button) {
+            button.addEventListener("click", function () {
+                selectedCategory = button.getAttribute("data-molavi-category-option") || "";
+                applyFilters();
+                updateToolbarMenuState();
+                if (stickyControls) stickyControls.closePanel(true);
+            });
+        });
+        sortOptions.forEach(function (button) {
+            button.addEventListener("click", function () {
+                selectedSort = button.getAttribute("data-molavi-sort-option") || "newest";
+                sortCards();
+                updateToolbarMenuState();
+                if (stickyControls) stickyControls.closePanel(true);
+            });
+        });
         root.querySelectorAll("[data-molavi-category]").forEach(function (button) {
             button.addEventListener("click", function () {
                 selectedCategory = button.getAttribute("data-molavi-category") || "";
@@ -590,24 +1416,18 @@
             });
         });
         root.addEventListener("click", function (event) {
-            var button = event.target.closest("[data-molavi-favorite]");
-            if (!button || !root.contains(button)) return;
-            event.preventDefault();
-            var id = String(button.getAttribute("data-molavi-favorite") || "");
-            if (!id) return;
-            if (favorites.has(id)) favorites.delete(id);
-            else favorites.add(id);
-            try { window.localStorage.setItem("molavi-wishlist-v1", JSON.stringify(Array.from(favorites))); } catch (error) {}
-            paintFavorites();
-            applyFilters();
+            var featuredAction = event.target.closest("[data-molavi-recommendation-product]");
+            if (featuredAction && root.contains(featuredAction)) {
+                event.preventDefault();
+                var productId = featuredAction.getAttribute("data-molavi-recommendation-product");
+                var productCard = root.querySelector('[data-molavi-card][data-product="' + cssEscape(productId) + '"]');
+                var cartControl = productCard && productCard.querySelector("[data-molavi-cart]");
+                var addStep = cartControl && cartControl.querySelector("[data-molavi-step]");
+                if (addStep) addStep.click();
+                return;
+            }
         });
-        if (favoriteView) {
-            favoriteView.addEventListener("click", function () {
-                favoritesOnly = !favoritesOnly;
-                paintFavorites();
-                applyFilters();
-            });
-        }
+        document.addEventListener("molavi:favorites", function () { favorites = new Set(readFavoriteIds()); paintFavorites(); if (favoritesOnly) applyFilters(); });
         Array.prototype.forEach.call(viewButtons, function (button) {
             button.addEventListener("click", function () {
                 var view = button.getAttribute("data-molavi-view") === "list" ? "list" : "grid";
@@ -620,22 +1440,145 @@
             });
         });
         paintFavorites();
-        applyFilters();
-        if (sort && grid) {
-            sort.addEventListener("change", function () {
-                var cards = Array.prototype.slice.call(grid.querySelectorAll("[data-molavi-card]"));
-                cards.sort(function (a, b) {
-                    if (sort.value === "cheap" || sort.value === "dear") {
-                        var difference = Number(a.getAttribute("data-price") || 0) - Number(b.getAttribute("data-price") || 0);
-                        return sort.value === "dear" ? -difference : difference;
-                    }
-                    if (sort.value === "newest") {
-                        return Number(b.getAttribute("data-created") || 0) - Number(a.getAttribute("data-created") || 0);
-                    }
-                    return String(a.getAttribute("data-name") || "").localeCompare(String(b.getAttribute("data-name") || ""), "fa");
-                });
-                cards.forEach(function (card) { grid.appendChild(card); });
-            });
+        if(!molaviShop.catalogEndpoint){applyFilters();sortCards();}
+        else if(favoritesOnly)scheduleCatalog(false);
+        updateToolbarMenuState();
+    }
+
+    function setupRecommendations() {
+        var root = document.querySelector("[data-molavi-recommendations]");
+        if (!root) return;
+        var previous = root.querySelector("[data-molavi-recommendation-prev]");
+        var next = root.querySelector("[data-molavi-recommendation-next]");
+        function move(amount) {
+            if (recommendationProducts.length < 2) return;
+            recommendationIndex = (recommendationIndex + amount + recommendationProducts.length) % recommendationProducts.length;
+            updateRecommendations(localQuote());
+        }
+        if (previous) previous.addEventListener("click", function () { move(-1); });
+        if (next) next.addEventListener("click", function () { move(1); });
+        root.addEventListener("click", function (event) {
+            var dot = event.target.closest("[data-molavi-recommendation-dot]");
+            if (!dot) return;
+            var index = Number(dot.getAttribute("data-molavi-recommendation-dot")) || 0;
+            recommendationIndex = Math.max(0, Math.min(recommendationProducts.length - 1, index));
+            updateRecommendations(localQuote());
+        });
+    }
+
+    function updateRecommendations() {
+        var root = document.querySelector("[data-molavi-recommendations]");
+        if (!root) return;
+        var slideNode = root.querySelector("[data-molavi-recommendation-slide]");
+        var countNode = root.querySelector("[data-molavi-recommendation-count]");
+        var dots = root.querySelector("[data-molavi-recommendation-dots]");
+        var controls = root.querySelector(".molavi-recommendation-controls");
+        if (!slideNode) return;
+        if (recommendationBuyerType !== buyerType) {
+            recommendationBuyerType = buyerType;
+            recommendationIndex = 0;
+        }
+
+        // The carousel and catalog are siblings in the storefront layout, so
+        // cards must be read from the document rather than from the carousel.
+        recommendationProducts = Array.prototype.slice.call(document.querySelectorAll("[data-molavi-card]"))
+            .map(function (card) {
+                var price = card.querySelector("[data-molavi-price]");
+                var image = card.querySelector(".molavi-card-photo img");
+                var titleLink = card.querySelector(".molavi-card-body h3 a");
+                var maxDiscount = Number(card.getAttribute("data-" + buyerType + "-max")) || 0;
+                if (!price || maxDiscount <= 0) return null;
+                var control = card.querySelector("[data-molavi-cart]");
+                return {
+                    id: String(card.getAttribute("data-product") || ""),
+                    name: card.getAttribute("data-name") || (titleLink ? titleLink.textContent.trim() : "کالا"),
+                    url: titleLink ? titleLink.href : "#molavi-products",
+                    image: image ? (image.currentSrc || image.src || image.getAttribute("data-src") || "") : "",
+                    maxDiscount: maxDiscount,
+                    currentPrice: Number(price.getAttribute("data-unit")) || 0,
+                    referencePrice: Number(price.getAttribute("data-shelf")) || 0,
+                    inCart: Number(control && control.getAttribute("data-qty")) > 0
+                };
+            })
+            .filter(function (item) { return item && item.id; })
+            .sort(function (a, b) {
+                return (b.maxDiscount - a.maxDiscount) || a.name.localeCompare(b.name, "fa");
+            })
+            .slice(0, 5);
+
+        recommendationIndex = recommendationProducts.length
+            ? Math.max(0, Math.min(recommendationProducts.length - 1, recommendationIndex))
+            : 0;
+        if (controls) controls.hidden = recommendationProducts.length < 2;
+        if (dots) dots.hidden = recommendationProducts.length < 2;
+        if (countNode) countNode.textContent = recommendationProducts.length
+            ? digits(recommendationIndex + 1) + " از " + digits(recommendationProducts.length)
+            : "۰ از ۰";
+        if (!recommendationProducts.length) {
+            slideNode.textContent = "در حال حاضر کالای تخفیف‌دار موجود نیست.";
+            if (dots) dots.replaceChildren();
+            return;
+        }
+
+        var item = recommendationProducts[recommendationIndex];
+        var featured = document.createElement("article");
+        featured.className = "molavi-featured-product";
+        var imageLink = document.createElement("a");
+        imageLink.className = "molavi-featured-image";
+        imageLink.href = item.url;
+        imageLink.tabIndex = -1;
+        imageLink.setAttribute("aria-hidden", "true");
+        if (item.image) {
+            var productImage = document.createElement("img");
+            productImage.src = item.image;
+            productImage.alt = item.name;
+            productImage.loading = "eager";
+            productImage.decoding = "async";
+            imageLink.appendChild(productImage);
+        }
+
+        var copy = document.createElement("div");
+        copy.className = "molavi-featured-copy";
+        var badge = document.createElement("span");
+        badge.className = "molavi-featured-discount";
+        badge.textContent = "تا " + percent(item.maxDiscount) + " تخفیف";
+        var title = document.createElement("h3");
+        var titleLink = document.createElement("a");
+        titleLink.href = item.url;
+        titleLink.textContent = item.name;
+        title.appendChild(titleLink);
+        var note = document.createElement("p");
+        note.textContent = "بیشترین تخفیف قابل دریافت در فهرست است؛ قیمت نهایی با نوع خرید و مبلغ سبد محاسبه می‌شود.";
+        var prices = document.createElement("div");
+        prices.className = "molavi-featured-prices";
+        if (item.referencePrice > item.currentPrice) {
+            var reference = document.createElement("s");
+            reference.textContent = toman(item.referencePrice);
+            prices.appendChild(reference);
+        }
+        var current = document.createElement("strong");
+        current.textContent = toman(item.currentPrice);
+        var priceLabel = document.createElement("span");
+        priceLabel.textContent = "قیمت فعلی";
+        prices.append(current, priceLabel);
+        var action = document.createElement("button");
+        action.type = "button";
+        action.className = "molavi-featured-action";
+        action.setAttribute("data-molavi-recommendation-product", item.id);
+        action.setAttribute("aria-label", (item.inCart ? "افزایش یک گام از " : "افزودن ") + item.name + " به سبد");
+        action.textContent = item.inCart ? "افزایش یک گام" : "افزودن به سبد";
+        copy.append(badge, title, note, prices);
+        featured.append(imageLink, copy, action);
+
+        slideNode.classList.remove("is-changing");
+        void slideNode.offsetWidth;
+        slideNode.replaceChildren(featured);
+        slideNode.classList.add("is-changing");
+        if (dots) {
+            dots.innerHTML = recommendationProducts.map(function (_, index) {
+                return '<button type="button" data-molavi-recommendation-dot="' + index + '" aria-label="نمایش پیشنهاد '
+                    + digits(index + 1) + '" aria-current="' + (index === recommendationIndex ? 'true' : 'false') + '"></button>';
+            }).join("");
         }
     }
 
@@ -646,8 +1589,19 @@
         var dialog = root.querySelector("#molavi-basket-dialog");
         var backdrop = root.querySelector(".molavi-basket-backdrop");
         if (!triggers.length || !dialog || !backdrop) return;
-        var mobileQuery = window.matchMedia("(max-width: 760px)");
+        var mobileQuery = window.matchMedia("(max-width: 900px)");
         var lastTrigger = triggers[0];
+        var floating=root.querySelector('.molavi-mobile-basket'),peekTimer=null;
+        var cartSignature=JSON.stringify([serverQtys,lastQuote.subtotal,lastQuote.savings,buyerType]);
+        function retract(){if(floating)floating.classList.remove('is-peeking');window.clearTimeout(peekTimer);}
+        function peek(){
+            var signature=JSON.stringify([serverQtys,lastQuote.subtotal,lastQuote.savings,buyerType]);
+            if(signature===cartSignature)return;cartSignature=signature;
+            if(!floating||dialog.classList.contains('is-open'))return;
+            floating.classList.add('is-peeking');window.clearTimeout(peekTimer);peekTimer=window.setTimeout(retract,4200);
+        }
+        document.addEventListener('molavi:cart',peek);document.addEventListener('molavi:buyer',peek);
+
         if (mobileQuery.matches) {
             dialog.setAttribute("inert", "");
             dialog.setAttribute("aria-hidden", "true");
@@ -671,6 +1625,7 @@
         }
 
         function open() {
+            retract();
             dialog.classList.add("is-open");
             dialog.setAttribute("aria-modal", "true");
             dialog.removeAttribute("inert");
@@ -705,7 +1660,7 @@
                 return;
             }
             if (event.key !== "Tab") return;
-            var focusable = Array.prototype.slice.call(dialog.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])')).filter(function (node) { return !node.hidden; });
+            var focusable = Array.prototype.slice.call(dialog.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])')).filter(function (node) { return !node.hidden && node.getClientRects().length > 0; });
             if (!focusable.length) {
                 event.preventDefault();
                 dialog.focus();
@@ -722,7 +1677,7 @@
             }
         });
         window.addEventListener("resize", function () {
-            if (window.matchMedia("(min-width: 761px)").matches) {
+            if (window.matchMedia("(min-width: 901px)").matches) {
                 if (dialog.classList.contains("is-open")) close();
                 dialog.removeAttribute("inert");
                 dialog.removeAttribute("aria-hidden");
@@ -734,11 +1689,190 @@
         });
     }
 
-    setupCatalog();
-    setupMobileBasket();
-    setupNativeCartAutoUpdate();
-    updateBuyerControls();
-    paint(lastQuote);
+    function setupCardStepHelp() {
+        var selector = ".molavi-card-step-help";
+        var activeHelp = null;
+        var activeNodes = null;
+        var activeOverlay = null;
+        var activePlaceholder = null;
+        var activeDialogAttributes = null;
+        var nextHelpId = 0;
+
+        function parts(details) {
+            if (!details) return null;
+            var summary = details.querySelector(":scope > summary");
+            var panel = details.querySelector(".molavi-card-step-popover");
+            if (summary && panel) {
+                if (!panel.id) {
+                    do {
+                        nextHelpId += 1;
+                        panel.id = "molavi-step-help-" + nextHelpId;
+                    } while (document.getElementById(panel.id) !== panel);
+                }
+                summary.setAttribute("aria-controls", panel.id);
+                if (!summary.hasAttribute("aria-expanded")) {
+                    summary.setAttribute("aria-expanded", details.open ? "true" : "false");
+                }
+            }
+            return summary && panel ? { summary: summary, panel: panel } : null;
+        }
+
+        function closeHelp(details, restoreFocus) {
+            details = details || activeHelp;
+            if (!details) return;
+            var isActive = activeHelp === details;
+            var nodes = isActive && activeNodes ? activeNodes : parts(details);
+
+            if (isActive && nodes) {
+                if (activePlaceholder && activePlaceholder.parentNode) {
+                    var parent = activePlaceholder.parentNode;
+                    parent.insertBefore(nodes.panel, activePlaceholder);
+                    parent.removeChild(activePlaceholder);
+                } else if (!nodes.panel.parentNode) {
+                    details.appendChild(nodes.panel);
+                }
+                if (activeOverlay && activeOverlay.parentNode) {
+                    activeOverlay.parentNode.removeChild(activeOverlay);
+                }
+                nodes.panel.removeAttribute("data-molavi-positioned");
+                ["role", "aria-modal", "aria-label", "tabindex"].forEach(function (name) {
+                    var value = activeDialogAttributes && activeDialogAttributes[name];
+                    if (value === null || value === undefined) nodes.panel.removeAttribute(name);
+                    else nodes.panel.setAttribute(name, value);
+                });
+                activeNodes = null;
+                activeOverlay = null;
+                activePlaceholder = null;
+                activeDialogAttributes = null;
+            }
+
+            details.open = false;
+            if (nodes) {
+                nodes.summary.setAttribute("aria-expanded", "false");
+            }
+            if (isActive) activeHelp = null;
+            if (restoreFocus && nodes) nodes.summary.focus();
+        }
+
+        function openHelp(details) {
+            if (activeHelp && activeHelp !== details) closeHelp(activeHelp);
+            var nodes = parts(details);
+            if (!nodes || !document.body) return;
+
+            activeHelp = details;
+            activeNodes = nodes;
+            activePlaceholder = document.createComment("molavi-step-help-panel");
+            nodes.panel.parentNode.insertBefore(activePlaceholder, nodes.panel);
+
+            activeDialogAttributes = {
+                role: nodes.panel.getAttribute("role"),
+                "aria-modal": nodes.panel.getAttribute("aria-modal"),
+                "aria-label": nodes.panel.getAttribute("aria-label"),
+                tabindex: nodes.panel.getAttribute("tabindex")
+            };
+            activeOverlay = document.createElement("div");
+            activeOverlay.className = "molavi-card-step-overlay";
+            nodes.panel.setAttribute("role", "dialog");
+            nodes.panel.setAttribute("aria-modal", "true");
+            nodes.panel.setAttribute("aria-label", "راهنمای گام سفارش");
+            nodes.panel.setAttribute("tabindex", "-1");
+            activeOverlay.appendChild(nodes.panel);
+            document.body.appendChild(activeOverlay);
+            nodes.summary.setAttribute("aria-expanded", "true");
+
+            window.requestAnimationFrame(function () {
+                if (activeHelp === details && details.open) nodes.panel.focus();
+            });
+        }
+
+        Array.prototype.forEach.call(document.querySelectorAll(selector), function (details) {
+            parts(details);
+        });
+
+        document.addEventListener("pointerdown", function (event) {
+            if (!activeHelp) return;
+            var target = event.target && event.target.nodeType === 1 ? event.target : event.target.parentElement;
+            var clickedSummary = target && target.closest
+                ? target.closest(".molavi-card-step-help > summary") : null;
+            if (!clickedSummary || clickedSummary.parentElement !== activeHelp) closeHelp(activeHelp);
+        }, true);
+
+        document.addEventListener("click", function (event) {
+            var target = event.target && event.target.nodeType === 1 ? event.target : event.target.parentElement;
+            var summary = target && target.closest
+                ? target.closest(".molavi-card-step-help > summary") : null;
+            if (!summary) {
+                if (activeHelp) closeHelp(activeHelp);
+                return;
+            }
+            var details = summary.parentElement;
+            window.requestAnimationFrame(function () {
+                if (details.open) openHelp(details);
+                else closeHelp(details);
+            });
+        }, true);
+
+        document.addEventListener("keydown", function (event) {
+            if (!activeHelp) return;
+            if (event.key === "Escape") {
+                event.preventDefault();
+                closeHelp(activeHelp, true);
+            } else if (event.key === "Tab") {
+                closeHelp(activeHelp, true);
+            }
+        }, true);
+    }
+
+    var pageInteractionsInitialized = false;
+    var storefrontControlsInitialized = false;
+    var storefrontObserver = null;
+
+    function initializeStorefrontControls() {
+        if (storefrontControlsInitialized) return;
+        var root = document.querySelector("[data-molavi-storefront]");
+        if (!root) {
+            if (document.body && document.body.classList.contains("woocommerce-shop") && !storefrontObserver) {
+                storefrontObserver = new MutationObserver(function () {
+                    if (document.querySelector("[data-molavi-storefront]")) {
+                        storefrontObserver.disconnect();
+                        storefrontObserver = null;
+                        initializeStorefrontControls();
+                    }
+                });
+                storefrontObserver.observe(document.documentElement, { childList: true, subtree: true });
+            }
+            return;
+        }
+
+        storefrontControlsInitialized = true;
+        if (storefrontObserver) {
+            storefrontObserver.disconnect();
+            storefrontObserver = null;
+        }
+        setupCatalog();
+        setupRecommendations();
+        setupMobileBasket();
+        updateBuyerControls();
+        paint(lastQuote);
+    }
+
+    function initializePageInteractions() {
+        if (pageInteractionsInitialized) return;
+        pageInteractionsInitialized = true;
+        setupCardStepHelp();
+        setupFavoritesLibrary();
+        setupShoppingHelp();
+        setupNativeCartAutoUpdate();
+        updateBuyerControls();
+        paint(lastQuote);
+        initializeStorefrontControls();
+    }
+
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", initializePageInteractions, { once: true });
+    } else {
+        initializePageInteractions();
+    }
 
     function applyFragments(fragments) {
         if (!window.jQuery) return;
@@ -748,14 +1882,33 @@
         });
     }
 
+    function refreshNativeCart() {
+        if(!document.body.classList.contains('woocommerce-cart')||document.querySelector('[data-molavi-storefront]'))return;
+        nativeCartUpdating=true;updateCheckoutBusy();
+        // Re-read Woo's server-rendered cart; posting the previous form could overwrite the new quantities.
+        fetch(window.location.href,{credentials:'same-origin',cache:'no-store'})
+            .then(function(response){if(!response.ok)throw new Error('cart');return response.text();})
+            .then(function(html){
+                var parsed=new DOMParser().parseFromString(html,'text/html'),fresh=parsed.querySelector('.molavi-customer-main .woocommerce'),current=document.querySelector('.molavi-customer-main .woocommerce');
+                if(!fresh||!current)throw new Error('cart');current.replaceWith(document.importNode(fresh,true));
+                nativeCartUpdating=false;setupNativeCartAutoUpdate();
+                if(window.jQuery)jQuery(document.body).trigger('updated_wc_div');
+                else document.dispatchEvent(new CustomEvent('molavi:cart'));
+            })
+            .catch(function(){window.location.reload();});
+    }
+
     function setupNativeCartAutoUpdate() {
         if (!document.body.classList.contains("woocommerce-cart")) return;
         var forms = Array.prototype.slice.call(document.querySelectorAll("form.woocommerce-cart-form"));
         if (!forms.length) return;
         forms.forEach(function (form) {
+            if(form._molaviAutoUpdateReady)return;form._molaviAutoUpdateReady=true;
+            form.addEventListener('submit',function(){nativeCartUpdating=true;document.dispatchEvent(new CustomEvent('molavi:cart'));});
             form.addEventListener("change", function (event) {
                 var input = event.target.closest("input.qty");
                 if (!input || !form.contains(input)) return;
+                nativeCartUpdating=true;document.dispatchEvent(new CustomEvent('molavi:cart'));
                 var updateButton = form.querySelector('[name="update_cart"]');
                 if (!updateButton) return;
                 window.clearTimeout(form._molaviUpdateTimer);
@@ -766,20 +1919,41 @@
                 }, 300);
             });
         });
+        if(window.jQuery&&!document.body._molaviCartRefreshReady){
+            document.body._molaviCartRefreshReady=true;
+            jQuery(document.body).on('updated_wc_div wc_cart_emptied',function(){
+                nativeCartUpdating=false;setupNativeCartAutoUpdate();
+                document.dispatchEvent(new CustomEvent('molavi:cart'));
+            });
+        }
         document.body.classList.add("molavi-auto-cart-update-ready");
     }
 
     function stepper(qty, row) {
         var step = Math.max(1, Number(row && row.min) || 1);
-        return '<div class="molavi-actions"><div class="molavi-step"><button type="button" data-molavi-step="-' + step + '" aria-label="کم کردن به اندازه واحد سفارش">−</button><b>'
-            + digits(qty) + '</b><button type="button" data-molavi-step="' + step + '" aria-label="افزودن به اندازه واحد سفارش">+</button></div>'
+        var minusDelta = -step;
+        var plusDelta = step;
+        var minusLabel = "کم کردن " + digits(step) + " عدد";
+        var plusLabel = "افزودن " + digits(step) + " عدد";
+        var disablePlus = false;
+        if (qty > 0 && (qty < step || qty % step !== 0)) {
+            var previousValid = Math.floor(Math.max(0, qty - 1) / step) * step;
+            var nextValid = Math.min(999 - (999 % step), Math.max(step, Math.ceil(qty / step) * step));
+            minusDelta = previousValid - qty;
+            plusDelta = nextValid - qty;
+            minusLabel = "تغییر تعداد به " + digits(previousValid) + " عدد";
+            plusLabel = "تغییر تعداد به " + digits(nextValid) + " عدد";
+            disablePlus = nextValid <= qty;
+        }
+        return '<div class="molavi-actions"><div class="molavi-step"><button type="button" data-molavi-step="' + minusDelta + '" aria-label="' + escapeHtml(minusLabel) + '">−</button><b>'
+            + digits(qty) + '</b><button type="button" data-molavi-step="' + plusDelta + '" aria-label="' + escapeHtml(plusLabel) + '"' + (disablePlus ? ' disabled' : '') + '>+</button></div>'
             + '<button type="button" class="molavi-trash" data-molavi-clear aria-label="حذف از سبد">' + trash() + "</button></div>";
     }
 
     function addButton(row) {
         var min = Number(row && row.min) || 1;
         var name = row && row.name ? row.name : "محصول";
-        return '<button type="button" class="molavi-add" data-molavi-step="1" aria-label="افزودن حداقل ' + digits(min) + ' عدد ' + escapeHtml(name) + ' به سبد">' + cart() + "</button>";
+        return '<button type="button" class="molavi-add" data-molavi-step="1" aria-label="افزودن حداقل ' + digits(min) + ' عدد ' + escapeHtml(name) + ' به سبد">' + cart() + '<span>افزودن ' + digits(Number(row && row.min) || 1) + ' عدد</span></button>';
     }
 
     function cart() {

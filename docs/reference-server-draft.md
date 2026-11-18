@@ -1,5 +1,11 @@
 # Reference server migration — local review draft
 
+**Refresh update — 2026-11-13 (D-045):** the manual-review workflow below is historical
+for subsequent reference refreshes. The active implementation keeps raw Rezvan records
+by stable ID, applies validated per-field deltas directly to the saved comparison data
+and `ReferencePrices`, and leaves the initial reference version under owner review. See
+`reference-dashboard-integration.md` for the current flow.
+
 Baseline: 2e32dea / D-008. Local branch: reference-dashboard-draft. Required GAS
 functionality remains server-owned; originals in legacy-gas are unchanged. This
 slice is not full migration parity, an approved mockup or a production deployment.

@@ -39,6 +39,7 @@ from catalog.extract import (
 )
 from catalog.media import share_album_images
 from catalog.gemini import GeminiError, extract_message_products
+from catalog.google_quota import QuotaDeferred
 from catalog.sheet_reconcile import field_values_equal, reconcile_field, stable_conflict_id
 from catalog.pricing import (
     SHOP_FORMULA_ROW,
@@ -109,6 +110,13 @@ class MemoryStore:
         return self.read(name)
 
     def write_cells(self,name: str,row_number: int,headers: list[str],values: dict[str,Any]) -> None:
+        self.write_cells_batch(name,headers,[(row_number,values)])
+
+    def write_cells_batch(self,name: str,headers: list[str],updates: list[tuple[int,dict[str,Any]]]) -> None:
+        for row_number,values in updates:
+            self.write_cells_row(name,row_number,headers,values)
+
+    def write_cells_row(self,name: str,row_number: int,headers: list[str],values: dict[str,Any]) -> None:
         table=self.sheets.setdefault(name,[])
         while len(table)<row_number:table.append([])
         row=list(table[row_number-1])+['']*max(0,len(headers)-len(table[row_number-1]))
@@ -347,22 +355,33 @@ class GoogleSheetStore:
         return _copy_table(result.get("values") or [])
 
     def write_cells(self,name: str,row_number: int,headers: list[str],values: dict[str,Any]) -> None:
-        if not values:return
+        self.write_cells_batch(name,headers,[(row_number,values)])
+
+    def write_cells_batch(self,name: str,headers: list[str],updates: list[tuple[int,dict[str,Any]]]) -> None:
         data=[]
-        for header,value in values.items():
-            if header not in headers:continue
-            column=headers.index(header)+1
-            cell=f"{_quote(name)}!{_column(column)}{row_number}:{_column(column)}{row_number}"
-            data.append({'range':cell,'values':[[value]]})
+        for row_number,values in updates:
+            for header,value in values.items():
+                if header not in headers:continue
+                column=headers.index(header)+1
+                cell=f"{_quote(name)}!{_column(column)}{row_number}:{_column(column)}{row_number}"
+                data.append({'range':cell,'values':[[value]]})
         if not data:return
-        self._api().values_batch_update('RAW',{'data':data})
+        total_updated=0
+        for start in range(0,len(data),5000):
+            receipt=self._api().values_batch_update('RAW',{'data':data[start:start+5000]})
+            total_updated+=int(receipt.get('totalUpdatedCells') or 0)
+            if receipt and receipt.get('totalUpdatedCells') not in (None,len(data[start:start+5000])):
+                raise RuntimeError('Sheets cell update receipt differs from reference delta')
+        if total_updated and total_updated!=len(data):
+            raise RuntimeError('Sheets cell update receipt is incomplete')
         cached=self._values.get(name)
         if cached is not None:
-            while len(cached)<row_number:cached.append([])
-            row=cached[row_number-1]
-            if len(row)<len(headers):row.extend(['']*(len(headers)-len(row)))
-            for header,value in values.items():
-                if header in headers:row[headers.index(header)]=value
+            for row_number,values in updates:
+                while len(cached)<row_number:cached.append([])
+                row=cached[row_number-1]
+                if len(row)<len(headers):row.extend(['']*(len(headers)-len(row)))
+                for header,value in values.items():
+                    if header in headers:row[headers.index(header)]=value
 
     def append(self, name: str, rows: list[list[Any]]) -> None:
         if not rows:
@@ -682,9 +701,12 @@ def _process_batch_products(store, batch_id: str, messages: list[dict[str, Any]]
         try:
             content = message.get("content") or ""
             prepared_products = (
-                _extract_supplier_products(content, message.get("channel_username") or "")
+                _extract_supplier_products_for_batch(content, message.get("channel_username") or "")
                 if content.strip() else []
             )
+        except QuotaDeferred:
+            _rollback_catalog(store, batch_id)
+            raise
         except Exception as exc:
             detail = (str(exc) if isinstance(exc, GeminiError) else exc.__class__.__name__)[:180]
             logger.warning("AI supplier extraction failed for message %s: %s",
@@ -726,20 +748,31 @@ def _write_ai_message_status(store, message, status, case_ids):
     required=('ID','Batch ID','AI Status','AI Review Case IDs','AI Processed At')
     if any(header not in headers for header in required):
         return False
-    message_id=str(message.get('id') or '')
-    batch_id=str(message.get('batch_id') or '')
-    channel=str(message.get('channel') or '')
+    targets=[message]
+    if isinstance(message.get('group_members'),list):
+        targets.extend(item for item in message['group_members'] if isinstance(item,dict))
+    target_markers=set()
+    for target in targets:
+        target_markers.add((str(target.get('id') or target.get('message_id') or ''),
+            str(target.get('batch_id') or ''),str(target.get('channel') or ''),
+            str(target.get('channel_username') or '')))
+    target_markers.discard(('','','',''))
+    if not target_markers:
+        return False
     id_idx=headers.index('ID');batch_idx=headers.index('Batch ID')
     channel_idx=headers.index('Channel') if 'Channel' in headers else None
+    username_idx=headers.index('Channel Username') if 'Channel Username' in headers else None
     rows_found=[]
     for row_index,row in enumerate(rows[1:],2):
-        if str(row[id_idx] if id_idx<len(row) else '')!=message_id:
-            continue
-        if batch_id and str(row[batch_idx] if batch_idx<len(row) else '')!=batch_id:
-            continue
-        if channel_idx is not None and channel and str(row[channel_idx] if channel_idx<len(row) else '')!=channel:
-            continue
-        rows_found.append(row_index)
+        row_id=str(row[id_idx] if id_idx<len(row) else '')
+        row_batch=str(row[batch_idx] if batch_idx<len(row) else '')
+        row_channel=str(row[channel_idx] if channel_idx is not None and channel_idx<len(row) else '')
+        row_username=str(row[username_idx] if username_idx is not None and username_idx<len(row) else '')
+        if any(target_id==row_id and (not target_batch or target_batch==row_batch)
+               and (channel_idx is None or not target_channel or target_channel==row_channel)
+               and (username_idx is None or not target_username or target_username==row_username)
+               for target_id,target_batch,target_channel,target_username in target_markers):
+            rows_found.append(row_index)
     values={'AI Status':status,'AI Review Case IDs':json.dumps(case_ids,ensure_ascii=False),
             'AI Processed At':_now()}
     writer=getattr(store,'write_cells',None)
@@ -781,7 +814,7 @@ def refresh_ai_message_status(store, message):
     elif not current:
         has_media=bool(message.get('has_media') or message.get('image_file_id'))
         has_text=bool(str(message.get('content') or '').strip())
-        status='needs_media_review' if has_media and not has_text else 'no_product_candidate'
+        status='attachment_only' if has_media and not has_text else 'no_product_candidate'
     elif all(str(offer.get('Status') or '').strip().lower()=='not_product' for offer in current):
         if all(str(offer.get('Owner Decision ID') or '').strip() for offer in current):
             status='owner_rejected'
@@ -798,6 +831,26 @@ def refresh_ai_message_status(store, message):
 def _extract_supplier_products(content, channel):
     """Extract supplier listings with Gemini; never switch to a heuristic parser."""
     return extract_message_products(content, channel)
+
+
+def _extract_supplier_products_for_batch(content, channel):
+    """Reuse validated AI results after a rolled-back batch waits for free quota.
+
+    Explicit owner re-extraction still calls the uncached extractor above.
+    """
+    from catalog.google_quota import configured_router
+    from catalog.gemini import extraction_policy_version
+    router = configured_router()
+    if router is None:
+        return _extract_supplier_products(content, channel)
+    key = 'batch-extraction:' + hashlib.sha256(json.dumps(
+        [extraction_policy_version(), channel, content], ensure_ascii=False).encode()).hexdigest()
+    cached = router.cached(key)
+    if cached is not None:
+        return cached
+    products = _extract_supplier_products(content, channel)
+    router.cache(key, products)
+    return products
 
 
 def import_product_data(
@@ -948,7 +1001,12 @@ def reextract_saved_message(store, payload: dict[str, Any], *, write_lock=None,
     if not actor_id:
         raise ValueError('invalid_re-extraction_actor')
     reextraction_scope=str(payload.get('reextraction_scope') or '')
+    if reextraction_scope=='media_review':
+        return {'ok':True,'message_id':message_id,'status':'image_extraction_disabled',
+                'products_found':0,'offers_written':0,'open_cases_remaining':0}
     policy_version=str(payload.get('policy_version') or '')
+    source_group_members=[]
+    media_image_file_ids=[]
     if reextraction_scope=='recent_policy':
         from catalog.gemini import extraction_policy_version
         if (not re.fullmatch(r'[a-z0-9][a-z0-9._-]{0,63}',policy_version)
@@ -1013,6 +1071,7 @@ def reextract_saved_message(store, payload: dict[str, Any], *, write_lock=None,
         channel_username=source_username
         timestamp=source_timestamp
         source_key=computed_source_key
+        media_image_file_ids=[str(source.get('Image File ID') or '').strip()] if source.get('Image File ID') else []
     else:
         rows=_read_sheet_if_present(store,'MessageData')
         _,messages=_records(rows)
@@ -1035,11 +1094,10 @@ def reextract_saved_message(store, payload: dict[str, Any], *, write_lock=None,
         source=matches[0]
         media_identity=(str(source.get('Image File Unique ID') or '').strip()
             or str(source.get('Image File ID') or '').strip())
-        saved_media_review=str(payload.get('reextraction_scope') or '')=='media_review'
         identity=reextraction_message_key({'message_id':message_id,'batch_id':batch_id,
             'channel_username':channel_username,'timestamp':timestamp,
             'content':source.get('Content') or '',
-            'media_identity':media_identity if saved_media_review or not str(source.get('Content') or '').strip() else ''})
+            'media_identity':media_identity if not str(source.get('Content') or '').strip() else ''})
         if identity!=message_key:
             raise ValueError('invalid_re-extraction_identity')
         source_key=reextraction_source_key(
@@ -1055,28 +1113,9 @@ def reextract_saved_message(store, payload: dict[str, Any], *, write_lock=None,
                 'source_key':source_key}
     source_content=str(source.get('Content') or '')
     content=source_content
-    media_ocr_text=''
-    media_ocr=(str(payload.get('reextraction_scope') or '')=='media_review'
-        or (reextraction_scope=='recent_policy' and payload.get('media_ocr') is True))
-    if media_ocr or not content.strip():
-        image_file_id=str(source.get('Image File ID') or '').strip()
-        if not image_file_id:
-            return {'ok':True,'message_id':message_id,'status':'no_text','products_found':0,
-                    'offers_written':0,'open_cases_remaining':0}
-        from catalog.media import fetch_telegram_image
-        from catalog.gemini import extract_text_from_image
-        try:
-            image_bytes,mime_type=fetch_telegram_image(image_file_id)
-        except ValueError as exc:
-            status='media_unsupported' if str(exc)=='telegram_media_unsupported' else 'media_unavailable'
-            return {'ok':True,'message_id':message_id,'status':status,'products_found':0,
-                    'offers_written':0,'open_cases_remaining':0}
-        media_ocr_text=extract_text_from_image(image_bytes,mime_type,caption=source_content)
-        if not media_ocr_text.strip() and not source_content.strip():
-            return {'ok':True,'message_id':message_id,'status':'ocr_empty','products_found':0,
-                    'offers_written':0,'open_cases_remaining':0}
-        content='\n'.join(part for part in (source_content,media_ocr_text) if part.strip())
-        media_ocr=True
+    if not content.strip():
+        return {'ok':True,'message_id':message_id,'status':'text_required',
+                'products_found':0,'offers_written':0,'open_cases_remaining':0}
     products=_extract_supplier_products(content,channel_username)
     stage_batch_id=f'reextract:{run_id}:{message_key}'
     if not products:
@@ -1085,19 +1124,13 @@ def reextract_saved_message(store, payload: dict[str, Any], *, write_lock=None,
             AIConfirmationLedger(os.getenv('PIPELINE_DB_PATH') or 'pipeline.sqlite').record_source_reextraction(
                 source_key=source_key,batch_id=stage_batch_id,outcome='no_products',run_id=run_id,
                 actor_id=actor_id,policy_version=policy_version)
-        return {'ok':True,'message_id':message_id,'status':'ocr_no_products' if media_ocr else 'no_products','products_found':0,
+        return {'ok':True,'message_id':message_id,'status':'no_products','products_found':0,
                 'offers_written':0,'open_cases_remaining':int(payload.get('case_count') or 0),
                 'source_key':source_key}
-    if reextraction_scope=='recent_policy' and not media_ocr and len(products)==1:
+    if reextraction_scope=='recent_policy' and len(products)==1:
         prior_product_id=_unique_current_product_id_for_source(store,source)
         if prior_product_id:
             products[0]['_source_product_id']=prior_product_id
-    if media_ocr:
-        for product in products:
-            product['needs_review']=True
-            prior_reason=str(product.get('review_reason') or '').strip()
-            product['review_reason']='; '.join(part for part in
-                (prior_reason,'Image OCR requires owner verification') if part)
     source_stamp=source_datetime(source.get('Timestamp'))
     now=datetime.now(timezone.utc)
     historical=(source_stamp is None or source_stamp>now or now-source_stamp>=BLOCKING_AGE)
@@ -1109,7 +1142,7 @@ def reextract_saved_message(store, payload: dict[str, Any], *, write_lock=None,
                 (prior_reason,'Historical price needs current supplier verification') if part)
     data={
         'id':message_id,'batch_id':stage_batch_id,'channel':source.get('Channel') or '',
-        'channel_username':channel_username,'content':source_content,'media_ocr_text':media_ocr_text,
+        'channel_username':channel_username,'content':source_content,
         'timestamp':source.get('Timestamp') or '',
         'source_created_at':source.get('Source Post Created At') or '',
         'source_update_at':source.get('Source Post Updated At') or '',
@@ -1151,7 +1184,9 @@ def reextract_saved_message(store, payload: dict[str, Any], *, write_lock=None,
         from catalog.sync import _write_ai_message_status
         _write_ai_message_status(store,{'id':source_message_id if source_offer_id else message_id,
             'batch_id':source_batch_id if source_offer_id else batch_id,
-            'channel':source_channel if source_offer_id else str(source.get('Channel') or '')},
+            'channel':source_channel if source_offer_id else str(source.get('Channel') or ''),
+            'channel_username':source_username if source_offer_id else channel_username,
+            'group_members':source_group_members},
             'needs_confirmation' if source_cases else 'ai_processed',
             [case['case_id'] for case in source_cases])
     except Exception:
@@ -2093,7 +2128,7 @@ def _active_reference_snapshot_id(ledger):
 
 
 def reconcile_reference_price_approvals(store, previous_snapshot, next_snapshot, reference_store,
-                                        *, max_price_change=0.05):
+                                        *, max_price_change=0.05, affected_reference_ids=None):
     """Recheck linked reference prices when a new owner-reviewed snapshot is activated."""
     if not isinstance(next_snapshot, dict) or not next_snapshot.get('snapshot_id'):
         return {'checked': 0, 'retained': 0, 'needs_review': 0}
@@ -2107,6 +2142,8 @@ def reconcile_reference_price_approvals(store, previous_snapshot, next_snapshot,
     next_id = str(next_snapshot['snapshot_id'])
     now = _now()
     counts = {'checked': 0, 'retained': 0, 'needs_review': 0}
+    affected=(set(str(value) for value in affected_reference_ids)
+              if affected_reference_ids is not None else None)
 
     def ref_price(snapshot, reference_id, role):
         if not isinstance(snapshot, dict):
@@ -2124,6 +2161,8 @@ def reconcile_reference_price_approvals(store, previous_snapshot, next_snapshot,
         status = str(record.get('Status') or '').strip().lower()
         approval = str(record.get('Reference Approval State') or '')
         reference_id = str(record.get('Reference Match ID') or '')
+        if affected is not None and reference_id not in affected:
+            continue
         role = str(record.get('Reference Price Role') or '')
         source_snapshot_id = str(record.get('Reference Snapshot ID') or '')
         is_linked_approved = (approval in {'owner_approved', 'approved_compatible', 'approved_within_margin'}
@@ -2482,7 +2521,7 @@ def _offer_fields(product: dict[str, Any], message: dict[str, Any], offer_id: st
         "Owner Decision ID": "",
         "Owner Decision Actor": "",
         "Owner Decision At": "",
-        "Media OCR Text": message.get("media_ocr_text") or "",
+        "Media OCR Text": "",  # Historical column retained; image transcription is disabled.
         "Detected Price": product.get("detected_price") if product.get("detected_price") is not None else "",
         "Price Anchor Type": product.get("price_anchor_type") or "",
         "Price Anchor ID": product.get("price_anchor_id") or "",

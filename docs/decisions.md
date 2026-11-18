@@ -750,3 +750,61 @@ Do not record suggested options, silence, or previously inferred preferences as 
 - Remove per-card notes and duplicate confirmation where a direct, explicit choice is
   already clear. Keep a bulk action, visible source details, and refresh the list after
   decisions so the next required action is apparent.
+
+### D-045 — Refresh reference products by stable ID and changed source fields
+
+- User clarification on 2026-11-13: the Rezvan reference catalog is a saved reference
+  dataset for future comparison with products extracted by the bot. The store's own
+  WooCommerce catalog is not consulted during those comparisons.
+- Keep each source product keyed by its stable API product ID and retain the latest raw
+  source record locally. On refresh, compare only relevant source nodes. Recompute only
+  fields derived from changed nodes; a price-only change updates price fields, while a
+  title change recomputes title-derived details for that product. Unchanged products
+  require no extraction or ReferencePrices write.
+- Apply complete and validated changes directly to the active local reference dataset
+  and `ReferencePrices`; do not require an owner review/activation for every refresh.
+  Preserve version history and the existing 5% approval check for products whose linked
+  reference price or identity changed. A first reference version still requires review.
+- The public Rezvan API remains the read-only source for reference refreshes. It is
+  fetched independently of bot product comparison; the saved local dataset is the
+  comparison input. No Gemini call is used by the reference refresh path.
+- This decision supersedes D-036's requirement to leave every complete refresh inactive
+  for manual review. Coverage/field validation failures still leave the active version
+  untouched. Product additions/removals may require a full sheet projection to preserve
+  row order; ordinary field changes write only the affected cells.
+
+### D-046 — Use deterministic code wherever safe; reserve Google AI for interpretation
+
+- User instruction on 2026-11-16: move functions that are safe to perform without AI
+  into code. The owner uses Google's free tier and wants to conserve its model-specific
+  daily allowances. They also asked why OCR is needed; no removal of image intake was
+  requested.
+- Local implementation resolves exact compatible reference identities and supplied
+  approved mappings before embedding/model calls. Numeric specification conflicts,
+  equivalent unit comparisons, candidate fusion and final explicit-attribute checks
+  run in code. Uncertain names remain reviewable; no new automatic approval is implied.
+- Currency/price arithmetic, source retention, freshness, 5% reference drift and quota
+  scheduling remain code-owned. Unstructured supplier-post interpretation still uses
+  the established AI extractor; no general regex fallback or guessed facts are added.
+- OCR applies only to image text when needed for media review. Normal captions and
+  Rezvan Store API acquisition do not need OCR. Do not introduce an untested local
+  OCR engine or an idle worker merely to reduce API calls.
+- Changes are local on `codex/free-google-quota-routing`; no live Google request,
+  deployment, quota activation or business-data mutation is claimed.
+
+### D-047 — Remove OCR and image extraction from the workflow
+
+- Explicit owner instruction on 2026-11-17: no OCR is required; remove it from the
+  workflow. This supersedes the OCR scope described in D-046 and older media-review
+  implementation notes.
+- Supplier extraction uses message text/captions only. Photos remain attachments;
+  photo-only messages are stored as `attachment_only` and do not create a product,
+  image-reading job or owner extraction-review task.
+- Remove image model calls, the OCR-specific download helper, model task qualification
+  and dashboard actions. Reject the retired action from an old browser; previously
+  queued image jobs complete without model/network work. Caption extraction ignores
+  legacy image-reading flags.
+- Preserve historical source rows, image file IDs, old transcript columns and audit
+  decisions. This instruction authorizes no deletion of historical business evidence.
+- This is a local implementation change; production/Staging installation is not
+  claimed. No real Google request was used for verification.
