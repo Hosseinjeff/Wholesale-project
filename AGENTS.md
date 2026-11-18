@@ -46,6 +46,10 @@ them. Health probes must neither arm reset loops nor postpone pending reclamatio
 
 ## Source control and live WordPress changes
 
+Use `main` as the release source for both environments. Releases from topic branches
+must be reconciled into `main` before promotion. The former `deploy/staging` workflow
+is disabled. Do not use its branch as a release source.
+
 Target Staging for development, validation, and deployments by default. Use Railway's
 Staging environment and `staging.molavisale.ir`; use production only when the user
 explicitly names production or the live site.
@@ -55,6 +59,11 @@ store plugin. Make edits here, commit them, and push them to the configured Git
 upstream before deploying. Use `tools/deploy_wordpress_plugin.py` for live plugin
 files; it refuses an uncommitted or unpushed tree, keeps a local pre-deploy copy,
 and never deploys `includes/runtime-config.php`.
+For a full Staging promotion, run `python3 tools/deploy_wordpress_plugin.py --promote-staging`
+from the published `main` revision. It checks every deployable file on the Staging host
+against Git before writing production, then updates the differing files across both
+WordPress components. Pin Railway's Staging and production source to the tested `main`
+commit when backend code changes. Verify the public URLs and Railway deployments.
 
 Keep WordPress bridge constants in protected `wp-config.php` or the excluded private
 `includes/runtime-config.php`; never commit either file or copy secret values into docs.

@@ -194,6 +194,10 @@ def main() -> int:
 
     try:
         root, revision = require_synced_git_tree()
+        if args.promote_staging:
+            published_main = git("ls-remote", "--exit-code", "origin", "refs/heads/main").split()[0]
+            if revision != published_main:
+                raise RuntimeError("A Staging promotion must use the published main revision")
         since = None if args.full or args.promote_staging else (args.since or "HEAD^")
         files = plugin_files(since)
         if component != "all":

@@ -270,11 +270,11 @@ class FreeRoutingTests(RoutingFixture):
         self.assertEqual(queue.get(job)['error'], 'google_free_quota_wait')
         self.assertEqual(queue.publication_holds(), [])
 
-    def test_routing_off_preserves_existing_extraction_policy_fingerprint(self):
+    def test_routing_off_fingerprints_extraction_policy_without_quota_settings(self):
         import hashlib
         from catalog import gemini
         values = {'revision': gemini._EXTRACTION_POLICY_REVISION, 'model': gemini.gemini_model(),
-            'message_prompt': gemini._MESSAGE_PROMPT}
+            'message_prompt': gemini._MESSAGE_PROMPT, 'message_schema': gemini._MESSAGE_SCHEMA}
         expected = 'gemini-' + hashlib.sha256(json.dumps(values, ensure_ascii=False,
             sort_keys=True, separators=(',', ':')).encode()).hexdigest()[:16]
         self.assertEqual(gemini.extraction_policy_version(), expected)

@@ -397,7 +397,6 @@ class GeminiExtractionTests(unittest.TestCase):
         self.assertFalse(products[0]['needs_review'])
         prompt = session.call[1]['json']['contents'][0]['parts'][0]['text']
         self.assertIn('Emojis are decorative', prompt)
-        self.assertIn('Return one product with the exact first line as its name', prompt)
 
     def test_missing_optional_consumer_price_does_not_keep_confirmed_supplier_price_queued(self):
         title = 'بلک ولف شیشه ای طعم انار'
@@ -421,12 +420,8 @@ class GeminiExtractionTests(unittest.TestCase):
         with patch.dict(os.environ, {'GOOGLE_API_KEY': 'test-key'}, clear=True):
             extract_message_products(title + '\nدونه ای: ۱٬۰۰۰ تومان', '@supplier', session=session)
         prompt = session.call[1]['json']['contents'][0]['parts'][0]['text']
-        self.assertIn('Source-line association and reference-catalog matching are two different tasks', prompt)
-        self.assertIn('A missing consumer/retail price is optional', prompt)
-        self.assertIn('قیمت هر باکس ۲۴: ۷۴۰/۰۰۰ تومان', prompt)
-        self.assertIn('محصول نمونه در ۳ طعم', prompt)
-        self.assertIn('do not derive or invent a supplier amount', prompt)
-        self.assertIn('اتمام موجودی', prompt)
+        self.assertIn('No reference matching', prompt)
+        self.assertIn('Consumer price is optional', prompt)
 
     def test_unit_and_consumer_labels_after_pack_count_are_scoped_to_product(self):
         title = 'تی بگ چای شهرزاد کاوردار'
@@ -796,30 +791,13 @@ class GeminiExtractionTests(unittest.TestCase):
             extract_message_products('supplier post', '@supplier', session=session)
         prompt = session.call[1]['json']['contents'][0]['parts'][0]['text']
         self.assertIn('exactly as written', prompt.replace('\n', ' '))
-        self.assertIn('`گ` means', prompt)
-        self.assertIn('`1/2ل` is `1.2 لیتر`', prompt)
-        self.assertIn('`ع` labels', prompt)
-        self.assertIn('Missing optional brand, category, description or stock details', prompt)
-        self.assertIn('Confidence measures these critical fields only', prompt)
-        prompt = ' '.join(prompt.split())
-        self.assertIn('`۲۲۰ میلی لیتر` is volume 220 ml, not a price of 220', prompt)
-        self.assertIn('`طعم هلو` is variant `هلو`', prompt)
-        self.assertIn('`قیمت فروش ما`', prompt)
-        self.assertIn('bare comma-separated flavor/model list directly after a base title', prompt)
-        self.assertIn('`گوشت،مرغ،فلفلی،قارچ پنیر،سبزیجات`', prompt)
-        self.assertIn('one record per flavor with the shared source price', prompt)
-        self.assertIn('Apply the same rule to every product family and choice type', prompt)
-        self.assertIn('marker such as `موجود:` or', prompt)
-        self.assertIn('Preserve different explicit prices as separate offer records', prompt)
-        self.assertIn('`تتراپک` is packaging', prompt)
-        self.assertIn('do not ask the owner to confirm the flavor or volume', prompt)
-        self.assertIn('All source channels are wholesalers', prompt)
-        self.assertIn('single unlabeled amount is the supplier sale amount', prompt)
-        self.assertIn('one product record per distinct block', prompt)
-        self.assertIn('Count all such blocks first and never skip a middle size', prompt)
-        self.assertIn('with volumes 1.5 liters, 500 ml, and 250 ml; counts 6, 20, and 24', prompt)
-        self.assertIn('matching supplier/consumer prices for each block', prompt)
-        self.assertIn('Product identity includes the exact flavor/model, volume, weight, and supplier', prompt)
+        self.assertIn('`180گ` is 180 grams', prompt)
+        self.assertIn('`1/2ل` is 1.2 liters', prompt)
+        config = session.call[1]['json']['generationConfig']
+        schema = config['responseSchema']
+        self.assertEqual(schema['type'], 'ARRAY')
+        self.assertEqual(schema['items']['properties']['package_count']['type'], 'INTEGER')
+        self.assertNotIn('available_quantity', schema['items']['properties'])
 
     def test_distinct_size_price_blocks_keep_each_price_count_and_volume(self):
         base = 'نوشيدنى آلوورا بر پايه عسل'
@@ -882,6 +860,63 @@ class GeminiExtractionTests(unittest.TestCase):
         }, [], ['Product Name', 'Sale Price'])
         self.assertTrue(qa['requires_review'])
         self.assertIn('Unusual discount', qa['reason'])
+
+    def test_source_repairs_omitted_prices_count_and_currency_in_one_call(self):
+        title = 'چای نمونه'
+        source = (title + '\n✅ تعداد داخل هر کارتن: ۱۲ عدد\n🔸🔸🔸\n'
+                  'قيمت فروش ما هر كارتن: ۱۲۰/۰۰۰تومن | '
+                  'قیمت مصرف کننده هر کارتن: ۱۸۰/۰۰۰تومن')
+        item = {'name': title, 'currency': 'IRR', 'confidence': 0.60,
+                'needs_review': True, 'review_reason': 'supplier price role is unclear'}
+        session = SequenceSession([json.dumps([item], ensure_ascii=False)])
+        product = extract_message_products(source, '@supplier', api_key='synthetic', session=session)[0]
+        self.assertEqual(len(session.calls), 1)
+        self.assertEqual((product['package_count'], product['package_price'], product['sale_price']),
+                         (12, 120000, 10000))
+        self.assertEqual((product['consumer_price'], product['double_pack_consumer_price']),
+                         (15000, 180000))
+        self.assertEqual(product['currency'], 'IRT')
+        self.assertFalse(product['needs_review'])
+
+    def test_consumer_per_unit_label_does_not_supply_a_supplier_price(self):
+        title = 'چای نمونه'
+        product = parse_message_products(json.dumps([{'name': title, 'confidence': 0.99}]),
+            title + '\nقیمت مصرف کننده هر عدد: ۱۵٬۰۰۰ تومان', '@supplier')[0]
+        self.assertEqual(product['consumer_price'], 15000)
+        self.assertEqual(product['sale_price'], 0)
+        self.assertTrue(product['needs_review'])
+
+    def test_source_recovers_omitted_middle_size_and_prices_without_second_request(self):
+        title = 'نوشیدنی نمونه'
+        source = (title + '\n۱/۵ لیتر تعداد ۶ عددی\nقیمت واحد: ۱۰۵/۰۰۰ تومان\n'
+                  '۵۰۰ میل تعداد ۲۰ عددی\nقیمت واحد: ۶۰/۰۰۰ تومان\n'
+                  '۲۵۰ میل تعداد ۲۴ عددی\nقیمت واحد: ۵۰/۰۰۰ تومان')
+        items = [{'name': title, 'volume': size, 'confidence': 0.99} for size in ('1.5 لیتر', '250 میل')]
+        session = SequenceSession([json.dumps(items, ensure_ascii=False)])
+        products = extract_message_products(source, '@supplier', api_key='synthetic', session=session)
+        self.assertEqual(len(session.calls), 1)
+        self.assertEqual({(p['volume'], p['package_count'], p['sale_price']) for p in products},
+                         {('1.5 لیتر', 6, 105000), ('500 میل', 20, 60000), ('250 میل', 24, 50000)})
+
+    def test_empty_response_with_labeled_price_is_retried_without_silent_drop(self):
+        title = 'چای نمونه'
+        source = title + '\nقیمت واحد: ۱۵٬۰۰۰ تومان'
+        item = {'name': title, 'confidence': 0.99}
+        session = SequenceSession(['[]', json.dumps([item])])
+        products = extract_message_products(source, '@supplier', api_key='synthetic', session=session)
+        self.assertEqual(products[0]['sale_price'], 15000)
+        self.assertEqual(len(session.calls), 2)
+        with self.assertRaisesRegex(GeminiError, 'no products from a post with labeled prices'):
+            extract_message_products(source, '@supplier', api_key='synthetic',
+                                     session=SequenceSession(['[]', '[]']))
+
+    def test_source_price_range_stays_in_review_even_when_model_picks_one_end(self):
+        title = 'چای نمونه'
+        item = {'name': title, 'unit_price': 15000, 'confidence': 0.99}
+        product = parse_message_products(json.dumps([item]),
+            title + '\nقیمت واحد: ۱۵٬۰۰۰ تا ۲۰٬۰۰۰ تومان', '@supplier')[0]
+        self.assertEqual(product['sale_price'], 0)
+        self.assertTrue(product['needs_review'])
 
     def test_bad_output_is_rejected_without_partial_products(self):
         with self.assertRaises(GeminiError):

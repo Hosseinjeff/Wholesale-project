@@ -1,5 +1,9 @@
 # 🚀 Railway Deployment Instructions
 
+The existing MolaviSale sites use the [current release workflow](docs/project-handoff.md)
+with both environments sourced from `main`, pinned bot releases, and WordPress-owned
+business workflows. The setup instructions below describe the original bridge.
+
 This project is optimized for deployment on [Railway.app](https://railway.app). Follow these steps to deploy the Telegram-to-Google-Sheets bridge.
 
 ## 1. Prerequisites
