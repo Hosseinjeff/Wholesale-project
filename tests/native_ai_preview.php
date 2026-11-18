@@ -158,5 +158,20 @@ $GLOBALS['preview_dismissals'][7]=[['task_key'=>'ai|case:'.$archive['case_ids'][
 $ownerPreview=molavi_domain_ai_reviews_api('GET',['reextract'=>'preview'],null,'wp:7');
 check_preview($ownerPreview['open_cases']['case_count'],0,'archived AI cases are filtered out of owner bulk re-extraction');
 check_preview(molavi_domain_ai_case_inventory($GLOBALS['preview_tables'],null,'wp:8')['case_count'],1,'archive is scoped to the owner');
+$GLOBALS['preview_tables']=[
+    'MessageData'=>[
+        ['ID','Batch ID','Channel Username','Content','Timestamp','URL'],
+        ['25','archive-batch','supplier','Yogurt is available',$stamp,'https://t.me/supplier/25'],
+    ],
+    'Offers'=>[
+        ['Offer ID','Product Name','Message ID','Batch ID','Channel Username','Original Message','Message Timestamp','Source Post URL'],
+        ['archived-offer','Yogurt','25','archive-batch','supplier','Yogurt is available',$stamp,'https://t.me/supplier/25'],
+    ],
+];
+$pending=molavi_domain_ai_inventory($GLOBALS['preview_tables'],false)['pending_messages'];
+molavi_domain_ai_save_dismissals($pending,'wp:7','Archive pending source queue');
+check_preview(molavi_domain_ai_inventory($GLOBALS['preview_tables'],false)['counts']['pending'],0,'archived source leaves pending queue');
+check_preview(molavi_domain_ai_offer_preview(['offer_id'=>'archived-offer'],$GLOBALS['preview_tables'])['reason'],'ready',
+    'an exact offer can still re-extract its archived message');
 foreach(glob($root.'/*') as $file)unlink($file);rmdir($root);
 echo 'PASS native AI previews and commands '.$count." checks\n";

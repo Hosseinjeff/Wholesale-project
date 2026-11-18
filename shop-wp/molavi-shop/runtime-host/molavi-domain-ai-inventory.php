@@ -8,7 +8,7 @@ function molavi_domain_ai_message_key(array $message): string {
     $parts[]=hash('sha256',(string)molavi_domain_py_value($message['content']??null));$parts[]=(string)molavi_domain_py_value($message['timestamp']??null);
     $media=(string)molavi_domain_py_value($message['media_identity']??null,molavi_domain_py_value($message['image_file_unique_id']??null));if($media!=='')$parts[]=$media;return molavi_domain_hash($parts);
 }
-function molavi_domain_ai_inventory(array $tables,bool $images,?string $policy=null): array {
+function molavi_domain_ai_inventory(array $tables,bool $images,?string $policy=null,bool $includeArchived=false): array {
     $offers=molavi_domain_records($tables['Offers']??[]);$messages=molavi_domain_records($tables['MessageData']??[]);$owners=[];$staged=[];
     foreach($offers as $offer){$id=(string)molavi_domain_py_value($offer['Message ID']??null);if($id==='')continue;$marker=molavi_domain_json([$id,(string)molavi_domain_py_value($offer['Channel Username']??null)]);
         if(trim((string)molavi_domain_py_value($offer['Owner Decision ID']??null))!=='')$owners[$marker]=true;
@@ -30,7 +30,7 @@ function molavi_domain_ai_inventory(array $tables,bool $images,?string $policy=n
             'content'=>$content,'source_post_url'=>(string)molavi_domain_py_value($message['URL']??null)];
         $key=molavi_domain_ai_message_key($item+['media_identity'=>($images?$mediaCandidate:trim($content)==='')?$mediaId:'']);
         $legacy=molavi_domain_ai_message_key($item+['media_identity'=>$mediaCandidate?$mediaId:'']);
-        if(isset($dismissed[$key])||(!$images&&isset($dismissed[$legacy]))){$counts['dismissed_by_owner']++;continue;}
+        if(isset($dismissed[$key])||(!$images&&isset($dismissed[$legacy]))){$counts['dismissed_by_owner']++;if(!$includeArchived)continue;}
         if($status==='owner_rejected'){$counts['owner_decisions_preserved']++;$counts['not_product_preserved']++;continue;}
         if(isset($owners[$marker])){$counts['owner_decisions_preserved']++;continue;}if(isset($staged[$marker])&&$policy===null){$counts['already_staged']++;continue;}
         if($images){if($mediaCandidate&&!$needsImage){$counts['unsupported_media']++;if(trim($content)==='')continue;}
@@ -68,7 +68,7 @@ function molavi_domain_ai_offer_selection(array $tables, string $offerId, string
         'SELECT policy_version FROM ai_source_reextractions WHERE source_key=? ORDER BY completed_at DESC LIMIT 1',[$sourceKey]));
     $lastPolicy=(string)($previous['policy_version']??'');
     if($lastPolicy===$policy) return ['reason'=>'already_current','messages'=>[]]+$source;
-    $inventory=molavi_domain_ai_inventory($tables,false,$policy);
+    $inventory=molavi_domain_ai_inventory($tables,false,$policy,true);
     $messages=array_values(array_filter($inventory['all_messages'],
         static fn($message)=>molavi_domain_ai_saved_source_key($message)===$sourceKey));
     if(count($messages)>1) {
