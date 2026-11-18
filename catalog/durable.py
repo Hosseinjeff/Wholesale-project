@@ -915,9 +915,10 @@ class Handoffs:
             raise ValueError('Source message identity required')
         key = hashlib.sha256(self.encode(identity).encode()).hexdigest()
         with self.connect() as db:
-            inserted = db.execute('INSERT OR IGNORE INTO inbox(id,payload,batch_id,received_at) VALUES (?,?,NULL,?)',
-                                  (key,self.encode(message),time.time())).rowcount == 1
-        return (key, inserted) if include_inserted else key
+            receipt = db.execute('INSERT OR IGNORE INTO inbox(id,payload,batch_id,received_at) VALUES (?,?,NULL,?)',
+                                 (key,self.encode(message),time.time()))
+        # The remote state connector supplies the row count with the commit receipt.
+        return (key, receipt.rowcount == 1) if include_inserted else key
 
     def batch(self, limit=100):
         with self.connect() as db:
