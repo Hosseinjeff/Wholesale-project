@@ -22,7 +22,7 @@ from catalog.google_quota import (
 DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash-lite'
 # Increment when extraction behavior changes outside the prompt/model, such as
 # source-backed normalization or validation. Prompt/model changes are fingerprinted.
-_EXTRACTION_POLICY_REVISION = 'supplier-extract-v3-text-only'
+_EXTRACTION_POLICY_REVISION = 'supplier-extract-v4-text-only'
 _ARABIC_DIGITS = str.maketrans('٠١٢٣٤٥٦٧٨٩', '0123456789')
 _UNIT_PRICE_LABEL = re.compile(
     r'(?:قیمت\s*(?:تکی|واحدی?|فروش\s*ما)|(?:دونه|دانه)\s*ای|'
@@ -691,13 +691,28 @@ def _source_measurement_for_price_block(source_context, kind, candidate_amounts,
 
 def _size_price_blocks(context):
     """Recognize separate, explicitly counted size blocks under a common title."""
-    starts = [i for i, line in enumerate(context[1:], 1)
-              if re.match(r'^\W*\d', _label_text(line))
-              and _source_package_counts([line])
-              and any(extract_measurement(line, kind) for kind in ('volume', 'weight'))]
-    if len(starts) < 2 or _source_price_role(context[:starts[0]]):
+    starts = []
+    for i, line in enumerate(context[1:], 1):
+        text = _label_text(line)
+        if not re.match(r'^\W*\d', text) or not _source_package_counts([line]):
+            continue
+        remaining = strip_measurement_tokens(text).strip()
+        if re.fullmatch(r'\W*تعداد\s*[:：]?\s*\d{1,4}\s*(?:عددی|عدد|تایی)\W*', remaining):
+            starts.append(i)
+    if len(starts) < 2 or starts[0] != 1 or _source_price_role(context[:1]):
         return []
     blocks = [context[start:end] for start, end in zip(starts, [*starts[1:], len(context)])]
+    for block in blocks:
+        # An unrecognized line could start a different product with a numeric
+        # name. Only fill missing records when the block has clear boundaries.
+        for line in block[1:]:
+            text = _label_text(line)
+            first = next(_price_labels(text), None)
+            if first and not any(char.isalnum() for char in text[:first[0].start()]):
+                continue
+            if explicit_stock_status(text) != 'Unknown' and not re.search(r'\d', text):
+                continue
+            return []
     sizes = [tuple(measurement_signature(extract_measurement(block[0], kind), kind)
                    for kind in ('volume', 'weight')) for block in blocks]
     if len(set(sizes)) != len(sizes) or not all(_source_price_role(block) for block in blocks):
@@ -706,13 +721,21 @@ def _size_price_blocks(context):
 
 
 def _matching_size_block(blocks, item):
+    if not blocks:
+        return None
     dimensions = {kind: measurement_signature(str(item.get(kind) or ''), kind)
                   for kind in ('volume', 'weight') if item.get(kind)}
-    if not dimensions or not all(dimensions.values()):
-        return None
-    matches = [block for block in blocks if all(
-        measurement_signature(extract_measurement(block[0], kind), kind) == value
-        for kind, value in dimensions.items())]
+    if dimensions:
+        if not all(dimensions.values()):
+            return None
+        matches = [block for block in blocks if all(
+            measurement_signature(extract_measurement(block[0], kind), kind) == value
+            for kind, value in dimensions.items())]
+    else:
+        amounts = {_number(item.get(field)) for field in (
+            'unit_price', 'package_price', 'sale_price', 'carton_price', 'price', 'wholesale_price')}
+        amounts.discard(0)
+        matches = [block for block in blocks if amounts and amounts <= set(_source_price_role(block).values())]
     return matches[0] if len(matches) == 1 else None
 
 
@@ -1053,7 +1076,10 @@ def parse_message_products(response_text, content, channel):
                 and all(_title_identity(item.get('name') or item.get('product_name')) == _title_identity(title[0])
                         and not (item.get('variant') or item.get('variation_type')) for item in items)):
             represented = [_matching_size_block(blocks, item) for item in items]
-            if all(represented):
+            title_only = len(items) == 1 and not items[0].get('needs_review') and not any(
+                items[0].get(field) for field in ('volume', 'weight', 'variant', 'variation_type',
+                'unit_price', 'package_price', 'sale_price', 'carton_price', 'price', 'wholesale_price'))
+            if all(represented) or title_only:
                 template = items[0]
                 ordered_items = []
                 for block in blocks:
