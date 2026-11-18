@@ -417,3 +417,25 @@ Railway traffic sample, and Telegram still prepares its prompts when it handles 
 supplier post or a reply. The remaining old order, publish, catalog and cart URLs
 use the WordPress commerce adapter to preserve callers without a second business
 executor.
+
+## Final live cutover
+
+Both wholesale Railway services are on demand with WordPress custody and zero
+business data files. Railway's final deployment IDs are
+`8c88b55d-a710-4a11-a21a-63bfbb6a4e74` for Staging at `07b3d3c` and
+`ba8463b9-9a26-41f9-8227-33466eaf39a4` for live at `1325779`.
+Both deployments reached SUCCESS. The two empty mounts were detached after fresh
+runtime checks. Railway retained both unattached volumes for recovery.
+
+Legacy catalog and cart requests on both URLs returned WordPress receipts. The
+live catalog returned 25 products. The old desk endpoint returned retirement status.
+An unsigned owner request and an unauthorized publish request were rejected. Eight
+synthetic quotes matched the original calculations. Two older Staging pricing tests
+also fail on the prior runtime revision.
+
+The installed dashboards defer Telegram photo downloads until the reviewer opens
+the source image. Both bundles were uploaded and verified. The final protected
+WordPress reads found 30 active owner methods per site, no pending Railway wake,
+no queued or running jobs, fresh reference state, and current minute cron receipts.
+The production and Staging review decisions and existing business holds were
+preserved.
