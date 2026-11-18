@@ -35,14 +35,22 @@ $entries=[['old','Previous title','','original','supplier','11',$stamp,'Shared s
 for($i=1;$i<=24;$i++) $entries[]=['new-'.$i,'Extraction title '.$i,$i===2?'Orange':'','reextract:run:message','supplier','12',$stamp,'Shared source',''];
 $entries[]=['other','Another message','','reextract:run:message','supplier','13',$stamp,'Different source',''];
 $entries[]=['derived','Owner edited title','','owner-batch','supplier','12',$stamp,'Shared source','new-2'];
+array_push($columns,'Sale Price','Consumer Price','Package Price','Double Pack Consumer Price','Currency','Packaging','Package Count',
+    'Volume','Weight','Brand','Category','Stock Status','Min Qty','Extraction Confidence Score','Description');
+array_push($entries[2],120000,150000,1440000,1800000,'IRT','Carton',12,'330 ml','200 g','Sample','Drinks','Out of Stock',2,0.95,'Shared source');
 $GLOBALS['review_tables']=['Offers'=>[$columns,...$entries]];
-$extracted=static fn(string $id): array=>molavi_domain_reference_reviews_api('GET',null,'wp:7',null,
-    ['view'=>'extracted-titles','offer_id'=>$id])['titles'];
+$report=static fn(string $id): array=>molavi_domain_reference_reviews_api('GET',null,'wp:7',null,
+    ['view'=>'extracted-titles','offer_id'=>$id]);
+$extracted=static fn(string $id): array=>$report($id)['titles'];
 $titles=$extracted('old');
 review_same(array_column($titles,'title'),array_map(static fn(int $i): string=>'Extraction title '.$i,range(1,24)),
     'all titles from the newest extraction of the source, including titles beyond the first twenty');
-review_same($titles[1],['title'=>'Extraction title 2','variant'=>'Orange','current'=>false],
-    'an older offer does not mark an unrelated new title as the current one');
+review_same($titles[1],['title'=>'Extraction title 2','variant'=>'Orange','current'=>false,'fields'=>(object)[
+    'sale_price'=>'120000','consumer_price'=>'150000','package_price'=>'1440000','consumer_package_price'=>'1800000',
+    'currency'=>'IRT','packaging'=>'Carton','package_count'=>'12','volume'=>'330 ml','weight'=>'200 g','min_qty'=>'2',
+    'brand'=>'Sample','category'=>'Drinks','stock_status'=>'Out of Stock','confidence'=>'0.95']],
+    'saved details are preserved and an older offer does not mark an unrelated new title as current');
+review_same($report('old')['reviewed_offer']['title'],'Previous title','the reviewed offer stays visible across extraction generations');
 review_same($extracted('derived')[1]['current'],true,'a derived offer marks its original extraction title');
 review_same(array_column($extracted('other'),'title'),['Another message'],'separate messages in one batch keep separate title lists');
 function review_seed($store,$seed){$db=molavi_domain_db($store);foreach($store==='pipeline'?['jobs','ai_confirmation_decisions','sheet_projection_state','sheet_sync_conflicts','product_status_snapshots','product_status_records']:

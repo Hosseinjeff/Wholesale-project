@@ -101,8 +101,9 @@ const fixtures={
      titleReads++;
      const offer=new URLSearchParams(f.get('query')).get('offer_id');
      assert(['offer-4','offer-10'].includes(offer));
-     return await route.fulfill({json:{ok:true,titles:[{title:offer==='offer-10'?'سس کچاپ':'بیسکویت شکلاتی',current:true},
-      {title:'سس فلفل تند'},{title:'سس خردل',variant:'بدون شکر'}]}});
+     return await route.fulfill({json:{ok:true,titles:[{title:offer==='offer-10'?'سس کچاپ':'بیسکویت شکلاتی',current:true,
+      fields:{sale_price:'120000',consumer_price:'150000',package_count:'12',package_price:'1440000',currency:'IRT'}},
+      {title:'سس فلفل تند'},{title:'سس خردل',variant:'بدون شکر',fields:{sale_price:'84000',currency:'IRR',stock_status:'Out of Stock',volume:'۳۳۰ میلی‌لیتر'}}]}});
     }
     if(path==='/pipeline/ai-confirmations'){
      const query=new URLSearchParams(f.get('query'));
@@ -285,12 +286,22 @@ const fixtures={
  referenceCases.push({case_id:'reference-10',offer_id:'offer-10',product_id:'10',product_name:'سس کچاپ',snapshot_id:'snapshot-A',candidates:[]});
  await mount('&offer_id=offer-10');
  await page.getByRole('tab',{name:'مرجع؛ نیازمند اقدام'}).waitFor();
- const referenceTitles=page.locator('.md-card-panel .molavi-extracted-titles');
- assert.equal(titleReads,0,'opening the reference tab leaves the source title fetch on demand');
- await referenceTitles.getByText('عنوان‌های آخرین استخراج این پیام',{exact:true}).click();
- await referenceTitles.getByText('سس خردل · بدون شکر',{exact:true}).waitFor();
- assert.equal(await referenceTitles.locator('li').count(),3);
- await referenceTitles.locator('li').filter({hasText:'این پیشنهاد'}).getByText('سس کچاپ').waitFor();
+ const referenceFacts=page.locator('.md-card-panel .molavi-reference-offer-facts');
+ const offerPicker=referenceFacts.getByRole('combobox',{name:'پیشنهاد برای نمایش مشخصات'});
+ await offerPicker.waitFor();
+ assert.equal(await offerPicker.locator('option').count(),3);
+ assert.equal(await offerPicker.locator('option:checked').innerText(),'در حال بررسی · سس کچاپ');
+ await referenceFacts.getByText('۱۲۰٬۰۰۰ تومان',{exact:true}).waitFor();
+ await referenceFacts.getByText('۱۵۰٬۰۰۰ تومان',{exact:true}).waitFor();
+ await referenceFacts.getByText('۱٬۴۴۰٬۰۰۰ تومان',{exact:true}).waitFor();
+ assert.equal(await referenceFacts.locator('.molavi-review-fact').filter({hasText:'تعداد در بسته / کارتن'}).locator('dd').innerText(),'12');
+ const beforeOfferView=writes.length;
+ await offerPicker.selectOption({label:'سس خردل · بدون شکر'});
+ await referenceFacts.getByText('بدون شکر',{exact:true}).waitFor();
+ await referenceFacts.getByText('۸۴٬۰۰۰ ریال',{exact:true}).waitFor();
+ await referenceFacts.getByText('ناموجود اعلام شده',{exact:true}).waitFor();
+ assert.equal(await referenceFacts.locator('.molavi-review-fact').filter({hasText:'قیمت عادی / مصرف‌کننده'}).locator('dd').innerText(),'ثبت نشده');
+ assert.equal(writes.length,beforeOfferView,'viewing a sibling does not change the reference decision');
  assert.equal(titleReads,1);
  referenceCases.pop();
  const extraction=fixtures['/pipeline/ai-confirmations'].cases[0];
@@ -302,9 +313,10 @@ const fixtures={
  assert.equal(await page.getByRole('tab',{name:/^قیمت/}).count(),0,'a deep link cannot skip extraction');
  assert.equal(await page.getByRole('button',{name:'منبع فعلی را دیدم؛ قیمت تأیید است'}).count(),0);
  await page.getByText('گام فعلی · انتخاب مرجع و مبنای قیمت',{exact:true}).waitFor();
- const assignmentTitles=page.locator('.md-card-panel .molavi-extracted-titles');
- await assignmentTitles.getByText('عنوان‌های آخرین استخراج این پیام',{exact:true}).click();
- await assignmentTitles.getByText('بیسکویت شکلاتی',{exact:true}).waitFor();
+ assert.equal(titleReads,1,'comparison fetch waits until the existing disclosure is opened');
+ await page.getByText('مقایسه نام، ویژگی‌ها و قیمت',{exact:true}).click();
+ const assignmentFacts=page.locator('.md-card-panel .molavi-reference-compare-details .molavi-reference-offer-facts');
+ await assignmentFacts.getByText('۱۵۰٬۰۰۰ تومان',{exact:true}).waitFor();
  assert.equal(await page.getByText('قیمت و موجودی امروز',{exact:true}).count(),0,'freshness follows reference selection');
  assert.equal(await page.locator('.molavi-ai-confirmation-step').count(),0,'reference must be saved before confirmation');
  await page.getByRole('combobox',{name:'انتخاب کالای مرجع'}).selectOption('ref-4');

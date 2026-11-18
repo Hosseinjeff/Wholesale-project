@@ -5,7 +5,32 @@ defined('ABSPATH') || exit;
 
 function molavi_domain_reference_case_id(string $offer,string $snapshot): string {return 'item:'.hash('sha256',$offer."\0".$snapshot);}
 
-function molavi_domain_reference_extracted_titles(array $offers,string $offerId): array {
+function molavi_domain_reference_extracted_offer(array $offer,string $sourceOfferId): array {
+    $columns=[
+        'sale_price'=>'Sale Price','consumer_price'=>'Consumer Price','actual_price'=>'Actual Price',
+        'price'=>'Price','detected_price'=>'Detected Price','package_price'=>'Package Price',
+        'double_pack_price'=>'Double Pack Price','consumer_package_price'=>'Double Pack Consumer Price',
+        'price_type'=>'Price Type','currency'=>'Currency','packaging'=>'Packaging','package_count'=>'Package Count',
+        'volume'=>'Volume','weight'=>'Weight','min_qty'=>'Min Qty','brand'=>'Brand','category'=>'Category',
+        'stock_status'=>'Stock Status','confidence'=>'Extraction Confidence Score','review_reason'=>'Review Reason',
+        'description'=>'Description',
+    ];
+    $fields=[];
+    foreach($columns as $field=>$column) {
+        $value=trim(molavi_domain_cell_text($offer[$column]??''));
+        if($value!=='') $fields[$field]=$value;
+    }
+    foreach(['confidence'=>'Confidence','consumer_package_price'=>'Consumer Package Price'] as $field=>$column) {
+        $value=trim(molavi_domain_cell_text($offer[$column]??''));
+        if($value!==''&&!isset($fields[$field])) $fields[$field]=$value;
+    }
+    if(($fields['description']??null)===trim((string)($offer['Original Message']??''))) unset($fields['description']);
+    return ['title'=>trim((string)($offer['Product Name']??'')),
+        'variant'=>trim((string)($offer['Variation Type']??'')),
+        'current'=>(string)$offer['Offer ID']===$sourceOfferId,'fields'=>(object)$fields];
+}
+
+function molavi_domain_reference_extracted_offers(array $offers,string $offerId): array {
     $byId=static fn(string $id): array=>array_values(array_filter($offers,
         static fn(array $offer): bool=>(string)($offer['Offer ID']??'')===$id));
     $matches=$byId($offerId);
@@ -39,14 +64,12 @@ function molavi_domain_reference_extracted_titles(array $offers,string $offerId)
         if($key!==$generation) {$latest=[];$generation=$key;}
         $latest[$id]=$offer;
     }
-    $titles=[];
+    $extracted=[];
     foreach($latest?:[$source] as $offer) {
-        $name=trim((string)($offer['Product Name']??''));
-        if($name==='') continue;
-        $titles[]=['title'=>$name,'variant'=>trim((string)($offer['Variation Type']??'')),
-            'current'=>(string)$offer['Offer ID']===$sourceOfferId];
+        $item=molavi_domain_reference_extracted_offer($offer,$sourceOfferId);
+        if($item['title']!=='') $extracted[]=$item;
     }
-    return $titles;
+    return ['titles'=>$extracted,'reviewed_offer'=>molavi_domain_reference_extracted_offer($source,$sourceOfferId)];
 }
 
 function molavi_domain_reference_latest(string $case): ?array {
@@ -224,7 +247,7 @@ function molavi_domain_reference_reviews_api(string $method,?array $body,string 
         $offerId=$query['offer_id']??null;
         if(!is_string($offerId)||trim($offerId)===''||strlen($offerId)>300) molavi_domain_fail('invalid_query',400);
         $tables=molavi_domain_sheets(['Offers']);
-        return ['ok'=>true,'titles'=>molavi_domain_reference_extracted_titles(molavi_domain_records($tables['Offers']),$offerId)];
+        return ['ok'=>true]+molavi_domain_reference_extracted_offers(molavi_domain_records($tables['Offers']),$offerId);
     }
     if ($method==='POST' && ($body['action']??'')==='proceed_without_reference') return molavi_domain_reference_proceed($body,$actor,$clock);
     $snapshot=molavi_domain_reference_active();$eligibility=molavi_domain_reference_use();
