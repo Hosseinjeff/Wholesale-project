@@ -27,6 +27,30 @@
         return item;
     }
 
+    function aiSourceImageDetails(fileId) {
+        const details = node('details', null, 'molavi-review-media-details');
+        details.appendChild(node('summary', 'دیدن تصویر پیام مبدأ'));
+        let image = null;
+        let unavailable = null;
+        details.addEventListener('toggle', () => {
+            if (!details.open || image) return;
+            if (unavailable) unavailable.remove();
+            image = node('img', null, 'molavi-ai-source-image');
+            image.alt = 'تصویر پیام تأمین‌کننده';
+            image.decoding = 'async';
+            image.referrerPolicy = 'no-referrer';
+            image.onerror = () => {
+                image.remove();
+                image = null;
+                unavailable = notice('تصویر از تلگرام در دسترس نیست. پیام اصلی را بررسی کنید.', 'warning');
+                details.appendChild(unavailable);
+            };
+            details.appendChild(image);
+            image.src = new URL('/media/file/' + encodeURIComponent(String(fileId)), config.apiUrl).toString();
+        });
+        return details;
+    }
+
     function notice(text, kind = 'info') {
         const box = node('div', null, 'notice notice-' + kind);
         box.appendChild(node('p', text));
@@ -2601,17 +2625,7 @@
                 || (Array.isArray(options.sourcePriceGap.missing) && options.sourcePriceGap.missing.length)));
         const sourceVariantNeedsReview = Boolean(options.sourceVariantGap);
         const sourceStockNeedsReview = Boolean(options.sourceStockGap);
-        if (item.image_file_id) {
-            const mediaDetails = node('details', null, 'molavi-review-media-details');
-            mediaDetails.appendChild(node('summary', 'دیدن تصویر پیام مبدأ'));
-            const sourceImage=node('img',null,'molavi-ai-source-image');
-            sourceImage.src=new URL('/media/file/'+encodeURIComponent(String(item.image_file_id)),config.apiUrl).toString();
-            sourceImage.alt='תמונת منبع پیشنهاد'; sourceImage.loading='lazy'; sourceImage.decoding='async';
-            sourceImage.referrerPolicy='no-referrer';
-            sourceImage.onerror=()=>sourceImage.remove();
-            mediaDetails.appendChild(sourceImage);
-            card.appendChild(mediaDetails);
-        }
+        if (item.image_file_id) card.appendChild(aiSourceImageDetails(item.image_file_id));
         if (item.historical_reextract) {
             const recentSupplierPosts = safeSourceLink(aiSourceChannelUrl(item), 'دیدن پست‌های جدیدتر تأمین‌کننده');
             if (recentSupplierPosts) card.appendChild(recentSupplierPosts);
