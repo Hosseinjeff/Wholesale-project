@@ -1,5 +1,24 @@
 # MolaviSale — whole-workflow handoff
 
+## Staging release promoted to live — 2026-11-18
+
+Production runs the redesigned storefront and heart library, the unified product
+dashboard, and the bot's text and caption intake and owner-requested reference
+suggestions. The release at `3d67b1f` uses the live WordPress data, settings and cron.
+Optional Google free-model routing is disabled in both environments.
+
+The production Railway source is pinned to `3d67b1f`, deployment
+`48164c57-c9e8-4eaf-8ea8-7383ffb3c603`, verified `SUCCESS`. The runtime reported
+WordPress state, on-demand execution and zero data files. The WordPress uploader
+verified all 19 promotion files. Follow-up `5e40642` on live and `94dd91f` on Staging
+deduplicated the Elementor basket icon after a live storefront HTTP 500.
+
+Connected Chromium verified the live catalog, product, cart and account pages,
+the favorites and saved-cart tabs, and eight authenticated dashboard reads. Live
+checkout rendered in an isolated guest session and the test cart was emptied.
+The backend passed 284 focused tests. WordPress cron and its order and publication
+executors were verified through the protected status APIs.
+
 ## WordPress cutover on live and Staging — 2026-11-18
 
 WordPress runs storefront commerce, stock, orders, publication, reference refreshes and
