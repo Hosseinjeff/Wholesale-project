@@ -44,6 +44,9 @@ class FakeSession{public $buyer='household';public $values=[];function get($key,
 $wc=(object)['cart'=>new WC_Cart(),'session'=>new FakeSession()];function WC(){global $wc;return $wc;}
 require __DIR__.'/../shop-wp/molavi-shop/includes/pricing.php';
 require __DIR__.'/../shop-wp/molavi-shop/includes/storefront-renderer.php';
+class SyntheticWidgetBase {}
+class_alias(SyntheticWidgetBase::class, 'Elementor\\Widget_Base');
+require __DIR__.'/../shop-wp/molavi-shop/widgets/basket.php';
 require __DIR__.'/../shop-wp/molavi-shop/includes/customer-experience.php';
 require __DIR__.'/../shop-wp/molavi-shop/includes/storefront-catalog.php';
 $map=[];
