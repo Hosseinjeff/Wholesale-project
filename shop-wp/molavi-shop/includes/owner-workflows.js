@@ -3294,6 +3294,15 @@
                     const label=[formatSourceTimestamp(item.received_at),item.channel,state].filter(Boolean).join(' · ');
                     const row=node('details');
                     row.append(node('summary',label),node('p',item.excerpt || 'متن جداگانه ثبت نشده است.','md-source-text'));
+                    const cases=workbenchData?.ai_confirmations?.cases || [];
+                    for (const candidate of cases) {
+                        if (!item.batch_id || candidate.batch_id!==item.batch_id
+                            || String(candidate.message_id)!==item.source_id || candidate.channel!==item.channel) continue;
+                        const open=node('button',candidate.product_name,'button button-secondary');
+                        open.type='button';
+                        open.addEventListener('click',()=>dashboardApp.reviewInboxCase(candidate.case_id));
+                        row.appendChild(open);
+                    }
                     contents.appendChild(row);
                 }
                 if (!contents.childNodes.length) contents.textContent='هنوز پیامی دریافت نشده است.';

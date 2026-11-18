@@ -451,7 +451,14 @@
             navigate('products');
             hooks.refresh();
         }
-        return {update,loading,navigate,dismissTask,reviewHold,showReviewResults,reviewSource:product=>navigate('sources',product)};
+        function reviewInboxCase(caseId) {
+            state.scope='all';state.action='';state.search='';state.channel='';
+            state.focusType='case_id';state.focus=caseId;
+            state.active=model.products.find(matches)?.key || '';
+            state.section='ai';
+            navigate('products');
+        }
+        return {update,loading,navigate,dismissTask,reviewHold,showReviewResults,reviewInboxCase,reviewSource:product=>navigate('sources',product)};
     }
     window.MolaviDashboard={create,normalize,identities};
 })();

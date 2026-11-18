@@ -133,7 +133,7 @@ function molavi_domain_woo_catalog(?string $clock=null): array {
 }
 function molavi_domain_inbox_recent(): array {
     return molavi_domain_read('pipeline',static function(SQLite3 $db): array {
-        $rows=molavi_domain_rows($db,"SELECT i.payload,i.received_at,j.state,j.result
+        $rows=molavi_domain_rows($db,"SELECT i.payload,i.received_at,i.batch_id,j.state,j.result,j.updated_at
             FROM inbox i LEFT JOIN jobs j ON j.id=i.batch_id ORDER BY i.rowid DESC LIMIT 12");
         $messages=[];
         foreach($rows as $row) {
@@ -142,6 +142,9 @@ function molavi_domain_inbox_recent(): array {
             $messages[]=[
                 'received_at'=>molavi_domain_audit_time($row['received_at']),
                 'source_id'=>(string)($source['id']??''),
+                'batch_id'=>str_starts_with((string)$row['batch_id'],'batch:')?substr($row['batch_id'],6):'',
+                'finished_at'=>in_array($row['state'],['done','failed','needs_review'],true)
+                    ?molavi_domain_audit_time($row['updated_at']):null,
                 'channel'=>(string)molavi_domain_py_value($source['channel_username']??null,$source['channel']??''),
                 'excerpt'=>molavi_domain_context_text($source['content']??'',600),
                 'state'=>$row['state']??'queued',

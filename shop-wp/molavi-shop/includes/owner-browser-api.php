@@ -146,11 +146,9 @@ function molavi_owner_dashboard_routes(): array {
 }
 
 function molavi_owner_dashboard_native(): bool {
-    if (!function_exists('molavi_domain_dashboard_snapshot') || !function_exists('molavi_domain_route_enabled')) return false;
-    foreach (molavi_owner_dashboard_routes() as $path) {
-        if (!molavi_domain_route_enabled('GET',$path)) return false;
-    }
-    return true;
+    return function_exists('molavi_domain_dashboard_snapshot')
+        && function_exists('molavi_domain_route_enabled')
+        && (bool)get_option('molavi_state_active',false);
 }
 
 function molavi_owner_dashboard_cache_key(): string {
@@ -170,7 +168,9 @@ function molavi_owner_dashboard_bootstrap(bool $force): array {
     $read=static function() use ($actor): array {
         $sources=[];
         foreach (molavi_owner_dashboard_routes() as $name=>$path) {
-            $result=molavi_domain_dispatch('GET',$path,[],null,$actor);
+            $result=molavi_domain_route_enabled('GET',$path)
+                ? molavi_domain_dispatch('GET',$path,[],null,$actor)
+                : molavi_owner_workflow_proxy_call('GET',$path);
             $sources[$name]=$result['body'];
         }
         return $sources;

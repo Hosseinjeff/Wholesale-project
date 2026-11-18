@@ -480,6 +480,26 @@ class GeminiExtractionTests(unittest.TestCase):
         self.assertEqual(product['consumer_price'], 940000)
         self.assertFalse(product['needs_review'])
 
+    def test_inline_stock_on_title_keeps_all_prices_in_the_same_offer(self):
+        title = 'محصول نمونه'
+        annotated = title + ' :❌(اتمام موجودی)'
+        content = (annotated + '\n✅در کارتن۱۲ تایی\n✅️دونه ای: ۲۱۰/۰۰۰تومن\n'
+                   '✅قیمت هر یک بسته : ۲/۵۲۰/۰۰۰تومن\n✅قیمت مصرف: ۲۶۰/۰۰۰تومن\n'
+                   'آدرس و خرید حضوری\nشعبه ۲')
+        for model_name in (title, annotated):
+            with self.subTest(model_name=model_name):
+                product = parse_message_products(json.dumps([{
+                    'name':model_name,'unit_price':210000,'package_count':12,
+                    'confidence':0.99,'needs_review':False,
+                }], ensure_ascii=False), content, '@supplier')[0]
+                self.assertEqual(product['name'], title)
+                self.assertEqual(product['sale_price'], 210000)
+                self.assertEqual(product['package_price'], 2520000)
+                self.assertEqual(product['consumer_price'], 260000)
+                self.assertEqual(product['package_count'], 12)
+                self.assertEqual(product['stock_status'], 'Out of Stock')
+                self.assertFalse(product['needs_review'])
+
     def test_spelled_out_measurement_in_source_title_corrects_model(self):
         title = 'زعفران یک گرم بهمنان'
         product = parse_message_products(json.dumps([{

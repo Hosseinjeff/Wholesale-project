@@ -22,7 +22,7 @@ from catalog.google_quota import (
 DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash-lite'
 # Increment when extraction behavior changes outside the prompt/model, such as
 # source-backed normalization or validation. Prompt/model changes are fingerprinted.
-_EXTRACTION_POLICY_REVISION = 'supplier-extract-v4-text-only'
+_EXTRACTION_POLICY_REVISION = 'supplier-extract-v5-text-only'
 _ARABIC_DIGITS = str.maketrans('٠١٢٣٤٥٦٧٨٩', '0123456789')
 _UNIT_PRICE_LABEL = re.compile(
     r'(?:قیمت\s*(?:تکی|واحدی?|فروش\s*ما)|(?:دونه|دانه)\s*ای|'
@@ -474,6 +474,16 @@ def _explicit_piece_counts(value):
         r'(?<!\d)(\d{1,4})\s*ع(?=$|[^\w])', text)]
 
 
+_INLINE_STOCK_SUFFIX = re.compile(
+    r'\s*(?:[:：|—–]| - )\s*[✅❌\ufe0f\s]*(?:[(（]\s*)?'
+    r'(?:اتمام\s*موجودی|ناموجود|موجود\s*نیست|موجود)\s*[)）]?\s*$', re.I,
+)
+
+
+def _without_inline_stock(title):
+    return _INLINE_STOCK_SUFFIX.sub('', title).strip()
+
+
 def _source_title_evidence(name, content, variant=''):
     """Recover a title only when one source line has the exact same base identity."""
     identities = {_title_identity(name)}
@@ -481,7 +491,7 @@ def _source_title_evidence(name, content, variant=''):
     # often contain packaging details, which also appear in the source and must
     # not make the product title ambiguous.
     first_line = next((part.strip() for part in str(name or '').splitlines() if part.strip()), '')
-    identities.add(_title_identity(first_line))
+    identities.add(_title_identity(_without_inline_stock(first_line)))
     # Some supplier posts label a base product line and put its flavor/model in
     # the extracted title. Match that suffix only when it is an explicit model
     # attribute or a recognized flavor; the matched source line remains the
@@ -503,7 +513,7 @@ def _source_title_evidence(name, content, variant=''):
     matches = []
     for line in str(content or '').splitlines():
         source_line = line.strip()
-        candidates = [source_line]
+        candidates = [_without_inline_stock(source_line)]
         # Some wholesalers put a labeled amount on the same line as the title.
         # Strip that suffix only when the text before the label exactly matches the
         # extracted product identity and an amount follows the label.
@@ -594,7 +604,7 @@ def _source_title_context(source_title, content, source_titles=(), ambiguous=Fal
     def indexes_for(title):
         found = []
         for index, line in enumerate(lines):
-            if line == title:
+            if _without_inline_stock(line) == title:
                 found.append(index)
                 continue
             if line.startswith(title):
@@ -780,7 +790,7 @@ def _product(item, content, channel, source_titles=()):
         source_context = [source_context[0], *size_block]
     if source_title:
         matched_source_name, source_volume, source_weight = source_title
-        first_model_line = next((part.strip() for part in name.splitlines() if part.strip()), name)
+        first_model_line = _without_inline_stock(next((part.strip() for part in name.splitlines() if part.strip()), name))
         # Prefer the exact source title to remove model-added packaging/price
         # lines. Keep a verified variant suffix when it is absent from the base
         # source title.
