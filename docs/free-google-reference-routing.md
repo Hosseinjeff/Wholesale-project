@@ -1,9 +1,9 @@
 # Free Google quota routing and reference suggestions
 
-Updated 2026-11-17, Asia/Tehran. Deployed to Staging at backend commit `cfd6515`;
+Updated 2026-11-18, Asia/Tehran. Staging bot release on `main` at `367cd13`;
 see [release verification and remaining work](free-google-staging-release.md).
-Free routing is not activated pending actual quotas and model qualification.
-No live Google inference, reference activation or owner decision was performed.
+Free routing is disabled pending the project's actual quotas and model qualification.
+The release verification includes bounded live Google checks on synthetic inputs.
 
 The owner uses Google's free API tier and wants independent model allowances used
 efficiently. `catalog/google_quota.py` accepts owner-verified project/model limits;

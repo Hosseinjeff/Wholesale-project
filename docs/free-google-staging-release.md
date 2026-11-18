@@ -1,11 +1,44 @@
 # Staging release: code reference matching and text-only intake
 
+## November 18 follow-up
+
+Staging pins the tested common release `367cd13` on `main`. Railway deployment
+`e25f88ae-207c-4242-9719-cdd41b80e82c` reached `SUCCESS`. The bot uses a concise
+structured-output prompt and recovers explicit supplier and consumer price roles,
+currency, counts and distinct size blocks from the source text. A priced post that
+Gemini returns empty gets one bounded retry. Unverified listing associations and
+competing prices still require review. OCR remains removed.
+
+Google measured 591 input tokens on the synthetic sample compared with 3,953
+before. Four synthetic Persian messages passed on both Gemini 3.5 Flash-Lite and
+3.1 Flash-Lite in one call each, with median durations of 1.93s and 2.11s.
+Gemini 2.5 Flash-Lite returned HTTP 404 with the configured key. Offline replay of
+saved review records recovered an explicit price basis for 14 of 16 cases.
+Existing historical price and publication decisions remain authoritative.
+
+Six synthetic reference documents and two queries verified the Embedding 001
+integration. Both expected products ranked first after explicit conflicts were
+excluded. Lexical ranking already found them on this small sample. Cached vectors
+now load from WordPress in bounded groups.
+
+The controlled caption-to-publication test passed using an isolated data store and
+simulated publication destination. All eight authenticated dashboard reads returned
+200 on `367cd13`, with AI review at 7.7s compared with 40.4s in the November 17
+acceptance run. The desktop and mobile checks found no browser errors or page
+overflow. The revision passed 248 focused checks.
+
+Google rotation and the full Rezvan embedding index still need the project's
+signed-in AI Studio RPM, TPM and RPD limits. Production promotion is a separate
+release.
+
+## November 17 release
+
 Verified 2026-11-17, Asia/Tehran. Scope is Staging under the standing deployment
 instruction. Production was not changed.
 
-## Current follow-up: owner suggestions and bounded dashboard reads
+### Owner suggestions and bounded dashboard reads
 
-- Current pinned backend: `cfd6515298cb2832daf7e2b9d7f3124ff93c245a` on
+- Backend at that checkpoint: `cfd6515298cb2832daf7e2b9d7f3124ff93c245a` on
   `codex/free-google-staging-release`.
 - Railway deployment: `c78e7cf4-c4ce-4677-abf6-5597f4c237dd`, terminal `SUCCESS`.
   The preceding integration deployment `95e56da4-0774-42e5-a7d8-86d5342a5115`
