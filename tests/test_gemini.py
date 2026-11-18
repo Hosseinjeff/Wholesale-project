@@ -898,6 +898,17 @@ class GeminiExtractionTests(unittest.TestCase):
         self.assertEqual({(p['volume'], p['package_count'], p['sale_price']) for p in products},
                          {('1.5 لیتر', 6, 105000), ('500 میل', 20, 60000), ('250 میل', 24, 50000)})
 
+    def test_complete_size_blocks_survive_a_title_only_model_result(self):
+        title = 'نوشیدنی نمونه'
+        source = (title + '\n۵۰۰ میل تعداد ۲۰ عددی\nقیمت واحد: ۶۰/۰۰۰ تومان\n'
+                  '۲۵۰ میل تعداد ۲۴ عددی\nقیمت واحد: ۵۰/۰۰۰ تومان')
+        raw = json.dumps([{'name': title, 'confidence': 0.99}])
+        products = parse_message_products(raw, source, '@supplier')
+        self.assertEqual([(p['volume'], p['package_count'], p['sale_price']) for p in products],
+                         [('500 میل', 20, 60000), ('250 میل', 24, 50000)])
+        other_title = source.replace('۲۵۰ میل', 'کالای دیگر ۲۳۰\n۲۵۰ میل')
+        self.assertEqual(len(parse_message_products(raw, other_title, '@supplier')), 1)
+
     def test_empty_response_with_labeled_price_is_retried_without_silent_drop(self):
         title = 'چای نمونه'
         source = title + '\nقیمت واحد: ۱۵٬۰۰۰ تومان'
