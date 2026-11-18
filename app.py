@@ -52,7 +52,7 @@ app = Flask(__name__)
 WEB_APP_URL = os.getenv('GOOGLE_WEB_APP_URL')
 BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 BALE_BOT_TOKEN = os.getenv('BALE_BOT_TOKEN')
-APP_VERSION = "2026-11-17-owner-reference-suggestions"
+APP_VERSION = "2026-11-18-bot-extraction"
 setup_logger(logging.INFO, log_file=None)
 logger = logging.getLogger(__name__)
 
@@ -2694,12 +2694,12 @@ def ai_confirmations_route():
                     from datetime import datetime, timezone
                     from reference_import.snapshots import ReferenceStore
                     from reference_import.item_reviews import ItemReviewLedger
-                    from reference_import.workflow import active_reference_use
+                    from reference_import.workflow import reference_use
                     reference_store = ReferenceStore(reference_path, owner_ids=sorted(owners))
                     candidate_snapshot = reference_store.active_snapshot()
-                    reference_state = active_reference_use(reference_store, now=datetime.now(timezone.utc))
-                    if (candidate_snapshot and reference_state.get('allow_automatic')
-                            and candidate_snapshot.get('snapshot_id') == reference_state.get('snapshot_id')):
+                    reference_state = reference_use(reference_store, snapshot=candidate_snapshot,
+                                                    now=datetime.now(timezone.utc))
+                    if candidate_snapshot and reference_state.get('allow_automatic'):
                         reference_snapshot = candidate_snapshot
                         reference_item_ledger = ItemReviewLedger(reference_path, owner_ids=sorted(owners))
                 except Exception:

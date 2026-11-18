@@ -504,14 +504,15 @@ class ReferenceStore(ReferenceDecisions):
 
     def active_snapshot(self):
         with self._connect() as db:
-            row = db.execute('''SELECT s.snapshot_id, s.payload FROM reference_active a
-                JOIN reference_snapshots s ON s.snapshot_id=a.snapshot_id WHERE a.singleton=1''').fetchone()
-            check=db.execute('SELECT snapshot_id,checked_at FROM reference_source_check WHERE singleton=1').fetchone()
+            row = db.execute('''SELECT s.snapshot_id, s.payload, c.checked_at FROM reference_active a
+                JOIN reference_snapshots s ON s.snapshot_id=a.snapshot_id
+                LEFT JOIN reference_source_check c ON c.singleton=1 AND c.snapshot_id=s.snapshot_id
+                WHERE a.singleton=1''').fetchone()
         if not row:
             return None
         result={**json.loads(row['payload']), 'snapshot_id': row['snapshot_id']}
-        if check and check['snapshot_id']==row['snapshot_id']:
-            result['last_checked_at']=check['checked_at']
+        if row['checked_at']:
+            result['last_checked_at']=row['checked_at']
         return result
 
     def record_refresh_failure(self, occurrence_id):
