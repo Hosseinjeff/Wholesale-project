@@ -80,6 +80,7 @@ $db->close();
 $selection=molavi_domain_ai_reviews_api('GET',['reextract'=>'preview','selection'=>'1','scope'=>'all'],null,'wp:7');
 check_preview($selection['selection']['count'],1,'bulk filter returns a server-verified count');
 check_preview(isset($selection['selection']['messages']),false,'bulk preview does not return raw messages');
+$GLOBALS['preview_tables']['MessageData'][]=['11','duplicate-forward','supplier','Pack of six',$stamp,'https://t.me/supplier/11'];
 $preview=molavi_domain_ai_reviews_api('GET',['reextract'=>'offer','offer_id'=>$offer],null,'wp:7');
 check_preview($preview['reason'],'updated_policy','one-card preview detects a prior extraction policy');
 $command=['action'=>'start_offer_reextraction','offer_id'=>$offer,'policy_version'=>$policy,

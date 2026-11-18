@@ -3083,6 +3083,7 @@
         const details = node('details',null,'molavi-advanced-reextract');
         details.appendChild(node('summary','بازاستخراج همین پیام'));
         const panel=node('div');
+        panel.setAttribute('aria-live','polite');
         details.appendChild(panel);
         let loaded=false;
         details.addEventListener('toggle',async () => {
@@ -3097,7 +3098,9 @@
                 panel.replaceChildren();
                 const active=activeReextraction(preview);
                 if (active?.run_id) {
-                    followReextraction(panel,active.run_id);
+                    const progress=node('div');
+                    panel.append(node('p','یک بازاستخراج در جریان است. پس از پایان آن، وضعیت این پیام را تازه کنید.'),progress);
+                    followReextraction(progress,active.run_id);
                     return;
                 }
                 const reasons={

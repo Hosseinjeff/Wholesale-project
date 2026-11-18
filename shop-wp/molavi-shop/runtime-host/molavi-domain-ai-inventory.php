@@ -70,6 +70,13 @@ function molavi_domain_ai_offer_selection(array $tables, string $offerId, string
     $inventory=molavi_domain_ai_inventory($tables,false,$policy);
     $messages=array_values(array_filter($inventory['all_messages'],
         static fn($message)=>molavi_domain_ai_saved_source_key($message)===$sourceKey));
+    if(count($messages)>1) {
+        $messageId=trim((string)($offer['Message ID']??''));
+        $batchId=trim((string)($offer['Batch ID']??''));
+        $exact=array_values(array_filter($messages,static fn($message)=>
+            $message['message_id']===$messageId && $message['batch_id']===$batchId));
+        if(count($exact)===1) $messages=$exact;
+    }
     if(count($messages)!==1) return ['reason'=>count($messages)?'ambiguous_source':'source_unavailable','messages'=>[]];
     $item=$messages[0];
     if(molavi_domain_ai_held(molavi_domain_ai_hold_scope(),$item)) return ['reason'=>'held','messages'=>[]];
