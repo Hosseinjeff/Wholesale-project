@@ -1142,7 +1142,6 @@
 
         const taskQueueKeys = [...new Set(workbenchStageModel.flatMap(stage => stage.queues).concat('storefront'))];
         const attention = product => taskQueueKeys.some(key => workbenchQueueMatches(product,key));
-        const openOperationsCount = Number(operations && operations.operations && operations.operations.actionable_count || 0);
         const reconcileStorefront = async button => {
             if (button) { button.disabled = true; button.textContent = 'در حال بررسی فروشگاه…'; }
             try {
@@ -1515,7 +1514,7 @@
         const technical = document.createElement('details');
         technical.className = 'card molavi-technical-details';
         technical.appendChild(node('summary','وضعیت پردازش و اتصال فروشگاه'));
-        technical.open = true;
+
         if (!operations || !operations.operations) {
             technical.appendChild(notice(workbenchErrors.operations || 'وضعیت صف در دسترس نیست.','warning'));
         } else {
@@ -1536,7 +1535,6 @@
             const workerError = worker.last_error_code ? ` · آخرین کد خطا ${worker.last_error_code}` : '';
             const workerProgress=workerProgressLabels[worker.progress_status]||'پیشرفت نامشخص';
             technical.appendChild(node('p',`کارگر صف: ${workerLabels[worker.status] || worker.status || 'وضعیت نامشخص'} · پیشرفت: ${workerProgress}${progressAge}${workerAge}${workerJob}${workerError}`));
-            if (openOperationsCount) technical.open = true;
             const pendingTelegramChats = Array.isArray(ops.pending_telegram_chats) ? ops.pending_telegram_chats : [];
             if (pendingTelegramChats.length) {
                 const telegramDetails = document.createElement('details');
@@ -1629,7 +1627,6 @@
             if (queueItems.length || ops.next_cursor) {
                 const details = document.createElement('details');
                 details.className = 'molavi-operation-queue-details';
-                details.open = openOperationsCount > 0;
                 const summary=node('summary','');
                 const rows=document.createElement('div');
                 const pageState={items:[...queueItems],cursor:ops.next_cursor||null,loading:false};
@@ -1638,7 +1635,7 @@
                         const task=operationsTaskFor(item);
                         return !task || !workbenchDismissalIndex.has(task.task_key);
                     }).length;
-                    summary.textContent=`موارد فعال سرویس (${ops.actionable_count || queueItems.length}) · نمایش ${shown} از ${pageState.items.length} بارگیری‌شده`;
+                    summary.textContent=`سابقهٔ کارهای صف (${ops.actionable_count || queueItems.length}) · نمایش ${shown} از ${pageState.items.length} بارگیری‌شده`;
                 };
                 const nextSteps={automatic_retry:'در نوبت پردازش خودکار',wait_for_processing:'در حال پردازش؛ نتیجهٔ worker را دنبال می‌کنیم',
                     recover_expired_lease:'مهلت worker تمام شده؛ رسید برای بازیابی خودکار آماده است',
@@ -1653,7 +1650,7 @@
                     const ageLabel=Number.isFinite(age)?` · ${age<3600?`${Math.floor(age/60)} دقیقه`:`${Math.floor(age/3600)} ساعت`} در صف`:'';
                     const next=nextSteps[item.next_action]||'رسید را بررسی کنید';
                     const row = node('div', null, 'molavi-operation-queue-item');
-                    row.appendChild(node('p',`${item.kind === 'batch' ? 'دسته' : item.kind === 'publication' ? 'انتشار' : 'کار'} · ${displayBatchState(item.state)} · تلاش ${item.attempts || 0}${ageLabel} · گام بعدی: ${next}`));
+                    row.appendChild(node('p',`${item.kind === 'batch' ? 'دسته' : ['publish','publication'].includes(item.kind) ? 'انتشار' : 'کار'} · ${displayBatchState(item.state)} · تلاش ${item.attempts || 0}${ageLabel} · گام بعدی: ${next}`));
                     if (item.error) row.appendChild(notice(displayBatchError(item.error), 'warning'));
                     if (item.id) {
                         const technical = document.createElement('details');
@@ -1832,7 +1829,8 @@
             nextStep:(product,key)=>workbenchNextStep(product,key),
             taskMeta:workbenchTaskMeta,wooState:workbenchWooState,wooLabel:workbenchWooLabel,
             renderAction,renderBatch,renderSystem,
-            renderSources: (panel,product) => reextractionPanel(panel,{initialChannel:product && product.channel || ''}),
+            renderSources: sourceReextractionWorkspace,
+            renderOfferReextraction: offerReextraction,
             renderReferences: panel => {
                 const catalog = node('div');
                 panel.appendChild(catalog);
@@ -2649,8 +2647,6 @@
         card.appendChild(reviewFacts(priceFacts, 'molavi-review-facts molavi-ai-price-facts'));
         card.appendChild(reviewFacts([['دلیل بررسی', aiReviewReason(item.reason)]], 'molavi-review-facts molavi-review-reason'));
         const sourceDates = aiSourceDateFacts(item);
-        if (sourceDates.length) card.appendChild(reviewFacts(sourceDates,
-            'molavi-review-facts molavi-ai-source-date-facts'));
         const sourceTools = node('div', null, 'molavi-card-source-tools');
         const sourcePostUrl = aiSourcePostUrl(item);
         const originalPost = safeSourceLink(sourcePostUrl,
@@ -2705,7 +2701,7 @@
         const blockedBySourceGap = sourcePriceNeedsReview || sourceVariantNeedsReview;
         const sourceVerificationRequired = relatedItems.some(row => row
             && (row.historical_reextract || row.source_current_check_required)) || sourceStockNeedsReview;
-        if (!options.embedded || held || missingPrice || blockedBySourceGap || !referenceAvailable || sourceVerificationRequired) {
+        if (!options.embedded || held || blockedBySourceGap || !referenceAvailable) {
             let nextText = 'قیمت، تعداد و موجودی را با پیام اصلی بسنجید و سپس مشخصات را ثبت کنید.';
             let nextLink = null;
             if (held) {
@@ -2714,11 +2710,9 @@
                     ? ownerWorkflowAnchor(options.holdTarget, 'باز کردن پیام‌ها و اقدام دسته')
                     : ownerWorkflowLink('molavi-publication-holds', 'باز کردن دسته‌های متوقف‌شده');
             } else if (blockedBySourceGap) {
-                nextText = 'اطلاعات استخراج‌شده با پیام کامل تطبیق ندارد؛ پست‌های اخیر را دوباره بازبینی و بازپردازش کنید. دکمهٔ تأیید تا رفع اختلاف قفل است.';
-                nextLink = ownerWorkflowLink('molavi-ai-confirmations', 'رفتن به ابزار بازپردازش پست‌های اخیر', 'molavi-reextract-panel');
+                nextText = 'بخشی از پیام جا افتاده است؛ همین پیام را بازاستخراج کنید.';
             } else if (missingPrice) {
                 nextText = 'قیمت فروش تأمین‌کننده در داده پیدا نشده؛ مبلغ را حدس نزنید و کالا را تا ثبت قیمت معتبر باز بگذارید.';
-                nextLink = ownerWorkflowLink('molavi-ai-confirmations', 'بازبینی و بازپردازش پست‌های اخیر', 'molavi-reextract-panel');
             } else if (sourceVerificationRequired) {
                 nextText = sourceStockNeedsReview && !item.historical_reextract
                     ? 'پیام قدیمی اتمام موجودی را می‌گوید؛ وضعیت امروز را از منبع فعلی بررسی کنید، یا نامشخص بگذارید.'
@@ -2732,9 +2726,13 @@
             }
             card.appendChild(reviewNextStep(nextText, nextLink));
         }
-        if (item.original_message) {
-            const details = document.createElement('details'); details.appendChild(node('summary', 'متن اصلی پیام تأمین‌کننده'));
-            details.appendChild(node('pre', item.original_message)); card.appendChild(details);
+        if (!held && item.offer_id) card.appendChild(offerReextraction(item.offer_id));
+        if (item.original_message || sourceDates.length) {
+            const evidence = node('details');
+            evidence.appendChild(node('summary',item.original_message?'متن و تاریخ پیام مبدأ':'تاریخ پیام مبدأ'));
+            if (sourceDates.length) evidence.appendChild(reviewFacts(sourceDates,'molavi-review-facts molavi-ai-source-date-facts'));
+            if (item.original_message) evidence.appendChild(node('pre',item.original_message));
+            card.appendChild(evidence);
         }
         if (item.decision) {
             const choiceLabels = {confirm:'تأیید کالا',not_product:'کالا نیست'};
@@ -2968,7 +2966,7 @@
                         : publicationState === 'waiting_publication' ? 'همگام‌سازی وردپرس پشت توقف انتشار منتظر بررسی است.'
                         : publicationState === 'failed' ? 'همگام‌سازی وردپرس ناموفق ماند؛ خطای صف انتشار را بررسی کنید.'
                         : publicationState ? 'همگام‌سازی تغییرها با وردپرس در صف است.'
-                        : 'تغییر محصولی برای همگام‌سازی با وردپرس ثبت نشد.';
+                        : 'خروجی ثبت شد؛ وضعیت همگام‌سازی هنوز دریافت نشده است.';
                     box.appendChild(node('p', publicationLabel, publicationState === 'done' ? '' : 'notice'));
                 }
                 if (outcomes.source_changed) box.appendChild(node('p', `${outcomes.source_changed} پیام پس از پیش‌نمایش تغییر کرده یا چند نسخه مبهم داشته؛ نتیجه‌ای برای آن‌ها ثبت نشد. پیش‌نمایش را تازه کنید و دوباره اجرا کنید.`, 'notice'));
@@ -2983,9 +2981,9 @@
                         const reviewId=runId;
                         const eventId='reextraction-run:'+runId;
                         const policyRun=String(auditContext.scope || '')==='recent_policy';
-                        const decision=policyRun?{action:'reprocess_recent_posts_with_current_policy',
+                        const decision=auditContext.decision || (policyRun?{action:'reprocess_recent_posts_with_current_policy',
                                 policy_version:String(auditContext.policy_version || '')}
-                                :{action:'reprocess_open_extraction_cases'};
+                                :{action:'reprocess_open_extraction_cases'});
                         await persistOwnerReviews([reviewRecord(eventId, reviewType, reviewId,
                             counts.failed ? 'failed' : 'accepted',
                             storedReviewContext(reviewType,auditContext),decision, {
@@ -3025,120 +3023,183 @@
         }
     }
 
-    async function advancedReextractionTools(panel, dismissalHooks = {}) {
-        panel.className = 'card molavi-reextract-panel';
-        panel.appendChild(node('h2', 'ابزارهای ویژهٔ استخراج'));
-        panel.appendChild(node('p', 'عکس‌ها فقط پیوست هستند؛ استخراج کالا از متن یا کپشن پست انجام می‌شود. بازپردازش با سیاست فعلی جداست.'));
-        try {
-            const preview = await reextractionRequest('GET', undefined, reextractionUrl('preview'));
-            const counts = preview.counts || {};
-            const openCases = preview.open_cases || {};
-            const recentPolicy = preview.recent_policy || {};
-            const supportsAiOnly = typeof preview.ai_configured === 'boolean';
-            const aiConfigured = supportsAiOnly && preview.ai_configured;
-            panel.appendChild(node('p', `در صف بازبینی مالک: ${counts.pending || 0} پست · همهٔ پست‌های قابل‌بازاستخراج: ${counts.all_available || 0}`));
-            panel.appendChild(node('p', `کارت‌های باز استخراج: ${openCases.case_count || 0} · پیام‌های اصلی یکتا: ${openCases.message_count || 0} · قبلاً بازاستخراج‌شده: ${counts.already_reprocessed || 0}`));
-            panel.appendChild(node('p', `بازپردازش با قواعد فعلی: ${recentPolicy.eligible_count || 0} پست در ${recentPolicy.window_days || 14} روز اخیر · نسخه استخراج ${recentPolicy.policy_version || 'نامشخص'}. تصمیم‌های مالک و نتیجه‌های همین نسخه حفظ می‌شوند.`));
-            panel.appendChild(node('p', `پیوست‌های بدون متن: ${counts.attachment_only || 0} · خروجی بدون نامزد محصول: ${counts.no_product_candidates || 0} · تصمیم‌های مالک حفظ‌شده: ${counts.owner_decisions_preserved || 0} · ردشده توسط مالک: ${counts.dismissed_by_owner || 0} · قبلاً در صف بررسی بازاستخراج‌شده: ${counts.already_staged || 0}`));
-            const policyPosts = Array.isArray(recentPolicy.source_posts) ? recentPolicy.source_posts : [];
-            if (policyPosts.length) {
-                const sourceList = document.createElement('details');
-                sourceList.appendChild(node('summary', `نمونه پست‌های آماده (${policyPosts.length} از ${recentPolicy.eligible_count || policyPosts.length})`));
-                for (const item of policyPosts) {
-                    const row = node('p', `${item.channel || 'منبع نامشخص'} · پیام ${item.message_id || '—'} · ${item.timestamp || 'زمان نامشخص'}`);
-                    const link = safeSourceLink(item.source_post_url);
-                    if (link) row.appendChild(link);
-                    sourceList.appendChild(row);
+    function activeReextraction(preview) {
+        return preview.active_run || preview.open_cases?.active_run;
+    }
+
+    function followReextraction(panel, runId, context = {}) {
+        const progress = notice('بازاستخراج در صف پردازش است…','info');
+        progress.classList.add('molavi-reextract-progress');
+        panel.replaceChildren(progress);
+        showReextractionProgress(panel,runId,context);
+    }
+
+    function policyReextractionButton(panel, preview, offerId = '') {
+        const policy = offerId ? preview : preview.recent_policy || {};
+        const count = offerId ? 1 : Number(policy.eligible_count || 0);
+        const version = policy.policy_version || '';
+        const digest = policy.digest || '';
+        if (!preview.ai_configured || !count || !version || !/^[a-f0-9]{64}$/.test(digest)) return;
+        const formattedCount = new Intl.NumberFormat('fa-IR').format(count);
+        const button = node('button',offerId ? 'شروع بازاستخراج همین پیام' : `بازاستخراج ${formattedCount} پیام اخیر`,'button button-primary');
+        button.type = 'button';
+        const feedback = node('p');
+        feedback.setAttribute('role','status');
+        button.addEventListener('click',async () => {
+            const subject = offerId ? 'همین پیام' : `${formattedCount} پیام اخیر`;
+            if (!window.confirm(`${subject} با قواعد فعلی دوباره پردازش می‌شود. خروجی از کنترل کیفیت می‌گذرد و تصمیم مالک حفظ می‌شود. شروع شود؟`)) return;
+            button.disabled=true;
+            feedback.textContent='در حال ثبت درخواست…';
+            const runId=Array.from(window.crypto.getRandomValues(new Uint8Array(16)),value=>value.toString(16).padStart(2,'0')).join('');
+            const context={run_id:runId,scope:'recent_policy',message_count:count,digest,policy_version:version,
+                window_days:offerId ? 0 : Number(policy.window_days || 14)};
+            const eventId='reextraction-run:'+runId;
+            const decision={action:offerId?'reprocess_product_source':'reprocess_recent_posts_with_current_policy',policy_version:version};
+            try {
+                await persistOwnerReviews([reviewRecord(eventId,'ai_reextraction',runId,'pending',context,decision,{})]);
+                const selection=offerId ? {action:'start_offer_reextraction',offer_id:offerId}
+                    : {action:'start_recent_policy_reextraction',expected_count:count};
+                const receipt=await reextractionRequest('POST',{...selection,run_id:runId,expected_digest:digest,policy_version:version});
+                if (receipt.run_id!==runId || receipt.queued!==count || receipt.policy_version!==version
+                    || receipt.digest!==digest) throw new Error('invalid_receipt');
+                let auditWarning=false;
+                try { await persistOwnerReviews([reviewRecord(eventId,'ai_reextraction',runId,'accepted',context,decision,receipt)]); }
+                catch (_error) { auditWarning=true; }
+                followReextraction(panel,runId,{...context,decision});
+                if (auditWarning) panel.appendChild(notice('بازاستخراج در صف است؛ ثبت رسید وردپرس کامل نشد.','warning'));
+            } catch (error) {
+                try { await persistOwnerReviews([reviewRecord(eventId,'ai_reextraction',runId,
+                    error.remoteRejected?'failed':'pending',context,decision,{error:String(error.message || 'request_failed')})]); }
+                catch (_error) {}
+                const changed=['extraction_policy_changed','reextraction_preview_changed','reextraction_active'].includes(error.message);
+                feedback.textContent=changed?'انتخاب یا وضعیت اجرا تغییر کرده است؛ صفحه را تازه کنید.':errorText(error.message);
+                button.disabled=changed;
+            }
+        });
+        panel.append(button,feedback);
+    }
+
+    function offerReextraction(offerId) {
+        const details = node('details',null,'molavi-advanced-reextract');
+        details.appendChild(node('summary','بازاستخراج همین پیام'));
+        const panel=node('div');
+        details.appendChild(panel);
+        let loaded=false;
+        details.addEventListener('toggle',async () => {
+            if (!details.open || loaded) return;
+            loaded=true;
+            panel.textContent='در حال بررسی پیام و نسخهٔ استخراج…';
+            try {
+                const url=new URL(reextractionUrl('offer'),window.location.href);
+                url.searchParams.set('offer_id',offerId);
+                const preview=await reextractionRequest('GET',undefined,url.toString());
+                if (preview.offer_id!==offerId) throw new Error('invalid_receipt');
+                panel.replaceChildren();
+                const active=activeReextraction(preview);
+                if (active?.run_id) {
+                    followReextraction(panel,active.run_id);
+                    return;
                 }
-                panel.appendChild(sourceList);
+                const reasons={
+                    updated_policy:'قواعد تازه برای این پیام در دسترس است.',
+                    ready:'این پیام با قواعد فعلی قابل بازاستخراج است.',
+                    already_current:'این پیام قبلاً با همین نسخه بازاستخراج شده است؛ نتیجه را در مشخصات بررسی کنید.',
+                    owner_decision:'برای این پیام تصمیم نهایی ثبت شده است؛ تصمیم در بازاستخراج حفظ می‌شود.',
+                    missing_offer:'پیوند پیشنهاد این کالا پیدا نشد.',
+                    source_unavailable:'متن ذخیره‌شدهٔ قابل‌پردازش برای این پیشنهاد پیدا نشد.',
+                    ambiguous_source:'چند نسخه از پیام منبع پیدا شد؛ پیام اصلی را بررسی کنید.',
+                    held:'ابتدا توقف انتشار این پیام را بررسی کنید.',
+                };
+                panel.appendChild(node('p',preview.ai_configured===true
+                    ? reasons[preview.reason] || 'وضعیت بازاستخراج در دسترس نیست.'
+                    : 'سرویس استخراج آماده نیست.'));
+                const source=safeSourceLink(preview.source?.source_post_url);
+                if (source) panel.appendChild(source);
+                policyReextractionButton(panel,preview,offerId);
+            } catch (error) {
+                loaded=false;
+                panel.replaceChildren(notice(errorText(error.message),'error'));
             }
-            if (openCases.unmatched_case_count > 0) {
-                panel.appendChild(notice(`${openCases.unmatched_case_count} کارت به متن پیام اصلی وصل نیست و در بازاستخراج گروهی وارد نمی‌شود.`, 'warning'));
-            }
-            if (!supportsAiOnly) {
-                panel.appendChild(notice('نسخه سرویس سرور هنوز از استخراج فقط با هوش مصنوعی پشتیبانی نمی‌کند؛ ابتدا سرور را به‌روزرسانی کنید.', 'error'));
-            } else if (!aiConfigured) {
-                panel.appendChild(notice('استخراج کالا فقط با هوش مصنوعی انجام می‌شود. کلید GOOGLE_API_KEY در تنظیمات سرویس اجرا تنظیم نشده است.', 'error'));
-            }
-            if (preview.active_run) {
-                const progress = notice('در حال آماده‌سازی وضعیت بازاستخراج…', 'info');
-                progress.classList.add('molavi-reextract-progress');
-                panel.appendChild(progress);
-                const activeAudit = ['open_cases','recent_policy'].includes(preview.active_run.scope) ? {
-                    run_id:preview.active_run.run_id, scope:preview.active_run.scope,
-                    case_count:Number(preview.active_run.case_count || 0),
-                    message_count:Number(preview.active_run.total || 0),
-                    digest:String(preview.active_run.digest || ''),
-                    policy_version:String(preview.active_run.policy_version || ''),
-                    window_days:Number(preview.recent_policy && preview.recent_policy.window_days || 0)
-                } : {};
-                showReextractionProgress(panel, preview.active_run.run_id, activeAudit);
+        });
+        return details;
+    }
+
+    async function sourceReextractionWorkspace(panel, product) {
+        if (product) {
+            const offer=String(product.status?.latest_offer_id || product.ai[0]?.offer_id || product.references[0]?.offer_id || '');
+            if (offer) panel.appendChild(offerReextraction(offer));
+        }
+        const filters=node('details',null,'molavi-advanced-reextract');
+        filters.appendChild(node('summary','انتخاب بر اساس کانال و تاریخ'));
+        const filtered=node('div');
+        filters.appendChild(filtered);
+        filters.addEventListener('toggle',() => {
+            if (!filters.open || filtered.childNodes.length) return;
+            reextractionPanel(filtered,{initialChannel:product?.channel || ''});
+        });
+        if (product) {
+            panel.appendChild(filters);
+            return;
+        }
+        const recent=node('section',null,'card molavi-reextract-panel');
+        panel.append(recent,filters);
+        recent.textContent='در حال دریافت وضعیت پیام‌ها…';
+        try {
+            const preview=await reextractionRequest('GET',undefined,reextractionUrl('preview'));
+            recent.replaceChildren(node('h2','بازاستخراج با قواعد فعلی'));
+            const active=activeReextraction(preview);
+            if (active?.run_id) {
+                followReextraction(recent,active.run_id);
                 return;
             }
+            const count=Number(preview.recent_policy?.eligible_count || 0);
+            recent.appendChild(node('p',preview.ai_configured!==true ? 'سرویس استخراج آماده نیست.'
+                : count ? 'پیام‌های واجد شرایط ۱۴ روز اخیر را بررسی و دوباره پردازش کنید.'
+                    : 'پیام تازه‌ای برای بازاستخراج گروهی آماده نیست. برای یک پیام از کارت همان محصول شروع کنید.'));
+            const actions=node('div',null,'molavi-reextract-actions');
+            policyReextractionButton(actions,preview);
+            recent.appendChild(actions);
+            const posts=preview.recent_policy?.source_posts || [];
+            if (posts.length) {
+                const sample=node('details');
+                sample.appendChild(node('summary','نمونه پیام‌های آماده'));
+                for (const post of posts) {
+                    const row=node('p',`${post.channel || 'منبع نامشخص'} · ${formatSourceTimestamp(post.timestamp)}`);
+                    const link=safeSourceLink(post.source_post_url);
+                    if (link) row.appendChild(link);
+                    sample.appendChild(row);
+                }
+                recent.appendChild(sample);
+            }
+            if (preview.open_cases?.case_count || preview.counts?.pending) {
+                const tools=node('details',null,'molavi-advanced-reextract');
+                tools.appendChild(node('summary','کارهای گروهی دیگر'));
+                const body=node('div');
+                tools.appendChild(body);
+                advancedReextractionTools(body,preview);
+                panel.appendChild(tools);
+            }
+        } catch (error) {
+            recent.replaceChildren(notice(errorText(error.message),'error'));
+        }
+    }
+
+    async function advancedReextractionTools(panel, preview) {
+        panel.className = 'card molavi-reextract-panel';
+        try {
+            const counts = preview.counts || {};
+            const openCases = preview.open_cases || {};
+            const aiConfigured = preview.ai_configured === true;
+            if (openCases.unmatched_case_count > 0) {
+                panel.appendChild(notice(`${openCases.unmatched_case_count} کارت به متن پیام اصلی وصل نیست.`, 'warning'));
+            }
             const controls = node('div', null, 'molavi-reextract-actions');
-            const recentPolicyButton = node('button', `بازپردازش و به‌روزرسانی پست‌های اخیر (${recentPolicy.eligible_count || 0})`, 'button button-primary');
-            const openCasesButton = node('button', `بازاستخراج همه کارت‌های باز (${openCases.case_count || 0} کارت · ${openCases.message_count || 0} پیام)`, 'button button-primary');
-            const dismissButton = node('button', `ردّ گروهی پیام‌های منتظر (${counts.pending || 0})`, 'button');
-            recentPolicyButton.type = 'button'; openCasesButton.type = 'button'; dismissButton.type = 'button';
-            recentPolicyButton.disabled = !aiConfigured || !(recentPolicy.eligible_count > 0)
-                || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(recentPolicy.policy_version || '')
-                || !/^[a-f0-9]{64}$/.test(recentPolicy.digest || '');
+            const openCasesButton = node('button', `بازاستخراج پیام‌های کارت‌های باز (${openCases.message_count || 0})`, 'button');
+            const dismissButton = node('button', `کنارگذاشتن پیام‌های منتظر (${counts.pending || 0})`, 'button');
+            openCasesButton.type = 'button'; dismissButton.type = 'button';
             openCasesButton.disabled = !aiConfigured || !(openCases.case_count > 0)
                 || Number(openCases.unmatched_case_count || 0) > 0;
-            dismissButton.disabled = !supportsAiOnly || !(counts.pending > 0);
-            recentPolicyButton.addEventListener('click', async () => {
-                const count = Number(recentPolicy.eligible_count || 0);
-                const windowDays = Number(recentPolicy.window_days || 14);
-                const version = String(recentPolicy.policy_version || '');
-                const digest = String(recentPolicy.digest || '');
-                if (!count || !version || !digest) return;
-                const warning = `${count} پست دارای زمان معتبر از ${windowDays} روز اخیر با نسخه فعلی استخراج (${version}) دوباره پردازش می‌شود. نتیجه‌های روشن به کاتالوگ همگام می‌شوند؛ اگر تعداد داخل بسته تغییر کند، گام خانوار و فروشگاه از سیاست فعلی محاسبه می‌شود و تنظیم دستی همان کالا حفظ می‌شود. خروجی نامطمئن برای بررسی می‌ماند. تصمیم‌های مالک و پست‌های قدیمی‌تر حفظ می‌شوند. ادامه می‌دهید؟`;
-                if (!window.confirm(warning)) return;
-                const bytes = new Uint8Array(16);
-                if (window.crypto && window.crypto.getRandomValues) window.crypto.getRandomValues(bytes);
-                else for (let index=0; index<bytes.length; index++) bytes[index]=Math.floor(Math.random()*256);
-                const runId = Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('');
-                const auditContext = {run_id:runId,scope:'recent_policy',case_count:0,
-                    message_count:count,digest,policy_version:version,window_days:windowDays};
-                const eventId = 'reextraction-run:' + runId;
-                const decision = {action:'reprocess_recent_posts_with_current_policy',
-                    policy_version:version};
-                recentPolicyButton.disabled = true;
-                try {
-                    await persistOwnerReviews([reviewRecord(eventId,'ai_reextraction',runId,
-                        'pending',auditContext,decision,{})]);
-                } catch (error) {
-                    panel.appendChild(notice(errorText(error.message),'error'));
-                    recentPolicyButton.disabled = false;
-                    return;
-                }
-                let receipt;
-                try {
-                    receipt = await reextractionRequest('POST',{action:'start_recent_policy_reextraction',
-                        run_id:runId,expected_count:count,expected_digest:digest,
-                        policy_version:version});
-                    if (receipt.run_id!==runId || receipt.queued!==count
-                        || receipt.policy_version!==version || receipt.digest!==digest) {
-                        throw new Error('invalid_receipt');
-                    }
-                } catch (error) {
-                    try { await persistOwnerReviews([reviewRecord(eventId,'ai_reextraction',runId,
-                        'failed',auditContext,decision,{error:String(error.message || 'request_failed')})]); }
-                    catch (_auditError) { }
-                    panel.appendChild(notice(errorText(error.message),'error'));
-                    recentPolicyButton.disabled = !(recentPolicy.eligible_count > 0) || !aiConfigured;
-                    return;
-                }
-                let auditWarning = false;
-                try { await persistOwnerReviews([reviewRecord(eventId,'ai_reextraction',runId,
-                    'accepted',auditContext,decision,receipt)]); }
-                catch (_error) { auditWarning = true; }
-                const progress = notice('بازپردازش پست‌های اخیر در صف قرار گرفت…','info');
-                progress.classList.add('molavi-reextract-progress');
-                if (auditWarning) progress.appendChild(node('p','اجرا در صف است، اما ذخیره رسید اولیه در وردپرس ناموفق بود.','notice'));
-                controls.replaceWith(progress);
-                showReextractionProgress(panel,runId,auditContext);
-            });
+            dismissButton.disabled = !(counts.pending > 0);
             openCasesButton.addEventListener('click', async () => {
                 const caseCount = Number(openCases.case_count || 0);
                 const messageCount = Number(openCases.message_count || 0);
@@ -3204,10 +3265,7 @@
                     dismissButton.disabled = !(counts.pending > 0);
                 }
             });
-            controls.append(recentPolicyButton, openCasesButton, dismissButton);
-            if (Number(recentPolicy.eligible_count || 0) > 0) {
-                panel.appendChild(notice('این دکمه پست‌های واجد شرایطِ ۱۴ روز اخیر را با نسخه فعلی استخراج دوباره پردازش می‌کند. اگر تعداد داخل بسته تغییر کند، همگام‌سازی کاتالوگ گام‌های فعلی خانوار و فروشگاه را روی محصول به‌روز می‌کند؛ تنظیم دستی همان محصول حفظ می‌شود. برای اعمال صرفِ سیاست جدید نیازی به بازپردازش نیست.', 'info'));
-            }
+            controls.append(openCasesButton, dismissButton);
             panel.appendChild(controls);
         } catch (error) {
             panel.appendChild(notice(errorText(error.message), 'error'));
@@ -3217,11 +3275,10 @@
     async function reextractionPanel(panel, dismissalHooks = {}) {
         panel.className = 'card molavi-reextract-workspace';
         panel.appendChild(node('h2', 'انتخاب پیام‌ها برای بازاستخراج'));
-        panel.appendChild(node('p', 'همان مدل استخراج فعلی روی پیام‌های منبع اجرا می‌شود. دامنه، کانال و بازهٔ تاریخ با هم ترکیب می‌شوند؛ نتیجهٔ تازه از کنترل کیفیت موجود عبور می‌کند.'));
+        panel.appendChild(node('p', 'کانال و تاریخ پیام را انتخاب کنید؛ تعداد پیش از اجرا نمایش داده می‌شود.'));
         try {
-            const initial = await reextractionRequest('GET', undefined, reextractionUrl('preview'));
+            const initial = await reextractionRequest('GET', undefined, reextractionUrl('preview')+'&selection=1');
             const counts = initial.selection_counts || {};
-            const linkAvailable = initial.catalog_linking_available === true;
             const filtersCard = node('section', null, 'molavi-reextract-filters');
             const selectionCard = node('section', null, 'molavi-reextract-selection');
             const layout = node('div', null, 'molavi-reextract-layout');
@@ -3231,15 +3288,13 @@
             const scopeInputs = new Map();
             const scopeOptions = [
                 {key:'all',label:'همهٔ پست‌های قابل‌بازاستخراج',hint:'همهٔ پست‌های دارای متن یا کپشن که واجد شرایط بازاستخراج هستند؛ تصاویر فقط پیوست می‌مانند.',count:counts.all || 0},
-                {key:'pending',label:'پست‌های منتظر بررسی مالک',hint:'استخراج‌هایی که هنوز در صف بررسی مالک هستند؛ هر آلبوم یک پست محسوب می‌شود.',count:counts.pending || 0},
-                {key:'linked',label:'پیوندشده به محصول کاتالوگ',hint:'شناسهٔ پیشنهاد منبع به یک محصول در کاتالوگ فعلی وصل است.',count:counts.linked || 0}
+                {key:'pending',label:'پست‌های منتظر بررسی مالک',hint:'استخراج‌هایی که هنوز در صف بررسی مالک هستند.',count:counts.pending || 0}
             ];
             scopeOptions.forEach((option,index) => {
                 const label = node('label', null, 'molavi-reextract-scope-option');
                 const input = document.createElement('input');
                 input.type = 'radio'; input.name = 'molavi-reextract-scope'; input.value = option.key;
                 input.checked = index === 0;
-                input.disabled = option.key === 'linked' && !linkAvailable;
                 const copy = node('span', null, 'molavi-reextract-scope-copy');
                 copy.append(node('strong', option.label), node('small', option.hint));
                 label.append(input, copy, node('b', Number(option.count).toLocaleString('fa-IR')));
@@ -3247,7 +3302,6 @@
                 scopeInputs.set(option.key,input);
             });
             filtersCard.appendChild(scopeFieldset);
-            if (!linkAvailable) filtersCard.appendChild(notice('پیوند پیام به کاتالوگ در این اتصال در دسترس نیست؛ این دامنه غیرفعال است.', 'warning'));
 
             const dateControls = node('div', null, 'molavi-reextract-date-controls');
             const dateFromLabel = node('label', 'از تاریخ پیام', 'molavi-reextract-control');
@@ -3331,6 +3385,7 @@
             });
             const previewUrl = () => {
                 const url = new URL(reextractionUrl('preview'), window.location.href);
+                url.searchParams.set('selection','1');
                 url.searchParams.set('scope', selectedScope());
                 url.searchParams.set('group_by', groupBy.value);
                 url.searchParams.set('channels',JSON.stringify(selectedChannels()));
@@ -3359,7 +3414,7 @@
                     groupsList.appendChild(row);
                 });
                 if (!groupsList.childElementCount) groupsList.appendChild(node('li','موردی با این ترکیب پیدا نشد.'));
-                const active = data.active_run;
+                const active = activeReextraction(data);
                 const canStart = data.ai_configured === true && count > 0 && !active;
                 runButton.disabled = !canStart;
                 runButton.textContent = active ? 'یک بازاستخراج در حال اجراست' : `بازاستخراج ${formatter.format(count)} پست`;
@@ -3425,7 +3480,7 @@
             runButton.addEventListener('click',async() => {
                 const selection = currentPreview && currentPreview.selection;
                 const count = Number(selection && selection.count || 0);
-                if (!selection || count < 1 || currentPreview.active_run || currentPreview.ai_configured !== true) return;
+                if (!selection || count < 1 || activeReextraction(currentPreview) || currentPreview.ai_configured !== true) return;
                 const scope = selectedScope();
                 const channels = selectedChannels();
                 const dateFromValue = dateFrom.value;
@@ -3478,19 +3533,6 @@
                 }
             });
 
-            const advancedDetails = document.createElement('details');
-            advancedDetails.className = 'molavi-advanced-reextract';
-            advancedDetails.appendChild(node('summary','مسیرهای ویژهٔ استخراج'));
-            advancedDetails.appendChild(node('p','بازپردازش نسخهٔ فعلی سیاست و رسیدگی به کارت‌های باز مسیرهای جداگانه دارند؛ تصاویر فقط پیوست هستند.'));
-            const advancedBody = node('div',null,'molavi-advanced-reextract-body');
-            advancedDetails.appendChild(advancedBody);
-            let advancedLoaded = false;
-            advancedDetails.addEventListener('toggle',() => {
-                if (!advancedDetails.open || advancedLoaded) return;
-                advancedLoaded = true;
-                advancedReextractionTools(advancedBody,dismissalHooks);
-            });
-            panel.appendChild(advancedDetails);
         } catch (error) {
             panel.appendChild(notice(errorText(error.message),'error'));
         }

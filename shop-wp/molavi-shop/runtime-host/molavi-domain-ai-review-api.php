@@ -6,13 +6,14 @@ defined('ABSPATH') || exit;
 function molavi_domain_ai_reviews_api(string $method, array $query, ?array $body, string $actor): array {
     if ($method==='GET') {
         $mode = $query['reextract'] ?? '';
+        if ($mode==='offer') return molavi_domain_ai_offer_preview($query,molavi_domain_sheets(['MessageData','Offers'],true));
         if ($mode==='preview') return molavi_domain_ai_preview($query,molavi_domain_sheets(['MessageData','Offers'],true));
         $tables = molavi_domain_sheets(['Offers'],true);
         if ($mode==='run') return molavi_domain_ai_run_report($query,$tables);
         return molavi_domain_ai_reviews_get($tables);
     }
     return match ($body['action'] ?? '') {
-        'start_reextraction','start_open_case_reextraction','start_recent_policy_reextraction','start_media_reextraction' => molavi_domain_ai_start($body,$actor),
+        'start_reextraction','start_open_case_reextraction','start_recent_policy_reextraction','start_offer_reextraction','start_media_reextraction' => molavi_domain_ai_start($body,$actor),
         'dismiss_cases' => molavi_domain_ai_dismiss_cases($body,$actor),
         'dismiss_pending_messages','dismiss_media_message' => molavi_domain_ai_dismiss_messages($body,$actor),
         'cancel_reextraction' => molavi_domain_ai_cancel($body,$actor),
@@ -53,7 +54,10 @@ function molavi_domain_ai_reviews_get(array $tables,?float $clock=null): array {
     $snapshot=null;try{$candidate=molavi_domain_reference_active();$state=molavi_domain_reference_use();if($candidate&&$state['allow_automatic']&&$candidate['snapshot_id']===$state['snapshot_id'])$snapshot=$candidate;}catch(Throwable $e){}
     [$cases,$recent]=molavi_domain_ai_review_cases($tables,$snapshot,true,200,$clock);if($snapshot)$cases=molavi_domain_reference_receipts($cases,'ai',$snapshot['snapshot_id']);$scope=molavi_domain_ai_hold_scope();
     foreach($cases as &$case)$case['publication_held']=molavi_domain_ai_held($scope,$case);unset($case);foreach($recent as &$case)$case['publication_held']=molavi_domain_ai_held($scope,$case);unset($case);
-    return ['ok'=>true,'cases'=>$cases,'recent_decisions'=>$recent,'publication_held'=>(bool)$scope['batch_ids'],'publication_hold_scope'=>'source_batch'];
+    $policy=null;
+    try {$policy=molavi_domain_bot_capabilities()['extraction_policy_version'];} catch(MolaviWorkflowError $e) {}
+    return ['ok'=>true,'cases'=>$cases,'recent_decisions'=>$recent,'publication_held'=>(bool)$scope['batch_ids'],
+        'publication_hold_scope'=>'source_batch','extraction_policy_version'=>$policy];
 }
 function molavi_domain_ai_reviews_decide(?array $body,string $actor,?string $clock=null): array {
     molavi_domain_ai_validate_choice($body);return molavi_domain_lock('publication',static function()use($body,$actor,$clock):array {

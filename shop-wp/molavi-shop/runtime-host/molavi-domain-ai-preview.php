@@ -20,11 +20,12 @@ function molavi_domain_ai_active_run(): ?array {
 }
 function molavi_domain_ai_preview(array $query,array $tables,?float $clock=null): array {
     $caps=molavi_domain_bot_capabilities();$images=$caps['image_extraction_enabled'];$inventory=molavi_domain_ai_inventory($tables,$images);
+    $selection=null;
     if(!$images){$channels=$query['channels']??($query['channel']??[]);if(isset($query['channels'])){
             if(!is_string($channels)||strlen($channels)>25000)molavi_domain_fail('invalid_reextraction_filter',400);
             try{$channels=json_decode($channels,false,32,JSON_THROW_ON_ERROR);}catch(JsonException $e){molavi_domain_fail('invalid_reextraction_filter',400);}}
         elseif(is_string($channels))$channels=[$channels];
-        molavi_domain_ai_selection($inventory,(string)molavi_domain_py_value($query['scope']??null,'all'),$channels,$query['date_from']??'',$query['date_to']??'',(string)molavi_domain_py_value($query['group_by']??null,'channel'));}
+        $selection=molavi_domain_ai_selection($inventory,(string)molavi_domain_py_value($query['scope']??null,'all'),$channels,$query['date_from']??'',$query['date_to']??'',(string)molavi_domain_py_value($query['group_by']??null,'channel'));}
     $recent=molavi_domain_ai_recent_inventory(molavi_domain_ai_inventory($tables,$images,$caps['extraction_policy_version']),$caps['extraction_policy_version'],$images,$clock);
     $open=molavi_domain_ai_case_inventory($tables,$clock);$posts=$recent['messages'];usort($posts,static fn($a,$b)=>(molavi_domain_timestamp($b['timestamp']??null)??-62135596800.0)<=>(molavi_domain_timestamp($a['timestamp']??null)??-62135596800.0));$sourcePosts=[];
     foreach(array_slice($posts,0,12) as $item){$post=['source_key'=>$item['source_key'],'message_id'=>$item['message_id'],'channel'=>molavi_domain_py_value($item['channel']??null,molavi_domain_py_value($item['channel_username']??null)),
@@ -33,7 +34,15 @@ function molavi_domain_ai_preview(array $query,array $tables,?float $clock=null)
     $result=['ok'=>true,'counts'=>$inventory['counts'],'ai_configured'=>$caps['ai_configured'],'recent_policy'=>$recentInfo,'pending_digest'=>molavi_domain_hash($keys),
         'media_review_messages'=>[],'media_review_total'=>0,'media_review_next_after'=>null,'open_cases'=>['case_count'=>$open['case_count'],'message_count'=>$open['message_count'],
             'unmatched_case_count'=>count($open['unmatched_case_ids']),'digest'=>$open['digest']],'active_run'=>molavi_domain_ai_active_run()];
-    if(!$images){$result['image_extraction_enabled']=false;return $result;}
+    if(!$images){
+        $result['image_extraction_enabled']=false;
+        if (($query['selection']??'')==='1') {
+            unset($selection['messages']);
+            $result['selection']=$selection;
+            $result['selection_counts']=['all'=>$inventory['counts']['all_available'],'pending'=>$inventory['counts']['pending']];
+        }
+        return $result;
+    }
     $media=$inventory['media_review_messages'];$keys=array_column($media,'message_key');sort($keys,SORT_STRING);$result['media_review_digest']=molavi_domain_hash($keys);
     usort($media,static fn($a,$b)=>strcmp((string)($a['message_key']??''),(string)($b['message_key']??'')));$after=(string)($query['media_after']??'');
     if($after!==''&&!preg_match('/^[a-f0-9]{64}$/D',$after))molavi_domain_fail('invalid_media_page',400);
@@ -41,6 +50,20 @@ function molavi_domain_ai_preview(array $query,array $tables,?float $clock=null)
     $result['media_review_messages']=$page;$result['media_review_total']=count($media);$result['media_review_after']=$after;
     $result['media_review_next_after']=count($eligible)>12?$page[count($page)-1]['message_key']:null;return $result;
 }
+function molavi_domain_ai_offer_preview(array $query,array $tables): array {
+    $offerId=$query['offer_id']??null;
+    if(!is_string($offerId)||trim($offerId)===''||strlen($offerId)>300) molavi_domain_fail('invalid_reextraction_request',400);
+    $caps=molavi_domain_bot_capabilities();
+    $policy=$caps['extraction_policy_version'];
+    $selection=molavi_domain_ai_offer_selection($tables,$offerId,$policy);
+    $message=$selection['messages'][0]??null;
+    return [
+        'ok'=>true,'offer_id'=>$offerId,'ai_configured'=>$caps['ai_configured'],'policy_version'=>$policy,
+        'reason'=>$selection['reason'],'digest'=>$selection['digest']??null,'active_run'=>molavi_domain_ai_active_run(),
+        'source'=>$message?array_intersect_key($message,array_flip(['timestamp','source_post_url'])):null,
+    ];
+}
+
 function molavi_domain_ai_run_report(array $query,array $tables,?float $clock=null): array {
     $run=$query['run_id']??'';$status=molavi_domain_ai_run_status($run);if(!$status)molavi_domain_fail('unknown_reextraction_run',404);$outcomes=[];$products=0;$offers=0;
     foreach($status['items'] as $item){$result=$item['result']??[];$outcome=(string)molavi_domain_py_value($result['status']??null,molavi_domain_py_value($item['state']??null,'unknown'));

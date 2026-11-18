@@ -8,7 +8,7 @@ function add_filter(...$args){}
 function get_option($name,$default=false){return $GLOBALS['preview_options'][$name]??$default;}
 function molavi_domain_sheets($names,$fresh=false){return array_intersect_key($GLOBALS['preview_tables'],array_flip($names));}
 foreach(['state-host','domain-core','domain-schemas','domain-gateway','domain-ai-review-model','domain-ai-inventory','domain-ai-preview',
-    'domain-ai-review-api','domain-ai-commands','domain-ai-dismissals','domain-bot-capabilities','domain-sheet-conflicts','domain-publisher'] as $file)
+    'domain-ai-review-api','domain-publication-recovery','domain-ai-commands','domain-ai-dismissals','domain-bot-capabilities','domain-sheet-conflicts','domain-publisher'] as $file)
     require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-'.$file.'.php';
 $root=molavi_state_root();$db=new SQLite3($root.'/pipeline.sqlite3');$db->close();$count=0;
 function check_preview($actual,$expected,$label):void {
@@ -56,5 +56,49 @@ foreach($fixtures as $fixture){
     $status=molavi_domain_ai_run_status($queued['run_id']);
     check_preview($status['counts'],['queued'=>$queued['queued']],'queued run read stays local');
 }
+$offer='source-offer';
+$policy=$GLOBALS['preview_options']['molavi_bot_capabilities_v1']['extraction_policy_version'];
+$stamp='2026-09-16T11:00:00+00:00';
+$GLOBALS['preview_tables']=[
+    'MessageData'=>[
+        ['ID','Batch ID','Channel Username','Content','Timestamp','URL'],
+        ['11','source-batch','supplier','Pack of six',$stamp,'https://t.me/supplier/11'],
+        ['12','other-batch','supplier','Another product',$stamp,'https://t.me/supplier/12'],
+    ],
+    'Offers'=>[
+        ['Offer ID','Message ID','Batch ID','Channel Username','Original Message','Message Timestamp','Source Post URL','Owner Decision ID'],
+        [$offer,'11','source-batch','supplier','Pack of six',$stamp,'https://t.me/supplier/11',''],
+    ],
+];
+$GLOBALS['preview_options']['molavi_bot_capabilities_v1']['image_extraction_enabled']=false;
+$db=molavi_domain_db();
+foreach(['jobs','ai_message_dismissals','ai_source_reextractions'] as $table)$db->exec('DELETE FROM '.$table);
+$sourceKey=molavi_domain_ai_source_key(molavi_domain_records($GLOBALS['preview_tables']['Offers'])[0]);
+molavi_domain_sql($db,'INSERT INTO ai_source_reextractions VALUES (?,?,?,?,?,?,?)',
+    [$sourceKey,'earlier','products',str_repeat('4',32),'wp:7',123,'gemini-'.str_repeat('0',16)]);
+$db->close();
+$selection=molavi_domain_ai_reviews_api('GET',['reextract'=>'preview','selection'=>'1','scope'=>'all'],null,'wp:7');
+check_preview($selection['selection']['count'],1,'bulk filter returns a server-verified count');
+check_preview(isset($selection['selection']['messages']),false,'bulk preview does not return raw messages');
+$preview=molavi_domain_ai_reviews_api('GET',['reextract'=>'offer','offer_id'=>$offer],null,'wp:7');
+check_preview($preview['reason'],'updated_policy','one-card preview detects a prior extraction policy');
+$command=['action'=>'start_offer_reextraction','offer_id'=>$offer,'policy_version'=>$policy,
+    'expected_digest'=>$preview['digest'],'run_id'=>str_repeat('a',32)];
+try {
+    molavi_domain_ai_start(array_replace($command,['expected_digest'=>str_repeat('9',64)]),'wp:7');
+    throw new RuntimeException('stale digest accepted');
+} catch (MolaviWorkflowError $e) { check_preview($e->getMessage(),'reextraction_preview_changed','reject stale digest'); }
+$receipt=molavi_domain_ai_reviews_api('POST',[],$command,'wp:7');
+check_preview($receipt['queued'],1,'one-card request queues exactly one job');
+$db=molavi_domain_db();
+$job=molavi_domain_decode(molavi_domain_row($db,"SELECT payload FROM jobs WHERE kind='reextract'")['payload']);
+check_preview([$job['message_id'],$job['batch_id'],$job['policy_version']],['11','source-batch',$policy],'job targets the exact saved message and policy');
+molavi_domain_sql($db,'UPDATE ai_source_reextractions SET policy_version=? WHERE source_key=?',[$policy,$sourceKey]);
+$db->close();
+$preview=molavi_domain_ai_offer_preview(['offer_id'=>$offer],$GLOBALS['preview_tables']);
+check_preview($preview['reason'],'already_current','same-version run already recorded');
+$GLOBALS['preview_tables']['Offers'][1][7]='owner-final';
+$preview=molavi_domain_ai_offer_preview(['offer_id'=>$offer],$GLOBALS['preview_tables']);
+check_preview($preview['reason'],'owner_decision','protect the owner decision');
 foreach(glob($root.'/*') as $file)unlink($file);rmdir($root);
 echo 'PASS native AI previews and commands '.$count." checks\n";

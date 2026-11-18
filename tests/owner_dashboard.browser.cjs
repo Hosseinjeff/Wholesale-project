@@ -8,17 +8,17 @@ const fixtures={
   {product_id:'1',product_name:'نودل سبزیجات بسته ۱۲ عددی',channel:'@supplier',latest_offer_id:'offer-1',status:'imported',supplier_price_state:'blocked',reference_match_id:'REF-1',reference_approval_state:'approved',source_post_url:'https://t.me/supplier/18'},
   {product_id:'10',product_name:'سس کچاپ',channel:'@supplier',latest_offer_id:'offer-10',status:'imported',reference_match_id:'REF-10',reference_approval_state:'approved'},
   {product_id:'3',product_name:'نوشیدنی پرتقالی',channel:'@other',status:'held',source_integrity_issues:['missing_latest_offer'],source_post_url:'https://t.me/other/8'}],generated_at:now},
- '/pipeline/ai-confirmations':{cases:[{case_id:'ai-4',offer_id:'offer-4',product_name:'بیسکویت شکلاتی',channel:'@supplier',sale_price:120000,detected_price:120000,package_count:12,signature:'sig-4',message_id:'25',batch_id:'batch-4',source_post_url:'https://t.me/supplier/25',original_message:'بیسکویت شکلاتی ۱۲ عدد\nقیمت فروش: ۱۲۰۰۰۰',reference_candidates:[],reference_snapshot_id:''}],recent_decisions:[]},
+ '/pipeline/ai-confirmations':{extraction_policy_version:'gemini-1111111111111111',cases:[{case_id:'ai-4',offer_id:'offer-4',product_name:'بیسکویت شکلاتی',channel:'@supplier',sale_price:120000,detected_price:120000,package_count:12,signature:'sig-4',message_id:'25',batch_id:'batch-4',source_post_url:'https://t.me/supplier/25',original_message:'بیسکویت شکلاتی ۱۲ عدد\nقیمت فروش: ۱۲۰۰۰۰',reference_candidates:[],reference_snapshot_id:''}],recent_decisions:[]},
  '/reference/item-reviews':{cases:[],recent_decisions:[],reference_state:{allow_automatic:true}},
  '/pipeline/supplier-price-evidence':{offers:[{product_id:'1',offer_id:'offer-1',name:'نودل سبزیجات بسته ۱۲ عددی',channel:'@supplier',sale_price:120000,state:'blocked',source_revision:'revision-1',source_timestamp:now,source_timestamp_trusted:true,source_post_url:'https://t.me/supplier/18'}]},
  '/pipeline/sheet-conflicts':{conflicts:[]}, '/pipeline/publication-holds':{holds:[]},'/reference/decisions':{events:[]},
- '/pipeline/operations-dashboard':{operations:{by_state:{queued:0},items:[],worker:{status:'alive'},actionable_count:0}},
+ '/pipeline/operations-dashboard':{operations:{by_state:{queued:1,waiting_publication:39},items:[{id:'publish:job',kind:'publish',state:'waiting_publication',next_action:'resolve_publication_hold'}],worker:{status:'alive'},actionable_count:0}},
  '/reference/snapshots':{snapshots:[],active_snapshot_id:null,refresh_state:null},
  '/pipeline/reconciliation':{product_states:[{product_id:'1',woo_state:'purchasable'}]},
 };
 (async()=>{
  const browser=await chromium.launch({executablePath:'/usr/bin/chromium',headless:true,args:['--no-sandbox']});
- const page=await browser.newPage({viewport:{width:1365,height:1000}});const errors=[];const writes=[];let failPrices=false;let acceptPrice=false;
+ const page=await browser.newPage({viewport:{width:1365,height:1000}});const errors=[];const writes=[];let failPrices=false;let acceptPrice=false;let offerPreviews=0;
  let activeReads=0,maxActiveReads=0,transientStatusOnce=true,statusReads=0;
  page.on('pageerror',e=>errors.push(e.message));
  await page.route('**/*',async route=>{
@@ -26,6 +26,13 @@ const fixtures={
    const f=new URLSearchParams(req.postData());const path=f.get('path');
    if(f.get('method')==='POST'||f.get('action')!=='molavi_owner_workflow_proxy'){
     writes.push({action:f.get('action'),path,payload:f.get('payload')});
+    if(path==='/pipeline/ai-confirmations'&&JSON.parse(f.get('payload')||'{}').action==='start_offer_reextraction'){
+      const payload=JSON.parse(f.get('payload'));
+      assert.equal(payload.offer_id,'offer-4');
+      assert.equal(payload.policy_version,'gemini-2222222222222222');
+      assert.equal(payload.expected_digest,'a'.repeat(64));
+      return route.fulfill({status:202,json:{ok:true,run_id:payload.run_id,queued:1,policy_version:payload.policy_version,digest:payload.expected_digest}});
+    }
     if(path==='/reference/item-reviews'&&JSON.parse(f.get('payload')||'{}').action==='suggest_reference'){
       const payload=JSON.parse(f.get('payload'));
       return route.fulfill({status:202,json:{ok:true,job_id:'reference_suggest:'+'a'.repeat(64),case_id:payload.case_id,snapshot_id:payload.snapshot_id}});
@@ -54,6 +61,19 @@ const fixtures={
      if(transientStatusOnce){transientStatusOnce=false;return await route.fulfill({status:503,json:{ok:false,error:'request_failed'}});}
     }
     if(failPrices&&path==='/pipeline/supplier-price-evidence')return await route.fulfill({status:503,json:{ok:false,error:'upstream_unavailable'}});
+    if(path==='/pipeline/ai-confirmations'){
+     const query=new URLSearchParams(f.get('query'));
+     const common={ok:true,ai_configured:true,policy_version:fixtures[path].extraction_policy_version,digest:'a'.repeat(64)};
+     if(query.get('reextract')==='offer'){
+      offerPreviews++;
+      return await route.fulfill({json:{...common,reason:'updated_policy',offer_id:query.get('offer_id')}});
+     }
+     if(query.get('reextract')==='preview'){
+      return await route.fulfill({json:{...common,recent_policy:{...common,eligible_count:2},
+       ...(query.get('selection')==='1'?{selection:{count:2,digest:'a'.repeat(64),scope:'all',source_channels:[]}}:{})}});
+     }
+     if(query.get('reextract')==='run') return await route.fulfill({json:{...common,state:'running',total:1,completed:0,counts:{queued:1}}});
+    }
     return await route.fulfill({json:{ok:true,...(fixtures[path]||{})}});
    }finally{activeReads--;}
   }
@@ -100,9 +120,17 @@ const fixtures={
  assert.equal(await page.locator('input[name="sale_price"]').inputValue(),'130000','draft survives section switch');
  assert.deepEqual(errors,[]);
  await page.getByRole('button',{name:'پیام‌های منبع',exact:true}).click();
- await page.getByText('انتخاب پیام‌ها برای بازاستخراج',{exact:true}).waitFor();
+ await page.getByText('بازاستخراج با قواعد فعلی',{exact:true}).waitFor();
+ await page.getByRole('button',{name:'بازاستخراج ۲ پیام اخیر',exact:true}).waitFor();
+ assert.equal(await page.getByText('انتخاب پیام‌ها برای بازاستخراج',{exact:true}).count(),0,'bulk filters open on request');
+ await page.getByText('انتخاب بر اساس کانال و تاریخ',{exact:true}).click();
+ await page.getByRole('button',{name:'بازاستخراج ۲ پست',exact:true}).waitFor();
  await page.getByRole('button',{name:'وضعیت سیستم',exact:true}).click();
- await page.getByText('وضعیت پردازش و اتصال فروشگاه',{exact:true}).waitFor();assert.deepEqual(errors,[]);
+ await page.getByText('وضعیت پردازش و اتصال فروشگاه',{exact:true}).waitFor();
+ assert.equal(await page.locator('.molavi-technical-details').getAttribute('open'),null,'system diagnostics start collapsed');
+ assert.equal(await page.locator('.molavi-operation-queue-item:visible').count(),0,'queue history starts hidden');
+ await page.getByText('۱ پردازش خودکار · ۳۹ منتظر مرجع یا انتشار · ۰ خطا یا نیازمند بررسی',{exact:true}).waitFor();
+ assert.deepEqual(errors,[]);
  await page.getByRole('button',{name:'محصولات',exact:true}).click();
  assert.equal(await page.locator('input[name="sale_price"]').inputValue(),'130000','draft survives navigation');
  assert.equal(writes.length,0,'all navigation remains read only');
@@ -144,6 +172,20 @@ const fixtures={
  await page.getByRole('button',{name:'باز کردن دستهٔ متوقف‌شده',exact:true}).click();
  await page.locator('.md-publication-holds[open] #molavi-batch-batch-4').waitFor();
  assert.equal(await page.getByRole('button',{name:'اجرای دوباره این دسته، فقط یک بار',exact:true}).count(),1);
+ fixtures['/pipeline/publication-holds'].holds=[];
+ fixtures['/pipeline/ai-confirmations'].extraction_policy_version='gemini-2222222222222222';
+ await mount('&workbench_action=ai');
+ await page.getByText('قواعد استخراج به‌روز شده است. پیام‌های واجد شرایط را دوباره پردازش کنید.').waitFor();
+ const beforePreview=offerPreviews;
+ const beforeReplay=writes.length;
+ await page.getByText('بازاستخراج همین پیام',{exact:true}).click();
+ await page.getByText('قواعد تازه برای این پیام در دسترس است.',{exact:true}).waitFor();
+ assert.equal(offerPreviews,beforePreview+1,'opening the card action checks its exact offer once');
+ assert.equal(writes.length,beforeReplay,'preview never starts a run');
+ page.once('dialog',dialog=>dialog.accept());
+ await page.getByRole('button',{name:'شروع بازاستخراج همین پیام',exact:true}).click();
+ await page.getByText(/بازاستخراج پیام‌ها: 0 از 1/).waitFor();
+ assert.equal(writes.filter(entry=>entry.payload && JSON.parse(entry.payload).action==='start_offer_reextraction').length,1);
  assert.deepEqual(errors,[]);
  console.log(JSON.stringify({passed:true,errors,writes:writes.length,captures:['/tmp/molavi-dashboard-desktop.png','/tmp/molavi-dashboard-mobile.png']}));
  await browser.close();

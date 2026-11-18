@@ -101,6 +101,27 @@
             errors.forEach(error=>box.append(el('p',error)));
             box.append(button('دریافت دوباره',()=>hooks.refresh()));health.append(box);
         }
+        const policyStorageKey='molavi-seen-extraction-policy';
+        function extractionPolicyNotice() {
+            if (model.errors.ai_confirmations) return null;
+            const version=model.data.ai_confirmations?.extraction_policy_version;
+            if (!version) return null;
+            try {
+                const seen=localStorage.getItem(policyStorageKey);
+                if (!seen) localStorage.setItem(policyStorageKey,version);
+                if (!seen || seen===version) return null;
+            } catch (_error) { return null; }
+            const note=el('div',null,'md-source-context');
+            note.setAttribute('role','status');
+            note.append(el('p','قواعد استخراج به‌روز شده است. پیام‌های واجد شرایط را دوباره پردازش کنید.'),
+                button('بررسی پیام‌ها',() => {
+                    try { localStorage.setItem(policyStorageKey,version); } catch (_error) {}
+                    state.sourceContext=null;
+                    state.pageCache.delete('sources');
+                    navigate('sources');
+                },'md-link'));
+            return note;
+        }
         function next(product) { return model.primaryAction(product); }
         function ready(product) { return model.readyAction(product); }
         function stateLabel(product) {
@@ -140,6 +161,8 @@
             const stamp=model.data.product_status?.generated_at;
             if(stamp)title.append(el('small',`آخرین دریافت: ${model.formatDate(stamp)}`,'md-last-read'));
             view.append(title);
+            const policyNotice=extractionPolicyNotice();
+            if (policyNotice) view.append(policyNotice);
             const pendingBatches=model.data.publication_holds?.holds || [];
             if (pendingBatches.length&&!model.errors.publication_holds) {
                 const label=`توقف‌های انتشار · ${fa(pendingBatches.length)}`;
@@ -254,8 +277,11 @@
                         if(!hasAction){
                             panel.append(facts([['زمان منبع',model.formatDate(source.source_timestamp||source.message_timestamp)],['پیوند منبع',sourceURL?'ثبت شده':'ثبت نشده']]));
                             if(sourceURL){const link=model.sourceLink(sourceURL);if(link)panel.append(link);}
+                            if(!sourceURL&&!source.original_message)panel.append(el('p','متن یا پیوند پیام در این کارت ثبت نشده است.'));
                             if(source.original_message){const text=el('details');text.append(el('summary','متن کامل پیام'),el('p',source.original_message,'md-source-text'));panel.append(text);}
-                            panel.append(button('بازبینی پیام‌های منبع',()=>navigate('sources',product)));
+                            const offer=record.latest_offer_id||source.offer_id;
+                            if (offer) panel.append(model.renderOfferReextraction(String(offer)));
+                            else panel.append(button('جست‌وجوی پیام منبع',()=>navigate('sources',product)));
                         }
                     }else if(key==='references'){
                         panel.append(facts([['مرجع ثبت‌شده',record.reference_match_name||record.reference_match_id||'تطبیق ثبت نشده'],
@@ -290,6 +316,12 @@
             }
             productSections.forEach(([key,title],index)=>{
                 const tab=button(title,()=>activate(key),'md-card-tab');
+                tab.title={
+                    source_integrity:'متن پیام و بازاستخراج',ai:'مشخصات خوانده‌شده و اصلاح آن‌ها',
+                    references:'تطبیق کالا و قیمت واحد یا بسته',supplier_prices:'اعتبار قیمت تأمین‌کننده',
+                    conflicts:'اختلاف داده‌های ذخیره‌شده',holds:'توقف‌های انتشار',status:'دلیل وضعیت انتشار',
+                    storefront:'آنچه در ووکامرس دیده یا قابل‌خرید است'
+                }[key];
                 tab.id=`${panelHost.id}-${key}`;tab.setAttribute('role','tab');
                 tab.setAttribute('aria-controls',panelHost.id);tab.setAttribute('aria-selected','false');
                 tab.tabIndex=index===0?0:-1;
@@ -315,7 +347,7 @@
             const panel=el('div',null,'md-reference-catalog');view.append(panel);model.renderReferences(panel);return view;
         }
         function sourcesView() {
-            const view=el('section');view.append(el('h1','پیام‌های منبع'),el('p','پیام یا آلبوم را پیدا کنید و در صورت نیاز بازاستخراج کنید. نتیجه در کارت محصول برای بررسی ظاهر می‌شود.'));
+            const view=el('section');view.append(el('h1','پیام‌های منبع'),el('p','برای یک پیام، از منبع یا مشخصاتِ کارت همان کالا شروع کنید. برای چند پیام، از گزینه‌های این صفحه استفاده کنید.'));
             const context=state.sourceContext;
             if(context){
                 const hint=el('div',null,'md-source-context');
@@ -327,16 +359,27 @@
             const panel=el('div');view.append(panel);model.renderSources(panel,context);return view;
         }
         function systemView() {
-            const view=el('section');view.append(el('h1','وضعیت سیستم'),model.renderSystem());
+            const view=el('section');view.append(el('h1','وضعیت سیستم'));
+            const counts=model.data.operations?.operations?.by_state;
+            if (counts) {
+                const running=Number(counts.queued || 0)+Number(counts.running || 0);
+                const waiting=Number(counts.waiting_publication || 0)+Number(counts.waiting_reference || 0);
+                const issues=Number(counts.failed || 0)+Number(counts.needs_review || 0);
+                const overview=el('div',null,'md-source-context');
+                overview.append(el('p',`${fa(running)} پردازش خودکار · ${fa(waiting)} منتظر مرجع یا انتشار · ${fa(issues)} خطا یا نیازمند بررسی`),
+                    el('p','پردازش‌های خودکار اقدامی از شما نمی‌خواهند. برای یک تصمیم محصول به محصولات بروید؛ برای توقف یک دسته، بخش زیر را باز کنید.'));
+                view.append(overview);
+            }
             if(model.data.publication_holds?.holds?.length){
                 const group=el('details');group.className='md-publication-holds';group.tabIndex=-1;group.append(el('summary',`توقف‌های مشترک پردازش · ${fa(model.data.publication_holds.holds.length)}`));
                 model.data.publication_holds.holds.forEach(hold=>group.append(model.renderBatch(hold)));view.append(group);
             }
+            view.append(model.renderSystem());
             const hidden=el('details');hidden.append(el('summary',`کارهای کنارگذاشته‌شده · ${fa(model.dismissals.length)}`));
             model.dismissals.forEach(item=>{
                 const row=el('div',null,'md-hidden-task');row.append(el('span',item.product_name||item.label||item.task_key),
                     button('بازگرداندن',async event=>{const control=event.currentTarget;control.disabled=true;try{await hooks.restore([item.task_key]);}catch(error){loading(false,error.message,'error');control.disabled=false;}}));hidden.append(row);
-            });view.append(hidden);
+            });if (model.dismissals.length) view.append(hidden);
             const utilities=el('details');utilities.append(el('summary','موجودی، سفارش‌ها و تاریخچه'));
             [['molavi-inventory-management','بچ‌های موجودی'],['molavi-clearance-pricing','قیمت حراج موجودی'],['molavi-paid-orders','سفارش‌های پرداخت‌شده'],['molavi-product-status-snapshots','تاریخچهٔ وضعیت']].forEach(([key,label])=>{
                 if(hooks.pageUrls[key]){const link=el('a',label,'md-utility-link');link.href=hooks.pageUrls[key];utilities.append(link);}

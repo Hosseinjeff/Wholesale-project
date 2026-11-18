@@ -46,6 +46,40 @@ function molavi_domain_ai_inventory(array $tables,bool $images,?string $policy=n
     $result=['all_messages'=>$all,'pending_messages'=>$pending,'media_review_messages'=>$media,'counts'=>$counts];
     if(!$images){$result+=['media_albums'=>[],'media_album_message_keys'=>[],'blocked_media_album_message_keys'=>[]];$result['counts']+=['media_review_images'=>0,'media_review_missing_images'=>0,'attachment_only'=>$attachments];}return $result;
 }
+function molavi_domain_ai_saved_source_key(array $item): string {
+    return molavi_domain_ai_source_key([
+        'Source Post URL'=>$item['source_post_url']??'', 'Channel Username'=>$item['channel_username']??'',
+        'Message ID'=>$item['message_id']??'', 'Message Timestamp'=>$item['timestamp']??'', 'Original Message'=>$item['content']??'',
+    ]);
+}
+
+function molavi_domain_ai_offer_selection(array $tables, string $offerId, string $policy): array {
+    $offers=molavi_domain_records($tables['Offers']??[]);
+    $matches=array_values(array_filter($offers,static fn($offer)=>(string)($offer['Offer ID']??'')===$offerId));
+    if(count($matches)!==1) return ['reason'=>'missing_offer','messages'=>[]];
+    $offer=$matches[0];
+    $sourceKey=molavi_domain_ai_source_key($offer);
+    $sameSource=array_filter($offers,static fn($row)=>molavi_domain_ai_source_key($row)===$sourceKey);
+    foreach($sameSource as $row) {
+        if(trim((string)($row['Owner Decision ID']??''))!=='') return ['reason'=>'owner_decision','messages'=>[]];
+    }
+    $previous=molavi_domain_read('pipeline',static fn(SQLite3 $db)=>molavi_domain_row($db,
+        'SELECT policy_version FROM ai_source_reextractions WHERE source_key=? ORDER BY completed_at DESC LIMIT 1',[$sourceKey]));
+    $lastPolicy=(string)($previous['policy_version']??'');
+    if($lastPolicy===$policy) return ['reason'=>'already_current','messages'=>[]];
+    $inventory=molavi_domain_ai_inventory($tables,false,$policy);
+    $messages=array_values(array_filter($inventory['all_messages'],
+        static fn($message)=>molavi_domain_ai_saved_source_key($message)===$sourceKey));
+    if(count($messages)!==1) return ['reason'=>count($messages)?'ambiguous_source':'source_unavailable','messages'=>[]];
+    $item=$messages[0];
+    if(molavi_domain_ai_held(molavi_domain_ai_hold_scope(),$item)) return ['reason'=>'held','messages'=>[]];
+    return [
+        'reason'=>$lastPolicy!==''?'updated_policy':'ready',
+        'messages'=>[$item+['source_key'=>$sourceKey]],
+        'digest'=>molavi_domain_hash([$policy,$offerId,$sourceKey,$item['message_key']]),
+    ];
+}
+
 function molavi_domain_ai_case_inventory(array $tables,?float $clock=null): array {
     $cases=molavi_domain_ai_review_cases($tables,null,false,1000,$clock);$groups=[];$unmatched=[];$identities=[];$messages=[];
     foreach($cases as $case){$identities[]=[$case['case_id'],$case['offer_id'],$case['signature']];$content=(string)molavi_domain_py_value($case['original_message']);if(trim($content)===''){$unmatched[]=$case['case_id'];continue;}
@@ -63,7 +97,7 @@ function molavi_domain_ai_case_inventory(array $tables,?float $clock=null): arra
 function molavi_domain_ai_recent_inventory(array $inventory,string $policy,bool $images,?float $clock=null): array {
     $now=$clock??microtime(true);$candidates=$inventory['all_messages'];if($images)foreach($inventory['media_review_messages'] as $item)if(trim((string)($item['image_file_id']??''))!=='')$candidates[]=$item+['media_ocr'=>true];
     $eligible=[];$unknown=0;$old=0;foreach($candidates as $item){$stamp=molavi_domain_timestamp($item['timestamp']??null);if($stamp===null||$stamp>$now){$unknown++;continue;}if($now-$stamp>=14*86400){$old++;continue;}
-        $item['source_key']=molavi_domain_ai_source_key(['Source Post URL'=>$item['source_post_url']??'','Channel Username'=>$item['channel_username']??'','Message ID'=>$item['message_id']??'','Message Timestamp'=>$item['timestamp']??'','Original Message'=>$item['content']??'']);$eligible[]=$item;}
+        $item['source_key']=molavi_domain_ai_saved_source_key($item);$eligible[]=$item;}
     $identities=[];$media=0;foreach($eligible as $item){$identities[]=[$item['source_key'],$item['message_key'],$item['message_id'],$item['batch_id'],$item['timestamp']];if(!empty($item['media_ocr']))$media++;}sort($identities);
     $result=['policy_version'=>$policy,'window_days'=>14,'digest'=>molavi_domain_hash(['policy_version'=>$policy,'window_seconds'=>14*86400,'messages'=>$identities]),'messages'=>$eligible,'eligible_count'=>count($eligible),
         'media_ocr_count'=>$media,'unknown_or_future_timestamp_count'=>$unknown,'outside_window_count'=>$old];if(!$images)$result['media_ocr_image_count']=0;return $result;

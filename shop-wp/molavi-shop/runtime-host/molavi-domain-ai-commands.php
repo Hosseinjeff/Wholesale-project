@@ -77,6 +77,14 @@ function molavi_domain_ai_start(array $body, string $actor): array {
         }
         if (!molavi_domain_ai_hash_valid($body['expected_digest'])) molavi_domain_fail('invalid_reextraction_count',400);
         $scope = 'open_cases';
+    } elseif ($action==='start_offer_reextraction') {
+        if($keys!==['action','expected_digest','offer_id','policy_version','run_id']
+            || !molavi_domain_ai_hash_valid($body['run_id'],32) || !molavi_domain_ai_hash_valid($body['expected_digest'])
+            || !is_string($body['offer_id']) || trim($body['offer_id'])==='' || strlen($body['offer_id'])>300
+            || !is_string($body['policy_version'])) molavi_domain_fail('invalid_reextraction_request',400);
+        if($body['policy_version']!==$caps['extraction_policy_version']) molavi_domain_fail('extraction_policy_changed',409);
+        // Use the existing version-bound executor and publication safeguards.
+        $scope='recent_policy';
     } elseif ($action==='start_recent_policy_reextraction') {
         if ($keys!==['action','expected_count','expected_digest','policy_version','run_id']
             || !molavi_domain_ai_hash_valid($body['run_id'],32) || !molavi_domain_ai_hash_valid($body['expected_digest'])
@@ -112,22 +120,26 @@ function molavi_domain_ai_start(array $body, string $actor): array {
             $receipt += ['case_count'=>$inventory['case_count'],'message_count'=>$inventory['message_count']];
         } else {
             $policy = $scope==='recent_policy' ? $body['policy_version'] : null;
-            $inventory = molavi_domain_ai_inventory($tables,$images,$policy);
             $digest = null;
             if ($scope==='recent_policy') {
-                $recent = molavi_domain_ai_recent_inventory($inventory,$policy,$images);
-                if ($recent['eligible_count']!==$body['expected_count'] || $recent['digest']!==$body['expected_digest']) {
-                    molavi_domain_fail('reextraction_preview_changed',409,['current_count'=>$recent['eligible_count']]);
+                $recent = isset($body['offer_id'])
+                    ? molavi_domain_ai_offer_selection($tables,$body['offer_id'],$policy)
+                    : molavi_domain_ai_recent_inventory(molavi_domain_ai_inventory($tables,$images,$policy),$policy,$images);
+                $currentCount=count($recent['messages']);
+                if ($currentCount!==($body['expected_count']??1) || ($recent['digest']??null)!==$body['expected_digest']) {
+                    molavi_domain_fail('reextraction_preview_changed',409,['current_count'=>$currentCount]);
                 }
                 $selected = $recent['messages'];
                 $digest = $recent['digest'];
                 $receipt += ['policy_version'=>$policy,'digest'=>$digest];
             } elseif ($scope==='media_review') {
+                $inventory=molavi_domain_ai_inventory($tables,$images);
                 $selected = array_values(array_filter($inventory['media_review_messages'],static fn($item)=>$item['message_key']===$body['message_key']));
                 if (!$selected) molavi_domain_fail('stale_media_review');
                 $selected = array_slice($selected,0,1);
                 $receipt['message_key'] = $body['message_key'];
             } else {
+                $inventory=molavi_domain_ai_inventory($tables,$images);
                 if ($filtered) {
                     $selection = molavi_domain_ai_selection($inventory,$scope,$body['channels'],$body['date_from'],$body['date_to']);
                     $selected = $selection['messages'];
