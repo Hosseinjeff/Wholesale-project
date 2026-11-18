@@ -195,6 +195,20 @@ function molavi_owner_workflow_proxy_ajax(): void {
         ? strtoupper(sanitize_text_field(wp_unslash($_POST['method']))) : '';
     $path = isset($_POST['path']) && is_string($_POST['path'])
         ? wp_unslash($_POST['path']) : '';
+    if ($path==='/pipeline/dashboard-activity' && $method==='GET') {
+        nocache_headers();
+        if (!function_exists('molavi_domain_dashboard_activity') || !get_option('molavi_state_active',false)) {
+            wp_send_json(['ok'=>false,'error'=>'workflow_route_unavailable'],503);
+            return;
+        }
+        try { $report=molavi_domain_dashboard_activity(); }
+        catch (Throwable $error) {
+            wp_send_json(['ok'=>false,'error'=>'native_workflow_unavailable'],503);
+            return;
+        }
+        wp_send_json($report);
+        return;
+    }
     if ($path==='/pipeline/dashboard-bootstrap' && $method==='GET') {
         $force=isset($_POST['query']) && $_POST['query']==='?force=1';
         $result=molavi_owner_dashboard_bootstrap($force);
@@ -403,6 +417,7 @@ add_action('admin_enqueue_scripts', static function (): void {
         'pageUrls' => molavi_owner_workflow_page_urls(),
     ];
     if ($page === 'molavi-operations') {
+        $browserConfig['dashboardActivity'] = function_exists('molavi_domain_dashboard_activity') && (bool)get_option('molavi_state_active',false);
         $browserConfig['dashboardBootstrap'] = molavi_owner_dashboard_native();
         $browserConfig['workbenchDismissalNonce'] = wp_create_nonce('molavi_owner_workbench_dismissals');
         $browserConfig['workbenchDismissals'] = molavi_owner_workbench_dismissals_get();

@@ -327,6 +327,19 @@ class FreeGoogleRouter:
                        (self.project, self.project))
 
 
+def configured_model_budgets():
+    """Read the verified configuration without opening or changing the ledger."""
+    if os.getenv('GOOGLE_FREE_ROUTING', '').strip() != '1':
+        return ()
+    try:
+        values = json.loads(os.getenv('GOOGLE_FREE_MODELS', ''))
+        if not isinstance(values, list):
+            raise ValueError
+    except ValueError:
+        raise QuotaConfigurationError('GOOGLE_FREE_MODELS must be a verified model-budget array') from None
+    return tuple(ModelBudget.parse(value) for value in values)
+
+
 def configured_router():
     if os.getenv('GOOGLE_FREE_ROUTING', '').strip() != '1':
         return None
@@ -335,10 +348,4 @@ def configured_router():
     project = os.getenv('GOOGLE_QUOTA_PROJECT', '').strip()
     if not path or not os.path.isabs(path):
         raise QuotaConfigurationError('Persistent absolute GOOGLE_QUOTA_DB_PATH required')
-    try:
-        values = json.loads(os.getenv('GOOGLE_FREE_MODELS', ''))
-        if not isinstance(values, list):
-            raise ValueError
-    except ValueError:
-        raise QuotaConfigurationError('GOOGLE_FREE_MODELS must be a verified model-budget array') from None
-    return FreeGoogleRouter(path, project, [ModelBudget.parse(value) for value in values])
+    return FreeGoogleRouter(path, project, configured_model_budgets())

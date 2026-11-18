@@ -228,6 +228,7 @@
                 return;
             }
             button.disabled = true;
+            config.onRefresh?.(true);
             try {
                 const receipt = await request('POST', {
                     action: 'refresh',
@@ -252,7 +253,7 @@
             } catch (error) {
                 root.prepend(notice(messageText(error.message), 'error'));
                 button.disabled = false;
-            }
+            } finally { config.onRefresh?.(false); }
         });
         parent.appendChild(form);
     }

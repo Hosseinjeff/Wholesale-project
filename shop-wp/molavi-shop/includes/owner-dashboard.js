@@ -43,6 +43,12 @@
         let model = null;
         let busy = false;
         let sequence = 0;
+        let activityReport = null;
+        let activityTimer = 0;
+        let activityRequest = null;
+        let activityStale = false;
+        let updatingReference = false;
+        let activitySignature = '';
         root.className = 'molavi-dashboard';
         root.removeAttribute('aria-live');
         root.dir = 'rtl';
@@ -61,11 +67,151 @@
         });
         const status = el('p','','md-feedback');
         status.setAttribute('role','status'); status.setAttribute('aria-live','polite'); status.hidden=true;
+        const activityBar = el('aside',null,'md-activity');
+        activityBar.setAttribute('aria-label','کارهای در جریان');
+        activityBar.hidden=true;
+        const activityLive = el('span',null,'screen-reader-text');
+        activityLive.setAttribute('role','status');
+        const systemActivity = el('div',null,'md-system-activity');
         const health = el('div',null,'md-health');
         const main = el('main',null,'md-main');
-        app.append(head,nav,status,health,main); root.replaceChildren(app);
+        app.append(head,nav,activityBar,activityLive,status,health,main); root.replaceChildren(app);
         function button(text, onClick, name='md-button') {
             const item=el('button',text,name);item.type='button';item.addEventListener('click',onClick);return item;
+        }
+        const activityLabels={
+            reextract:'بازاستخراج پیام',batch:'پردازش پیام‌های ربات',intake:'پیام ورودی',
+            reference_suggest:'پیشنهاد مرجع',reference_index:'نمایه‌سازی مرجع',reference_refresh:'به‌روزرسانی فهرست مرجع',
+        };
+        const activityStates={running:'در حال اجرا',queued:'در صف',quota_wait:'منتظر سهمیه',needs_reference:'منتظر تصمیم مرجع'};
+        const taskLabels={extract:'استخراج',match:'تطبیق مرجع',embed:'نمایه‌سازی'};
+        const localClock=new Intl.DateTimeFormat('fa-IR',{timeZone:'Asia/Tehran',hour:'2-digit',minute:'2-digit'});
+        const localDateTime=new Intl.DateTimeFormat('fa-IR',{timeZone:'Asia/Tehran',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+        function activityDescription(entry,quota) {
+            const label=entry.kind==='reextract'
+                ? (entry.total===1?'بازاستخراج یک پیام':'بازاستخراج گروهی') : activityLabels[entry.kind];
+            const text=[label,activityStates[entry.state]];
+            if (entry.total) text.push(`${fa(entry.completed)} از ${fa(entry.total)}`);
+            else if (entry.running || entry.queued || entry.needs_reference) {
+                text.push(...[entry.running&&`${fa(entry.running)} در اجرا`,entry.queued&&`${fa(entry.queued)} در صف`,
+                    entry.needs_reference&&`${fa(entry.needs_reference)} منتظر مرجع`].filter(Boolean));
+            }
+            if (entry.retry_at) text.push(`نوبت بعد از ${localDateTime.format(entry.retry_at*1000)}`);
+            const task=entry.kind==='reference_suggest'?'match':['reextract','batch'].includes(entry.kind)?'extract':'';
+            const lastModel=entry.state==='running'?quota.last_models?.[task]?.model:'';
+            const model=entry.model || lastModel || (task==='extract'?quota.fixed_extraction_model:'');
+            if (model) {
+                text.push(lastModel?`آخرین مدل ${model}`:model);
+                const bucket=quota.buckets?.find(item=>item.models.includes(model));
+                if (bucket && quota.state==='tracked') text.push(`${fa(bucket.rpd_remaining)} درخواست باقی‌مانده`);
+            }
+            return text.filter(Boolean).join(' · ');
+        }
+        function openActivity(kind) {
+            if (['reextract','batch','intake'].includes(kind)) {
+                state.sourceContext=null;
+                state.pageCache.delete('sources');
+                navigate('sources');
+            } else navigate('references');
+        }
+        function quotaView(quota) {
+            const section=el('section',null,'md-quota');
+            section.appendChild(el('h2','سهمیهٔ روزانهٔ Google'));
+            if (!quota?.total) {
+                section.appendChild(el('p',quota?.fixed_extraction_model
+                    ? `مدل استخراج: ${quota.fixed_extraction_model} · مصرف ثبت‌شده در دسترس نیست.`
+                    : 'در انتظار گزارش تنظیمات مدل از سرویس استخراج.'));
+                return section;
+            }
+            const {used,limit,remaining}=quota.total;
+            section.appendChild(el('p',quota.state==='tracked'
+                ? `${fa(used)} از ${fa(limit)} درخواست ثبت شد · ${fa(remaining)} باقی‌مانده`
+                : `${fa(limit)} درخواست تخصیص‌یافته · در انتظار دفتر مصرف`));
+            section.appendChild(el('small',`سهمیهٔ همین محیط · بازنشانی ${localDateTime.format(quota.reset_at*1000)} به وقت تهران`));
+            const details=el('details');
+            details.open=Boolean(systemActivity.querySelector('.md-quota details')?.open);
+            details.appendChild(el('summary','سهمیهٔ هر مدل'));
+            const rows=el('ul',null,'md-quota-models');
+            (quota.buckets || []).forEach(bucket=>{
+                const row=el('li');
+                const ids=el('bdi',bucket.models.join(' / '));
+                row.append(ids,el('span',bucket.tasks.map(task=>taskLabels[task]).join('، ')));
+                const daily=quota.state==='tracked'
+                    ? `${fa(bucket.rpd_used)} از ${fa(bucket.rpd_limit)} درخواست امروز` : `${fa(bucket.rpd_limit)} درخواست در روز`;
+                const minute=`${fa(bucket.rpm_limit)} درخواست و ${fa(bucket.tpm_limit)} توکن در دقیقه`;
+                row.append(el('span',`${daily} · ${minute}`));
+                if (bucket.reserve_rpd) row.appendChild(el('small',`${fa(bucket.reserve_rpd)} درخواست محفوظ برای کار تعاملی`));
+                if (bucket.blocked_until) row.appendChild(el('small',`محدودیت موقت تا ${localDateTime.format(bucket.blocked_until*1000)}`));
+                rows.appendChild(row);
+            });
+            details.appendChild(rows);section.appendChild(details);
+            const models=Object.entries(quota.last_models || {}).map(([task,value])=>
+                `${taskLabels[task]}: ${value.model}، ${localClock.format(value.at*1000)}`);
+            if (models.length) section.appendChild(el('small',`آخرین مدل‌های استفاده‌شده · ${models.join(' | ')}`));
+            return section;
+        }
+        function paintActivity() {
+            if (!hooks.readActivity) return;
+            const groups=[...(activityReport?.groups || [])];
+            if (updatingReference && !groups.some(entry=>entry.kind==='reference_refresh')) {
+                groups.unshift({kind:'reference_refresh',state:'running'});
+            }
+            groups.sort((a,b)=>Number(b.state==='running')-Number(a.state==='running'));
+            const quota=activityReport?.quota || {};
+            const signature=JSON.stringify([groups,quota,activityStale]);
+            if (signature===activitySignature) return;
+            activitySignature=signature;
+            const visible=groups.slice(0,2);
+            const description=visible.map(entry=>activityDescription(entry,quota));
+            const announcement=description.join(' | ');
+            if (announcement!==activityLive.textContent) activityLive.textContent=announcement;
+            const all=el('ul',null,'md-activity-list');
+            const top=el('ul',null,'md-activity-list');
+            groups.forEach((entry,index)=>{
+                const row=el('li');
+                row.append(el('span',activityDescription(entry,quota)),
+                    button('جزئیات',()=>openActivity(entry.kind),'md-link'));
+                all.appendChild(row);
+                if (index<visible.length) {
+                    const short=el('li');
+                    short.append(el('span',description[index]),button('جزئیات',()=>openActivity(entry.kind),'md-link'));
+                    top.appendChild(short);
+                }
+            });
+            activityBar.replaceChildren(top);
+            activityBar.hidden=!groups.length;
+            if (groups.length>2) activityBar.appendChild(button(`همهٔ کارها (${fa(groups.length)})`,()=>navigate('system'),'md-link'));
+            if (activityStale && groups.length) activityBar.appendChild(el('small','آخرین وضعیت دریافت‌شده'));
+            const nextQuota=quotaView(quota);
+            systemActivity.replaceChildren();
+            if (groups.length) systemActivity.appendChild(all);
+            systemActivity.appendChild(nextQuota);
+            if (activityStale) systemActivity.appendChild(el('small','تازه‌سازی وضعیت موقتاً در دسترس نیست.'));
+        }
+        function refreshActivity() {
+            clearTimeout(activityTimer);
+            if (!hooks.readActivity || document.hidden || activityRequest) return;
+            activityRequest=hooks.readActivity().then(report=>{
+                activityReport=report;
+                activityStale=false;
+            }).catch(()=>{activityStale=true;}).finally(()=>{
+                activityRequest=null;
+                paintActivity();
+                if (!document.hidden) {
+                    const active=updatingReference || activityReport?.groups?.some(entry=>['running','queued'].includes(entry.state));
+                    activityTimer=setTimeout(refreshActivity,active?7000:30000);
+                }
+            });
+        }
+        function setReferenceRefresh(running) {
+            updatingReference=running;
+            paintActivity();
+            refreshActivity();
+        }
+        if (hooks.readActivity) {
+            document.addEventListener('visibilitychange',refreshActivity);
+            paintActivity();
+            refreshActivity();
         }
         function saveURL() {
             const url=new URL(location.href);
@@ -347,6 +493,7 @@
         }
         function systemView() {
             const view=el('section');view.append(el('h1','وضعیت سیستم'));
+            if (hooks.readActivity) view.appendChild(systemActivity);
             const counts=model.data.operations?.operations?.by_state;
             if (counts) {
                 const running=Number(counts.queued || 0)+Number(counts.running || 0);
@@ -451,14 +598,19 @@
             navigate('products');
             hooks.refresh();
         }
-        function reviewInboxCase(caseId) {
+        function reviewInboxItem(kind,id,fallbackProduct='') {
             state.scope='all';state.action='';state.search='';state.channel='';
-            state.focusType='case_id';state.focus=caseId;
-            state.active=model.products.find(matches)?.key || '';
-            state.section='ai';
+            state.focusType=kind;state.focus=id;
+            let product=model.products.find(matches);
+            if (!product && fallbackProduct) {
+                state.focusType='product_id';state.focus=fallbackProduct;
+                product=model.products.find(matches);
+            }
+            state.active=product?.key || '';
+            state.section=product && !['next','deferred'].includes(next(product)) ? next(product) : 'source_integrity';
             navigate('products');
         }
-        return {update,loading,navigate,dismissTask,reviewHold,showReviewResults,reviewInboxCase,reviewSource:product=>navigate('sources',product)};
+        return {update,loading,navigate,dismissTask,reviewHold,showReviewResults,reviewInboxItem,refreshActivity,setReferenceRefresh,reviewSource:product=>navigate('sources',product)};
     }
     window.MolaviDashboard={create,normalize,identities};
 })();

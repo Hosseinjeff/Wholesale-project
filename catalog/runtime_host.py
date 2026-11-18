@@ -24,10 +24,28 @@ def _suggestion_policy_version():
 def bot_capabilities():
     """Publish policy identities, never provider credentials or extracted data."""
     from catalog import gemini
-    return {'schema_version':1,'ai_configured':bool(gemini.ai_extraction_configured()),
-            'extraction_policy_version':gemini.extraction_policy_version(),
-            'suggestion_policy_version':_suggestion_policy_version(),
-            'image_extraction_enabled':callable(getattr(gemini,'extract_text_from_image',None))}
+    receipt = {'schema_version':1,'ai_configured':bool(gemini.ai_extraction_configured()),
+               'extraction_policy_version':gemini.extraction_policy_version(),
+               'suggestion_policy_version':_suggestion_policy_version(),
+               'image_extraction_enabled':callable(getattr(gemini,'extract_text_from_image',None))}
+    from catalog.google_quota import configured_model_budgets, QuotaConfigurationError
+    if os.getenv('GOOGLE_FREE_ROUTING', '').strip() != '1':
+        receipt['fixed_extraction_model'] = gemini.gemini_model() if receipt['ai_configured'] else None
+        return receipt
+    try:
+        budgets = configured_model_budgets()
+    except QuotaConfigurationError:
+        return receipt
+    project = os.getenv('GOOGLE_QUOTA_PROJECT', '').strip()
+    if budgets and project:
+        receipt['google_quota'] = {
+            'project': project,
+            'models': [{
+                'model': item.model, 'bucket': item.bucket, 'tasks': list(dict.fromkeys(item.tasks)),
+                'rpm': item.rpm, 'tpm': item.tpm, 'rpd': item.rpd, 'reserve_rpd': item.reserve_rpd,
+            } for item in budgets],
+        }
+    return receipt
 
 def configure_wordpress_connectors():
     """Hand service credentials directly to the protected WordPress host once.

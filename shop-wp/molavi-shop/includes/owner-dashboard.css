@@ -20,6 +20,17 @@
 #molavi-owner-workflow .md-navigation {display:flex;gap:25px;overflow:auto;padding:0 28px;background:var(--md-paper);border-bottom:1px solid var(--md-line);}
 #molavi-owner-workflow .md-nav-item {border:0;border-bottom:3px solid transparent;background:transparent;color:var(--md-muted);font:inherit;padding:12px 0;white-space:nowrap;cursor:pointer;}
 #molavi-owner-workflow .md-nav-item[aria-current="page"] {color:var(--md-green);border-bottom-color:var(--md-green);font-weight:700;}
+#molavi-owner-workflow .md-activity {padding:8px 28px;background:var(--md-soft);border-bottom:1px solid var(--md-line);}
+#molavi-owner-workflow .md-activity-list {list-style:none;margin:0;padding:0;}
+#molavi-owner-workflow .md-activity-list li {display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:4px 0;}
+#molavi-owner-workflow .md-activity-list span {overflow-wrap:anywhere;min-width:0;}
+#molavi-owner-workflow .md-activity-list button {flex-shrink:0;}
+#molavi-owner-workflow .md-system-activity {margin:12px 0;padding:12px 15px;background:var(--md-paper);border:1px solid var(--md-line);border-radius:9px;}
+#molavi-owner-workflow .md-system-activity small {color:var(--md-muted);}
+#molavi-owner-workflow .md-quota details {margin-top:8px;}
+#molavi-owner-workflow .md-quota-models {list-style:none;padding:0;margin:8px 0;}
+#molavi-owner-workflow .md-quota-models li {display:grid;padding:6px 0;border-top:1px solid var(--md-line);overflow-wrap:anywhere;}
+#molavi-owner-workflow .md-quota-models bdi {font-weight:700;}
 #molavi-owner-workflow .md-main {padding:28px;min-height:400px;}
 #molavi-owner-workflow .md-page-heading {display:flex;justify-content:space-between;gap:20px;margin-bottom:22px;}
 #molavi-owner-workflow .md-page-heading p {margin-top:5px;color:var(--md-muted);}
@@ -94,6 +105,7 @@
     #molavi-owner-workflow .md-header {padding:17px;}
     #molavi-owner-workflow .md-subtitle {display:none;}
     #molavi-owner-workflow .md-navigation {gap:20px;padding:0 17px;}
+    #molavi-owner-workflow .md-activity {padding-inline:12px;font-size:12px;}
     #molavi-owner-workflow .md-nav-item {font-size:12px;}
     #molavi-owner-workflow .md-main {padding:18px 12px;}
     #molavi-owner-workflow .md-filters {grid-template-columns:1fr 1fr;}

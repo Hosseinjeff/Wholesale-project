@@ -75,6 +75,16 @@ const fixtures={
      if(transientStatusOnce){transientStatusOnce=false;return await route.fulfill({status:503,json:{ok:false,error:'request_failed'}});}
     }
     if(failPrices&&path==='/pipeline/supplier-price-evidence')return await route.fulfill({status:503,json:{ok:false,error:'upstream_unavailable'}});
+    if (path==='/pipeline/dashboard-activity') {
+     return await route.fulfill({json:{ok:true,groups:[
+      {kind:'reextract',state:'running',total:8,completed:3},
+      {kind:'reference_index',state:'quota_wait',model:'gemini-embedding-001',total:50,completed:20,
+       retry_at:Date.now()/1000+3600},
+     ],quota:{state:'tracked',total:{used:2,limit:100,remaining:98},reset_at:Date.now()/1000+3600,
+      last_models:{extract:{model:'gemini-fixture',at:Date.now()/1000}},
+      buckets:[{models:['gemini-fixture'],tasks:['extract'],rpd_used:2,rpd_limit:100,rpd_remaining:98,
+       rpm_limit:3,tpm_limit:20000}]}}});
+    }
     if (path==='/pipeline/dashboard-bootstrap') {
      groupedLoads++;
      const routes={product_status:'/pipeline/product-status-snapshots',ai_confirmations:'/pipeline/ai-confirmations',
@@ -111,12 +121,12 @@ const fixtures={
   }
   return route.fulfill({contentType:'text/html',body:'<!doctype html><html lang="fa" dir="rtl"><body style="background:#f0f0f1;margin:20px"><div id="molavi-owner-workflow"></div></body></html>'});
  });
- async function mount(query='', dashboardBootstrap=false){
+ async function mount(query='', dashboardBootstrap=false, dashboardActivity=false){
   await page.goto('http://molavi.test/wp-admin/admin.php?page=molavi-operations'+query);
   await page.addStyleTag({content:fs.readFileSync(base+'owner-workflows.css','utf8')});
   await page.addStyleTag({content:fs.readFileSync(base+'owner-dashboard.css','utf8')});
-  await page.evaluate(dashboardBootstrap=>window.molaviOwnerWorkflow={dashboardBootstrap,page:'molavi-operations',apiUrl:'https://api.test/pipeline/operations-dashboard',apiProxyUrl:'/wp-admin/admin-ajax.php',apiProxyNonce:'mock',reviewStoreUrl:'/wp-admin/admin-ajax.php',reviewStoreNonce:'mock',workbenchDismissalNonce:'mock',workbenchDismissals:[],workflowApis:Object.fromEntries([
-    ['product_status','/pipeline/product-status-snapshots'],['ai_confirmations','/pipeline/ai-confirmations'],['reference_items','/reference/item-reviews'],['supplier_prices','/pipeline/supplier-price-evidence'],['sheet_conflicts','/pipeline/sheet-conflicts'],['publication_holds','/pipeline/publication-holds'],['reference_decisions','/reference/decisions'],['reconciliation','/pipeline/reconciliation']].map(([key,path])=>[key,{url:'https://api.test'+path}]))},dashboardBootstrap);
+  await page.evaluate(({dashboardBootstrap,dashboardActivity})=>window.molaviOwnerWorkflow={dashboardBootstrap,dashboardActivity,page:'molavi-operations',apiUrl:'https://api.test/pipeline/operations-dashboard',apiProxyUrl:'/wp-admin/admin-ajax.php',apiProxyNonce:'mock',reviewStoreUrl:'/wp-admin/admin-ajax.php',reviewStoreNonce:'mock',workbenchDismissalNonce:'mock',workbenchDismissals:[],workflowApis:Object.fromEntries([
+    ['product_status','/pipeline/product-status-snapshots'],['ai_confirmations','/pipeline/ai-confirmations'],['reference_items','/reference/item-reviews'],['supplier_prices','/pipeline/supplier-price-evidence'],['sheet_conflicts','/pipeline/sheet-conflicts'],['publication_holds','/pipeline/publication-holds'],['reference_decisions','/reference/decisions'],['reconciliation','/pipeline/reconciliation']].map(([key,path])=>[key,{url:'https://api.test'+path}]))},{dashboardBootstrap,dashboardActivity});
   for(const file of ['reference-snapshots.js','owner-dashboard.js','owner-workflows.js'])await page.addScriptTag({content:fs.readFileSync(base+file,'utf8')});
   await page.waitForSelector('.md-product-card');
  }
@@ -256,6 +266,16 @@ const fixtures={
  await page.getByRole('button',{name:'ادامه بدون مرجع',exact:true}).click();
  await page.getByText('گام فعلی · تأیید مشخصات',{exact:true}).waitFor();
  assert.equal(await page.getByText('گام فعلی · انتخاب مرجع و مبنای قیمت',{exact:true}).count(),0);
+ await mount('&workbench_action=ai',true,true);
+ const bar=page.locator('.md-activity');
+ await bar.getByText(/بازاستخراج گروهی.*۳ از ۸.*gemini-fixture.*۹۸/).waitFor();
+ await bar.getByText(/نمایه‌سازی مرجع.*منتظر سهمیه/).waitFor();
+ await page.getByRole('button',{name:'وضعیت سیستم',exact:true}).click();
+ await page.getByText('۲ از ۱۰۰ درخواست ثبت شد · ۹۸ باقی‌مانده',{exact:true}).waitFor();
+ await page.getByText('سهمیهٔ هر مدل',{exact:true}).click();
+ await page.locator('.md-quota').getByText('gemini-fixture',{exact:true}).waitFor();
+ await bar.getByRole('button',{name:'جزئیات',exact:true}).first().click();
+ await page.getByRole('heading',{name:'پیام‌های منبع',exact:true}).waitFor();
  assert.deepEqual(errors,[]);
  console.log(JSON.stringify({passed:true,errors,writes:writes.length,captures:['/tmp/molavi-dashboard-desktop.png','/tmp/molavi-dashboard-mobile.png']}));
  await browser.close();

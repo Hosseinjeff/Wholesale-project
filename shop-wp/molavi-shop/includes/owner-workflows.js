@@ -384,8 +384,13 @@
                 && Boolean(body && body.ok === false);
             throw error;
         }
-        if (method === 'POST' && window.parent !== window) {
-            window.parent.postMessage({ type: 'molavi-owner-workflow-updated' }, window.location.origin);
+        if (method === 'POST') {
+            if (payload?.action?.startsWith('start_') || ['cancel_reextraction','suggest_reference'].includes(payload?.action)) {
+                dashboardApp?.refreshActivity();
+            }
+            if (window.parent !== window) {
+                window.parent.postMessage({ type: 'molavi-owner-workflow-updated' }, window.location.origin);
+            }
         }
         return body;
     }
@@ -998,6 +1003,9 @@
         if (!dashboardApp) {
             dashboardApp = window.MolaviDashboard.create(root, {
                 refresh: () => dashboard(),
+                readActivity: config.dashboardActivity
+                    ? () => workflowRequest('GET',undefined,new URL('/pipeline/dashboard-activity',config.apiUrl).toString(),'')
+                    : null,
                 dismiss: async (records, reason, note) => {
                     await workbenchDismissalRequest('dismiss', {records:records.map(item => ({
                         ...item, reason:reason, scope:'selected', note:note || ''
@@ -1850,6 +1858,7 @@
                 window.MolaviReferenceCatalog.mount(catalog,{
                     apiUrl:new URL('/reference/snapshots',config.apiUrl).toString(),
                     apiProxyUrl:config.apiProxyUrl,apiProxyNonce:config.apiProxyNonce,
+                    onRefresh:running=>dashboardApp.setReferenceRefresh(running),
                     onUpdated:()=>dashboard('فهرست مرجع به‌روز شد.','success',['reference_items','product_status','reference_decisions'])
                 });
                 (data.reference_decisions && data.reference_decisions.events || []).forEach(event => {
@@ -3277,6 +3286,40 @@
         return details;
     }
 
+    async function loadInboxOffers(container,item) {
+        container.textContent='در حال دریافت پیشنهادها…';
+        try {
+            const url=new URL('/pipeline/reconciliation',config.apiUrl);
+            url.search=new URLSearchParams({
+                view:'inbox-offers',batch_id:item.batch_id,message_id:item.source_id,channel:item.channel,
+            });
+            const {offers}=await request('GET',undefined,url.toString(),'reconciliation');
+            container.replaceChildren();
+            const labels={known:'کالای موجود',compare:'کالاهای مشابه برای مقایسه',new:'پیشنهاد تازه'};
+            for (const offer of offers || []) {
+                const card=node('section',null,'molavi-product-subsection');
+                const open=node('button','بررسی پیشنهاد','button button-secondary');
+                open.type='button';
+                open.addEventListener('click',()=>dashboardApp.reviewInboxItem('offer_id',offer.offer_id,offer.product_id));
+                card.append(node('p',`${offer.name} · ${labels[offer.relationship]}`),open);
+                if (offer.similar?.length) {
+                    const compare=node('details');
+                    compare.appendChild(node('summary','مقایسه با کالاهای مشابه'));
+                    for (const match of offer.similar) {
+                        const label=[match.name,...(match.attributes || [])].join(' · ');
+                        const button=node('button',label,'button button-secondary');
+                        button.type='button';
+                        button.addEventListener('click',()=>dashboardApp.reviewInboxItem('product_id',match.product_id));
+                        compare.appendChild(button);
+                    }
+                    card.appendChild(compare);
+                }
+                container.appendChild(card);
+            }
+            if (!container.childNodes.length) container.textContent='پیشنهاد ثبت‌شده‌ای برای این پیام پیدا نشد.';
+        } catch (error) { container.textContent=errorText(error.message); }
+    }
+
     function recentBotMessages() {
         const list=node('details',null,'molavi-advanced-reextract');
         const contents=node('div');
@@ -3294,14 +3337,12 @@
                     const label=[formatSourceTimestamp(item.received_at),item.channel,state].filter(Boolean).join(' · ');
                     const row=node('details');
                     row.append(node('summary',label),node('p',item.excerpt || 'متن جداگانه ثبت نشده است.','md-source-text'));
-                    const cases=workbenchData?.ai_confirmations?.cases || [];
-                    for (const candidate of cases) {
-                        if (!item.batch_id || candidate.batch_id!==item.batch_id
-                            || String(candidate.message_id)!==item.source_id || candidate.channel!==item.channel) continue;
-                        const open=node('button',candidate.product_name,'button button-secondary');
-                        open.type='button';
-                        open.addEventListener('click',()=>dashboardApp.reviewInboxCase(candidate.case_id));
-                        row.appendChild(open);
+                    if (item.batch_id && item.source_id && ['done','needs_review'].includes(item.state)) {
+                        const offers=node('div');
+                        row.appendChild(offers);
+                        row.addEventListener('toggle',()=>{
+                            if (row.open && !offers.childNodes.length) loadInboxOffers(offers,item);
+                        });
                     }
                     contents.appendChild(row);
                 }

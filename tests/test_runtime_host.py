@@ -1,4 +1,5 @@
 import os
+import json
 import tempfile
 import threading
 import time
@@ -11,16 +12,31 @@ from catalog.runtime_host import enqueue_tasks,next_work_at,schedule_on_wordpres
 class RuntimeHostTests(unittest.TestCase):
     def test_capability_receipt_contains_only_local_policy_metadata(self):
         from catalog.runtime_host import bot_capabilities
-        with patch('catalog.gemini.ai_extraction_configured',return_value=True), \
+        with patch.dict(os.environ,{'GOOGLE_FREE_ROUTING':'0'}), \
+                patch('catalog.gemini.ai_extraction_configured',return_value=True), \
                 patch('catalog.gemini.extraction_policy_version',return_value='gemini-'+'a'*16), \
                 patch('catalog.runtime_host._suggestion_policy_version',return_value='b'*64):
             receipt=bot_capabilities()
         self.assertEqual(set(receipt),{'schema_version','ai_configured','extraction_policy_version',
-            'suggestion_policy_version','image_extraction_enabled'})
+            'suggestion_policy_version','image_extraction_enabled','fixed_extraction_model'})
         self.assertEqual(receipt['schema_version'],1)
         self.assertEqual(receipt['extraction_policy_version'],'gemini-'+'a'*16)
         self.assertEqual(receipt['suggestion_policy_version'],'b'*64)
         self.assertIs(receipt['ai_configured'],True)
+
+    def test_quota_metadata_reads_configuration_without_touching_the_ledger(self):
+        from catalog.runtime_host import bot_capabilities
+        model={'model':'gemini-synthetic','bucket':'shared','tasks':['extract','match'],
+               'rpm':12,'tpm':20000,'rpd':90,'reserve_rpd':5,'free_tier_verified':True,'qualified':True}
+        env={'GOOGLE_FREE_ROUTING':'1','GOOGLE_FREE_MODELS':json.dumps([model]),
+             'GOOGLE_QUOTA_PROJECT':'synthetic-project','GOOGLE_API_KEY':'synthetic-secret'}
+        with patch.dict(os.environ,env), patch('catalog.google_quota.connect_state') as connect:
+            report=bot_capabilities()['google_quota']
+        connect.assert_not_called()
+        self.assertEqual(report['project'],'synthetic-project')
+        self.assertEqual(report['models'],[{key:value for key,value in model.items()
+            if key not in {'free_tier_verified','qualified'}}])
+        self.assertNotIn('synthetic-secret',str(report))
 
     def test_absent_suggestion_executor_is_explicitly_unavailable(self):
         from catalog.runtime_host import bot_capabilities

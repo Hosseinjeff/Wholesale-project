@@ -20,4 +20,13 @@ caps_check($route['permission_callback']==='molavi_runtime_permission','callback
 caps_check($route['callback'](new SyntheticCapsRequest($caps))===['ok'=>true,'schema_version'=>1],'protected callback receipt');
 caps_check(molavi_domain_bot_capabilities()===$caps,'read uses local persistent receipt');
 caps_check($route['callback'](new SyntheticCapsRequest(['schema_version'=>1])) instanceof WP_Error,'invalid callback refused');
+$quota=['project'=>'synthetic-project','models'=>[
+    ['model'=>'gemini-test','bucket'=>'shared','tasks'=>['extract'],'rpm'=>4,'tpm'=>20000,'rpd'=>90,'reserve_rpd'=>0],
+    ['model'=>'gemini-test-alias','bucket'=>'shared','tasks'=>['match'],'rpm'=>4,'tpm'=>20000,'rpd'=>90,'reserve_rpd'=>0],
+]];
+caps_check(molavi_domain_validate_bot_capabilities($caps+['google_quota'=>$quota]),'validated service allowances accepted');
+$bad=$quota;$bad['models'][1]['rpd']=100;
+caps_check(!molavi_domain_validate_bot_capabilities($caps+['google_quota'=>$bad]),'shared aliases must use the same budget');
+$bad=$quota;$bad['models'][0]['api_key']='synthetic';
+caps_check(!molavi_domain_validate_bot_capabilities($caps+['google_quota'=>$bad]),'unexpected fields rejected');
 echo 'PASS native bot capabilities '.$count." checks\n";
