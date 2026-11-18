@@ -27,6 +27,30 @@
         return item;
     }
 
+    function aiSourceImageDetails(fileId) {
+        const details = node('details', null, 'molavi-review-media-details');
+        details.appendChild(node('summary', 'دیدن تصویر پیام مبدأ'));
+        let image = null;
+        let unavailable = null;
+        details.addEventListener('toggle', () => {
+            if (!details.open || image) return;
+            if (unavailable) unavailable.remove();
+            image = node('img', null, 'molavi-ai-source-image');
+            image.alt = 'تصویر پیام تأمین‌کننده';
+            image.decoding = 'async';
+            image.referrerPolicy = 'no-referrer';
+            image.onerror = () => {
+                image.remove();
+                image = null;
+                unavailable = notice('تصویر از تلگرام در دسترس نیست. پیام اصلی را بررسی کنید.', 'warning');
+                details.appendChild(unavailable);
+            };
+            details.appendChild(image);
+            image.src = new URL('/media/file/' + encodeURIComponent(String(fileId)), config.apiUrl).toString();
+        });
+        return details;
+    }
+
     function notice(text, kind = 'info') {
         const box = node('div', null, 'notice notice-' + kind);
         box.appendChild(node('p', text));
@@ -2473,17 +2497,7 @@
                 || (Array.isArray(options.sourcePriceGap.missing) && options.sourcePriceGap.missing.length)));
         const sourceVariantNeedsReview = Boolean(options.sourceVariantGap);
         const sourceStockNeedsReview = Boolean(options.sourceStockGap);
-        if (item.image_file_id) {
-            const mediaDetails = node('details', null, 'molavi-review-media-details');
-            mediaDetails.appendChild(node('summary', 'دیدن تصویر پیام مبدأ'));
-            const sourceImage=node('img',null,'molavi-ai-source-image');
-            sourceImage.src=new URL('/media/file/'+encodeURIComponent(String(item.image_file_id)),config.apiUrl).toString();
-            sourceImage.alt='תמונת منبع پیشنهاد'; sourceImage.loading='lazy'; sourceImage.decoding='async';
-            sourceImage.referrerPolicy='no-referrer';
-            sourceImage.onerror=()=>sourceImage.remove();
-            mediaDetails.appendChild(sourceImage);
-            card.appendChild(mediaDetails);
-        }
+        if (item.image_file_id) card.appendChild(aiSourceImageDetails(item.image_file_id));
         if (item.media_ocr_text) {
             card.appendChild(notice('این متن از روی تصویر خوانده شده و هنوز تصمیم نهایی نیست؛ نام و همه مبلغ‌ها را با عکس مقایسه کنید.','warning'));
             const ocrDetails=document.createElement('details');
@@ -2905,15 +2919,7 @@
                             details.appendChild(caption);
                         }
                         if (item.image_file_id) {
-                            const image = node('img');
-                            image.src = new URL('/media/file/' + encodeURIComponent(String(item.image_file_id)), config.apiUrl).toString();
-                            image.alt = 'تصویر پیام تأمین‌کننده'; image.loading = 'lazy'; image.decoding = 'async';
-                            image.referrerPolicy = 'no-referrer';
-                            image.onerror = () => {
-                                image.remove();
-                                details.insertBefore(notice('فایل تصویر از تلگرام در دسترس نیست؛ اگر پست باز می‌شود، آن را از همان منبع بررسی کنید.','warning'),details.firstChild);
-                            };
-                            card.appendChild(image);
+                            card.appendChild(aiSourceImageDetails(item.image_file_id));
                         } else {
                             card.appendChild(notice('برای این پیام فایل پیش‌نمایش ذخیره نشده است.','warning'));
                         }
