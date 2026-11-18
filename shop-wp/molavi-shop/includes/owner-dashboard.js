@@ -438,6 +438,7 @@
                         if (action) panel.append(action);
                         panel.append(button('کنارگذاشتن این کار',()=>dismissTask(model.dismissalTask(product,key)),'md-link md-muted'));
                     }
+                    if(key==='source_integrity')panel.append(model.renderProductSearch(product.name));
                     state.panels.set(cacheKey,panel);
                 }
                 details.append(panel);

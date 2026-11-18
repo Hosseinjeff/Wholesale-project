@@ -19,7 +19,7 @@ const fixtures={
 (async()=>{
  const browser=await chromium.launch({executablePath:'/usr/bin/chromium',headless:true,args:['--no-sandbox']});
  const page=await browser.newPage({viewport:{width:1365,height:1000}});const errors=[];const writes=[];let failPrices=false;let acceptPrice=false;let offerPreviews=0;let latestRun='';let runComplete=false;let groupedLoads=0;
- let activeReads=0,maxActiveReads=0,transientStatusOnce=true,statusReads=0,changeReads=0;
+ let activeReads=0,maxActiveReads=0,transientStatusOnce=true,statusReads=0,changeReads=0,catalogSearches=0;
  page.on('pageerror',e=>errors.push(e.message));
  await page.route('**/*',async route=>{
   const req=route.request();if(req.url().includes('/admin-ajax.php')){
@@ -94,6 +94,7 @@ const fixtures={
      return await route.fulfill({json:{ok:true,sources:Object.fromEntries(Object.entries(routes).map(([k,v])=>[k,{ok:true,...fixtures[v]}]))}});
     }
     if (path==='/reference/item-reviews'&&new URLSearchParams(f.get('query')).get('online')==='1') {
+     catalogSearches++;
      return await route.fulfill({json:{ok:true,results:[{title:'نمونه آنلاین',url:'https://rezvanpakhsh.com/product/example'}]}});
     }
     if(path==='/pipeline/ai-confirmations'){
@@ -158,6 +159,11 @@ const fixtures={
  assert.equal(writes.length,0,'navigation and reads never mutate');
  await mount('&workbench_action=supplier_prices&product_id=1');
  assert.equal(await page.locator('.md-product-card').count(),1,'exact ID, excludes product 10');
+ await first.getByRole('tab',{name:'منبع',exact:true}).click();
+ await first.getByText('جست‌وجوی اینترنتی کالا',{exact:true}).click();
+ assert.equal(await first.getByRole('searchbox',{name:'نام کالا برای جست‌وجوی اینترنتی'}).inputValue(),
+  'نودل سبزیجات بسته ۱۲ عددی','public search is available on the source tab of an already-matched product');
+ assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'search controls fit on mobile');
  await mount('&workbench_action=ai');
  assert.equal(await page.locator('.md-product-card').count(),1,'extraction without catalog product remains visible');
  await page.locator('.md-product-card').getByRole('button',{name:'بررسی مشخصات',exact:true}).click();
@@ -280,9 +286,25 @@ const fixtures={
  const beforeGrouped=groupedLoads;
  await mount('&workbench_action=ai',true);
  assert.equal(groupedLoads,beforeGrouped+1,'dashboard bootstrap replaces the individual initial reads');
- await page.getByText('جست‌وجوی آنلاین در کاتالوگ رزوان',{exact:true}).click();
- await page.getByRole('button',{name:'جست‌وجو',exact:true}).click();
+ await page.getByText('جست‌وجوی اینترنتی کالا',{exact:true}).click();
+ const productSearch=page.locator('.molavi-product-search[open]');
+ const query=productSearch.getByRole('searchbox');
+ assert.equal(await query.inputValue(),extraction.product_name);
+ await query.fill('  نودل سبزیجات & مدل ۱۲ عددی  ');
+ await page.context().route('https://www.google.com/search?*',route=>route.fulfill({body:'Search results'}));
+ const [google]=await Promise.all([page.context().waitForEvent('page'),productSearch.getByRole('button',{name:'جست‌وجو در گوگل'}).click()]);
+ await google.waitForURL('https://www.google.com/search?*');
+ const googleUrl=new URL(google.url());
+ assert.equal(googleUrl.origin+googleUrl.pathname,'https://www.google.com/search');
+ assert.equal(googleUrl.searchParams.get('q'),'نودل سبزیجات & مدل ۱۲ عددی');
+ assert.equal(googleUrl.searchParams.get('hl'),'fa');
+ assert.equal(await google.evaluate(()=>window.opener),null);
+ assert.equal(catalogSearches,0,'public search skips the Rezvan catalog');
+ await google.close();
+ await query.fill(extraction.product_name);
+ await productSearch.getByRole('button',{name:'جست‌وجو در رزوان'}).click();
  await page.getByRole('link',{name:'نمونه آنلاین'}).waitFor();
+ assert.equal(catalogSearches,1,'Rezvan uses its separate catalog lookup');
  await page.getByRole('button',{name:'ادامه بدون مرجع',exact:true}).click();
  await page.getByText('گام فعلی · تأیید مشخصات',{exact:true}).waitFor();
  assert.equal(await page.getByText('گام فعلی · انتخاب مرجع و مبنای قیمت',{exact:true}).count(),0);
