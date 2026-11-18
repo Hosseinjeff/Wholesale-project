@@ -13,11 +13,14 @@ function molavi_domain_reference_review_cases(array $tables,array $snapshot,bool
     $decisions=molavi_domain_read('reference',static fn(SQLite3 $db)=>molavi_domain_rows($db,'SELECT d.* FROM reference_item_decisions d WHERE snapshot_id=? AND sequence=(SELECT MAX(p.sequence) FROM reference_item_decisions p WHERE p.case_id=d.case_id)',[$id]));
     $byCase=[];foreach($decisions as $decision)$byCase[$decision['case_id']]=$decision;$cases=[];
     foreach(molavi_domain_records($tables['Products']??[]) as $product){$offerId=(string)molavi_domain_py_value($product['Latest Offer ID']??null);$offer=$offers[$offerId]??null;
-        $approval=(string)molavi_domain_py_value($product['Reference Approval State']??null);$due=in_array($approval,['outside_margin','reference_missing','price_unavailable'],true);
-        if(!$offer||((string)molavi_domain_py_value($offer['Reference Snapshot ID']??null)!==$id&&!$due))continue;
+        $approval=(string)molavi_domain_py_value($product['Reference Approval State']??null);
+        $waived=$approval==='owner_without_reference';
+        if($waived&&!$includeDecided)continue;
+        $due=in_array($approval,['outside_margin','reference_missing','price_unavailable'],true);
+        if(!$offer||((string)molavi_domain_py_value($offer['Reference Snapshot ID']??null)!==$id&&!$due&&!$waived))continue;
         $match=(string)molavi_domain_py_value($offer['Reference Match State']??null);$role=(string)molavi_domain_py_value($offer['Reference Price Role Hint']??null);
         if($due){$match='reference_price_changed';$role=(string)molavi_domain_py_value($product['Reference Price Role']??null,$role);}
-        elseif(in_array($match,['exact_compatible_identity','owner_approved_mapping'],true)&&in_array($role,['unit','package'],true))continue;
+        elseif(!$waived&&in_array($match,['exact_compatible_identity','owner_approved_mapping'],true)&&in_array($role,['unit','package'],true))continue;
         $case=molavi_domain_reference_case_id($offerId,$id);$decision=$byCase[$case]??null;
         $marker=(bool)($decision&&(string)molavi_domain_py_value($product['Reference Decision ID']??null)===(string)molavi_domain_py_value($decision['decision_id']??null));
         $status=strtolower(trim((string)molavi_domain_py_value($product['Status']??null)));$projected=$marker&&!($decision['choice']==='no_match'&&$status!=='needs_review');
@@ -31,7 +34,7 @@ function molavi_domain_reference_review_cases(array $tables,array $snapshot,bool
                 'reference_id'=>(string)molavi_domain_py_value($product['Reference Match ID']??null),'source_snapshot_id'=>(string)molavi_domain_py_value($product['Reference Snapshot ID']??null)]:null,
             'attributes'=>$attrs,'signature'=>molavi_domain_reference_signature($attrs),'candidates'=>$candidates?molavi_domain_reference_candidates($attrs+['supplier_price'=>$supplier],$snapshot['rows']??[],12):[],
             'projection_pending'=>(bool)($decision&&!$projected),'projection_pending_reason'=>$decision&&!$marker?'decision_not_projected':($decision&&$decision['choice']==='no_match'&&$status!=='needs_review'?'product_not_held':''),
-            'decision'=>$decision];
+            'decision'=>$decision]+($waived?['reference_waived'=>true]:[]);
     }return $cases;
 }
 function molavi_domain_reference_decide(array $payload,$expected,?string $clock=null): array {
@@ -39,7 +42,7 @@ function molavi_domain_reference_decide(array $payload,$expected,?string $clock=
         if(!is_string($payload[$key]??null)||trim($payload[$key])===''||molavi_domain_strlen($payload[$key])>$limit)molavi_domain_fail('invalid_fields',400);
     if(!molavi_domain_owner_actor($payload['actor_id']))molavi_domain_fail('owner_required',403);
     if($payload['choice']==='match'){if(!is_string($payload['reference_id'])||trim($payload['reference_id'])===''||molavi_domain_strlen($payload['reference_id'])>300||!in_array($payload['price_role'],['unit','package'],true))molavi_domain_fail('invalid_fields',400);}
-    elseif($payload['choice']!=='no_match'||!in_array($payload['reference_id'],['',null],true)||$payload['price_role']!=='unresolved')molavi_domain_fail('invalid_fields',400);
+    elseif(!in_array($payload['choice'],['no_match','proceed_without_reference'],true)||!in_array($payload['reference_id'],['',null],true)||$payload['price_role']!=='unresolved')molavi_domain_fail('invalid_fields',400);
     $payload['note']=trim($payload['note']);$payload['reference_id']=molavi_domain_py_value($payload['reference_id']);$id=molavi_domain_hash($payload);$now=$clock??molavi_domain_now();
     return molavi_domain_tx('reference',static function(SQLite3 $db)use($payload,$expected,$id,$now):array {
         $prior=molavi_domain_row($db,'SELECT * FROM reference_item_decisions WHERE decision_id=?',[$id]);if($prior)return $prior;
@@ -78,13 +81,91 @@ function molavi_domain_reference_receipts(array $cases,string $kind,string $snap
         }
     }return $cases;
 }
-function molavi_domain_reference_reviews_api(string $method,?array $body,string $actor,?string $clock=null): array {
+function molavi_domain_reference_waiver_case(string $offer): string {
+    return molavi_domain_reference_case_id($offer,'owner-without-reference');
+}
+
+function molavi_domain_search_online_reference(array $query): array {
+    $text=trim((string)($query['q']??''));
+    if (molavi_domain_strlen($text)<2 || molavi_domain_strlen($text)>120) molavi_domain_fail('invalid_search_query',400);
+    $key='molavi_online_reference_'.hash('sha256',$text);
+    $cached=get_transient($key);
+    if (is_array($cached)) return $cached;
+    $source=molavi_domain_reference_source();
+    $response=molavi_domain_http('GET',$source.'?'.http_build_query(['search'=>$text,'per_page'=>8],'','&',PHP_QUERY_RFC3986),
+        ['timeout'=>9,'limit_response_size'=>300000]);
+    $rows=json_decode(wp_remote_retrieve_body($response),true);
+    if (wp_remote_retrieve_response_code($response)!==200 || !is_array($rows) || !array_is_list($rows))
+        molavi_domain_fail('online_reference_unavailable',503);
+    $results=[];
+    foreach($rows as $row) {
+        $link=$row['permalink']??'';
+        if (!is_string($link)||wp_parse_url($link,PHP_URL_SCHEME)!=='https'
+            ||wp_parse_url($link,PHP_URL_HOST)!==wp_parse_url($source,PHP_URL_HOST)) continue;
+        $title=trim(html_entity_decode(strip_tags((string)($row['name']??'')),ENT_QUOTES|ENT_HTML5,'UTF-8'));
+        if ($title!=='') $results[]=['title'=>$title,'url'=>$link];
+    }
+    $result=['ok'=>true,'results'=>$results];
+    set_transient($key,$result,180);
+    return $result;
+}
+
+function molavi_domain_reference_proceed(array $body,string $actor,?string $clock=null): array {
+    molavi_domain_body_keys($body,['action','case_kind','case_id','offer_id','signature']);
+    foreach(['case_kind'=>20,'case_id'=>300,'offer_id'=>300,'signature'=>64] as $field=>$limit) {
+        if (!is_string($body[$field]) || strlen($body[$field])>$limit) molavi_domain_fail('invalid_fields',400);
+    }
+    if (!in_array($body['case_kind'],['ai','reference'],true) || $body['offer_id']==='') molavi_domain_fail('invalid_fields',400);
+    return molavi_domain_lock('publication',static function()use($body,$actor,$clock):array {
+        $tables=molavi_domain_sheets(['Products','Offers'],true);
+        $offers=molavi_domain_records($tables['Offers']);
+        $offerId=$body['offer_id'];$isAi=$body['case_kind']==='ai';
+        if ($isAi) {
+            $offer=molavi_domain_ai_reference_source($offers,$body['case_id'],$offerId,$body['signature']);
+        } else {
+            $current=array_values(array_filter(molavi_domain_records($tables['Products']),
+                static fn($row)=>(string)($row['Latest Offer ID']??'')===$offerId));
+            $matches=array_values(array_filter($offers,static fn($row)=>(string)($row['Offer ID']??'')===$offerId));
+            $offer=count($current)===1 && count($matches)===1 ? $matches[0] : null;
+        }
+        if (!$offer) molavi_domain_fail('stale_case');
+        $case=molavi_domain_reference_waiver_case($offerId);
+        $prior=molavi_domain_reference_latest($case);
+        $match=molavi_domain_read('reference',static fn(SQLite3 $db)=>molavi_domain_row($db,
+            "SELECT decision_id FROM reference_item_decisions WHERE offer_id=? AND choice='match' ORDER BY sequence DESC LIMIT 1",[$offerId]));
+        $decision=molavi_domain_reference_decide(['case_id'=>$case,'offer_id'=>$offerId,'snapshot_id'=>'owner-without-reference',
+            'signature'=>molavi_domain_reference_signature(molavi_domain_offer_attributes($offer)),
+            'choice'=>'proceed_without_reference','reference_id'=>'','price_role'=>'unresolved','actor_id'=>$actor,
+            'note'=>'Owner chose to review this offer without a catalog reference.'.($match?' After match '.$match['decision_id']:'')],$prior['decision_id']??null,$clock);
+        $receipt=['ok'=>true,'offer_id'=>$offerId,'choice'=>$decision['choice'],'decision_id'=>$decision['decision_id'],
+            'projection_state'=>'awaiting_ai_confirmation','publish_job'=>null];
+        if (!$isAi) {
+            molavi_domain_restore_source_product($offer,$clock);
+            $fresh=molavi_domain_sheets(['Products','Offers','Shop'],true);
+            foreach(molavi_domain_records($fresh['Products']) as $product) {
+                if (($product['Latest Offer ID']??null)===$offerId && ($product['Reference Decision ID']??null)===$decision['decision_id']) {
+                    $receipt['projection_state']=(string)($product['Status']??'');
+                    $receipt['publish_job']=molavi_domain_observe_projection(molavi_domain_projection_digest($fresh));
+                    return $receipt;
+                }
+            }
+            molavi_domain_fail('product_projection_unconfirmed',503);
+        }
+        return $receipt;
+    });
+}
+
+function molavi_domain_reference_reviews_api(string $method,?array $body,string $actor,?string $clock=null,array $query=[]): array {
+    if ($method==='GET' && ($query['online']??'')==='1') return molavi_domain_search_online_reference($query);
+    if ($method==='POST' && ($body['action']??'')==='proceed_without_reference') return molavi_domain_reference_proceed($body,$actor,$clock);
     $snapshot=molavi_domain_reference_active();$eligibility=molavi_domain_reference_use();
     if(!$eligibility['allow_automatic']||!$snapshot||$snapshot['snapshot_id']!==$eligibility['snapshot_id']){
         if($method==='POST'&&($body['action']??null)==='suggest_reference')molavi_domain_fail('stale_snapshot');return ['ok'=>true,'reference_state'=>$eligibility,'cases'=>[],'recent_decisions'=>[]];}
     $tables=molavi_domain_sheets(['Products','Offers'],true);
     if($method==='GET'){$all=molavi_domain_reference_review_cases($tables,$snapshot,true,false);$cases=[];$recent=[];
-        foreach($all as $case)if(!$case['decision']||$case['projection_pending']){$case['candidates']=molavi_domain_reference_candidates($case['attributes']+['supplier_price'=>molavi_domain_py_value($case['supplier_price'])],$snapshot['rows']??[],12);$cases[]=$case;}else $recent[]=$case;
+        $focused=trim((string)($query['offer_id']??''));
+        foreach($all as $case)if(($focused!==''&&$case['offer_id']===$focused)
+            || ($focused===''&&empty($case['reference_waived'])&&(!$case['decision']||$case['projection_pending']))){$case['candidates']=molavi_domain_reference_candidates($case['attributes']+['supplier_price'=>molavi_domain_py_value($case['supplier_price'])],$snapshot['rows']??[],12);$cases[]=$case;}elseif($focused===''&&empty($case['reference_waived'])) $recent[]=$case;
         $cases=molavi_domain_reference_receipts($cases,'reference',$snapshot['snapshot_id']);usort($recent,static fn($a,$b)=>strcmp((string)($b['decision']['created_at']??''),(string)($a['decision']['created_at']??'')));
         return ['ok'=>true,'reference_state'=>$eligibility,'cases'=>$cases,'recent_decisions'=>array_slice($recent,0,50)];}
     if(($body['action']??null)==='suggest_reference'){
@@ -123,7 +204,7 @@ function molavi_domain_reference_reviews_api(string $method,?array $body,string 
     }elseif($body['choice']==='no_match'){if($body['reference_id']!==''||$body['price_role']!=='unresolved')molavi_domain_fail('invalid_no_match',400);}
     else molavi_domain_fail('invalid_choice',400);
     $decision=molavi_domain_reference_decide(['case_id'=>$current['case_id'],'offer_id'=>$current['offer_id'],'snapshot_id'=>$current['snapshot_id'],'signature'=>$current['signature'],
-        'choice'=>$body['choice'],'reference_id'=>$body['reference_id'],'price_role'=>$body['price_role'],'actor_id'=>$actor,'note'=>$body['note']],$expected,$clock);
+        'choice'=>$body['choice'],'reference_id'=>$body['reference_id'],'price_role'=>$body['price_role'],'actor_id'=>$actor,'note'=>$body['note'].(!empty($current['reference_waived'])?' (after choosing no reference)':'')],$expected,$clock);
     return molavi_domain_lock('publication',static function()use($tables,$current,$decision,$body,$clock):array {
         $products=molavi_domain_records($tables['Products']);$offers=molavi_domain_records($tables['Offers']);$record=null;
         foreach($products as $product)if((string)molavi_domain_py_value($product['Latest Offer ID']??null)===$current['offer_id']){$record=$product;break;}
@@ -149,7 +230,7 @@ function molavi_domain_assign_ai_reference(array $body,string $actor,array $refe
         if(($latest['decision_id']??null)!==$body['expected_decision_id'])molavi_domain_fail('review_conflict');$attrs=molavi_domain_offer_attributes($source);
         if($body['price_role']==='package'&&!molavi_domain_match_package($attrs)&&!(float)molavi_domain_py_value($selected[6],0))molavi_domain_fail('package_count_required',400);
         $decision=molavi_domain_reference_decide(['case_id'=>$case,'offer_id'=>$body['offer_id'],'snapshot_id'=>$body['snapshot_id'],'signature'=>molavi_domain_reference_signature($attrs),
-            'choice'=>'match','reference_id'=>$body['reference_id'],'price_role'=>$body['price_role'],'actor_id'=>$actor,'note'=>'Owner assigned a reference from the in-progress extraction card.'],$body['expected_decision_id'],$clock);
+            'choice'=>'match','reference_id'=>$body['reference_id'],'price_role'=>$body['price_role'],'actor_id'=>$actor,'note'=>'Owner assigned a reference from the in-progress extraction card.'.(($waiver=molavi_domain_reference_latest(molavi_domain_reference_waiver_case($body['offer_id'])))?' After waiver '.$waiver['decision_id']:'' )],$body['expected_decision_id'],$clock);
         return ['ok'=>true,'case_id'=>$body['case_id'],'offer_id'=>$body['offer_id'],'snapshot_id'=>$body['snapshot_id'],'choice'=>'match','reference_id'=>$body['reference_id'],
             'reference_name'=>(string)molavi_domain_py_value($selected[0],$body['reference_id']),'decision_id'=>$decision['decision_id'],'price_role'=>$decision['price_role'],'projection_state'=>'awaiting_ai_confirmation','publish_job'=>null];
     },'reference'));

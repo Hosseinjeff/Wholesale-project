@@ -18,7 +18,7 @@ const fixtures={
 };
 (async()=>{
  const browser=await chromium.launch({executablePath:'/usr/bin/chromium',headless:true,args:['--no-sandbox']});
- const page=await browser.newPage({viewport:{width:1365,height:1000}});const errors=[];const writes=[];let failPrices=false;let acceptPrice=false;let offerPreviews=0;let latestRun='';let runComplete=false;
+ const page=await browser.newPage({viewport:{width:1365,height:1000}});const errors=[];const writes=[];let failPrices=false;let acceptPrice=false;let offerPreviews=0;let latestRun='';let runComplete=false;let groupedLoads=0;
  let activeReads=0,maxActiveReads=0,transientStatusOnce=true,statusReads=0;
  page.on('pageerror',e=>errors.push(e.message));
  await page.route('**/*',async route=>{
@@ -33,6 +33,11 @@ const fixtures={
       assert.equal(payload.expected_digest,'a'.repeat(64));
       latestRun=payload.run_id;
       return route.fulfill({status:202,json:{ok:true,run_id:payload.run_id,queued:1,policy_version:payload.policy_version,digest:payload.expected_digest}});
+    }
+    if(path==='/reference/item-reviews'&&JSON.parse(f.get('payload')||'{}').action==='proceed_without_reference'){
+      const payload=JSON.parse(f.get('payload'));
+      fixtures['/pipeline/ai-confirmations'].cases[0].reference_waived='waiver-1';
+      return route.fulfill({json:{ok:true,offer_id:payload.offer_id,choice:payload.action,decision_id:'waiver-1'}});
     }
     if(path==='/reference/item-reviews'&&JSON.parse(f.get('payload')||'{}').action==='assign_ai_reference'){
       const payload=JSON.parse(f.get('payload'));
@@ -70,6 +75,17 @@ const fixtures={
      if(transientStatusOnce){transientStatusOnce=false;return await route.fulfill({status:503,json:{ok:false,error:'request_failed'}});}
     }
     if(failPrices&&path==='/pipeline/supplier-price-evidence')return await route.fulfill({status:503,json:{ok:false,error:'upstream_unavailable'}});
+    if (path==='/pipeline/dashboard-bootstrap') {
+     groupedLoads++;
+     const routes={product_status:'/pipeline/product-status-snapshots',ai_confirmations:'/pipeline/ai-confirmations',
+      reference_items:'/reference/item-reviews',supplier_prices:'/pipeline/supplier-price-evidence',
+      sheet_conflicts:'/pipeline/sheet-conflicts',publication_holds:'/pipeline/publication-holds',
+      reference_decisions:'/reference/decisions',operations:'/pipeline/operations-dashboard'};
+     return await route.fulfill({json:{ok:true,sources:Object.fromEntries(Object.entries(routes).map(([k,v])=>[k,{ok:true,...fixtures[v]}]))}});
+    }
+    if (path==='/reference/item-reviews'&&new URLSearchParams(f.get('query')).get('online')==='1') {
+     return await route.fulfill({json:{ok:true,results:[{title:'نمونه آنلاین',url:'https://rezvanpakhsh.com/product/example'}]}});
+    }
     if(path==='/pipeline/ai-confirmations'){
      const query=new URLSearchParams(f.get('query'));
      const common={ok:true,ai_configured:true,policy_version:fixtures[path].extraction_policy_version,digest:'a'.repeat(64)};
@@ -95,20 +111,20 @@ const fixtures={
   }
   return route.fulfill({contentType:'text/html',body:'<!doctype html><html lang="fa" dir="rtl"><body style="background:#f0f0f1;margin:20px"><div id="molavi-owner-workflow"></div></body></html>'});
  });
- async function mount(query=''){
+ async function mount(query='', dashboardBootstrap=false){
   await page.goto('http://molavi.test/wp-admin/admin.php?page=molavi-operations'+query);
   await page.addStyleTag({content:fs.readFileSync(base+'owner-workflows.css','utf8')});
   await page.addStyleTag({content:fs.readFileSync(base+'owner-dashboard.css','utf8')});
-  await page.evaluate(()=>window.molaviOwnerWorkflow={page:'molavi-operations',apiUrl:'https://api.test/pipeline/operations-dashboard',apiProxyUrl:'/wp-admin/admin-ajax.php',apiProxyNonce:'mock',reviewStoreUrl:'/wp-admin/admin-ajax.php',reviewStoreNonce:'mock',workbenchDismissalNonce:'mock',workbenchDismissals:[],workflowApis:Object.fromEntries([
-    ['product_status','/pipeline/product-status-snapshots'],['ai_confirmations','/pipeline/ai-confirmations'],['reference_items','/reference/item-reviews'],['supplier_prices','/pipeline/supplier-price-evidence'],['sheet_conflicts','/pipeline/sheet-conflicts'],['publication_holds','/pipeline/publication-holds'],['reference_decisions','/reference/decisions'],['reconciliation','/pipeline/reconciliation']].map(([key,path])=>[key,{url:'https://api.test'+path}]))});
+  await page.evaluate(dashboardBootstrap=>window.molaviOwnerWorkflow={dashboardBootstrap,page:'molavi-operations',apiUrl:'https://api.test/pipeline/operations-dashboard',apiProxyUrl:'/wp-admin/admin-ajax.php',apiProxyNonce:'mock',reviewStoreUrl:'/wp-admin/admin-ajax.php',reviewStoreNonce:'mock',workbenchDismissalNonce:'mock',workbenchDismissals:[],workflowApis:Object.fromEntries([
+    ['product_status','/pipeline/product-status-snapshots'],['ai_confirmations','/pipeline/ai-confirmations'],['reference_items','/reference/item-reviews'],['supplier_prices','/pipeline/supplier-price-evidence'],['sheet_conflicts','/pipeline/sheet-conflicts'],['publication_holds','/pipeline/publication-holds'],['reference_decisions','/reference/decisions'],['reconciliation','/pipeline/reconciliation']].map(([key,path])=>[key,{url:'https://api.test'+path}]))},dashboardBootstrap);
   for(const file of ['reference-snapshots.js','owner-dashboard.js','owner-workflows.js'])await page.addScriptTag({content:fs.readFileSync(base+file,'utf8')});
   await page.waitForSelector('.md-product-card');
  }
  await mount();
- assert.equal(await page.locator('.md-product-card').count(),1,'the default queue contains only ready work');
- assert.match(await page.locator('.md-product-card').innerText(),/نودل سبزیجات/);
+ assert.equal(await page.locator('.md-product-card').count(),2,'ready work includes extraction with no active reference');
+ assert.match(await page.locator('.md-product-card').first().innerText(),/بیسکویت شکلاتی/);
  await page.getByRole('button',{name:/^در انتظار پیگیری/}).click();
- assert.equal(await page.locator('.md-product-card').count(),2,'source repair and missing reference remain available');
+ assert.equal(await page.locator('.md-product-card').count(),1,'source repair remains available');
  await page.getByRole('button',{name:/^آمادهٔ بررسی/}).click();assert.equal(writes.length,0);assert.deepEqual(errors,[]);
  assert.equal(maxActiveReads,1,'owner reads leave WordPress workers free for state callbacks');
  assert.equal(statusReads,2,'one temporary read failure gets one bounded retry');
@@ -230,6 +246,16 @@ const fixtures={
  assert.equal(await page.locator('.molavi-ai-confirmation-step').isVisible(),false,'confirmation remains hidden before current source check');
  await page.locator('.molavi-reextract-current-check input').check();
  await page.getByText('گام فعلی · تأیید مشخصات',{exact:true}).waitFor();
+ delete extraction.reference_assignment;extraction.source_current_check_required=false;
+ const beforeGrouped=groupedLoads;
+ await mount('&workbench_action=ai',true);
+ assert.equal(groupedLoads,beforeGrouped+1,'dashboard bootstrap replaces the individual initial reads');
+ await page.getByText('جست‌وجوی آنلاین در کاتالوگ رزوان',{exact:true}).click();
+ await page.getByRole('button',{name:'جست‌وجو',exact:true}).click();
+ await page.getByRole('link',{name:'نمونه آنلاین'}).waitFor();
+ await page.getByRole('button',{name:'ادامه بدون مرجع',exact:true}).click();
+ await page.getByText('گام فعلی · تأیید مشخصات',{exact:true}).waitFor();
+ assert.equal(await page.getByText('گام فعلی · انتخاب مرجع و مبنای قیمت',{exact:true}).count(),0);
  assert.deepEqual(errors,[]);
  console.log(JSON.stringify({passed:true,errors,writes:writes.length,captures:['/tmp/molavi-dashboard-desktop.png','/tmp/molavi-dashboard-mobile.png']}));
  await browser.close();

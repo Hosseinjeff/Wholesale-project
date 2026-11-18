@@ -903,7 +903,7 @@ class Handoffs:
                 ('run_id','state','total','completed','counts','scope','case_count','digest',
                  'policy_version')}
 
-    def receive(self, message):
+    def receive(self, message, *, include_inserted=False):
         # Source identity ignores re-forward metadata but includes direct channel edit time.
         identity = {k:message.get(k) for k in ('channel','channel_username','id','content',
                     'image_file_id','media_group_id','source_update_at')}
@@ -915,9 +915,9 @@ class Handoffs:
             raise ValueError('Source message identity required')
         key = hashlib.sha256(self.encode(identity).encode()).hexdigest()
         with self.connect() as db:
-            db.execute('INSERT OR IGNORE INTO inbox(id,payload,batch_id,received_at) VALUES (?,?,NULL,?)',
-                       (key,self.encode(message),time.time()))
-        return key
+            inserted = db.execute('INSERT OR IGNORE INTO inbox(id,payload,batch_id,received_at) VALUES (?,?,NULL,?)',
+                                  (key,self.encode(message),time.time())).rowcount == 1
+        return (key, inserted) if include_inserted else key
 
     def batch(self, limit=100):
         with self.connect() as db:

@@ -56,6 +56,14 @@ function molavi_domain_ai_reviews_get(array $tables,?float $clock=null): array {
     $snapshot=null;try{$candidate=molavi_domain_reference_active();$state=molavi_domain_reference_use();if($candidate&&$state['allow_automatic']&&$candidate['snapshot_id']===$state['snapshot_id'])$snapshot=$candidate;}catch(Throwable $e){}
     [$cases,$recent]=molavi_domain_ai_review_cases($tables,$snapshot,true,200,$clock);if($snapshot)$cases=molavi_domain_reference_receipts($cases,'ai',$snapshot['snapshot_id']);$scope=molavi_domain_ai_hold_scope();
     foreach($cases as &$case)$case['publication_held']=molavi_domain_ai_held($scope,$case);unset($case);foreach($recent as &$case)$case['publication_held']=molavi_domain_ai_held($scope,$case);unset($case);
+    $snapshotId=$snapshot['snapshot_id']??'';
+    $waivers=molavi_domain_read('reference',static fn(SQLite3 $db)=>molavi_domain_rows($db,
+        "SELECT w.offer_id,w.decision_id FROM reference_item_decisions w WHERE w.choice='proceed_without_reference'
+         AND NOT EXISTS (SELECT 1 FROM reference_item_decisions m WHERE m.offer_id=w.offer_id
+             AND m.snapshot_id=? AND m.choice='match' AND m.sequence>w.sequence) ORDER BY w.sequence",[$snapshotId]));
+    $waived=array_column($waivers,'decision_id','offer_id');
+    foreach($cases as &$case) if(isset($waived[$case['offer_id']])) $case['reference_waived']=$waived[$case['offer_id']];
+    unset($case);
     $policy=null;
     try {$policy=molavi_domain_bot_capabilities()['extraction_policy_version'];} catch(MolaviWorkflowError $e) {}
     return ['ok'=>true,'cases'=>$cases,'recent_decisions'=>$recent,'publication_held'=>(bool)$scope['batch_ids'],

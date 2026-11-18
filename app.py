@@ -187,7 +187,14 @@ class DurableBatchManager:
         self.lock = threading.Lock()
 
     def add_message(self, data):
-        self.queue.receive(data)  # Commit before returning webhook acknowledgement.
+        _key, inserted = self.queue.receive(data, include_inserted=True)
+        if inserted and private_chat(data):
+            channel = data.get('channel') or 'telegram'
+            def acknowledge():
+                send_chat_text(data.get('chat_id'), 'پیام دریافت شد و در صف بررسی است.', channel=channel)
+                _remember_quiet(data)
+
+            start_background(acknowledge, name='incoming-receipt')
         from catalog.runtime_host import on_demand
         if on_demand():
             _start_pipeline_worker(force=True)
@@ -308,7 +315,8 @@ def run_durable_handoff(queue, job_id=None, worker_id=None):
                 selected = [p for p in prompts if str(p.get("chat_id")) == chat]
                 from catalog.bot_ui import prompt_keyboard,button_text
                 keyboard=prompt_keyboard(selected[0] if selected else None,chat,BOT_TOKEN) if channel=='telegram' else None
-                text=format_batch_reply({**result,"prompts":selected})
+                found=(result.get('products_by_sender') or {}).get(f'{channel}:{chat}', 0)
+                text=format_batch_reply({**result,"prompts":selected,"products_found":found})
                 notice(payload['batch_id'],chat,button_text(text,keyboard) if keyboard else text,channel,keyboard)
         if result.get('status') == 'success' and result.get('extraction_status') == 'success' and not result.get('rollback'):
             queue.resolve_publication_hold(payload['batch_id'], expected_reason='batch_in_progress',
@@ -766,7 +774,10 @@ def format_batch_reply(data):
             lines.append("")
         lines.append(prompts[0].get("question") or "")
     if not lines:
-        return "قیمتی در این پیام نبود."
+        found = int(data.get("products_found") or 0)
+        if found:
+            return f"{found} پیشنهاد از پیام استخراج شد. وضعیت قیمت، بررسی و انتشار را در داشبورد ببینید."
+        return "پردازش تمام شد؛ پیشنهادی برای ثبت پیدا نشد."
     return "\n".join(lines)
 
 
@@ -1021,8 +1032,11 @@ def handle_inbound_update(update_json, channel):
                 store = None
         send_chat_text(data.get("chat_id"), "پیام کالا را بفرستید یا فوروارد کنید. گزارش‌ها با دکمه‌های زیر در دسترس‌اند." if command=="help" and channel=="telegram" else reply_for_command(command, store),channel=channel)
         return jsonify({"status": "command", "command": command})
-    _remember_quiet(data)
-    if source == "direct" and USE_SHEETS:
+    from catalog.sync import parse_prompt_answer
+    reply_candidate = source == "direct" and (
+        message.get('reply_to_message') or parse_prompt_answer(data.get('content') or ''))
+    if reply_candidate and USE_SHEETS:
+        _remember_quiet(data)
         try:
             store=build_store()
             if channel=='telegram' and handoff_queue() is not None:
@@ -1040,6 +1054,8 @@ def handle_inbound_update(update_json, channel):
                 clear_price_entry(handoff_queue(),data.get("chat_id"));_queue_prompt_publication(handoff_queue(),store)
             send_chat_text(data.get("chat_id"), outcome.get("reply") or "",channel=channel,reply_markup=_prompt_keyboard_for(store,data.get("chat_id")) if channel=="telegram" else None)
             return jsonify({"status": "resolved" if outcome.get("understood") else "needs_answer"})
+    if not reply_candidate and not os.getenv('PIPELINE_DB_PATH'):
+        _remember_quiet(data)
     success = enqueue_message(data)
     return jsonify({'status': 'success' if success else 'error', 'source': source}), 200 if success else 503
 

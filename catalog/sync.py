@@ -684,6 +684,7 @@ def _finalize_batch(store: MemoryStore | GoogleSheetStore, payload: dict[str, An
         "extraction_error": str(extraction.get("error") or ""),
         "extraction_detail": str(extraction.get("detail") or "")[:180],
         "processed_messages": extraction["processed"],
+        "products_by_sender": extraction.get("products_by_sender", {}),
         "rollback": bool(extraction.get("rollback")),
         "saved": desk.get("saved") or [],
         "prompts": desk.get("prompts") or [],
@@ -692,6 +693,7 @@ def _finalize_batch(store: MemoryStore | GoogleSheetStore, payload: dict[str, An
 
 def _process_batch_products(store, batch_id: str, messages: list[dict[str, Any]], *, reference_snapshot=None) -> dict[str, Any]:
     processed = 0
+    products_by_sender = {}
     items = messages or [{"id": message_id, "batch_id": batch_id} for message_id in _list_batch_message_ids(store, batch_id)]
     for message in items:
         message = dict(message or {})
@@ -728,8 +730,11 @@ def _process_batch_products(store, batch_id: str, messages: list[dict[str, Any]]
             refresh_ai_message_status(store, message)
         except Exception:
             logger.exception('Could not persist AI message status')
+        if message.get('chat_id'):
+            sender = f"{message.get('channel') or 'telegram'}:{message['chat_id']}"
+            products_by_sender[sender] = products_by_sender.get(sender, 0) + int(result.get('products_found') or 0)
         processed += 1
-    return {"status": "success", "processed": processed}
+    return {"status": "success", "processed": processed, "products_by_sender": products_by_sender}
 
 
 def _ai_review_reason(offer):
@@ -2219,14 +2224,13 @@ def _apply_reference_item_review(product, offer, ledger, active_snapshot_id):
     if ledger is None:
         return product
     offer_id = str(offer.get('Offer ID') or '')
-    if not active_snapshot_id or not offer_id:
+    if not offer_id:
         return product
     from reference_import.item_reviews import review_case_id
-    decision = ledger.get(review_case_id(offer_id, active_snapshot_id))
-    if not decision:
-        source_offer_id = str(offer.get('Derived From Offer ID') or '')
-        if source_offer_id:
-            decision = ledger.get(review_case_id(source_offer_id, active_snapshot_id))
+    source_offer_id = str(offer.get('Derived From Offer ID') or '')
+    decision = ledger.get(review_case_id(offer_id, active_snapshot_id)) if active_snapshot_id else None
+    if not decision and source_offer_id and active_snapshot_id:
+        decision = ledger.get(review_case_id(source_offer_id, active_snapshot_id))
     if not decision:
         source_snapshot_id = str(offer.get('Reference Snapshot ID') or '')
         if source_snapshot_id == active_snapshot_id:
@@ -2243,7 +2247,23 @@ def _apply_reference_item_review(product, offer, ledger, active_snapshot_id):
                     'reference_id': inherited['reference_id'], 'price_role': inherited['price_role'],
                     'inherited': True, 'change_ratio': inherited.get('change_ratio'),
                 }
-    if not decision or decision.get('snapshot_id') != active_snapshot_id:
+    if decision and decision.get('snapshot_id') != active_snapshot_id:
+        decision = None
+    waiver_ids = [review_case_id(key, 'owner-without-reference') for key in (offer_id, source_offer_id) if key]
+    waivers = ledger.get_for_cases(waiver_ids)
+    waiver = max(waivers.values(), key=lambda value: value['sequence'], default=None)
+    if waiver and waiver['sequence'] > (decision or {}).get('sequence', 0):
+        product.update({
+            'reference_snapshot_id': '', 'reference_match_id': '', 'reference_price_role': 'unresolved',
+            'reference_decision_id': waiver['decision_id'], 'reference_approval_state': 'owner_without_reference',
+            'reference_price_change_percent': '',
+        })
+        reasons = [part.strip() for part in str(offer.get('Review Reason') or '').split(';') if part.strip()]
+        if product.get('status') == 'needs_review' and reasons and all(
+                reason.lower().startswith('reference:') for reason in reasons):
+            product['status'] = 'imported'
+        return product
+    if not decision:
         return product
     product['reference_snapshot_id'] = active_snapshot_id
     product['reference_decision_id'] = decision.get('decision_id') or ''

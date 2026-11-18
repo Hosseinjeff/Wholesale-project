@@ -24,4 +24,27 @@ foreach($fixture['api'] as $case){review_seed('reference',$case['seed']);review_
     review_same($status,$case['status'],'API status/'.$case['name']);review_same($actual,$case['expected'],'API receipt/'.$case['name']);
     review_same(molavi_domain_read('reference',static fn($db)=>molavi_domain_rows($db,'SELECT * FROM reference_item_decisions ORDER BY sequence')),$case['after_reference'],'audited decisions/'.$case['name']);
     review_same($GLOBALS['review_tables'],$case['after_tables'],'product projection/'.$case['name']);review_same($jobs,$case['jobs'],'queued work/'.$case['name']);}
+$GLOBALS['review_tables']=['Products'=>[],'Offers'=>[
+    ['Offer ID','Product Name','Channel Username','Status','Review Reason'],
+    ['no-reference-offer','Synthetic offer','sample','needs_review','price needs review; reference: no match'],
+]];
+review_seed('reference',[]);
+review_seed('pipeline',[]);
+$offer=molavi_domain_records($GLOBALS['review_tables']['Offers'])[0];
+$id=$offer['Offer ID'];
+$choice=molavi_domain_reference_reviews_api('POST',[
+    'action'=>'proceed_without_reference','case_kind'=>'ai','case_id'=>'ai:'.hash('sha256',$id),
+    'offer_id'=>$id,'signature'=>molavi_domain_hash($offer),
+],'wp:7',$clock);
+review_same($choice['projection_state'],'awaiting_ai_confirmation','waiving a reference preserves the extraction decision');
+$held=molavi_domain_product_reference_review(['status'=>'needs_review'],$offer,'',$clock);
+review_same($held['status'],'needs_review','independent price warning remains in review');
+$offer['Review Reason']='reference: no match';
+$derived=molavi_domain_product_reference_review(['status'=>'needs_review'],$offer,'',$clock);
+review_same([$derived['status'],$derived['reference_approval_state']],['imported','owner_without_reference'],'reference-only hold releases with an explicit owner choice');
+$match=molavi_domain_reference_decide(['case_id'=>molavi_domain_reference_case_id($id,'future-list'),
+    'offer_id'=>$id,'snapshot_id'=>'future-list','signature'=>'catalog-signature','choice'=>'match',
+    'reference_id'=>'REF-44','price_role'=>'unit','actor_id'=>'wp:7','note'=>'Later catalog match.'],null,$clock);
+$derived=molavi_domain_product_reference_review(['status'=>'needs_review'],$offer,'future-list',$clock);
+review_same([$derived['reference_match_id'],$derived['reference_decision_id']],['REF-44',$match['decision_id']],'later assignment replaces waiver');
 foreach(glob($root.'/*') as $file)unlink($file);rmdir($root);echo 'PASS native reference reviews '.$count." checks\n";

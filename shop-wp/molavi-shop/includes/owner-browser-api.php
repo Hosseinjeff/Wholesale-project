@@ -132,6 +132,56 @@ function molavi_owner_workflow_proxy_call(string $method, string $path, array $q
     return ['status'=>$status, 'body'=>$body];
 }
 
+function molavi_owner_dashboard_routes(): array {
+    return [
+        'product_status'=>'/pipeline/product-status-snapshots',
+        'ai_confirmations'=>'/pipeline/ai-confirmations',
+        'reference_items'=>'/reference/item-reviews',
+        'supplier_prices'=>'/pipeline/supplier-price-evidence',
+        'sheet_conflicts'=>'/pipeline/sheet-conflicts',
+        'publication_holds'=>'/pipeline/publication-holds',
+        'reference_decisions'=>'/reference/decisions',
+        'operations'=>'/pipeline/operations-dashboard',
+    ];
+}
+
+function molavi_owner_dashboard_native(): bool {
+    if (!function_exists('molavi_domain_dashboard_snapshot') || !function_exists('molavi_domain_route_enabled')) return false;
+    foreach (molavi_owner_dashboard_routes() as $path) {
+        if (!molavi_domain_route_enabled('GET',$path)) return false;
+    }
+    return true;
+}
+
+function molavi_owner_dashboard_cache_key(): string {
+    return 'molavi_owner_dashboard_' . filemtime(__FILE__);
+}
+
+function molavi_owner_dashboard_cache_clear(): void {
+    delete_transient(molavi_owner_dashboard_cache_key());
+}
+
+function molavi_owner_dashboard_bootstrap(bool $force): array {
+    if (!molavi_owner_dashboard_native()) return ['status'=>503,'body'=>['ok'=>false,'error'=>'workflow_route_unavailable']];
+    $key=molavi_owner_dashboard_cache_key();
+    $cached=$force?false:get_transient($key);
+    if (is_array($cached)) return ['status'=>200,'body'=>$cached+['cached'=>true]];
+    $actor='wp:'.get_current_user_id();
+    $read=static function() use ($actor): array {
+        $sources=[];
+        foreach (molavi_owner_dashboard_routes() as $name=>$path) {
+            $result=molavi_domain_dispatch('GET',$path,[],null,$actor);
+            $sources[$name]=$result['body'];
+        }
+        return $sources;
+    };
+    try { $sources=molavi_domain_dashboard_snapshot($read); }
+    catch (Throwable $error) { return ['status'=>503,'body'=>['ok'=>false,'error'=>'native_workflow_unavailable']]; }
+    $body=['ok'=>true,'sources'=>$sources];
+    if (!array_filter($sources,static fn($source)=>empty($source['ok']))) set_transient($key,$body,20);
+    return ['status'=>200,'body'=>$body+['cached'=>false]];
+}
+
 function molavi_owner_workflow_proxy_ajax(): void {
     if (!current_user_can('manage_woocommerce') || !molavi_reference_owner()) {
         wp_send_json(['ok'=>false, 'error'=>'owner_required'], 403);
@@ -145,6 +195,13 @@ function molavi_owner_workflow_proxy_ajax(): void {
         ? strtoupper(sanitize_text_field(wp_unslash($_POST['method']))) : '';
     $path = isset($_POST['path']) && is_string($_POST['path'])
         ? wp_unslash($_POST['path']) : '';
+    if ($path==='/pipeline/dashboard-bootstrap' && $method==='GET') {
+        $force=isset($_POST['query']) && $_POST['query']==='?force=1';
+        $result=molavi_owner_dashboard_bootstrap($force);
+        nocache_headers();
+        wp_send_json($result['body'],$result['status']);
+        return;
+    }
     if (!in_array($path, molavi_owner_workflow_proxy_paths(), true)) {
         wp_send_json(['ok'=>false, 'error'=>'workflow_route_unavailable'], 400);
     }
@@ -175,6 +232,7 @@ function molavi_owner_workflow_proxy_ajax(): void {
         wp_send_json(['ok'=>false, 'error'=>'workflow_route_unavailable'], 400);
     }
     $result = molavi_owner_workflow_proxy_call($method, $path, $query, $payload);
+    if ($method==='POST' && $result['status']<300) molavi_owner_dashboard_cache_clear();
     nocache_headers();
     wp_send_json($result['body'], $result['status']);
 }
@@ -345,6 +403,7 @@ add_action('admin_enqueue_scripts', static function (): void {
         'pageUrls' => molavi_owner_workflow_page_urls(),
     ];
     if ($page === 'molavi-operations') {
+        $browserConfig['dashboardBootstrap'] = molavi_owner_dashboard_native();
         $browserConfig['workbenchDismissalNonce'] = wp_create_nonce('molavi_owner_workbench_dismissals');
         $browserConfig['workbenchDismissals'] = molavi_owner_workbench_dismissals_get();
         $workflowSources = [

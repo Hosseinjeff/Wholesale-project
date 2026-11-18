@@ -146,7 +146,7 @@ function molavi_domain_dispatch(string $method,string $path,array $query,?array 
         elseif($path==='/pipeline/ai-confirmations')$result=molavi_domain_ai_reviews_api($method,$query,$body,$actor);
         elseif($path==='/pipeline/migration-shadow')$result=molavi_domain_migration_inventory_api($actor);
         elseif($path==='/reference/snapshots')$result=$method==='POST'?molavi_domain_reference_api($body,$actor):molavi_domain_reference_snapshots($query);
-        elseif($path==='/reference/item-reviews')$result=molavi_domain_reference_reviews_api($method,$body,$actor);
+        elseif($path==='/reference/item-reviews')$result=molavi_domain_reference_reviews_api($method,$body,$actor,null,$query);
         elseif($path==='/reference/decisions')$result=$method==='POST'?molavi_domain_reference_decision_api($body,$actor):['ok'=>true,'events'=>molavi_domain_read('reference',static fn(SQLite3 $db)=>molavi_domain_rows($db,
             'SELECT * FROM reference_events e WHERE choice IS NULL AND NOT EXISTS (SELECT 1 FROM reference_retirements r WHERE r.event_id=e.event_id) ORDER BY created_at,event_id'))];
         elseif($path==='/pipeline/telegram-operator-chats')$result=molavi_domain_enrollment($body,$actor);

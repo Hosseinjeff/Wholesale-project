@@ -321,7 +321,12 @@
             if(state.active===product.key&&detailsMap.has(state.section))activate(state.section,false);
             const technical=el('details',null,'md-identifiers');technical.append(el('summary','شناسه‌ها و سابقهٔ داده'));
             technical.append(facts([['شناسهٔ کالا',product.product_id||'هنوز ساخته نشده'],['شناسهٔ پیشنهاد',record.latest_offer_id||source.offer_id],
-                ['وضعیت ثبت‌شده',model.readable(record.status)],['آخرین خواندن',model.formatDate(model.data.product_status?.generated_at)]]));card.append(technical);
+                ['وضعیت ثبت‌شده',model.readable(record.status)],['آخرین خواندن',model.formatDate(model.data.product_status?.generated_at)]]));
+            if (!['holds','source_integrity','ai','references'].includes(preferred)) {
+                const referenceTools=model.renderReferenceTools(product);
+                if (referenceTools) technical.appendChild(referenceTools);
+            }
+            card.append(technical);
             return card;
         }
         function referencesView() {

@@ -326,7 +326,9 @@
             invalid_media_page: 'صفحه رسانه‌ها معتبر نیست؛ فهرست را تازه کنید.',
             reextraction_price_not_verified: 'برای ثبت نهایی، قیمت را در منبع فعلی بررسی و گزینهٔ بررسی قیمت را علامت بزنید.',
             package_count_required: 'برای انتخاب قیمت بسته، تعداد در بسته یا کارتن باید مشخص باشد.',
-            unknown_reference: 'این مرجع در نسخه فعال فهرست نیست؛ فهرست را تازه کنید.'
+            unknown_reference: 'این مرجع در نسخه فعال فهرست نیست؛ فهرست را تازه کنید.',
+            online_reference_unavailable: 'کاتالوگ آنلاین رزوان در دسترس نیست؛ دوباره تلاش کنید.',
+            invalid_search_query: 'برای جست‌وجو بین ۲ تا ۱۲۰ حرف وارد کنید.'
         };
         return labels[code] || 'ارتباط با سرور برقرار نشد. کد پیگیری: ' + (code || 'نامشخص');
     }
@@ -874,8 +876,7 @@
         if (key==='holds' && !product.holds.some(hold => hold.context?.messages?.length)) return '';
         if (key==='ai' && !product.ai.some(item => !item.publication_held
             && (safeSourceLink(aiSourcePostUrl(item)) || (!item.source_current_check_required && !item.historical_reextract && item.original_message))
-            && normalizedAiInteger(item.sale_price || item.detected_price || item.package_price)
-            && (item.reference_snapshot_id || item.reference_match_id))) return '';
+            && normalizedAiInteger(item.sale_price || item.detected_price || item.package_price))) return '';
         if (key==='supplier_prices' && !product.supplierPrices.some(offer =>
             !offer.acknowledged && offer.source_revision && workbenchSupplierSource(product,offer))) return '';
         return key;
@@ -1022,13 +1023,28 @@
             'sheet_conflicts','publication_holds','reference_decisions'];
         const allKeys = [...keys, 'operations'];
         const requested = new Set(Array.isArray(refreshKeys) ? refreshKeys : allKeys);
-        const loaded = await Promise.all(allKeys.map(async key => {
+        const fallback = key => {
             if (!requested.has(key) && workbenchData && Object.prototype.hasOwnProperty.call(workbenchData,key)) {
                 return {data:workbenchData[key], error:workbenchErrors[key] || ''};
             }
-            try { return {data:await request('GET',undefined,undefined,key === 'operations' ? '' : key),error:''}; }
-            catch (error) { return {data:null,error:`${labels[key]}: ${errorText(error.message)}`}; }
-        }));
+            return request('GET',undefined,undefined,key === 'operations' ? '' : key)
+                .then(data=>({data,error:''}))
+                .catch(error=>({data:null,error:`${labels[key]}: ${errorText(error.message)}`}));
+        };
+        let loaded;
+        if (config.dashboardBootstrap && !Array.isArray(refreshKeys)) {
+            const url=new URL('/pipeline/dashboard-bootstrap',config.apiUrl);
+            if (workbenchData) url.searchParams.set('force','1');
+            try {
+                const grouped=await workflowRequest('GET',undefined,url.toString(),'');
+                loaded=allKeys.map(key=>{
+                    const source=grouped.sources?.[key];
+                    return source?.ok ? {data:source,error:''}
+                        : {data:null,error:`${labels[key]}: ${errorText(source?.error || 'request_failed')}`};
+                });
+            } catch (_error) { /* Older hosts can still use the individual routes. */ }
+        }
+        if (!loaded) loaded=await Promise.all(allKeys.map(fallback));
         if (thisLoad !== workbenchLoadId) return;
         const data = {...(workbenchData || {})};
         allKeys.forEach((key,index) => {
@@ -1827,6 +1843,7 @@
             renderAction,renderBatch,renderSystem,
             renderSources: sourceReextractionWorkspace,
             renderOfferReextraction: offerReextraction,
+            renderReferenceTools: productReferenceTools,
             renderReferences: panel => {
                 const catalog = node('div');
                 panel.appendChild(catalog);
@@ -2365,6 +2382,105 @@
         return section;
     }
 
+    function onlineReferenceSearch(name) {
+        const tools=node('details');
+        const form=node('form');
+        const field=node('input');
+        field.type='search';field.value=String(name || '').slice(0,120);field.required=true;
+        field.minLength=2;field.maxLength=120;field.setAttribute('aria-label','نام کالا برای جست‌وجوی آنلاین');
+        const search=node('button','جست‌وجو','button');search.type='submit';
+        const status=node('p');
+        status.setAttribute('role','status');
+        tools.append(node('summary','جست‌وجوی آنلاین در کاتالوگ رزوان'),form,status);
+        form.append(field,search);
+        const results=node('ul');
+        tools.appendChild(results);
+        form.addEventListener('submit',async event=>{
+            event.preventDefault();
+            search.disabled=true;status.textContent='در حال جست‌وجو…';results.replaceChildren();
+            try {
+                const url=new URL('/reference/item-reviews',config.apiUrl);
+                url.searchParams.set('online','1');url.searchParams.set('q',field.value.trim());
+                const reply=await request('GET',undefined,url.toString(),'reference_items');
+                for (const result of reply.results || []) {
+                    const link=node('a',result.title);
+                    link.href=result.url;link.target='_blank';link.rel='noopener noreferrer';
+                    const row=node('li');row.appendChild(link);results.appendChild(row);
+                }
+                status.textContent=results.childNodes.length?'نتیجه‌ها برای مقایسه‌اند.':'نتیجه‌ای پیدا نشد؛ نام کوتاه‌تری وارد کنید.';
+            } catch (error) { status.textContent=errorText(error.message); }
+            finally { search.disabled=false; }
+        });
+        return tools;
+    }
+
+    function proceedWithoutReference(items, kind, opts = {}) {
+        const button=node('button','ادامه بدون مرجع','button button-secondary');
+        button.type='button';button.disabled=opts.enabled===false;
+        const container=node('div');
+        const status=node('p');status.setAttribute('role','status');
+        container.append(button,status);
+        button.addEventListener('click',async()=>{
+            button.disabled=true;
+            status.textContent='در حال ثبت انتخاب…';
+            let saved=0;
+            try {
+                for (const item of items) {
+                    const receipt=await request('POST',{action:'proceed_without_reference',case_kind:kind,
+                        case_id:item.case_id || '',offer_id:item.offer_id,signature:kind==='ai'?item.signature:''},
+                        undefined,'reference_items');
+                    if (receipt.offer_id!==item.offer_id || receipt.choice!=='proceed_without_reference' || !receipt.decision_id)
+                        throw new Error('invalid_receipt');
+                    saved++;
+                }
+                const message='ادامه بدون مرجع ثبت شد.';
+                if (opts.refresh) await opts.refresh(message,'success',status,['reference_items','ai_confirmations','product_status','supplier_prices','operations']);
+                else await dashboard(message);
+            } catch (error) {
+                if (saved) {
+                    await dashboard(`${saved} انتخاب ثبت شد؛ ${errorText(error.message)}`,'warning');
+                    return;
+                }
+                status.textContent=errorText(error.message);
+                button.disabled=false;
+            }
+        });
+        return container;
+    }
+
+    function productReferenceTools(product) {
+        const status=product.status;
+        const offerId=status?.latest_offer_id;
+        if (!offerId || status.reference_match_id) return null;
+        const tools=node('details');
+        tools.append(node('summary','مرجع کالا'),onlineReferenceSearch(product.name));
+        if (status.reference_approval_state!=='owner_without_reference') {
+            tools.appendChild(proceedWithoutReference([{offer_id:offerId}],'reference'));
+            return tools;
+        }
+        const match=node('button','انتخاب مرجع جدید','button button-secondary');
+        match.type='button';
+        tools.appendChild(match);
+        match.addEventListener('click',async()=>{
+            match.disabled=true;
+            try {
+                const url=new URL('/reference/item-reviews',config.apiUrl);
+                url.searchParams.set('offer_id',offerId);
+                const {cases}=await request('GET',undefined,url.toString(),'reference_items');
+                if (!cases?.length) {
+                    tools.appendChild(notice('فهرست مرجع فعال در دسترس نیست.','info'));
+                    match.disabled=false;
+                    return;
+                }
+                match.replaceWith(referenceItemCard(cases[0],Boolean(config.reviewStoreNonce),{embedded:true,apiKey:'reference_items'}));
+            } catch (error) {
+                tools.appendChild(notice(errorText(error.message),'error'));
+                match.disabled=false;
+            }
+        });
+        return tools;
+    }
+
     function aiReferenceAssignmentSection(item, contextStored, decisionsEnabled, options = {}) {
         if (!item.reference_snapshot_id) return null;
         const candidates = Array.isArray(item.reference_candidates)
@@ -2715,9 +2831,9 @@
             return card;
         }
 
-        const unmatched = relatedItems.filter(row=>row.reference_snapshot_id
+        const unmatched = relatedItems.filter(row=>!row.reference_waived
             && row.reference_assignment?.choice!=='match' && !row.reference_match_id);
-        const matching = unmatched.filter(row=>row.reference_candidates?.some(candidate=>
+        const matching = unmatched.filter(row=>row.reference_snapshot_id && row.reference_candidates?.some(candidate=>
             candidate?.reference_id && String(candidate.name || '').trim()));
         const assignmentOptions={...options,groupedVariants:relatedItems.length>1};
         if (matching.length) {
@@ -2726,12 +2842,18 @@
                 if (relatedItems.length>1) card.appendChild(node('h5',row.variation_type || row.product_name));
                 card.appendChild(aiReferenceAssignmentSection(row,contextStored,decisionsEnabled,assignmentOptions));
             });
+            card.append(onlineReferenceSearch(cardName),proceedWithoutReference(unmatched,'ai',{
+                enabled:contextStored&&decisionsEnabled,refresh:options.refresh}));
             return card;
         }
-        if (unmatched.length) {
+        if (unmatched.length || relatedItems.some(row=>row.reference_waived)) {
             const suggestions=node('details');
             suggestions.appendChild(node('summary','پیشنهاد مرجع'));
-            unmatched.forEach(row=>suggestions.appendChild(aiReferenceAssignmentSection(row,contextStored,decisionsEnabled,assignmentOptions)));
+            suggestions.appendChild(onlineReferenceSearch(cardName));
+            relatedItems.filter(row=>row.reference_snapshot_id && (unmatched.includes(row)||row.reference_waived))
+                .forEach(row=>suggestions.appendChild(aiReferenceAssignmentSection(row,contextStored,decisionsEnabled,assignmentOptions)));
+            if (unmatched.length) suggestions.appendChild(proceedWithoutReference(unmatched,'ai',{
+                enabled:contextStored&&decisionsEnabled,refresh:options.refresh}));
             card.appendChild(suggestions);
         }
 
@@ -3155,6 +3277,31 @@
         return details;
     }
 
+    function recentBotMessages() {
+        const list=node('details',null,'molavi-advanced-reextract');
+        const contents=node('div');
+        list.append(node('summary','آخرین پیام‌های ربات'),contents);
+        list.addEventListener('toggle',async()=>{
+            if (!list.open) return;
+            contents.textContent='در حال دریافت پیام‌ها…';
+            try {
+                const url=new URL('/pipeline/reconciliation',config.apiUrl);
+                url.searchParams.set('view','inbox');
+                const {messages}=await request('GET',undefined,url.toString(),'reconciliation');
+                contents.replaceChildren();
+                for (const item of messages || []) {
+                    const state=item.extraction_state==='error'?'خطا در استخراج':displayBatchState(item.state);
+                    const label=[formatSourceTimestamp(item.received_at),item.channel,state].filter(Boolean).join(' · ');
+                    const row=node('details');
+                    row.append(node('summary',label),node('p',item.excerpt || 'متن جداگانه ثبت نشده است.','md-source-text'));
+                    contents.appendChild(row);
+                }
+                if (!contents.childNodes.length) contents.textContent='هنوز پیامی دریافت نشده است.';
+            } catch (error) { contents.textContent=errorText(error.message); }
+        });
+        return list;
+    }
+
     async function sourceReextractionWorkspace(panel, product) {
         if (product) {
             const offer=String(product.status?.latest_offer_id || product.ai[0]?.offer_id || product.references[0]?.offer_id || '');
@@ -3173,7 +3320,7 @@
             return;
         }
         const recent=node('section',null,'card molavi-reextract-panel');
-        panel.append(recent,filters);
+        panel.append(recentBotMessages(),recent,filters);
         recent.textContent='در حال دریافت وضعیت پیام‌ها…';
         try {
             const preview=await reextractionRequest('GET',undefined,reextractionUrl('preview')+'&latest_run=1');
@@ -3589,6 +3736,9 @@
         const duplicateParentName = Boolean(options.embedded && options.parentName
             && aiDisplayKey(options.parentName) === aiDisplayKey(item.product_name));
         card.appendChild(reviewCardHeader(duplicateParentName ? '' : item.product_name || 'کالای بدون نام', 'تطبیق مرجع'));
+        card.appendChild(onlineReferenceSearch(item.product_name));
+        if (!item.reference_waived) card.appendChild(proceedWithoutReference([item],'reference',{
+            enabled:contextStored,refresh:options.refresh}));
         const referenceFacts = [
             ...(!options.embedded && item.channel ? [['تأمین‌کننده', item.channel]] : []),
             ['قیمت تأمین‌کننده', amount(item.supplier_price)],

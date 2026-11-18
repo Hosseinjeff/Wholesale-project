@@ -161,12 +161,32 @@ class MemoryReclamationTests(unittest.TestCase):
     def test_durable_intake_has_no_duplicate_timer_in_on_demand_mode(self):
         import app
         queue = Mock()
+        queue.receive.return_value = ('synthetic-receipt', True)
         with patch.dict(os.environ, {'PIPELINE_RUNTIME_MODE': 'on_demand'}), \
                 patch('app._start_pipeline_worker') as start, patch('app.threading.Timer') as timer:
             app.DurableBatchManager(queue).add_message({'id': 'synthetic'})
         queue.receive.assert_called_once()
         start.assert_called_once_with(force=True)
         timer.assert_not_called()
+
+    def test_private_intake_acknowledges_the_first_durable_receipt_only(self):
+        import app
+        from catalog.durable import Handoffs
+
+        with tempfile.TemporaryDirectory() as directory:
+            queue = Handoffs(str(Path(directory)/'pipeline.sqlite'))
+            data = {'id':'7','content':'sample listing','chat_type':'private','chat_id':'101','channel':'telegram'}
+
+            def run_callback(target, **_kwargs):
+                target()
+
+            with patch.dict(os.environ, {'PIPELINE_RUNTIME_MODE':'on_demand'}), \
+                    patch('app._start_pipeline_worker'), patch('app.send_chat_text') as send, \
+                    patch('app.start_background', side_effect=run_callback):
+                manager = app.DurableBatchManager(queue)
+                manager.add_message(data)
+                manager.add_message(data)
+                send.assert_called_once_with('101', 'پیام دریافت شد و در صف بررسی است.', channel='telegram')
 
     def test_real_gunicorn_reclaims_heap_after_work_without_a_restart_loop(self):
         try:

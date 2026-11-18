@@ -131,7 +131,28 @@ function molavi_domain_woo_catalog(?string $clock=null): array {
         return ['state'=>$pages>10?'truncated':'checked','products'=>$found,'identity_records'=>$identities,'checked_at'=>$clock??molavi_domain_now()];
     }catch(Throwable $e){return ['state'=>'unavailable','products'=>[],'checked_at'=>''];}
 }
+function molavi_domain_inbox_recent(): array {
+    return molavi_domain_read('pipeline',static function(SQLite3 $db): array {
+        $rows=molavi_domain_rows($db,"SELECT i.payload,i.received_at,j.state,j.result
+            FROM inbox i LEFT JOIN jobs j ON j.id=i.batch_id ORDER BY i.rowid DESC LIMIT 12");
+        $messages=[];
+        foreach($rows as $row) {
+            $source=molavi_domain_decode($row['payload']);
+            $result=molavi_domain_decode($row['result']);
+            $messages[]=[
+                'received_at'=>molavi_domain_audit_time($row['received_at']),
+                'source_id'=>(string)($source['id']??''),
+                'channel'=>(string)molavi_domain_py_value($source['channel_username']??null,$source['channel']??''),
+                'excerpt'=>molavi_domain_context_text($source['content']??'',600),
+                'state'=>$row['state']??'queued',
+                'extraction_state'=>(string)($result['extraction_status']??''),
+            ];
+        }
+        return ['ok'=>true,'messages'=>$messages];
+    });
+}
 function molavi_domain_reconciliation_api(array $query): array {
+    if(($query['view']??'')==='inbox') return molavi_domain_inbox_recent();
     $raw=trim((string)($query['limit']??'200'));$limit=preg_match('/^[+-]?\d+$/D',$raw)?(int)$raw:200;$limit=max(1,min($limit?:200,500));
     $data=molavi_domain_receipt_data($limit);$tables=molavi_domain_sheets(['MessageData','Offers','Products','Shop'],true);$products=molavi_domain_records($tables['Products']);$offers=molavi_domain_records($tables['Offers']);
     $issues=molavi_domain_source_issues($products,$offers);try{$projection=molavi_domain_site_products($tables);}catch(Throwable $e){$projection=null;}

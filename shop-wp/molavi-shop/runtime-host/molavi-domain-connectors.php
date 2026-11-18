@@ -65,8 +65,19 @@ function molavi_domain_sheet_cache_key(string $name,bool $unformatted=false):str
 }
 function molavi_domain_sheet_invalidate(string $name):void {
     foreach([false,true] as $raw)delete_transient(molavi_domain_sheet_cache_key($name,$raw));
+    if(in_array($name,['Products','Offers'],true) && function_exists('molavi_owner_dashboard_cache_clear')) molavi_owner_dashboard_cache_clear();
+}
+function molavi_domain_dashboard_snapshot(callable $read): array {
+    // One Sheets snapshot serves the owner-only group of reads in this request.
+    $GLOBALS['molavi_dashboard_sheets']=molavi_domain_sheets(['Products','Offers'],true);
+    try { return $read(); }
+    finally { unset($GLOBALS['molavi_dashboard_sheets']); }
 }
 function molavi_domain_sheets(array $names,bool $fresh=false,bool $unformatted=false):array {
+    $snapshot=$GLOBALS['molavi_dashboard_sheets']??null;
+    if(!$unformatted && is_array($snapshot) && !array_diff($names,array_keys($snapshot))) {
+        return array_intersect_key($snapshot,array_fill_keys($names,true));
+    }
     $out=[];$missing=[];
     foreach($names as $name){$key=molavi_domain_sheet_cache_key($name,$unformatted);$cached=$fresh?false:get_transient($key);
         if(is_array($cached))$out[$name]=$cached;else $missing[]=$name;}

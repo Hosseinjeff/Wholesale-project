@@ -73,7 +73,7 @@ function molavi_domain_offers_for_product(array $offers,string $name,string $cha
 }
 function molavi_domain_product_reference_review(array $product,array $offer,?string $activeId=null,?string $clock=null): array {
     $active=$activeId===null?molavi_domain_reference_active():null;$activeId=$activeId??(string)($active['snapshot_id']??'');
-    $offerId=(string)molavi_domain_py_value($offer['Offer ID']??null);if($activeId===''||$offerId==='')return $product;
+    $offerId=(string)molavi_domain_py_value($offer['Offer ID']??null);if($offerId==='')return $product;
     $decision=molavi_domain_read('reference',static function(SQLite3 $db)use($offer,$offerId,$activeId):?array {
         $case=static fn($id,$snapshot)=>'item:'.hash('sha256',$id."\0".$snapshot);
         $get=static fn($id,$snapshot)=>molavi_domain_row($db,'SELECT * FROM reference_item_decisions WHERE case_id=? ORDER BY sequence DESC LIMIT 1',[$case($id,$snapshot)]);
@@ -84,9 +84,28 @@ function molavi_domain_product_reference_review(array $product,array $offer,?str
             if(!$decision){$inherited=molavi_domain_row($db,"SELECT * FROM reference_item_inheritances WHERE inheritance_id=? AND state='within_margin'",[$id]);
                 if($inherited)$decision=['decision_id'=>$inherited['inheritance_id'],'snapshot_id'=>$inherited['snapshot_id'],'choice'=>'match',
                     'reference_id'=>$inherited['reference_id'],'price_role'=>$inherited['price_role'],'inherited'=>true,'change_ratio'=>$inherited['change_ratio']];}}
+        if(($decision['snapshot_id']??null)!==$activeId)$decision=null;
+        foreach(array_filter([$offerId,$source]) as $id) {
+            $waiver=$get($id,'owner-without-reference');
+            if($waiver && $waiver['sequence']>($decision['sequence']??0))$decision=$waiver;
+        }
         return $decision;
     });
-    if(!$decision||$decision['snapshot_id']!==$activeId)return $product;
+    if(!$decision)return $product;
+    if($decision['choice']==='proceed_without_reference'){
+        $product['reference_snapshot_id']='';
+        $product['reference_decision_id']=$decision['decision_id'];
+        $product['reference_match_id']='';
+        $product['reference_price_role']='unresolved';
+        $product['reference_approval_state']='owner_without_reference';
+        $product['reference_price_change_percent']='';
+        $reasons=array_values(array_filter(array_map('trim',explode(';',(string)($offer['Review Reason']??'')))));
+        if($product['status']==='needs_review' && $reasons
+            && !array_filter($reasons,static fn($reason)=>!str_starts_with(strtolower($reason),'reference:'))) {
+            $product['status']='imported';
+        }
+        return $product;
+    }
     $product['reference_snapshot_id']=$activeId;$product['reference_decision_id']=molavi_domain_py_value($decision['decision_id']??null);
     if($decision['choice']==='no_match'){$product['reference_match_id']='';$product['reference_price_role']='unresolved';$product['reference_approval_state']='needs_review';$product['status']='needs_review';return $product;}
     if($decision['choice']!=='match')return $product;$product['reference_match_id']=molavi_domain_py_value($decision['reference_id']??null);
