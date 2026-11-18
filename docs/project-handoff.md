@@ -1,6 +1,32 @@
 # MolaviSale — whole-workflow handoff
 
-## Staging release promoted to live — 2026-11-18
+## Consolidated Staging and production release — 2026-11-18
+
+Both environments release from `main`. The former `deploy/staging` GitHub Actions
+workflow is disabled. The storefront and bot topic branches are retained as history
+in `main`. For complete WordPress promotions, use
+`python3 tools/deploy_wordpress_plugin.py --promote-staging` from the published
+`main` commit. The promotion checks every tracked deployable WordPress file on
+Staging before updating production and verifies the uploaded files.
+
+The hosted storefront audit found six later storefront files on the separate
+cart branch and an older catalog-sync file on Staging. The promotion reconciled
+the storefront changes into `main`, restored reduced-write catalog sync on Staging,
+and verified 79 hosted files. Production received six storefront files. The other
+73 files matched, including all 39 WordPress runtime files. Both public homepages
+serve identical storefront CSS and JavaScript. Live browser checks passed the
+cart drawer, favorites library, product, account and cart pages, guest checkout
+rendering, and eight authenticated dashboard reads.
+
+Both Railway sources are pinned to `main` at `367cd13`. Staging deployment
+`e25f88ae-207c-4242-9719-cdd41b80e82c` and production deployment
+`60582a3d-2b21-4476-a99c-c69dbe42cc0e` reached `SUCCESS`. Production reports
+build revision `91574b6`, which adds two documentation changes to the same runtime
+code. Both WordPress sites report 30 native routes, current cron and local order
+and publication executors. The live bot reports WordPress state, on-demand execution
+and zero data files. Both Railway services have sleep enabled and zero mounts.
+
+## Initial Staging promotion — 2026-11-18
 
 Production runs the redesigned storefront and heart library, the unified product
 dashboard, and the bot's text and caption intake and owner-requested reference
