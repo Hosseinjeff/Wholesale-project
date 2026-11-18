@@ -110,7 +110,7 @@ function molavi_domain_ai_start(array $body, string $actor): array {
         $tables = molavi_domain_sheets($scope==='open_cases'?['Offers']:['Offers','MessageData'],true);
         $receipt = ['ok'=>true,'run_id'=>$run,'scope'=>$scope,'_http_status'=>202];
         if ($scope==='open_cases') {
-            $inventory = molavi_domain_ai_case_inventory($tables);
+            $inventory = molavi_domain_ai_case_inventory($tables,null,$actor);
             if ($inventory['case_count']!==$body['expected_case_count'] || $inventory['message_count']!==$body['expected_message_count']
                 || $inventory['digest']!==$body['expected_digest']) {
                 molavi_domain_fail('reextraction_preview_changed',409,['current_case_count'=>$inventory['case_count'],'current_message_count'=>$inventory['message_count']]);

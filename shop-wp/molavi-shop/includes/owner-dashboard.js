@@ -494,8 +494,10 @@
         function systemView() {
             const view=el('section');view.append(el('h1','وضعیت سیستم'));
             if (hooks.readActivity) view.appendChild(systemActivity);
-            const counts=model.data.operations?.operations?.by_state;
+            const operations=model.data.operations?.operations;
+            const counts=operations?.by_state && {...operations.by_state};
             if (counts) {
+                model.archivedOperations.forEach(item=>{counts[item.state]=Math.max(0,Number(counts[item.state] || 0)-1);});
                 const running=Number(counts.queued || 0)+Number(counts.running || 0);
                 const waiting=Number(counts.waiting_publication || 0)+Number(counts.waiting_reference || 0);
                 const issues=Number(counts.failed || 0)+Number(counts.needs_review || 0);
@@ -504,9 +506,9 @@
                     el('p','پردازش‌های خودکار اقدامی از شما نمی‌خواهند. برای یک تصمیم محصول به محصولات بروید؛ برای توقف یک دسته، بخش زیر را باز کنید.'));
                 view.append(overview);
             }
-            if(model.data.publication_holds?.holds?.length){
-                const group=el('details');group.className='md-publication-holds';group.tabIndex=-1;group.append(el('summary',`توقف‌های مشترک پردازش · ${fa(model.data.publication_holds.holds.length)}`));
-                model.data.publication_holds.holds.forEach(hold=>group.append(model.renderBatch(hold)));view.append(group);
+            if(model.systemHolds?.length){
+                const group=el('details');group.className='md-publication-holds';group.tabIndex=-1;group.append(el('summary',`توقف‌های مشترک پردازش · ${fa(model.systemHolds.length)}`));
+                model.systemHolds.forEach(hold=>group.append(model.renderBatch(hold)));view.append(group);
             }
             view.append(model.renderSystem());
             const hidden=el('details');hidden.append(el('summary',`کارهای کنارگذاشته‌شده · ${fa(model.dismissals.length)}`));

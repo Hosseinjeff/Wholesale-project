@@ -85,27 +85,45 @@ function molavi_domain_reference_waiver_case(string $offer): string {
     return molavi_domain_reference_case_id($offer,'owner-without-reference');
 }
 
+function molavi_domain_online_reference_queries(string $text): array {
+    $name=molavi_domain_digits($text);
+    foreach(['volume','weight'] as $kind) $name=preg_replace(molavi_domain_measure_pattern($kind),' ',$name);
+    $name=preg_replace('~(*UCP)(?:\b(?:بسته|کارتن|باکس|شیرینگ)\s*)?\d+\s*(?:عددی|عدد|تایی|بسته|ع)(?!\pL)~u',' ',$name);
+    $name=molavi_domain_normalize_name($name);
+    $first=explode(' ',$name,2)[0];
+    return array_values(array_unique(array_filter([$text,$name,$first],static fn(string $term): bool=>molavi_domain_strlen($term)>=2)));
+}
+
 function molavi_domain_search_online_reference(array $query): array {
     $text=trim((string)($query['q']??''));
     if (molavi_domain_strlen($text)<2 || molavi_domain_strlen($text)>120) molavi_domain_fail('invalid_search_query',400);
-    $key='molavi_online_reference_'.hash('sha256',$text);
+    $key='molavi_online_reference_v2_'.hash('sha256',$text);
     $cached=get_transient($key);
     if (is_array($cached)) return $cached;
     $source=molavi_domain_reference_source();
-    $response=molavi_domain_http('GET',$source.'?'.http_build_query(['search'=>$text,'per_page'=>8],'','&',PHP_QUERY_RFC3986),
-        ['timeout'=>9,'limit_response_size'=>300000]);
-    $rows=json_decode(wp_remote_retrieve_body($response),true);
-    if (wp_remote_retrieve_response_code($response)!==200 || !is_array($rows) || !array_is_list($rows))
-        molavi_domain_fail('online_reference_unavailable',503);
     $results=[];
-    foreach($rows as $row) {
-        $link=$row['permalink']??'';
-        if (!is_string($link)||wp_parse_url($link,PHP_URL_SCHEME)!=='https'
-            ||wp_parse_url($link,PHP_URL_HOST)!==wp_parse_url($source,PHP_URL_HOST)) continue;
-        $title=trim(html_entity_decode(strip_tags((string)($row['name']??'')),ENT_QUOTES|ENT_HTML5,'UTF-8'));
-        if ($title!=='') $results[]=['title'=>$title,'url'=>$link];
+    $terms=molavi_domain_online_reference_queries($text);
+    foreach($terms as $term) {
+        try {
+            $response=molavi_domain_http('GET',$source.'?'.http_build_query(['search'=>$term,'per_page'=>8,'_fields'=>'name,permalink'],'','&',PHP_QUERY_RFC3986),
+                ['timeout'=>5,'limit_response_size'=>50000]);
+        } catch (MolaviWorkflowError $error) {
+            if($error->status!==503) throw $error;
+            molavi_domain_fail('online_reference_unavailable',503);
+        }
+        $rows=json_decode(wp_remote_retrieve_body($response),true);
+        if (wp_remote_retrieve_response_code($response)!==200 || !is_array($rows) || !array_is_list($rows))
+            molavi_domain_fail('online_reference_unavailable',503);
+        foreach($rows as $row) {
+            $link=$row['permalink']??'';
+            if (!is_string($link)||wp_parse_url($link,PHP_URL_SCHEME)!=='https'
+                ||wp_parse_url($link,PHP_URL_HOST)!==wp_parse_url($source,PHP_URL_HOST)) continue;
+            $title=trim(html_entity_decode(strip_tags((string)($row['name']??'')),ENT_QUOTES|ENT_HTML5,'UTF-8'));
+            if ($title!=='') $results[]=['title'=>$title,'url'=>$link];
+        }
+        if ($results) break;
     }
-    $result=['ok'=>true,'results'=>$results];
+    $result=['ok'=>true,'results'=>$results,'matched_query'=>$results?$term:null];
     set_transient($key,$result,180);
     return $result;
 }

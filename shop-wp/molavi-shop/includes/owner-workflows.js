@@ -726,6 +726,14 @@
             : kind === 'publication' ? 'صف پردازش · انتشار' : 'صف پردازش · کار';
         return {task_key:taskKey,queue:'operations',stage:'intake',label};
     }
+
+    function workbenchOperationIsDismissed(item) {
+        return workbenchDismissalIndex.has(workbenchOperationDismissalTask(item)?.task_key);
+    }
+
+    function workbenchAiCaseIsDismissed(item) {
+        return workbenchDismissalIndex.has(`ai|case:${item.case_id}`);
+    }
     const workbenchDismissalReasons = {
         duplicate:'تکراری در این صف', no_action:'اقدامی از این صف لازم نیست',
         outside_scope:'فعلاً خارج از دامنه رسیدگی', later:'برای پیگیری بعدی کنار گذاشته شود',
@@ -798,8 +806,26 @@
     }
 
     function workbenchIsDismissed(product, queue) {
+        if (queue==='ai' && product.ai.some(item=>!item.publication_held)
+            && product.ai.filter(item=>!item.publication_held).every(workbenchAiCaseIsDismissed)) return true;
         const key = workbenchDismissalKey(product, queue);
-        return Boolean(key && workbenchDismissalIndex.has(key));
+        return Boolean(key && (workbenchDismissalIndex.has(key) || workbenchDismissalIndex.has(workbenchCurrentDismissalKey(product,queue))));
+    }
+
+    function workbenchCurrentDismissalKey(product,queue) {
+        const base=workbenchDismissalKey(product,queue);
+        if (!base) return '';
+        const evidence={
+            ai:()=>product.ai.map(item=>item.case_id),
+            references:()=>product.references.map(item=>item.signature || item.case_id),
+            supplier_prices:()=>product.supplierPrices.map(item=>item.source_revision || item.offer_id),
+            conflicts:()=>product.conflicts.map(item=>item.conflict_id),
+            holds:()=>product.holds.map(item=>item.hold_id)
+        };
+        const revisions=[...(evidence[queue]?.() || []),product.status?.latest_offer_id].filter(Boolean).sort();
+        if (!revisions.length) return base;
+        const key=`${base}:${workbenchDismissalToken(revisions.join(','))}`;
+        return key.length<=queue.length+481 ? key : base;
     }
 
     function workbenchSourceMessageKey(product) {
@@ -880,7 +906,7 @@
         const source=workbenchActionSections[key];
         if (!source || workbenchErrors[source] || !config.reviewStoreUrl || !config.reviewStoreNonce) return '';
         if (key==='holds' && !product.holds.some(hold => hold.context?.messages?.length)) return '';
-        if (key==='ai' && !product.ai.some(item => !item.publication_held
+        if (key==='ai' && !product.ai.some(item => !item.publication_held && !workbenchAiCaseIsDismissed(item)
             && (safeSourceLink(aiSourcePostUrl(item)) || (!item.source_current_check_required && !item.historical_reextract && item.original_message))
             && normalizedAiInteger(item.sale_price || item.detected_price || item.package_price))) return '';
         if (key==='supplier_prices' && !product.supplierPrices.some(offer =>
@@ -931,7 +957,7 @@
         const key = workbenchActionForQueue(product, queue);
         if (key === 'source_integrity') return 'انتشار متوقف است؛ پیام منبع را پیدا کنید. ترمیم پیوند پیشنهاد به بررسی فنی نیاز دارد.';
         if (key === 'ai') {
-            const cases = Array.isArray(product.ai) ? product.ai : [];
+            const cases = product.ai.filter(item=>!workbenchAiCaseIsDismissed(item));
             if (cases.some(item => item.publication_held)) return 'جزئیات و اقدام دستهٔ متوقف‌شده را باز کنید؛ تصمیم این استخراج تا رفع همان توقف قفل است.';
             if (cases.some(item => !normalizedAiInteger(item.sale_price || item.detected_price || item.package_price))) {
                 return 'قیمت فروش در پیام ثبت نشده؛ مبلغ را حدس نزنید و این مورد را تا رسیدن قیمت باز بگذارید.';
@@ -1279,7 +1305,7 @@
                 updateActionStatus(statusNode,message,kind);
                 await dashboard(message,kind,refreshKeys);
             };
-            if (primaryKey === 'ai') groupAiVariantCases(product.ai).forEach(relatedItems => {
+            if (primaryKey === 'ai') groupAiVariantCases(product.ai.filter(item=>!workbenchAiCaseIsDismissed(item))).forEach(relatedItems => {
                 const item = relatedItems[0];
                 const sourceKey = aiSourceMessageKey(item);
                 const sourceCases = sourceKey && aiCasesBySource.has(sourceKey)
@@ -1607,8 +1633,8 @@
                 });
                 technical.appendChild(telegramDetails);
             }
-            const failedPublicationIds = Array.isArray(ops.failed_publication_ids) ? ops.failed_publication_ids : [];
-            const failedBatchIds = Array.isArray(ops.failed_batch_ids) ? ops.failed_batch_ids : [];
+            const failedPublicationIds = (ops.failed_publication_ids || []).filter(id=>!workbenchOperationIsDismissed({id,kind:'publish'}));
+            const failedBatchIds = (ops.failed_batch_ids || []).filter(id=>!workbenchOperationIsDismissed({id,kind:'batch'}));
             if (failedPublicationIds.length || failedBatchIds.length) {
                 technical.appendChild(node('p',`${failedPublicationIds.length} خطای انتشار و ${failedBatchIds.length} رسید دسته قدیمی باقی مانده است.`));
                 const reconcileButton = node('button','همگام‌سازی کاتالوگ و بستن خطاهای قابل اثبات','button button-secondary');
@@ -1642,7 +1668,7 @@
                 });
                 technical.appendChild(reconcileButton);
             }
-            const queueItems = Array.isArray(ops.items) ? ops.items : [];
+            const queueItems = (ops.items || []).filter(item=>!workbenchOperationIsDismissed(item));
             const operationsTaskFor = item => workbenchOperationDismissalTask(item);
             if (queueItems.length || ops.next_cursor) {
                 const details = document.createElement('details');
@@ -1845,6 +1871,8 @@
         const readyActions = new Map(products.map(product => [product,workbenchReadyAction(product,actionSteps.get(product))]));
         dashboardApp.update({
             products,data,errors:workbenchErrors,dismissals:workbenchDismissals,
+            systemHolds:holds.filter(hold=>!workbenchOperationIsDismissed({id:hold.hold_id,kind:'publication_hold'})),
+            archivedOperations:(operations?.operations?.items || []).filter(workbenchOperationIsDismissed),
             primaryAction:product=>actionSteps.get(product),
             readyAction:product=>readyActions.get(product),actionRank:key=>workbenchActionOrder.indexOf(key),
             nextStep:(product,key)=>workbenchNextStep(product,key),
@@ -1883,7 +1911,7 @@
                 });
             },
             reconcile:reconcileStorefront,
-            dismissalTask:(product,key)=>({task_key:workbenchDismissalKey(product,key),queue:key,
+            dismissalTask:(product,key)=>({task_key:workbenchCurrentDismissalKey(product,key),queue:key,
                 stage:workbenchDismissalStage(key),label:workbenchTaskMeta(product,key).label,
                 product_name:product.name,product_id:product.product_id,channel:product.channel}),
             sourceLink:safeSourceLink,formatDate:formatSourceTimestamp,readable:readableWorkflowStatus
@@ -2407,17 +2435,20 @@
         tools.appendChild(results);
         form.addEventListener('submit',async event=>{
             event.preventDefault();
+            const query=field.value.trim();
             search.disabled=true;status.textContent='در حال جست‌وجو…';results.replaceChildren();
             try {
                 const url=new URL('/reference/item-reviews',config.apiUrl);
-                url.searchParams.set('online','1');url.searchParams.set('q',field.value.trim());
+                url.searchParams.set('online','1');url.searchParams.set('q',query);
                 const reply=await request('GET',undefined,url.toString(),'reference_items');
                 for (const result of reply.results || []) {
                     const link=node('a',result.title);
                     link.href=result.url;link.target='_blank';link.rel='noopener noreferrer';
                     const row=node('li');row.appendChild(link);results.appendChild(row);
                 }
-                status.textContent=results.childNodes.length?'نتیجه‌ها برای مقایسه‌اند.':'نتیجه‌ای پیدا نشد؛ نام کوتاه‌تری وارد کنید.';
+                status.textContent=results.childNodes.length
+                    ? (reply.matched_query && reply.matched_query!==query ? `نتیجه‌های جست‌وجوی «${reply.matched_query}» برای مقایسه` : 'نتیجه‌ها برای مقایسه‌اند.')
+                    : 'رزوان نتیجه‌ای برنگرداند. نام برند یا یک واژهٔ دیگر را امتحان کنید.';
             } catch (error) { status.textContent=errorText(error.message); }
             finally { search.disabled=false; }
         });

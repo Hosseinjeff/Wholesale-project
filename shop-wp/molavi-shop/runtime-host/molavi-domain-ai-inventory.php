@@ -88,8 +88,20 @@ function molavi_domain_ai_offer_selection(array $tables, string $offerId, string
     ]+$source;
 }
 
-function molavi_domain_ai_case_inventory(array $tables,?float $clock=null): array {
-    $cases=molavi_domain_ai_review_cases($tables,null,false,1000,$clock);$groups=[];$unmatched=[];$identities=[];$messages=[];
+function molavi_domain_ai_archived_cases(string $actor): array {
+    if(!function_exists('molavi_owner_workbench_dismissals_get')||!preg_match('/^wp:([1-9][0-9]*)$/D',$actor,$match)) return [];
+    $cases=[];
+    foreach(molavi_owner_workbench_dismissals_get((int)$match[1]) as $item) {
+        if(preg_match('/^ai\|case:(ai:[a-f0-9]{64})$/D',(string)($item['task_key']??''),$key)) $cases[$key[1]]=true;
+    }
+    return $cases;
+}
+
+function molavi_domain_ai_case_inventory(array $tables,?float $clock=null,string $actor=''): array {
+    $archived=molavi_domain_ai_archived_cases($actor);
+    $cases=molavi_domain_ai_review_cases($tables,null,false,PHP_INT_MAX,$clock);
+    $cases=array_values(array_filter($cases,static fn(array $case): bool=>!isset($archived[$case['case_id']])));
+    $groups=[];$unmatched=[];$identities=[];$messages=[];
     foreach($cases as $case){$identities[]=[$case['case_id'],$case['offer_id'],$case['signature']];$content=(string)molavi_domain_py_value($case['original_message']);if(trim($content)===''){$unmatched[]=$case['case_id'];continue;}
         $key=molavi_domain_ai_source_key(['Source Post URL'=>$case['source_post_url'],'Channel Username'=>$case['channel'],'Message ID'=>$case['message_id'],'Message Timestamp'=>$case['message_timestamp'],'Original Message'=>$content]);
         if(!isset($groups[$key]))$groups[$key]=['cases'=>[],'content'=>$content];$groups[$key]['cases'][]=$case;}

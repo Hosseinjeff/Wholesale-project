@@ -7,7 +7,11 @@ function molavi_domain_ai_reviews_api(string $method, array $query, ?array $body
     if ($method==='GET') {
         $mode = $query['reextract'] ?? '';
         if ($mode==='offer') return molavi_domain_ai_offer_preview($query,molavi_domain_sheets(['MessageData','Offers'],true));
-        if ($mode==='preview') return molavi_domain_ai_preview($query,molavi_domain_sheets(['MessageData','Offers'],true));
+        if ($mode==='preview') return molavi_domain_ai_preview($query,molavi_domain_sheets(['MessageData','Offers'],true),null,$actor);
+        if ($mode==='archive-review') {
+            $cases=molavi_domain_ai_review_cases(molavi_domain_sheets(['Offers'],true),null,false,PHP_INT_MAX);
+            return ['ok'=>true,'case_ids'=>array_column($cases,'case_id')];
+        }
         if ($mode==='run-changes') return molavi_domain_ai_run_changes($query);
         if ($mode==='run') {
             $tables=($query['summary']??'')==='1'?null:molavi_domain_sheets(['Offers'],true);

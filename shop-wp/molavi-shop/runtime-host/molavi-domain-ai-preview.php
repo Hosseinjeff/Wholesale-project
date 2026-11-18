@@ -31,7 +31,7 @@ function molavi_domain_ai_latest_run_id(string $offerId='', string $sourceKey=''
     });
 }
 
-function molavi_domain_ai_preview(array $query,array $tables,?float $clock=null): array {
+function molavi_domain_ai_preview(array $query,array $tables,?float $clock=null,string $actor=''): array {
     $caps=molavi_domain_bot_capabilities();$images=$caps['image_extraction_enabled'];$inventory=molavi_domain_ai_inventory($tables,$images);
     $selection=null;
     if(!$images){$channels=$query['channels']??($query['channel']??[]);if(isset($query['channels'])){
@@ -45,7 +45,7 @@ function molavi_domain_ai_preview(array $query,array $tables,?float $clock=null)
             'selection'=>$selection,'selection_counts'=>['all'=>$inventory['counts']['all_available'],'pending'=>$inventory['counts']['pending']]];
     }
     $recent=molavi_domain_ai_recent_inventory(molavi_domain_ai_inventory($tables,$images,$caps['extraction_policy_version']),$caps['extraction_policy_version'],$images,$clock);
-    $open=molavi_domain_ai_case_inventory($tables,$clock);$posts=$recent['messages'];usort($posts,static fn($a,$b)=>(molavi_domain_timestamp($b['timestamp']??null)??-62135596800.0)<=>(molavi_domain_timestamp($a['timestamp']??null)??-62135596800.0));$sourcePosts=[];
+    $open=molavi_domain_ai_case_inventory($tables,$clock,$actor);$posts=$recent['messages'];usort($posts,static fn($a,$b)=>(molavi_domain_timestamp($b['timestamp']??null)??-62135596800.0)<=>(molavi_domain_timestamp($a['timestamp']??null)??-62135596800.0));$sourcePosts=[];
     foreach(array_slice($posts,0,12) as $item){$post=['source_key'=>$item['source_key'],'message_id'=>$item['message_id'],'channel'=>molavi_domain_py_value($item['channel']??null,molavi_domain_py_value($item['channel_username']??null)),
         'timestamp'=>molavi_domain_py_value($item['timestamp']??null),'source_post_url'=>molavi_domain_py_value($item['source_post_url']??null)];if($images)$post['media_ocr']=!empty($item['media_ocr']);$sourcePosts[]=$post;}
     $keys=array_column($inventory['pending_messages'],'message_key');sort($keys,SORT_STRING);$recentInfo=array_intersect_key($recent,array_flip(['policy_version','window_days','eligible_count','media_ocr_count','media_ocr_image_count','digest','unknown_or_future_timestamp_count','outside_window_count']));$recentInfo['source_posts']=$sourcePosts;

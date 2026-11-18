@@ -6,6 +6,7 @@ define('MOLAVI_REFERENCE_OWNER_IDS',[7]);
 function add_action(...$args){}
 function add_filter(...$args){}
 function get_option($name,$default=false){return $GLOBALS['preview_options'][$name]??$default;}
+function molavi_owner_workbench_dismissals_get($user){return $GLOBALS['preview_dismissals'][$user]??[];}
 function molavi_domain_sheets($names,$fresh=false){return array_intersect_key($GLOBALS['preview_tables'],array_flip($names));}
 foreach(['state-host','domain-core','domain-schemas','domain-gateway','domain-ai-review-model','domain-ai-inventory','domain-ai-preview',
     'domain-ai-review-api','domain-ai-run-changes','domain-publication-recovery','domain-ai-commands','domain-ai-dismissals','domain-bot-capabilities',
@@ -147,5 +148,15 @@ check_preview($diff['offers'][0]['changes'],[
 check_preview(array_column($diff['offers'],'state'),['changed','unmatched','unchanged'],'duplicate identities stay unpaired and formatting is ignored');
 $GLOBALS['preview_tables']['Offers']=[];
 check_preview(molavi_domain_ai_reviews_api('GET',$comparison,null,'wp:7')['missing'],3,'missing saved offers are reported');
+$GLOBALS['preview_tables']['Offers']=[
+    ['Offer ID','Product Name','Status','Review Reason','Original Message'],
+    ['archived-offer','Yogurt','needs_review','price needs review','Price from supplier'],
+];
+$archive=molavi_domain_ai_reviews_api('GET',['reextract'=>'archive-review'],null,'wp:7');
+check_preview($archive['case_ids'],['ai:'.hash('sha256','archived-offer')],'archive includes exact open AI cases');
+$GLOBALS['preview_dismissals'][7]=[['task_key'=>'ai|case:'.$archive['case_ids'][0]]];
+$ownerPreview=molavi_domain_ai_reviews_api('GET',['reextract'=>'preview'],null,'wp:7');
+check_preview($ownerPreview['open_cases']['case_count'],0,'archived AI cases are filtered out of owner bulk re-extraction');
+check_preview(molavi_domain_ai_case_inventory($GLOBALS['preview_tables'],null,'wp:8')['case_count'],1,'archive is scoped to the owner');
 foreach(glob($root.'/*') as $file)unlink($file);rmdir($root);
 echo 'PASS native AI previews and commands '.$count." checks\n";

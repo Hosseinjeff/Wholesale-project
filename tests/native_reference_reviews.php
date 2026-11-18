@@ -3,6 +3,18 @@ declare(strict_types=1);define('ABSPATH','/synthetic/');define('MOLAVI_REFERENCE
 function add_action(...$args){}function add_filter(...$args){}
 function get_option($key,$default=null){return $GLOBALS['review_options'][$key]??$default;}
 function update_option($key,$value,$autoload=false){$GLOBALS['review_options'][$key]=$value;}
+function get_transient($key){return $GLOBALS['search_cache'][$key]??false;}
+function set_transient($key,$value,$ttl){$GLOBALS['search_cache'][$key]=$value;}
+function wp_parse_url($url,$component){return parse_url($url,$component);}
+function wp_remote_retrieve_body($response){return $response['body'];}
+function wp_remote_retrieve_response_code($response){return 200;}
+function molavi_domain_reference_source(){return 'https://rezvanpakhsh.com/wp-json/wc/store/v1/products';}
+function molavi_domain_http($method,$url,$options){
+    parse_str(parse_url($url,PHP_URL_QUERY),$query);
+    $GLOBALS['search_terms'][]=$query['search'];
+    return ['body'=>molavi_domain_json($query['search']==='بیسکویت شکلاتی'
+        ? [['name'=>'بیسکویت شکلاتی بنیس','permalink'=>'https://rezvanpakhsh.com/product/sample']] : [])];
+}
 foreach(['state-host','domain-core','domain-schemas','domain-orders','domain-gateway','domain-reference-parser','domain-reference-store','domain-reference-workflow','domain-products','domain-publisher',
     'domain-product-derivation','domain-sheet-conflicts','domain-jobs','domain-bot-capabilities','domain-reference-matching','domain-reference-reviews'] as $file)require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-'.$file.'.php';
 $GLOBALS['review_options']=['molavi_bot_capabilities_v1'=>['schema_version'=>1,'ai_configured'=>true,'extraction_policy_version'=>'gemini-'.str_repeat('a',16),'suggestion_policy_version'=>str_repeat('b',64),'image_extraction_enabled'=>false]];
@@ -11,6 +23,12 @@ function molavi_domain_sheets($names,$fresh=false){return $GLOBALS['review_table
 function molavi_domain_sheet_fields($name,$row,$headers,$values){foreach($values as $field=>$value)$GLOBALS['review_tables'][$name][$row-1][array_search($field,$headers,true)]=$value;}
 $root=molavi_state_root();foreach(['pipeline','reference'] as $store){$db=new SQLite3($root.'/'.$store.'.sqlite3');$db->close();}$count=0;
 function review_same($actual,$expected,$label){global $count;if(molavi_domain_json($actual)!==molavi_domain_json($expected))throw new RuntimeException($label.' '.molavi_domain_json(['actual'=>$actual,'expected'=>$expected]));$count++;}
+$searchQuery=['q'=>'بیسکویت شکلاتی ۱۲ عددی'];
+$search=molavi_domain_search_online_reference($searchQuery);
+review_same($search['matched_query'],'بیسکویت شکلاتی','search retries without pack count');
+review_same(count($search['results']),1,'fallback returns a comparison result');
+review_same(molavi_domain_search_online_reference($searchQuery),$search,'fallback reply is cached');
+review_same($GLOBALS['search_terms'],['بیسکویت شکلاتی ۱۲ عددی','بیسکویت شکلاتی'],'fallback stops after the first useful query');
 function review_seed($store,$seed){$db=molavi_domain_db($store);foreach($store==='pipeline'?['jobs','ai_confirmation_decisions','sheet_projection_state','sheet_sync_conflicts','product_status_snapshots','product_status_records']:
     ['reference_snapshots','reference_active','reference_item_decisions','reference_item_inheritances'] as $table)$db->exec('DELETE FROM '.$table);$db->exec('DELETE FROM sqlite_sequence WHERE name=\'reference_item_decisions\'');
     foreach($seed as $step)molavi_domain_sql($db,$step['sql'],$step['params']);$db->close();}
