@@ -318,6 +318,7 @@
             ai_extraction_disabled: 'برای استفاده از استخراج فقط با هوش مصنوعی، ابتدا سرویس سرور را به‌روزرسانی کنید.',
             ai_extraction_unconfigured: 'برای استخراج کالا، کلید GOOGLE_API_KEY را در تنظیمات سرویس اجرا تنظیم کنید.',
             unknown_reextraction_run: 'اجرای بازاستخراج پیدا نشد؛ فهرست را تازه کنید.',
+            reextraction_in_progress: 'مقایسه پس از پایان بازاستخراج آماده می‌شود.',
             reextraction_sources_unavailable: 'بعضی کارت‌ها به پیام اصلی متصل نیستند؛ چیزی اجرا نشد تا منبع همه موارد مشخص شود.',
             reextraction_conflict: 'صف بازاستخراج تغییر کرده است؛ صفحه را تازه کنید و دوباره تلاش کنید.',
             image_extraction_disabled: 'تصویر فقط پیوست است؛ برای استخراج کالا متن یا کپشن بفرستید.',
@@ -3055,6 +3056,61 @@
         return request(method,payload,url || reextractionUrl('preview'),apiKey);
     }
 
+    function reextractionChanges(runId) {
+        const fields={'Sale Price':'قیمت فروش','Consumer Price':'قیمت مصرف‌کننده','Package Price':'قیمت بسته',
+            Currency:'واحد پول','Stock Status':'موجودی','Package Count':'تعداد در بسته','Min Qty':'حداقل سفارش',
+            'Variation Type':'نوع','Volume':'حجم','Weight':'وزن'};
+        const stock={Available:'موجود','Out of Stock':'ناموجود',Unknown:'نامشخص'};
+        const format=new Intl.NumberFormat('fa-IR',{maximumFractionDigits:6});
+        const value=(field,cell)=>field==='Stock Status' ? stock[cell] || cell
+            : cell==='' || cell==null ? 'ثبت نشده' : typeof cell==='number' ? format.format(cell) : String(cell);
+        const details=node('details',null,'molavi-reextract-changes');
+        const feedback=node('p');feedback.setAttribute('role','status');
+        const list=node('ul');
+        details.append(node('summary','تغییرات استخراج'),feedback,list);
+        let requested=false;
+        const load=async()=>{
+            if (requested) return;
+            requested=true;feedback.textContent='در حال دریافت تغییرات…';
+            try {
+                const report=await reextractionRequest('GET',undefined,reextractionUrl('run-changes',runId));
+                feedback.textContent='';
+                for (const offer of report.offers || []) {
+                    const item=node('li');
+                    const link=node('a',offer.product_name || 'بررسی پیشنهاد');
+                    const url=new URL(config.pageUrls?.['molavi-operations'] || '?page=molavi-operations',window.location.href);
+                    url.searchParams.set('scope','all');url.searchParams.set('offer_id',offer.offer_id);
+                    link.href=url.href;
+                    link.setAttribute('aria-label',`بررسی پیشنهاد ${offer.product_name || ''}`.trim());
+                    item.append(link);
+                    if (offer.state==='changed') {
+                        const changes=node('ul');
+                        for (const change of offer.changes) {
+                            const line=node('li',`${fields[change.field]} · `);
+                            line.append(node('bdi',value(change.field,change.before)),document.createTextNode(' ← '),
+                                node('bdi',value(change.field,change.after)));
+                            changes.append(line);
+                        }
+                        item.append(changes);
+                    } else {
+                        item.append(node('small',offer.state==='unmatched'?'مقایسهٔ مطمئن با پیشنهاد قبلی ممکن نبود.':'بدون تغییر در داده‌های اصلی'));
+                    }
+                    list.append(item);
+                }
+                if (report.omitted) feedback.append(`${format.format(report.omitted)} پیشنهاد دیگر در این خلاصه نمایش داده نمی‌شود. `);
+                if (report.missing) feedback.append(`ردیف ذخیره‌شده برای ${format.format(report.missing)} پیشنهاد پیدا نشد.`);
+                feedback.hidden=!feedback.textContent;
+            } catch (error) {
+                requested=false;
+                const retry=node('button','دریافت دوبارهٔ تغییرات','button button-secondary');retry.type='button';
+                retry.addEventListener('click',load);
+                feedback.replaceChildren(document.createTextNode(errorText(error.message)+' '),retry);
+            }
+        };
+        details.addEventListener('toggle',()=>{if (details.open) load();});
+        return details;
+    }
+
     async function showReextractionProgress(panel, runId, auditContext = {}) {
         if (!root.contains(panel)) return;
         let timer;
@@ -3063,7 +3119,7 @@
             return showReextractionProgress(panel,runId,auditContext);
         };
         try {
-            const runUrl=reextractionUrl('run',runId)+(auditContext.keepResult?'&summary=1':'');
+            const runUrl=reextractionUrl('run',runId)+'&summary=1';
             const status = await reextractionRequest('GET', undefined, runUrl);
             const counts = status.counts || {};
             const finished = Number(status.completed || 0);
@@ -3096,6 +3152,7 @@
                 }
                 const publicationState = String((status.catalog_publication || {}).state || '');
                 if (status.offers_written > 0) {
+                    if (!box.nextElementSibling?.classList.contains('molavi-reextract-changes')) box.after(reextractionChanges(runId));
                     const publicationLabel = publicationState === 'done' ? 'همگام‌سازی با وردپرس کامل شد.'
                         : publicationState === 'waiting_publication' ? 'همگام‌سازی وردپرس پشت توقف انتشار منتظر بررسی است.'
                         : publicationState === 'failed' ? 'همگام‌سازی وردپرس ناموفق ماند؛ خطای صف انتشار را بررسی کنید.'
@@ -3110,15 +3167,16 @@
                 }
                 if (outcomes.source_changed) box.appendChild(node('p', `${outcomes.source_changed} پیام پس از پیش‌نمایش تغییر کرده یا چند نسخه مبهم داشته؛ نتیجه‌ای برای آن‌ها ثبت نشد. پیش‌نمایش را تازه کنید و دوباره اجرا کنید.`, 'notice'));
                 if (counts.cancelled) box.appendChild(node('p', 'کارهای در صف لغو شدند؛ پیامِ در حال اجرا ممکن است کامل شده باشد.'));
-                if (auditContext.keepResult) {
+                if (status.offers_written > 0) {
                     const products=node('button','دیدن محصولات به‌روز','button button-secondary');
                     products.type='button';
                     products.addEventListener('click',()=>dashboardApp.showReviewResults());
-                    box.append(products,statusButton);
-                    if (status.offers_written>0 && (!publicationState || ['queued','running'].includes(publicationState))) {
+                    box.append(products);
+                    if (!publicationState || ['queued','running'].includes(publicationState)) {
                         timer=setTimeout(refreshStatus,8000);
                     }
                 }
+                box.append(statusButton);
                 if (auditContext && auditContext.run_id
                         && !panel.dataset.reextractAuditSaved) {
                     panel.dataset.reextractAuditSaved = '1';
@@ -3141,9 +3199,6 @@
                     } catch (_error) {
                         box.appendChild(notice('نتیجه پردازش انجام شد اما ثبت گزارش آن در پایگاه داده وردپرس ناموفق بود.', 'error'));
                     }
-                }
-                if (!auditContext.keepResult) {
-                    setTimeout(() => dashboard(label,errors?'warning':'success'),1200);
                 }
                 return;
             }
@@ -3184,7 +3239,7 @@
         const progress = notice('بازاستخراج در صف پردازش است…','info');
         progress.classList.add('molavi-reextract-progress');
         panel.replaceChildren(progress);
-        showReextractionProgress(panel,runId,{...context,keepResult:true});
+        showReextractionProgress(panel,runId,context);
     }
 
     function policyReextractionButton(panel, preview, offerId = '') {

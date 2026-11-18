@@ -8,7 +8,8 @@ function add_filter(...$args){}
 function get_option($name,$default=false){return $GLOBALS['preview_options'][$name]??$default;}
 function molavi_domain_sheets($names,$fresh=false){return array_intersect_key($GLOBALS['preview_tables'],array_flip($names));}
 foreach(['state-host','domain-core','domain-schemas','domain-gateway','domain-ai-review-model','domain-ai-inventory','domain-ai-preview',
-    'domain-ai-review-api','domain-publication-recovery','domain-ai-commands','domain-ai-dismissals','domain-bot-capabilities','domain-sheet-conflicts','domain-publisher'] as $file)
+    'domain-ai-review-api','domain-ai-run-changes','domain-publication-recovery','domain-ai-commands','domain-ai-dismissals','domain-bot-capabilities',
+    'domain-sheet-conflicts','domain-publisher','domain-products','domain-reference-parser'] as $file)
     require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-'.$file.'.php';
 $root=molavi_state_root();$db=new SQLite3($root.'/pipeline.sqlite3');$db->close();$count=0;
 function check_preview($actual,$expected,$label):void {
@@ -97,6 +98,11 @@ check_preview([$job['message_id'],$job['batch_id'],$job['policy_version'],$job['
     ['11','source-batch',$policy,$offer],'job targets the exact saved message and policy');
 check_preview(molavi_domain_ai_offer_preview(['offer_id'=>$offer],$GLOBALS['preview_tables'])['latest_run_id'],$command['run_id'],
     'the card can reopen the persisted run');
+$comparison=['reextract'=>'run-changes','run_id'=>$command['run_id']];
+try {
+    molavi_domain_ai_reviews_api('GET',$comparison,null,'wp:7');
+    throw new RuntimeException('comparison returned while running');
+} catch (MolaviWorkflowError $e) { check_preview($e->status,409,'comparison requires a finished run'); }
 molavi_domain_sql($db,"UPDATE jobs SET state='done',result=? WHERE kind='reextract'",
     [molavi_domain_json(['status'=>'reprocessed','products_found'=>3,'offers_written'=>3,'open_cases_remaining'=>2])]);
 molavi_domain_sql($db,"INSERT INTO jobs (id,kind,payload,state,available) VALUES (?,?,?,'waiting_publication',0)",
@@ -112,5 +118,34 @@ check_preview($preview['latest_run_id'],$command['run_id'],'finished run remains
 $GLOBALS['preview_tables']['Offers'][1][7]='owner-final';
 $preview=molavi_domain_ai_offer_preview(['offer_id'=>$offer],$GLOBALS['preview_tables']);
 check_preview($preview['reason'],'owner_decision','protect the owner decision');
+$source=molavi_domain_records($GLOBALS['preview_tables']['Offers'])[0];
+$jobId=molavi_domain_ai_run_status($command['run_id'])['items'][0]['job_id'];
+$milk=array_replace($source,['Product Name'=>'Milk','Stock Status'=>'Available','Sale Price'=>'1,000']);
+$tea=array_replace($source,['Product Name'=>'Tea','Stock Status'=>'موجود','Sale Price'=>'1000','Volume'=>'500 میلی‌لیتر']);
+$yogurt=array_replace($source,['Product Name'=>'Yogurt','Stock Status'=>'Available','Sale Price'=>'250']);
+$rows=[
+    array_replace($milk,['Offer ID'=>'older','Batch ID'=>'older-run','Consumer Price'=>55]),
+    $milk,
+    array_replace($tea,['Offer ID'=>'old-tea']),
+    array_replace($yogurt,['Offer ID'=>'ambiguous-1']),
+    array_replace($yogurt,['Offer ID'=>'ambiguous-2']),
+    array_replace($milk,['Offer ID'=>'other-source','Batch ID'=>'unrelated','Original Message'=>'Another message','Consumer Price'=>66]),
+    array_replace($milk,['Offer ID'=>'owner-derived','Batch ID'=>'decision','Derived From Offer ID'=>$offer,'Consumer Price'=>77]),
+    array_replace($milk,['Offer ID'=>'new-milk','Batch ID'=>$jobId,'Sale Price'=>1000,'Consumer Price'=>1250,'Stock Status'=>'Out of Stock','Package Count'=>6]),
+    array_replace($tea,['Offer ID'=>'new-tea','Batch ID'=>$jobId,'Stock Status'=>'Available','Sale Price'=>1000]),
+    array_replace($yogurt,['Offer ID'=>'new-yogurt','Batch ID'=>$jobId]),
+    array_replace($milk,['Offer ID'=>'later','Batch ID'=>'later-run','Consumer Price'=>99]),
+];
+$GLOBALS['preview_tables']['Offers']=molavi_domain_rows_from_records(array_unique(array_merge(...array_map('array_keys',$rows))),$rows);
+$diff=molavi_domain_ai_reviews_api('GET',$comparison,null,'wp:7');
+check_preview(array_column($diff['offers'],'offer_id'),['new-milk','new-yogurt','new-tea'],'changed and ambiguous saved offers come first');
+check_preview($diff['offers'][0]['changes'],[
+    ['field'=>'Consumer Price','before'=>'','after'=>1250],
+    ['field'=>'Stock Status','before'=>'Available','after'=>'Out of Stock'],
+    ['field'=>'Package Count','before'=>'','after'=>6],
+],'recovered terms compare with the preceding extraction of the same message');
+check_preview(array_column($diff['offers'],'state'),['changed','unmatched','unchanged'],'duplicate identities stay unpaired and formatting is ignored');
+$GLOBALS['preview_tables']['Offers']=[];
+check_preview(molavi_domain_ai_reviews_api('GET',$comparison,null,'wp:7')['missing'],3,'missing saved offers are reported');
 foreach(glob($root.'/*') as $file)unlink($file);rmdir($root);
 echo 'PASS native AI previews and commands '.$count." checks\n";

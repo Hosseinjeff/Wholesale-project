@@ -19,7 +19,7 @@ const fixtures={
 (async()=>{
  const browser=await chromium.launch({executablePath:'/usr/bin/chromium',headless:true,args:['--no-sandbox']});
  const page=await browser.newPage({viewport:{width:1365,height:1000}});const errors=[];const writes=[];let failPrices=false;let acceptPrice=false;let offerPreviews=0;let latestRun='';let runComplete=false;let groupedLoads=0;
- let activeReads=0,maxActiveReads=0,transientStatusOnce=true,statusReads=0;
+ let activeReads=0,maxActiveReads=0,transientStatusOnce=true,statusReads=0,changeReads=0;
  page.on('pageerror',e=>errors.push(e.message));
  await page.route('**/*',async route=>{
   const req=route.request();if(req.url().includes('/admin-ajax.php')){
@@ -114,6 +114,12 @@ const fixtures={
         ?{state:'complete',completed:1,counts:{done:1},outcomes:{reprocessed:1},products_found:3,offers_written:3,open_cases_remaining:2,
           catalog_publication:{state:'waiting_publication'}}
         :{state:'running',completed:0,counts:{queued:1}})}});
+     }
+     if(query.get('reextract')==='run-changes'){
+      changeReads++;
+      assert.equal(query.get('run_id'),latestRun);
+      return await route.fulfill({json:{ok:true,offers:[{offer_id:'offer-5',product_name:'بیسکویت شکلاتی تازه',state:'changed',
+       changes:[{field:'Consumer Price',before:'',after:135000},{field:'Stock Status',before:'Available',after:'Out of Stock'}]}]}});
      }
     }
     return await route.fulfill({json:{ok:true,...(fixtures[path]||{})}});
@@ -238,6 +244,20 @@ const fixtures={
  await mount('&workbench_action=ai');
  await page.getByText('بازاستخراج همین پیام',{exact:true}).click();
  await page.getByText('بازاستخراج پایان یافت · 1 از 1 پیام',{exact:true}).waitFor();
+ assert.equal(changeReads,0,'comparison stays off the status polling path');
+ await page.getByText('تغییرات استخراج',{exact:true}).click();
+ const comparison=page.locator('.molavi-reextract-changes');
+ await comparison.getByText(/قیمت مصرف‌کننده.*ثبت نشده.*۱۳۵/).waitFor();
+ await comparison.getByText(/موجودی.*موجود.*ناموجود/).waitFor();
+ await page.getByRole('button',{name:'تازه‌کردن وضعیت اجرا'}).click();
+ await page.locator('.molavi-reextract-progress button:enabled').filter({hasText:'تازه‌کردن وضعیت اجرا'}).waitFor();
+ assert.equal(changeReads,1,'refreshing status retains the loaded comparison');
+ const cases=fixtures['/pipeline/ai-confirmations'].cases;
+ cases.push({...cases[0],case_id:'ai-5',offer_id:'offer-5',product_name:'بیسکویت شکلاتی تازه'});
+ await comparison.getByRole('link',{name:'بررسی پیشنهاد بیسکویت شکلاتی تازه'}).click();
+ assert.equal(new URL(page.url()).searchParams.get('offer_id'),'offer-5');
+ await page.locator('.md-card-panel').getByText(/گام فعلی/).waitFor();
+ cases.pop();
  assert.equal(writes.filter(entry=>entry.payload && JSON.parse(entry.payload).action==='start_offer_reextraction').length,1);
  const extraction=fixtures['/pipeline/ai-confirmations'].cases[0];
  extraction.reference_candidates=[{name:'مرجع بیسکویت',reference_id:'ref-4',price_role_hint:{role:'unit'}}];

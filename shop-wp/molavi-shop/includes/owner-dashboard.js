@@ -561,6 +561,10 @@
             if(url.origin!==location.origin||url.searchParams.get('page')!=='molavi-operations')return;
             event.preventDefault();
             if(url.searchParams.get('view'))navigate(url.searchParams.get('view'));
+            else if(url.searchParams.get('offer_id')){
+                reviewInboxItem('offer_id',url.searchParams.get('offer_id'));
+                if(!state.active) hooks.refresh();
+            }
             else if(url.searchParams.get('workbench_action')==='reextract'||url.hash.includes('reextract'))navigate('sources');
             else {state.view='products';state.action=url.searchParams.get('workbench_action')||'';saveURL();paint();}
         });
