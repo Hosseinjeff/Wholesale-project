@@ -108,6 +108,8 @@ class ReferenceSuggestionTasksTests(unittest.TestCase):
             cases = [dict(self.case)]
             attach_receipts(self.queue, cases, 'reference', 'snapshot-A')
             self.assertNotIn('reference_suggestion', cases[0])
+        with patch.dict(os.environ, {'GOOGLE_FREE_MATCH_MODELS': '[{}]'}):
+            self.assertNotEqual(policy_version(), self.context['policy_version'])
 
     def test_quota_wait_remains_durable_without_consuming_failure_attempt(self):
         def wait(payload):

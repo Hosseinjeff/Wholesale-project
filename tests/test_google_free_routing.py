@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 
 from catalog.google_quota import (
     FreeGoogleRouter, ModelBudget, QuotaConfigurationError, QuotaDeferred,
-    GoogleModelUnavailable, GoogleProviderError, configured_router, pacific_day,
+    GoogleModelUnavailable, GoogleProviderError, configured_model_budgets, configured_router, pacific_day,
 )
 from catalog.gemini import extract_message_products
 from catalog.durable import Handoffs
@@ -87,6 +87,17 @@ class FreeRoutingTests(RoutingFixture):
         with patch.dict(os.environ, {'GOOGLE_FREE_ROUTING': '1'}):
             with self.assertRaises(QuotaConfigurationError):
                 configured_router()
+
+    def test_catalog_model_configuration_keeps_the_existing_extraction_pool(self):
+        base = {'model': 'flash-a', 'tasks': ['extract', 'match'], 'rpm': 10, 'tpm': 50000,
+                'rpd': 50, 'qualified': True, 'free_tier_verified': True}
+        matching = {**base, 'model': 'gemma-4-26b-a4b-it', 'tasks': ['match'], 'api': 'generate_choice'}
+        with patch.dict(os.environ, {'GOOGLE_FREE_ROUTING': '1', 'GOOGLE_FREE_MODELS': json.dumps([base]),
+                                     'GOOGLE_FREE_MATCH_MODELS': json.dumps([matching])}):
+            self.assertEqual([item.model for item in configured_model_budgets()], [base['model'], matching['model']])
+            with patch.dict(os.environ, {'GOOGLE_FREE_MATCH_MODELS': json.dumps([base])}):
+                with self.assertRaises(QuotaConfigurationError):
+                    configured_model_budgets()
 
     def test_independent_daily_budgets_are_used_and_survive_restart(self):
         a = ModelBudget('a', ('extract',), 100, 100000, 1, bucket='a')
@@ -503,6 +514,48 @@ class ReferenceAITests(RoutingFixture):
             result = service.suggest({'name': 'چای ممتاز'}, [row()], snapshot_id=snapshot, session=session, api_key='key')
             self.assertEqual((result['reference_id'], result['model']), ('r1', 'flash-a'))
             self.assertEqual(len(session.calls), 2)
+            self.now += 31
+
+    def test_catalog_uses_26b_for_short_text_matches_and_31b_for_broader_matches(self):
+        small = budget('gemma-4-26b-a4b-it', api='generate_choice', tasks=['match'])
+        large = budget('gemma-4-31b-it', api='generate_choice', tasks=['match'])
+        service = ReferenceSuggestions(self.router(budget(), large, small))
+        session = Session(generation({'choice': 'A'}), generation({'choice': 'no_match'}))
+        product = {'name': 'چای ممتاز'}
+        routine = service.suggest(product, [row()], snapshot_id='s1', session=session, api_key='key')
+        broad = service.suggest(product, [row(f'r{i}') for i in range(1, 6)], snapshot_id='s2',
+                                session=session, api_key='key')
+        self.assertEqual((routine['reference_id'], routine['model']), ('r1', small.model))
+        self.assertEqual((broad['reference_id'], broad['model'], broad['state']), (None, large.model, 'needs_review'))
+        self.assertEqual(len(session.calls), 2)
+
+    def test_choice_provider_overload_pauses_only_its_model_and_26b_returns_after_recovery(self):
+        small = budget('gemma-4-26b-a4b-it', api='generate_choice', tasks=['match'], bucket='shared')
+        large = budget('gemma-4-31b-it', api='generate_choice', tasks=['match'], bucket='shared')
+        service = ReferenceSuggestions(self.router(small, large))
+        session = Session(Response({}, status=503), generation({'choice': 'A'}),
+                          generation({'choice': 'A'}), generation({'choice': 'A'}))
+        models = []
+        for i, elapsed in enumerate([0, 10, 21]):
+            self.now += elapsed
+            result = service.suggest({'name': 'چای ممتاز'}, [row()], snapshot_id=f's{i}',
+                                     session=session, api_key='key')
+            models.append(result['model'])
+        self.assertEqual(models, [large.model, large.model, small.model])
+        self.assertEqual(service.router.status()[0]['rpd_used'], 4)
+
+    def test_bad_choice_or_timeout_tries_the_other_gemma_before_gemini(self):
+        small = budget('gemma-4-26b-a4b-it', api='generate_choice', tasks=['match'])
+        large = budget('gemma-4-31b-it', api='generate_choice', tasks=['match'])
+        service = ReferenceSuggestions(self.router(small, large, budget()))
+        for i, failed in enumerate([generation({'choice': 'invented'}), TimeoutError()]):
+            session = Session(failed, generation({'choice': 'A'}))
+            result = service.suggest({'name': 'چای ممتاز'}, [row()], snapshot_id=f's{i}',
+                                     session=session, api_key='key')
+            self.assertEqual((result['reference_id'], result['model']), ('r1', large.model))
+            self.assertIn(small.model, session.calls[0][0])
+            self.assertIn(large.model, session.calls[1][0])
+            self.now += 31
 
     def test_exact_match_skips_embedding_and_comparison_calls(self):
         router = self.embed_router()

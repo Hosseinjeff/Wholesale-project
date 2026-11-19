@@ -17,6 +17,9 @@ def policy_version():
     settings = [POLICY, os.getenv('GOOGLE_FREE_ROUTING', ''),
                 os.getenv('GOOGLE_FREE_MODELS', ''),
                 os.getenv('GOOGLE_REFERENCE_EMBEDDING_MODEL', '')]
+    matching = os.getenv('GOOGLE_FREE_MATCH_MODELS', '')
+    if matching:
+        settings.append(matching)
     return hashlib.sha256(json.dumps(settings).encode()).hexdigest()
 
 

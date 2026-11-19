@@ -8,7 +8,8 @@ import heapq
 import json
 import math
 
-from catalog.google_quota import GoogleModelUnavailable, GoogleProviderError, QuotaDeferred
+from catalog.google_quota import (GoogleModelUnavailable, GoogleProviderError,
+                                  QuotaConfigurationError, QuotaDeferred)
 from .matching import (RankedCandidateIndex, _reference, candidate_match,
                        explicit_reference_conflicts)
 from .importer import HEADERS
@@ -47,6 +48,14 @@ def _generated_json(data):
         return json.loads(text)
     except (ValueError, TypeError, KeyError, AttributeError):
         raise GoogleProviderError('Google returned an incomplete reference suggestion') from None
+
+
+def _generated_choice(data, choices):
+    value = _generated_json(data)
+    choice = value.get('choice') if isinstance(value, dict) and value.keys() == {'choice'} else None
+    if not isinstance(choice, str) or choice not in choices:
+        raise GoogleProviderError('Google returned an unknown catalog choice')
+    return choices[choice]
 
 
 class EmbeddingIndex:
@@ -215,7 +224,9 @@ class ReferenceSuggestions:
                                                identities, source_text, tasks])
         suggestion = self.router.cached(key)
         if suggestion is None:
-            suggestion = self._choose(product, identities, source_text, session, api_key)
+            lexical_ids = {candidate['reference_id'] for candidate in lexical}
+            contextual = len(candidates) > 4 or any(row['reference_id'] not in lexical_ids for row in candidates)
+            suggestion = self._choose(product, identities, source_text, session, api_key, contextual=contextual)
             self.router.cache(key, suggestion)
         selected = next((item for item in candidates if item['reference_id'] == suggestion['reference_id']), None)
         conflicts = explicit_reference_conflicts(product, selected) if selected else []
@@ -228,7 +239,7 @@ class ReferenceSuggestions:
         return {**suggestion, 'state': state, 'snapshot_id': snapshot_id,
                 'candidates': candidates, 'retrieval_retry_at': retrieval_wait, 'method': 'ai'}
 
-    def _choose(self, product, candidates, source_text, session, api_key):
+    def _choose(self, product, candidates, source_text, session, api_key, *, contextual=False):
         material = json.dumps({'supplier': identity(product), 'source_text': source_text,
                                'references': candidates}, ensure_ascii=False)
         instruction = (
@@ -244,9 +255,13 @@ class ReferenceSuggestions:
             'This is a suggestion for owner review, not approval. '
         )
         apis = list(dict.fromkeys(item.api for item in self.router.models if 'match' in item.tasks))
+        if 'generate_choice' in apis:
+            apis.remove('generate_choice')
+            apis.insert(0, 'generate_choice')
         waits = []
         failure = None
         for api in apis:
+            options = {}
             if api == 'decide':
                 criteria = {f'c{i}': json.dumps(value, ensure_ascii=False)
                             for i, value in enumerate(candidates)}
@@ -268,6 +283,10 @@ class ReferenceSuggestions:
                             'required': ['choice'], 'additionalProperties': False,
                         },
                     }}
+                options = {
+                    'preferred_model': 'gemma-4-31b-it' if contextual else 'gemma-4-26b-a4b-it',
+                    'validate': lambda data: _generated_choice(data, choices),
+                }
             else:
                 payload = {'contents': [{'parts': [{'text': instruction +
                     'Return only JSON with reference_id (existing ID or null), confidence '
@@ -276,31 +295,21 @@ class ReferenceSuggestions:
                                          'responseMimeType': 'application/json'}}
             try:
                 data, selected = self.router.request('match', payload, api=api,
-                    session=session, api_key=api_key)
+                    session=session, api_key=api_key, **options)
             except QuotaDeferred as exc:
                 waits.append(exc.retry_at)
                 continue
             except GoogleModelUnavailable as exc:
                 failure = exc
                 continue
-            except GoogleProviderError as exc:
+            except (GoogleProviderError, QuotaConfigurationError) as exc:
                 if api != 'generate_choice':
                     raise
                 failure = exc
                 continue
             if api == 'generate_choice':
-                try:
-                    value = _generated_json(data)
-                except GoogleProviderError as exc:
-                    failure = exc
-                    continue
-                choice = value.get('choice') if isinstance(value, dict) and value.keys() == {'choice'} else None
-                if not isinstance(choice, str) or choice not in choices:
-                    failure = GoogleProviderError('Google returned an unknown catalog choice')
-                    continue
-                reference_id = choices[choice]
-                return {'reference_id': reference_id, 'confidence': None, 'model': selected,
-                        'reason': 'catalog_candidate_selected' if reference_id else 'no_unique_reference'}
+                return {'reference_id': data, 'confidence': None, 'model': selected,
+                        'reason': 'catalog_candidate_selected' if data else 'no_unique_reference'}
             if api == 'decide':
                 answer = (data.get('answers') or {}).get('reference') or {}
                 choice = answer.get('choice')

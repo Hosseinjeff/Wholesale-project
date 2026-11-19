@@ -23,9 +23,11 @@ Google schedules API requests to `gemini-2.5-flash` to move to 3.5 Flash-Lite on
 
 ### Gemma catalog matching pilot
 
-`gemma-4-31b-it` selected the correct synthetic Persian SKU and abstained when its flavor was unspecified using a JSON schema with permitted choice codes. The earlier generic generation format returned invalid or incomplete suggestions. The `generate_choice` API mode uses that schema and minimal thinking for owner-requested catalog suggestions. The existing code still rejects explicit conflicts and checks the reference against the active snapshot. Provider overload occurred during integration checks, so unavailable responses, timeouts, and invalid choices can fall through to the verified Gemini generation pool.
+Both Gemma models can enter the catalog matching pilot. The 26B model previously returned overload errors and later selected the correct Persian SKU in 1.45 seconds. The 31B model selected the correct Persian SKU and abstained when flavor was unspecified. The `generate_choice` mode uses a schema of allowed catalog choices and minimal thinking. Code resolves proven identities first and checks the suggestions against explicit facts and the active snapshot.
 
-To pilot it, add `gemma-4-31b-it` to `GOOGLE_FREE_MODELS` with `api: "generate_choice"`, `tasks: ["match"]`, and a reviewed allocation based on the model’s active AI Studio RPM, TPM, and RPD. Place it before the shared Gemini generation entries to use its allowance for matching first. `gemma-4-26b-a4b-it` returned repeated capacity errors. A separate Gemma grounding probe returned no cited retailer source, so it supplies no automatic market-price evidence. [Gemma API models and tools](https://gemma.ai/deployment/gemini-api/)
+Shortlists of at most four text-supported candidates prefer `gemma-4-26b-a4b-it`. Broader shortlists and candidates found only through semantic retrieval prefer `gemma-4-31b-it`. The other Gemma model can serve the same request if its allowance is available. The verified Gemini pool remains the fallback and continues handling text extraction. Gemma candidates with temporary failures re-enter selection after their cooldown. A separate Gemma grounding probe returned no cited retailer source. [Gemma API models and tools](https://gemma.ai/deployment/gemini-api/)
+
+`GOOGLE_FREE_MATCH_MODELS` can add a match-only pilot without replacing existing `GOOGLE_FREE_MODELS` entries. The staged pilot budgets both Gemma models together at 2 requests and 30,000 input tokens per minute and 8 requests per day. This is a local trial cap. Use the model quota rows from AI Studio before raising the allocation or treating them as separate provider budgets.
 
 ## Verified staging allocation
 
@@ -77,9 +79,8 @@ Different models have independent buckets by default. Aliases that Google counts
 together must share a bucket and identical limits. Only qualified models can receive
 a task. A match-only or extraction-only model takes the task first when its allowance
 is available. Mixed-task models remain available as fallback and balance by fraction
-of daily capacity used, breaking ties in configuration order. Matching tries configured
-API types in configuration order, allowing Decision capacity and generation capacity
-to complement each other.
+of daily capacity used, breaking ties in configuration order. Matching tries
+constrained-choice models first and then other API types in configuration order.
 An explicit model override can only select a configured qualified model.
 
 The API key must belong to the verified **Free-tier API project**. Google enforces
@@ -133,9 +134,10 @@ Google input-token usage reconciles the reservation. Image extraction is disable
 models cannot be configured with an OCR task.
 
 Failed/unknown requests are not refunded. Structured daily 429s block that bucket
-until midnight Pacific. Minute or unknown 429s and 503s create a bounded bucket cooldown.
-A 404 pauses the specific model for 15 minutes and allows the next qualified model to
-use its remaining allocation, including a working alias in the same bucket. An explicit
+until midnight Pacific. Minute or unknown 429s create a bounded bucket cooldown.
+An overload, transport failure, or invalid constrained choice can briefly pause the
+specific model. A 404 pauses the endpoint for 15 minutes. Other qualified models can
+use their remaining allocation, including a working alias in the same bucket. An explicit
 model pin still applies. Exhaustion returns `QuotaDeferred`
 with the next retry time instead of sleeping. Existing durable intake/re-extraction
 jobs retain that due time and do not consume failure retries. WordPress's established
