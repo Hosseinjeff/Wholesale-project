@@ -13,6 +13,26 @@ project traffic, including the production executor.
 | Gemini 3.1 Flash-Lite | 15 / 250,000 / 500 | 12 / 200,000 / 450 |
 | Gemini Embedding 001 | 100 / 30,000 / 1,000 | 80 / 27,000 / 950 |
 
+## Production promotion
+
+The owner deployed `aff93e8` to the production Railway bot on November 19, 2026.
+Deployment `4a56a158-f4c4-43aa-98a8-f2474149b75f` reached SUCCESS. The WordPress
+promotion verified 82 files against the same revision and updated the 25 that
+differed on production. The live bot reported these allocations.
+
+| Model | Production RPM / TPM / RPD |
+| --- | ---: |
+| Gemini 3.5 Flash-Lite | 12 / 200,000 / 450 |
+| Gemini 3.1 Flash-Lite | 3 / 50,000 / 50 |
+| Gemini Embedding 001 | 20 / 3,000 / 50 |
+| Gemma 4 26B | 3 / 10,000 / 400 |
+| Gemma 4 31B | 3 / 10,000 / 400 |
+| Gemini Decision 1 | 2 / 15,000 / 500 |
+
+Production reserves 10 Embedding 001 requests a day for foreground retrieval.
+The initial index request queued the eligible 3,401-row reference. Embedding 2
+is allocated to Staging while its project-wide allowance is unverified.
+
 ## November 19 provider checks
 
 With the workspace project key, Gemini 2.5 Flash returned Google Search metadata with one source for Pars Chin tea 500 g and eight for Rani peach 240 ml, including Bamo Market and Digikala. Gemini 3.1 Flash-Lite, 3.5 Flash-Lite, 3.6 Flash, 3.8 Flash, and 4 Hydrogen returned HTTP 429 with a billing-access message when grounding was enabled. Gemini 2.0 Flash and 2.5 Flash-Lite had returned HTTP 404. Neither Gemma model supplied a cited result in these grounding checks.
@@ -65,7 +85,7 @@ starts or resumes the job. `GET /pipeline/runtime?google_reference_index=1` repo
 its coverage, state, and next due time. A worker revalidates the active reference,
 then processes one slice of up to 32 rows and queues the next slice. Saved vectors
 are reused across quota waits and reference price changes. WordPress wakes the
-executor when work is due. Production uses the existing model configuration.
+executor when work is due.
 
 The owner uses Google's free API tier and wants independent model allowances used
 efficiently. `catalog/google_quota.py` accepts owner-verified project/model limits;
