@@ -1898,26 +1898,7 @@
                     apiUrl:new URL('/reference/snapshots',config.apiUrl).toString(),
                     apiProxyUrl:config.apiProxyUrl,apiProxyNonce:config.apiProxyNonce,
                     onRefresh:running=>dashboardApp.setReferenceRefresh(running),
-                    onUpdated:()=>dashboard('فهرست مرجع به‌روز شد.','success',['reference_items','product_status','reference_decisions'])
-                });
-                (data.reference_decisions && data.reference_decisions.events || []).forEach(event => {
-                    const card=node('section',null,'card');
-                    card.appendChild(node('h2',event.reason==='stale'?'اعتبار مرجع نیاز به بررسی دارد':'دریافت مرجع نیاز به پیگیری دارد'));
-                    card.appendChild(node('p','فهرست را تازه‌سازی کنید؛ اگر منبع در دسترس نیست می‌توانید ادامهٔ پردازش را متوقف کنید یا با نسخهٔ ذخیره‌شده ادامه دهید.'));
-                    const controls=node('div',null,'molavi-review-actions');
-                    for(const [choice,label] of [['pause_review','توقف برای بررسی'],['use_last_snapshot','ادامه با مرجع ذخیره‌شده']]) {
-                        if(choice==='use_last_snapshot'&&!event.snapshot_id)continue;
-                        const button=node('button',label,'button button-secondary');button.type='button';
-                        button.addEventListener('click',async()=>{
-                            const buttons=[...controls.querySelectorAll('button')];buttons.forEach(item=>item.disabled=true);
-                            try {
-                                const receipt=await request('POST',{event_id:event.event_id,snapshot_id:event.snapshot_id||null,choice},undefined,'reference_decisions');
-                                if(receipt.event_id!==event.event_id||receipt.choice!==choice||receipt.snapshot_id!==(event.snapshot_id||null))throw new Error('invalid_receipt');
-                                await dashboard('تصمیم مرجع ثبت شد.','success',['reference_decisions','operations']);
-                            } catch(error) {errorBox(errorText(error.message),card);buttons.forEach(item=>item.disabled=false);}
-                        });controls.appendChild(button);
-                    }
-                    card.appendChild(controls);panel.appendChild(card);
+                    onUpdated:message=>dashboard(message,'success',['reference_items','product_status','reference_decisions','operations'])
                 });
             },
             reconcile:reconcileStorefront,

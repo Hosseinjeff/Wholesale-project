@@ -95,4 +95,34 @@ same(count($candidate['_source_products']),101,'source change retries a complete
 $GLOBALS['source_calls']=0;$GLOBALS['source_unstable']=true;
 try{molavi_domain_reference_fetch_products();$error=false;}catch(MolaviWorkflowError $e){$error=$e->getMessage()==='woocommerce_pagination_changed';}
 same($error,true,'continuously changing source stays unaccepted');same($GLOBALS['source_calls'],4,'unstable source retry is bounded');
+reset_reference();
+$base['extracted_at']=gmdate('c');
+$initial=molavi_domain_reference_refresh(true,static fn()=>$base);
+$active=$initial['snapshot_id'];
+molavi_domain_reference_review($active,'wp:7','Synthetic reference');
+molavi_domain_reference_activate($active,null,'wp:7');
+molavi_domain_reference_failure('attempt-one');
+molavi_domain_reference_failure('attempt-two');
+molavi_domain_reference_event('older-attempt','refresh_failed',str_repeat('b',64));
+$status=molavi_domain_reference_snapshots([])['reference_review'];
+same([$status['state'],$status['pending_count'],$status['failed_attempts']],
+    ['awaiting_owner',2,2],'current reference summary groups its own events only');
+$decision=['action'=>'decide_reference_use','snapshot_id'=>$active,'decision_token'=>$status['decision_token'],'choice'=>'use_last_snapshot'];
+molavi_domain_reference_failure('attempt-three');
+try{molavi_domain_reference_api($decision,'wp:7');$error=false;}catch(MolaviWorkflowError $e){$error=$e->getMessage()==='reference_review_changed';}
+same($error,true,'a late failure invalidates the displayed set of events');
+$status=molavi_domain_reference_snapshots([])['reference_review'];
+same($status['pending_count'],3,'a stale request leaves every decision intact');
+$decision['decision_token']=$status['decision_token'];
+same(molavi_domain_reference_api($decision,'wp:7')['applied_count'],3,'one receipt resolves all displayed failures');
+same(molavi_domain_reference_use()['state'],'use_last_snapshot','the saved-reference decision opens the matching gate');
+same(molavi_domain_reference_snapshots([])['reference_review']['state'],'using_saved','the reference tab reflects the open gate');
+same(molavi_domain_read('reference',static fn($db)=>molavi_domain_row($db,'SELECT choice FROM reference_events WHERE event_id=?',['older-attempt'])['choice']),
+    null,'group decisions leave other snapshots untouched');
+molavi_domain_reference_failure('attempt-four');
+$decision['decision_token']=molavi_domain_reference_snapshots([])['reference_review']['decision_token'];
+$decision['choice']='pause_review';
+same(molavi_domain_reference_api($decision,'wp:7')['applied_count'],1,'a pause applies to the outstanding failure');
+$paused=molavi_domain_reference_snapshots([])['reference_review'];
+same([$paused['state'],$paused['decision_token']],['paused',null],'the paused panel leads the owner to refresh');
 foreach(glob($root.'/*') as $file)unlink($file);rmdir($root);echo 'PASS native reference runtime '.$count." cases\n";

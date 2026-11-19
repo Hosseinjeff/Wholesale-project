@@ -28,6 +28,15 @@ const fixtures={
    const f=new URLSearchParams(req.postData());const path=f.get('path');
    if(f.get('method')==='POST'||f.get('action')!=='molavi_owner_workflow_proxy'){
     writes.push({action:f.get('action'),path,payload:f.get('payload')});
+    if(path==='/reference/snapshots'&&JSON.parse(f.get('payload')||'{}').action==='decide_reference_use'){
+      const payload=JSON.parse(f.get('payload'));
+      const snap=fixtures[path];
+      assert.equal(payload.snapshot_id,snap.active_snapshot_id);
+      assert.equal(payload.decision_token,snap.reference_review.decision_token);
+      const applied_count=snap.reference_review.pending_count;
+      snap.reference_review={state:'using_saved',pending_count:0,failed_attempts:10,decision_token:null};
+      return route.fulfill({json:{ok:true,...payload,applied_count}});
+    }
     if(path==='/pipeline/ai-confirmations'&&JSON.parse(f.get('payload')||'{}').action==='start_offer_reextraction'){
       const payload=JSON.parse(f.get('payload'));
       assert.equal(payload.offer_id,'offer-4');
@@ -182,7 +191,7 @@ const fixtures={
  await first.getByRole('button',{name:'تأیید قیمت',exact:true}).click();
  await first.getByRole('button',{name:'منبع فعلی را دیدم؛ قیمت تأیید است'}).waitFor({state:'visible'});
  assert.equal(await page.locator('.md-card-panel:not([hidden])').count(),1);
- await page.getByRole('button',{name:'فهرست مرجع',exact:true}).click();await page.getByText('مرجع فعال نیست',{exact:true}).waitFor();
+ await page.getByRole('button',{name:'فهرست مرجع',exact:true}).click();await page.getByText('فهرست قابل استفاده آماده نیست',{exact:true}).waitFor();
  await page.getByRole('button',{name:'محصولات',exact:true}).click();
  await first.getByRole('button',{name:'منبع فعلی را دیدم؛ قیمت تأیید است'}).waitFor({state:'visible'});
  await page.screenshot({path:'/tmp/molavi-dashboard-desktop.png',fullPage:true});
@@ -467,6 +476,24 @@ const fixtures={
  await page.locator('.md-product-card').getByRole('heading',{name:'پیشنهاد تازهٔ ربات'}).waitFor();
  assert.equal(new URL(page.url()).searchParams.get('offer_id'),'offer-inbox','refresh prioritizes the new exact offer before a known catalog product');
  cases.pop();
+ const refId='a'.repeat(64);
+ fixtures['/reference/snapshots']={active_snapshot_id:refId,snapshots:[{
+  snapshot_id:refId,source_type:'woocommerce_store_api',coverage_verified:true,row_count:3390,last_checked_at:now
+ }],refresh_state:{state:'running',in_progress:false,last_attempt_at:now},
+ reference_review:{state:'awaiting_owner',pending_count:10,failed_attempts:10,decision_token:'b'.repeat(64)}};
+ fixtures['/reference/decisions'].events=Array.from({length:10},(_,i)=>({event_id:'failed-'+i,reason:'refresh_failed',snapshot_id:refId}));
+ await mount('',true);
+ await page.getByRole('button',{name:'فهرست مرجع',exact:true}).click();
+ const list=page.locator('.md-reference-catalog');
+ await list.getByText('تطبیق منتظر تصمیم شماست',{exact:true}).waitFor();
+ assert.equal(await list.locator('.molavi-reference-summary').count(),1);
+ assert.equal(await list.getByText('دریافت مرجع نیاز به پیگیری دارد',{exact:true}).count(),0);
+ assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'reference summary fits mobile');
+ await list.getByRole('button',{name:'دریافت دوباره از رزوان',exact:true}).waitFor();
+ await list.getByText('گزینه‌های تطبیق تا دریافت فهرست تازه',{exact:true}).click();
+ await list.getByRole('button',{name:'ادامه با فهرست ذخیره‌شده',exact:true}).click();
+ await list.getByText('تطبیق با فهرست ذخیره‌شده انجام می‌شود',{exact:true}).waitFor();
+ assert.equal(writes.filter(write=>write.path==='/reference/snapshots').length,1,'reference decisions send one scoped receipt');
  assert.deepEqual(errors,[]);
  console.log(JSON.stringify({passed:true,errors,writes:writes.length,captures:['/tmp/molavi-dashboard-desktop.png','/tmp/molavi-dashboard-mobile.png']}));
  await browser.close();

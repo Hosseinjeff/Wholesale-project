@@ -18,14 +18,28 @@ function molavi_domain_reference_failure(string $occurrence): void {
         molavi_domain_sql($db,'INSERT OR IGNORE INTO reference_events VALUES (?,?,?,?,NULL,NULL,NULL)',['refresh:'.$occurrence,'refresh_failed',$id,molavi_domain_now()]);
     });
 }
+function molavi_domain_reference_live_events(SQLite3 $db,?string $id): array {
+    return molavi_domain_rows($db,
+        'SELECT * FROM reference_events e WHERE snapshot_id IS ? AND NOT EXISTS
+        (SELECT 1 FROM reference_retirements r WHERE r.event_id=e.event_id) ORDER BY created_at,event_id',[$id]);
+}
+function molavi_domain_reference_review_status(?string $id,array $events): array {
+    $pending=array_values(array_filter($events,static fn($event)=>$event['choice']!=='use_last_snapshot'));
+    $paused=in_array('pause_review',array_column($pending,'choice'),true);
+    return [
+        'state'=>$paused?'paused':($pending?'awaiting_owner':($id?($events?'using_saved':'ready'):'missing')),
+        'pending_count'=>count($pending),
+        'failed_attempts'=>count(array_filter($events,static fn($event)=>$event['reason']==='refresh_failed')),
+        'decision_token'=>$pending&&!$paused?molavi_domain_hash([$id,$pending]):null,
+    ];
+}
 function molavi_domain_reference_use(?float $clock=null): array {
     $snapshot=molavi_domain_reference_active();$id=$snapshot['snapshot_id']??null;$event=null;$now=$clock??microtime(true);
     if(!$snapshot){$event='missing-reference';molavi_domain_reference_event($event,'missing',null);}
     else{$time=molavi_domain_timestamp($snapshot['last_checked_at']??$snapshot['extracted_at']);
         if($time===null||$time>$now)molavi_domain_fail('reference_clock_invalid');
         if($now-$time>=MOLAVI_REFERENCE_REFRESH_SECONDS){$event='stale:'.$id;molavi_domain_reference_event($event,'stale',$id);}}
-    $events=molavi_domain_read('reference',static fn(SQLite3 $db)=>molavi_domain_rows($db,
-        'SELECT * FROM reference_events e WHERE snapshot_id IS ? AND NOT EXISTS (SELECT 1 FROM reference_retirements r WHERE r.event_id=e.event_id) ORDER BY created_at,event_id',[$id]));
+    $events=molavi_domain_read('reference',static fn(SQLite3 $db)=>molavi_domain_reference_live_events($db,$id));
     $blocked=array_values(array_filter($events,static fn($row)=>$row['choice']!=='use_last_snapshot'));
     if($blocked)return ['state'=>in_array('pause_review',array_column($blocked,'choice'),true)?'pause_review':'awaiting_owner',
         'allow_automatic'=>false,'warning'=>null,'event_id'=>$blocked[0]['event_id'],'snapshot_id'=>$id];
@@ -98,7 +112,9 @@ function molavi_domain_reference_finish_refresh(array $outcome): array {
     }return $result;
 }
 function molavi_domain_reference_api(array $body,string $actor): array {
-    $action=$body['action']??null;if(!in_array($action,['refresh','review','activate'],true))molavi_domain_fail('invalid_body',400);
+    $action=$body['action']??null;
+    if($action==='decide_reference_use')return molavi_domain_reference_group_decision($body,$actor);
+    if(!in_array($action,['refresh','review','activate'],true))molavi_domain_fail('invalid_body',400);
     if($action==='refresh'){
         molavi_domain_body_keys($body,['action','expected_last_attempt_at']);$expected=$body['expected_last_attempt_at'];
         if($expected!==null&&(!is_string($expected)||strlen($expected)>80))molavi_domain_fail('invalid_fields',400);
@@ -131,6 +147,31 @@ function molavi_domain_reference_api(array $body,string $actor): array {
             'product_reconciliation_state'=>$completed['product_reconciliation_state'],'product_reference_updates'=>$completed['product_reference_updates'],
             'product_status_snapshot'=>$completed['product_status_snapshot']];
     },'reference');
+}
+function molavi_domain_reference_group_decision(array $body,string $actor): array {
+    molavi_domain_body_keys($body,['action','snapshot_id','decision_token','choice']);
+    $id=$body['snapshot_id'];$token=$body['decision_token'];$choice=$body['choice'];
+    if(($id!==null&&(!is_string($id)||!preg_match('/^[a-f0-9]{64}$/D',$id)))
+        ||!is_string($token)||!preg_match('/^[a-f0-9]{64}$/D',$token)
+        ||!in_array($choice,['pause_review','use_last_snapshot'],true))molavi_domain_fail('invalid_fields',400);
+    $count=molavi_domain_tx('reference',static function(SQLite3 $db)use($id,$token,$choice,$actor): int {
+        $active=molavi_domain_row($db,'SELECT snapshot_id FROM reference_active WHERE singleton=1')['snapshot_id']??null;
+        if($active!==$id)molavi_domain_fail('reference_review_changed');
+        $status=molavi_domain_reference_review_status($id,molavi_domain_reference_live_events($db,$id));
+        if($status['decision_token']!==$token)molavi_domain_fail('reference_review_changed');
+        if($choice==='use_last_snapshot'){
+            $row=molavi_domain_row($db,'SELECT payload FROM reference_snapshots WHERE snapshot_id=?',[$id]);
+            if(!$row||!molavi_domain_reference_coverage(molavi_domain_decode($row['payload'])))
+                molavi_domain_fail('snapshot_incomplete',409);
+        }
+        molavi_domain_sql($db,'UPDATE reference_events AS e SET choice=?,actor_id=?,decided_at=?
+            WHERE snapshot_id IS ? AND choice IS NULL AND NOT EXISTS
+            (SELECT 1 FROM reference_retirements r WHERE r.event_id=e.event_id)',
+            [$choice,$actor,molavi_domain_now(),$id]);
+        return $db->changes();
+    });
+    if($choice==='use_last_snapshot')molavi_domain_reference_wake();
+    return ['ok'=>true,'action'=>'decide_reference_use','snapshot_id'=>$id,'choice'=>$choice,'applied_count'=>$count];
 }
 function molavi_domain_reference_decision_api(array $body,string $actor): array {
     molavi_domain_body_keys($body,['event_id','snapshot_id','choice']);$event=$body['event_id'];$id=$body['snapshot_id'];$choice=$body['choice'];

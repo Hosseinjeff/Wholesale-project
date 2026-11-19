@@ -493,7 +493,7 @@
             return card;
         }
         function referencesView() {
-            const view=el('section');view.append(el('h1','فهرست مرجع'),el('p','دادهٔ ذخیره‌شدهٔ رزوان برای مقایسه با کالاهای پیام‌های منبع.'));
+            const view=el('section');view.append(el('h1','فهرست مرجع'));
             const panel=el('div',null,'md-reference-catalog');view.append(panel);model.renderReferences(panel);return view;
         }
         function sourcesView() {

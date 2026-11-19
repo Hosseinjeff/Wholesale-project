@@ -83,18 +83,26 @@ function molavi_domain_reference_snapshots(array $query): array {
             return ['ok'=>true,'snapshot_id'=>$id,'row_count'=>$candidate['row_count']??null,'coverage_verified'=>molavi_domain_reference_coverage($candidate),'rows'=>$rows];
         }
         $active=molavi_domain_row($db,'SELECT snapshot_id FROM reference_active WHERE singleton=1')['snapshot_id']??null;
-        $check=molavi_domain_row($db,'SELECT snapshot_id,checked_at FROM reference_source_check WHERE singleton=1');$snapshots=[];
+        $check=molavi_domain_row($db,'SELECT snapshot_id,checked_at FROM reference_source_check WHERE singleton=1');$snapshots=[];$activeCheckedAt=null;
         foreach(molavi_domain_rows($db,'SELECT * FROM reference_snapshots ORDER BY rowid DESC LIMIT 50') as $row){
             $candidate=molavi_domain_decode($row['payload']);$summary=[];foreach(['added_count','updated_count','removed_count','has_changes','metadata_upgrade','order_changed'] as $field)$summary[$field]=$candidate['change_summary'][$field]??0;
             $preview=[];foreach(array_slice($candidate['rows']??[],0,8) as $index=>$values)if(is_array($values)&&count($values)===21)$preview[]=molavi_domain_reference_preview($values,(string)($candidate['source_product_ids'][$index]??''));
             $item=['snapshot_id'=>$row['snapshot_id']];foreach(['extracted_at','row_count','pdf_sha256','source_type','previous_snapshot_id','source_total','source_currency','model','source_url','source_page_count','processed_page_count','first_source_row_number','last_source_row_number'] as $field)$item[$field]=$candidate[$field]??null;
+            if($row['snapshot_id']===$active)$activeCheckedAt=($check['snapshot_id']??null)===$active?$check['checked_at']:$item['extracted_at'];
             $snapshots[]=array_merge($item,['automatic_update'=>(bool)($candidate['automatic_update']??false),'change_summary'=>$summary,
                 'coverage_verified'=>molavi_domain_reference_coverage($candidate),'preview'=>$preview,'preview_total'=>$candidate['row_count']??0,
                 'reviewed_by'=>$row['reviewed_by'],'review_note'=>$row['review_note'],'reviewed_at'=>$row['reviewed_at'],
                 'active'=>$row['snapshot_id']===$active,'last_checked_at'=>($check['snapshot_id']??null)===$row['snapshot_id']?$check['checked_at']:null]);
         }
         $refresh=molavi_domain_row($db,'SELECT * FROM reference_refresh_state WHERE singleton=1');
-        if($refresh){$summary=molavi_domain_decode($refresh['change_summary'],null);if(is_array($summary)){$compact=[];foreach(['added_count','updated_count','removed_count','has_changes','metadata_upgrade','order_changed'] as $field)$compact[$field]=$summary[$field]??0;$summary=$compact;}$refresh['change_summary']=$summary;}
-        return ['ok'=>true,'active_snapshot_id'=>$active,'snapshots'=>$snapshots,'refresh_state'=>$refresh];
+        if($refresh){$summary=molavi_domain_decode($refresh['change_summary'],null);if(is_array($summary)){$compact=[];foreach(['added_count','updated_count','removed_count','has_changes','metadata_upgrade','order_changed'] as $field)$compact[$field]=$summary[$field]??0;$summary=$compact;}$refresh['change_summary']=$summary;
+            $refresh['in_progress']=$refresh['state']==='running'&&(bool)molavi_domain_row($db,
+                "SELECT 1 FROM molavi_state_locks WHERE name='refresh' AND expires>?",[microtime(true)]);
+        }
+        $review=molavi_domain_reference_review_status($active,molavi_domain_reference_live_events($db,$active));
+        $checkedAt=molavi_domain_timestamp($activeCheckedAt);
+        if($review['state']==='ready'&&($checkedAt===null||microtime(true)-$checkedAt>=MOLAVI_REFERENCE_REFRESH_SECONDS))
+            $review['state']='refresh_due';
+        return ['ok'=>true,'active_snapshot_id'=>$active,'snapshots'=>$snapshots,'refresh_state'=>$refresh,'reference_review'=>$review];
     });
 }
