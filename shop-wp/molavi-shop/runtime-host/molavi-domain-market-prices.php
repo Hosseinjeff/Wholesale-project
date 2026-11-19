@@ -162,7 +162,7 @@ function molavi_domain_market_discover(array $identity): array {
 
 function molavi_domain_market_check_url(string $url,array $identity): ?array {
     if (!molavi_domain_market_url($url)||!wp_http_validate_url($url)) molavi_domain_fail('invalid_market_price_link',400);
-    $page=molavi_domain_http_exact('GET',$url,['timeout'=>4,'limit_response_size'=>600000]);
+    $page=molavi_domain_http_exact('GET',$url,['timeout'=>8,'limit_response_size'=>600000]);
     if (wp_remote_retrieve_response_code($page)!==200) molavi_domain_fail('market_price_sources_unavailable',503);
     return molavi_domain_market_from_page(wp_remote_retrieve_body($page),$url,$identity);
 }

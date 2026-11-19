@@ -37,7 +37,11 @@ function molavi_domain_http_exact(string $method,string $url,array $args=[]): ar
     add_filter('pre_http_request',$exception,PHP_INT_MAX,3);
     try{$response=wp_safe_remote_request($url,array_replace(['method'=>$method,'timeout'=>30,'redirection'=>0],$args));}
     finally{remove_filter('pre_http_request',$exception,PHP_INT_MAX);}
-    if(is_wp_error($response))molavi_domain_fail('native_connector_unavailable',503);
+    if(is_wp_error($response)){
+        $details=['transport_error'=>sanitize_key((string)$response->get_error_code())];
+        if(preg_match('/cURL error (\d{1,3}):/i',$response->get_error_message(),$match))$details['curl_error']=(int)$match[1];
+        molavi_domain_fail('native_connector_unavailable',503,$details);
+    }
     return $response;
 }
 function molavi_domain_google_token():string {
