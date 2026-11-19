@@ -83,6 +83,11 @@
 #molavi-owner-workflow .molavi-reference-offer-facts { margin:.5rem 0; }
 #molavi-owner-workflow .molavi-reference-offer-picker:not([hidden]) { display:grid; gap:.25rem; margin-bottom:.45rem; }
 #molavi-owner-workflow .molavi-reference-offer-picker select { width:min(100%,38rem); }
+#molavi-owner-workflow .molavi-inbox { margin-bottom:1rem; }
+#molavi-owner-workflow .molavi-inbox-header { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:.5rem; }
+#molavi-owner-workflow .molavi-inbox-header h2 { margin:.35rem 0; }
+#molavi-owner-workflow .molavi-inbox details { padding:.55rem 0; border-bottom:1px solid #e1e5e9; }
+#molavi-owner-workflow .molavi-inbox summary { cursor:pointer; }
 #molavi-owner-workflow .molavi-reextract-panel { border-inline-start:4px solid #f97316; }
 #molavi-owner-workflow .molavi-reextract-current-check { display:flex; flex-direction:row; align-items:center; gap:.5rem; width:100%; min-width:0; }
 #molavi-owner-workflow .molavi-reextract-current-check input { min-width:0; }

@@ -110,6 +110,9 @@ function molavi_domain_dashboard_activity(?float $clock=null): array {
     $activity=molavi_domain_read('pipeline',static fn(SQLite3 $db)=>[
         'groups'=>molavi_domain_dashboard_job_groups($db,$now),
         'quota'=>molavi_domain_dashboard_quota($db,$caps,$now),
+        'inbox_revision'=>molavi_domain_hash(molavi_domain_rows($db,"SELECT i.rowid,i.batch_id,j.state,j.updated_at,j.available,j.error,h.hold_id
+            FROM inbox i LEFT JOIN jobs j ON j.id=i.batch_id
+            LEFT JOIN publication_holds h ON i.batch_id LIKE 'batch:%' AND h.hold_id=substr(i.batch_id,7) ORDER BY i.rowid DESC LIMIT 12")),
     ]);
     $refresh=molavi_domain_read('reference',static fn(SQLite3 $db)=>molavi_domain_row($db,
         "SELECT r.state FROM reference_refresh_state r JOIN molavi_state_locks l

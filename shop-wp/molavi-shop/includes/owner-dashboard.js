@@ -192,16 +192,21 @@
             clearTimeout(activityTimer);
             if (!hooks.readActivity || document.hidden || activityRequest) return;
             activityRequest=hooks.readActivity().then(report=>{
+                const inboxChanged=report.inbox_revision && report.inbox_revision!==activityReport?.inbox_revision;
                 activityReport=report;
                 activityStale=false;
+                if (inboxChanged) refreshInbox(report.inbox_revision);
             }).catch(()=>{activityStale=true;}).finally(()=>{
                 activityRequest=null;
                 paintActivity();
                 if (!document.hidden) {
-                    const active=updatingReference || activityReport?.groups?.some(entry=>['running','queued'].includes(entry.state));
+                    const active=state.view==='sources'||updatingReference||activityReport?.groups?.some(entry=>['running','queued'].includes(entry.state));
                     activityTimer=setTimeout(refreshActivity,active?7000:30000);
                 }
             });
+        }
+        function refreshInbox(revision) {
+            main.querySelector('.molavi-inbox')?.dispatchEvent(new CustomEvent('molavi-inbox-refresh',{detail:revision}));
         }
         function setReferenceRefresh(running) {
             updatingReference=running;
@@ -227,6 +232,7 @@
         function navigate(view, product=null) {
             if(view==='sources'&&product){state.sourceContext=product;state.pageCache.delete('sources');}
             state.view=view;saveURL();paint();main.scrollIntoView({block:'start',behavior:'smooth'});
+            if(view==='sources') refreshActivity();
         }
         function facts(rows) {
             const list=el('dl',null,'md-facts');
@@ -314,7 +320,7 @@
             view.append(title);
             const policyNotice=extractionPolicyNotice();
             if (policyNotice) view.append(policyNotice);
-            const pendingBatches=model.data.publication_holds?.holds || [];
+            const pendingBatches=model.systemHolds || [];
             if (pendingBatches.length&&!model.errors.publication_holds) {
                 const label=`توقف‌های انتشار · ${fa(pendingBatches.length)}`;
                 view.append(button(label,()=>reviewHold(),'md-button md-link'));
@@ -354,7 +360,7 @@
                     const readyScope = state.scope==='ready'&&!state.action&&!state.search&&!state.channel;
                     list.append(empty(readyScope
                         ? (Object.values(model.errors).some(Boolean) ? 'فهرست کارهای آماده کامل نیست' : 'کار آمادهٔ بررسی در این فهرست نیست')
-                        : 'موردی در این فهرست نیست'));
+                        : state.focusType==='offer_id'&&state.focus ? 'کارت قابل بررسی برای این پیشنهاد پیدا نشد.' : 'موردی در این فهرست نیست'));
                 }
                 more.hidden=rows.length<=state.limit;
             };
@@ -486,7 +492,7 @@
             const panel=el('div',null,'md-reference-catalog');view.append(panel);model.renderReferences(panel);return view;
         }
         function sourcesView() {
-            const view=el('section');view.append(el('h1','پیام‌های منبع'),el('p','برای یک پیام، از منبع یا مشخصاتِ کارت همان کالا شروع کنید. برای چند پیام، از گزینه‌های این صفحه استفاده کنید.'));
+            const view=el('section');view.append(el('h1','پیام‌های منبع'));
             const context=state.sourceContext;
             if(context){
                 const hint=el('div',null,'md-source-context');
@@ -510,6 +516,9 @@
                 const overview=el('div',null,'md-source-context');
                 overview.append(el('p',`${fa(running)} پردازش خودکار · ${fa(waiting)} منتظر مرجع یا انتشار · ${fa(issues)} خطا یا نیازمند بررسی`),
                     el('p','پردازش‌های خودکار اقدامی از شما نمی‌خواهند. برای یک تصمیم محصول به محصولات بروید؛ برای توقف یک دسته، بخش زیر را باز کنید.'));
+                if(counts.waiting_publication&&model.systemHolds?.length){
+                    overview.append(button(`بررسی توقف انتشار · ${fa(counts.waiting_publication)} در انتظار`,()=>reviewHold(),'md-button'));
+                }
                 view.append(overview);
             }
             if(model.systemHolds?.length){
@@ -535,6 +544,7 @@
                 if(!state.pageCache.has(state.view))state.pageCache.set(state.view,
                     state.view==='references'?referencesView():state.view==='sources'?sourcesView():systemView());
                 main.replaceChildren(state.pageCache.get(state.view));
+                if(state.view==='sources') refreshInbox();
             }
         }
         async function dismissTask(task) {
@@ -571,7 +581,6 @@
             if(url.searchParams.get('view'))navigate(url.searchParams.get('view'));
             else if(url.searchParams.get('offer_id')){
                 reviewInboxItem('offer_id',url.searchParams.get('offer_id'));
-                if(!state.active) hooks.refresh();
             }
             else if(url.searchParams.get('workbench_action')==='reextract'||url.hash.includes('reextract'))navigate('sources');
             else {state.view='products';state.action=url.searchParams.get('workbench_action')||'';saveURL();paint();}
@@ -591,17 +600,21 @@
             }
             if(!state.active&&(state.action||state.focus)){
                 const focused=model.products.find(matches);
-                if(focused){state.active=focused.key;state.section=next(focused)==='next'?'source_integrity':next(focused);}
+                if(focused){state.active=focused.key;state.section=['next','deferred'].includes(next(focused))?'source_integrity':next(focused);}
             }
             state.panels.clear();state.pageCache.clear();healthView();paint();
         }
-        function reviewHold(id) {
+        async function reviewHold(id) {
             navigate('system');
+            const target=()=>id ? document.getElementById(id) : main.querySelector('.md-publication-holds');
+            if(!target()) {
+                await hooks.refresh();
+                if(state.view!=='system') return;
+            }
             const group=main.querySelector('.md-publication-holds');
-            if (!group) return;
+            const batch=target();
+            if (!group||!batch) return;
             group.open=true;
-            const batch=id ? document.getElementById(id) : group;
-            if (!batch) return;
             batch.scrollIntoView({block:'start',behavior:'smooth'});
             batch.focus({preventScroll:true});
         }
@@ -610,17 +623,25 @@
             navigate('products');
             hooks.refresh();
         }
-        function reviewInboxItem(kind,id,fallbackProduct='') {
+        async function reviewInboxItem(kind,id,fallbackProduct='') {
             state.scope='all';state.action='';state.search='';state.channel='';
             state.focusType=kind;state.focus=id;
-            let product=model.products.find(matches);
-            if (!product && fallbackProduct) {
-                state.focusType='product_id';state.focus=fallbackProduct;
-                product=model.products.find(matches);
+            const product=model.products.find(matches);
+            function openCard(current) {
+                state.active=current?.key || '';
+                state.section=current && !['next','deferred'].includes(next(current)) ? next(current) : 'source_integrity';
+                navigate('products');
             }
-            state.active=product?.key || '';
-            state.section=product && !['next','deferred'].includes(next(product)) ? next(product) : 'source_integrity';
-            navigate('products');
+            openCard(product);
+            if (product) return;
+            await hooks.refresh();
+            if (state.view!=='products'||state.focusType!==kind||state.focus!==id||state.active) return;
+            if (fallbackProduct) {
+                state.focusType='product_id';state.focus=fallbackProduct;
+                const fallback=model.products.find(matches);
+                if (fallback) openCard(fallback);
+                else {state.focusType=kind;state.focus=id;}
+            }
         }
         return {update,loading,navigate,dismissTask,reviewHold,showReviewResults,reviewInboxItem,refreshActivity,setReferenceRefresh,reviewSource:product=>navigate('sources',product)};
     }

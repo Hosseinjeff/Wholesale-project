@@ -1870,10 +1870,12 @@
         };
         const actionSteps = new Map(products.map(product => [product,workbenchActionKey(product)]));
         const readyActions = new Map(products.map(product => [product,workbenchReadyAction(product,actionSteps.get(product))]));
+        const operationItems=operations?.operations?.items || [];
+        const publicationWaiting=operationItems.some(item=>item.state==='waiting_publication'&&!workbenchOperationIsDismissed(item));
         dashboardApp.update({
             products,data,errors:workbenchErrors,dismissals:workbenchDismissals,
-            systemHolds:holds.filter(hold=>!workbenchOperationIsDismissed({id:hold.hold_id,kind:'publication_hold'})),
-            archivedOperations:(operations?.operations?.items || []).filter(workbenchOperationIsDismissed),
+            systemHolds:holds.filter(hold=>publicationWaiting||!workbenchOperationIsDismissed({id:hold.hold_id,kind:'publication_hold'})),
+            archivedOperations:operationItems.filter(workbenchOperationIsDismissed),
             primaryAction:product=>actionSteps.get(product),
             readyAction:product=>readyActions.get(product),actionRank:key=>workbenchActionOrder.indexOf(key),
             nextStep:(product,key)=>workbenchNextStep(product,key),
@@ -3487,9 +3489,9 @@
             url.search=new URLSearchParams({
                 view:'inbox-offers',batch_id:item.batch_id,message_id:item.source_id,channel:item.channel,
             });
-            const {offers}=await request('GET',undefined,url.toString(),'reconciliation');
+            const {offers,outcome}=await request('GET',undefined,url.toString(),'reconciliation');
             container.replaceChildren();
-            const labels={known:'کالای موجود',compare:'کالاهای مشابه برای مقایسه',new:'پیشنهاد تازه'};
+            const labels={known:'سابقهٔ همین کالا',compare:'کالاهای مشابه برای مقایسه',new:'پیشنهاد تازه'};
             for (const offer of offers || []) {
                 const card=node('section',null,'molavi-product-subsection');
                 const open=node('button','بررسی پیشنهاد','button button-secondary');
@@ -3510,40 +3512,85 @@
                 }
                 container.appendChild(card);
             }
-            if (!container.childNodes.length) container.textContent='پیشنهاد ثبت‌شده‌ای برای این پیام پیدا نشد.';
-        } catch (error) { container.textContent=errorText(error.message); }
+            if (!container.childNodes.length) {
+                container.textContent={no_product:'استخراج پایان یافت؛ کالایی در این پیام شناسایی نشد.',
+                    attachment:'برای استخراج کالا از این پیام، متن یا کپشن لازم است.',dismissed:'این پیام از صف استخراج کنار گذاشته شده است.'}[outcome]
+                    || 'پیشنهاد ذخیره‌شده‌ای برای این پیام پیدا نشد.';
+            }
+        } catch (error) {
+            const retry=node('button','دریافت دوبارهٔ نتیجه','button');retry.type='button';
+            retry.addEventListener('click',()=>loadInboxOffers(container,item));
+            container.replaceChildren(node('p',errorText(error.message)),retry);
+        }
     }
 
     function recentBotMessages() {
-        const list=node('details',null,'molavi-advanced-reextract');
+        const inbox=node('section',null,'molavi-inbox');
+        const header=node('div',null,'molavi-inbox-header');
+        const refresh=node('button','تازه‌کردن پیام‌ها','button');refresh.type='button';
+        header.append(node('h2','آخرین پیام‌های ربات'),refresh);
+        const status=node('p');status.setAttribute('role','status');
         const contents=node('div');
-        list.append(node('summary','آخرین پیام‌های ربات'),contents);
-        list.addEventListener('toggle',async()=>{
-            if (!list.open) return;
-            contents.textContent='در حال دریافت پیام‌ها…';
+        inbox.append(header,status,contents);
+        let rows=new Map();
+        let refreshPending=false;
+        function inboxRow(item) {
+            const state=item.hold_id?'پردازش متوقف شده': item.retry_at ? 'منتظر سهمیه' : item.extraction_state==='error' ? 'خطا در استخراج'
+                : ({done:'پردازش پایان یافت',queued:item.batch_id?'در صف استخراج':'دریافت شد',running:'در حال استخراج'}[item.state]||displayBatchState(item.state));
+            const label=[item.channel,formatSourceTimestamp(item.received_at),state].filter(Boolean).join(' · ');
+            const row=node('details');
+            row.append(node('summary',label),node('p',item.excerpt || 'متن جداگانه ثبت نشده است.','md-source-text'));
+            const source=safeSourceLink(item.source_url);if(source) row.appendChild(source);
+            if (item.retry_at) row.appendChild(node('p',`نوبت بعد از ${formatSourceTimestamp(new Date(item.retry_at*1000).toISOString())}`));
+            const followup=item.hold_id ? ['بررسی توقف دسته',()=>dashboardApp.reviewHold(`molavi-batch-${encodeURIComponent(item.hold_id)}`)]
+                : item.state==='waiting_reference' ? ['فهرست مرجع',()=>dashboardApp.navigate('references')]
+                : item.state==='failed'||item.extraction_state==='error' ? ['بررسی وضعیت پردازش',()=>dashboardApp.navigate('system')] : null;
+            if (followup) {
+                const button=node('button',followup[0],'button');button.type='button';button.addEventListener('click',followup[1]);row.appendChild(button);
+            } else if (item.batch_id && item.source_id && ['done','needs_review'].includes(item.state)) {
+                const offers=node('div');
+                row.appendChild(offers);
+                row.addEventListener('toggle',()=>{
+                    if (row.open && !offers.childNodes.length) loadInboxOffers(offers,item);
+                });
+            }
+            return row;
+        }
+        async function readInbox() {
+            if (refresh.disabled) return;
+            refreshPending=false;refresh.disabled=true;
+            if (!rows.size) {status.hidden=false;status.textContent='در حال دریافت پیام‌ها…';}
             try {
                 const url=new URL('/pipeline/reconciliation',config.apiUrl);
                 url.searchParams.set('view','inbox');
                 const {messages}=await request('GET',undefined,url.toString(),'reconciliation');
-                contents.replaceChildren();
+                const nextRows=new Map();
                 for (const item of messages || []) {
-                    const state=item.extraction_state==='error'?'خطا در استخراج':displayBatchState(item.state);
-                    const label=[formatSourceTimestamp(item.received_at),item.channel,state].filter(Boolean).join(' · ');
-                    const row=node('details');
-                    row.append(node('summary',label),node('p',item.excerpt || 'متن جداگانه ثبت نشده است.','md-source-text'));
-                    if (item.batch_id && item.source_id && ['done','needs_review'].includes(item.state)) {
-                        const offers=node('div');
-                        row.appendChild(offers);
-                        row.addEventListener('toggle',()=>{
-                            if (row.open && !offers.childNodes.length) loadInboxOffers(offers,item);
-                        });
-                    }
-                    contents.appendChild(row);
+                    const key=item.receipt_id || JSON.stringify([item.received_at,item.channel,item.source_id]);
+                    const signature=JSON.stringify(item);
+                    const previous=rows.get(key);
+                    const row=previous?.signature===signature ? previous.row : inboxRow(item);
+                    if (row!==previous?.row && previous?.row.open) row.open=true;
+                    nextRows.set(key,{row,signature});
                 }
-                if (!contents.childNodes.length) contents.textContent='هنوز پیامی دریافت نشده است.';
-            } catch (error) { contents.textContent=errorText(error.message); }
+                const elements=[...nextRows.values()].map(entry=>entry.row);
+                if (elements.length!==rows.size || elements.some((row,index)=>row!==contents.children[index]))
+                    contents.replaceChildren(...elements);
+                rows=nextRows;status.hidden=rows.size>0;
+                status.textContent=rows.size?'':'هنوز پیامی دریافت نشده است.';
+            } catch (error) {
+                status.hidden=false;status.textContent=errorText(error.message);
+            } finally {
+                refresh.disabled=false;
+                if (refreshPending&&root.contains(inbox)) readInbox();
+            }
+        }
+        refresh.addEventListener('click',readInbox);
+        inbox.addEventListener('molavi-inbox-refresh',event=>{
+            if (!refresh.disabled) readInbox();
+            else if (event.detail) refreshPending=true;
         });
-        return list;
+        return {inbox,readInbox};
     }
 
     async function sourceReextractionWorkspace(panel, product) {
@@ -3564,8 +3611,10 @@
             return;
         }
         const recent=node('section',null,'card molavi-reextract-panel');
-        panel.append(recentBotMessages(),recent,filters);
+        const {inbox,readInbox}=recentBotMessages();
+        panel.append(inbox,recent,filters);
         recent.textContent='در حال دریافت وضعیت پیام‌ها…';
+        await readInbox();
         try {
             const preview=await reextractionRequest('GET',undefined,reextractionUrl('preview')+'&latest_run=1');
             recent.replaceChildren(node('h2','بازاستخراج با قواعد فعلی'));

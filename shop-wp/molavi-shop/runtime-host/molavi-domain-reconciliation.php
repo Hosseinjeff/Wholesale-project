@@ -133,13 +133,16 @@ function molavi_domain_woo_catalog(?string $clock=null): array {
 }
 function molavi_domain_inbox_recent(): array {
     return molavi_domain_read('pipeline',static function(SQLite3 $db): array {
-        $rows=molavi_domain_rows($db,"SELECT i.payload,i.received_at,i.batch_id,j.state,j.result,j.updated_at
-            FROM inbox i LEFT JOIN jobs j ON j.id=i.batch_id ORDER BY i.rowid DESC LIMIT 12");
+        $rows=molavi_domain_rows($db,"SELECT i.rowid AS receipt_id,i.payload,i.received_at,i.batch_id,j.state,j.result,j.updated_at,
+            j.error,j.available,h.hold_id
+            FROM inbox i LEFT JOIN jobs j ON j.id=i.batch_id
+            LEFT JOIN publication_holds h ON i.batch_id LIKE 'batch:%' AND h.hold_id=substr(i.batch_id,7) ORDER BY i.rowid DESC LIMIT 12");
         $messages=[];
         foreach($rows as $row) {
             $source=molavi_domain_decode($row['payload']);
             $result=molavi_domain_decode($row['result']);
             $messages[]=[
+                'receipt_id'=>(int)$row['receipt_id'],
                 'received_at'=>molavi_domain_audit_time($row['received_at']),
                 'source_id'=>(string)($source['id']??''),
                 'batch_id'=>str_starts_with((string)$row['batch_id'],'batch:')?substr($row['batch_id'],6):'',
@@ -147,8 +150,11 @@ function molavi_domain_inbox_recent(): array {
                     ?molavi_domain_audit_time($row['updated_at']):null,
                 'channel'=>(string)molavi_domain_py_value($source['channel_username']??null,$source['channel']??''),
                 'excerpt'=>molavi_domain_context_text($source['content']??'',600),
+                'source_url'=>(string)($source['url']??''),
                 'state'=>$row['state']??'queued',
                 'extraction_state'=>(string)($result['extraction_status']??''),
+                'hold_id'=>$row['hold_id']??null,
+                'retry_at'=>$row['state']==='queued'&&$row['error']==='google_free_quota_wait'?(float)$row['available']:null,
             ];
         }
         return ['ok'=>true,'messages'=>$messages];
@@ -168,7 +174,7 @@ function molavi_domain_inbox_offer_summary(array $offers,array $products,string 
                 array_flip(['Variation Type','Volume','Weight','Packaging','Package Count']))),static fn($value)=>$value!=='')),
             'identity'=>$identity,
         ];
-        $current[$id]=$identity;
+        $current[$id][]=$identity;
     }
     $result=[];
     foreach($offers as $offer) {
@@ -185,19 +191,33 @@ function molavi_domain_inbox_offer_summary(array $offers,array $products,string 
         }
         $similar=[];
         foreach($related[molavi_domain_json(array_slice($identity,0,2))]??[] as $product) {
-            if ($product['identity']===$identity) continue;
+            if ($product['identity']===$identity||count($current[$product['product_id']])!==1) continue;
             unset($product['identity']);
             $similar[]=$product;
             if (count($similar)>=3) break;
         }
         $productId=trim((string)($offer['Product ID']??''));
         $result[]=['offer_id'=>$id,'name'=>(string)($offer['Product Name']??''),
-            'product_id'=>($current[$productId]??null)===$identity?$productId:'',
+            'product_id'=>($current[$productId]??[])===[$identity]?$productId:'',
             'relationship'=>isset($previous[$key])?'known':($similar?'compare':'new'),
             'similar'=>$similar];
-        if (count($result)>=20) break;
     }
     return $result;
+}
+
+function molavi_domain_inbox_message_outcome(array $rows,string $batch,string $message,string $channel): string {
+    $matches=[];
+    foreach($rows as $row) {
+        if((string)($row['Batch ID']??'')===$batch&&(string)($row['ID']??'')===$message
+            &&(string)molavi_domain_py_value($row['Channel Username']??null,$row['Channel']??'')===$channel) $matches[]=$row;
+    }
+    if(count($matches)!==1) return 'unverified';
+    return match(strtolower(trim((string)($matches[0]['AI Status']??'')))) {
+        'not_product','no_product_candidate'=>'no_product',
+        'attachment_only','needs_media_review'=>'attachment',
+        'owner_rejected'=>'dismissed',
+        default=>'unverified',
+    };
 }
 
 function molavi_domain_inbox_offers(array $query): array {
@@ -207,8 +227,11 @@ function molavi_domain_inbox_offers(array $query): array {
     if (!preg_match('/^[A-Za-z0-9_-]{1,120}$/D',$batch) || $message==='' || strlen($message)>100 || strlen($channel)>200)
         molavi_domain_fail('invalid_inbox_message',400);
     $tables=molavi_domain_sheets(['Products','Offers']);
-    return ['ok'=>true,'offers'=>molavi_domain_inbox_offer_summary(molavi_domain_records($tables['Offers']),
-        molavi_domain_records($tables['Products']),$batch,$message,$channel)];
+    $offers=molavi_domain_inbox_offer_summary(molavi_domain_records($tables['Offers']),
+        molavi_domain_records($tables['Products']),$batch,$message,$channel);
+    $outcome=$offers?'offers':molavi_domain_inbox_message_outcome(
+        molavi_domain_records(molavi_domain_sheets(['MessageData'])['MessageData']),$batch,$message,$channel);
+    return ['ok'=>true,'offers'=>$offers,'outcome'=>$outcome];
 }
 
 function molavi_domain_reconciliation_api(array $query): array {

@@ -6,7 +6,7 @@ function add_action(...$args){}
 function add_filter(...$args){}
 function get_option($name,$default=null){return $GLOBALS['activity_options'][$name]??$default;}
 
-foreach(['state-host','domain-core','domain-schemas','domain-bot-capabilities','domain-dashboard-activity','domain-reference-parser','domain-products','domain-reconciliation'] as $part) {
+foreach(['state-host','domain-core','domain-schemas','domain-bot-capabilities','domain-dashboard-activity','domain-reference-parser','domain-products','domain-publication-recovery','domain-reconciliation'] as $part) {
     require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-'.$part.'.php';
 }
 function activity_check(bool $condition,string $message): void {
@@ -47,6 +47,20 @@ try {
     $next=molavi_domain_dashboard_activity($now+11);
     activity_check($next['quota']['total']['used']===0 && $next['quota']['buckets'][0]['rpm_used']===1,'day resets while the rolling minute continues');
     activity_check($next['groups'][1]['state']==='queued','expired leases no longer appear active');
+    $db=molavi_domain_db();
+    molavi_domain_sql($db,"INSERT INTO inbox (id,payload,received_at,batch_id) VALUES (?,?,?,'batch:receipt')",
+        ['fixture-receipt','{"id":"123","channel_username":"supplier","content":"Supplier post"}',$now]);
+    molavi_domain_sql($db,"INSERT INTO jobs (id,kind,payload,state,available,error) VALUES ('batch:receipt','batch','{}','queued',?,'google_free_quota_wait')",[$now+60]);
+    $db->close();
+    $queued=molavi_domain_inbox_recent()['messages'][0];
+    $queuedRevision=molavi_domain_dashboard_activity($now)['inbox_revision'];
+    activity_check($queued['receipt_id']>0&&$queued['retry_at']===$now+60.0,'inbox exposes the saved receipt and quota retry');
+    $db=molavi_domain_db();
+    molavi_domain_sql($db,"UPDATE jobs SET state='done',result=?,error=NULL,updated_at=? WHERE id='batch:receipt'",['{"extraction_status":"success"}',$now+1]);
+    $db->close();
+    $complete=molavi_domain_inbox_recent()['messages'][0];
+    activity_check($complete['receipt_id']===$queued['receipt_id']&&$complete['state']==='done'&&$complete['retry_at']===null,'one receipt survives the transition to completed');
+    activity_check(molavi_domain_dashboard_activity($now+1)['inbox_revision']!==$queuedRevision,'local activity revision changes when a receipt completes');
     $offer=['Offer ID'=>'new','Product ID'=>'same','Batch ID'=>'batch','Message ID'=>'123',
         'Product Name'=>'نمونه','Channel Username'=>'supplier','Package Count'=>'12'];
     $other=array_replace($offer,['Offer ID'=>'earlier','Batch ID'=>'old']);
@@ -57,6 +71,12 @@ try {
     activity_check(array_column($summary[0]['similar'],'product_id')===['alternate'],'dimension conflicts expose comparisons, not cross-supplier links');
     $summary=molavi_domain_inbox_offer_summary([$offer],$products,'batch','123','supplier');
     activity_check($summary[0]['relationship']==='compare','same title with a different pack should prompt comparison');
+    $summary=molavi_domain_inbox_offer_summary([$offer],[$offer,$offer],'batch','123','supplier');
+    activity_check($summary[0]['product_id']==='','an ambiguous product ID is not offered as a fallback link');
+    $record=['Batch ID'=>'batch','ID'=>'123','Channel Username'=>'supplier','AI Status'=>'no_product_candidate'];
+    activity_check(molavi_domain_inbox_message_outcome([$record],'batch','123','supplier')==='no_product','explicit no-product receipt has a distinct outcome');
+    activity_check(molavi_domain_inbox_message_outcome([$record,$record],'batch','123','supplier')==='unverified','duplicate messages cannot establish an extraction outcome');
+    activity_check(molavi_domain_inbox_message_outcome([$record],'batch','123','other')==='unverified','an unrelated source cannot establish an outcome');
     echo "PASS dashboard activity and daily quota\n";
 } finally {
     foreach (glob($root.'/*') as $file) unlink($file);

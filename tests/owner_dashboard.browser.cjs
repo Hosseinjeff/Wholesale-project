@@ -20,6 +20,7 @@ const fixtures={
  const browser=await chromium.launch({executablePath:'/usr/bin/chromium',headless:true,args:['--no-sandbox']});
  const page=await browser.newPage({viewport:{width:1365,height:1000}});const errors=[];const writes=[];let failPrices=false;let acceptPrice=false;let offerPreviews=0;let latestRun='';let runComplete=false;let groupedLoads=0;
  let activeReads=0,maxActiveReads=0,transientStatusOnce=true,statusReads=0,changeReads=0,catalogSearches=0,titleReads=0;
+ let inboxMessages=[],inboxRevision='initial',inboxOfferReads=0,dashboardDismissals=[];
  page.on('pageerror',e=>errors.push(e.message));
  await page.route('**/*',async route=>{
   const req=route.request();if(req.url().includes('/admin-ajax.php')){
@@ -76,7 +77,7 @@ const fixtures={
     }
     if(failPrices&&path==='/pipeline/supplier-price-evidence')return await route.fulfill({status:503,json:{ok:false,error:'upstream_unavailable'}});
     if (path==='/pipeline/dashboard-activity') {
-     return await route.fulfill({json:{ok:true,groups:[
+     return await route.fulfill({json:{ok:true,inbox_revision:inboxRevision,groups:[
       {kind:'reextract',state:'running',total:8,completed:3},
       {kind:'reference_index',state:'quota_wait',model:'gemini-embedding-001',total:50,completed:20,
        retry_at:Date.now()/1000+3600},
@@ -92,6 +93,15 @@ const fixtures={
       sheet_conflicts:'/pipeline/sheet-conflicts',publication_holds:'/pipeline/publication-holds',
       reference_decisions:'/reference/decisions',operations:'/pipeline/operations-dashboard'};
      return await route.fulfill({json:{ok:true,sources:Object.fromEntries(Object.entries(routes).map(([k,v])=>[k,{ok:true,...fixtures[v]}]))}});
+    }
+    if(path==='/pipeline/reconciliation'){
+     const query=new URLSearchParams(f.get('query'));
+     if(query.get('view')==='inbox')return await route.fulfill({json:{ok:true,messages:inboxMessages}});
+     if(query.get('view')==='inbox-offers'){
+      inboxOfferReads++;
+      return await route.fulfill({json:query.get('message_id')==='702'?{ok:true,outcome:'no_product',offers:[]}
+       :{ok:true,outcome:'offers',offers:[{offer_id:'offer-inbox',product_id:'10',name:'پیشنهاد تازهٔ ربات',relationship:'known'}]}});
+     }
     }
     if (path==='/reference/item-reviews'&&new URLSearchParams(f.get('query')).get('online')==='1') {
      catalogSearches++;
@@ -140,8 +150,8 @@ const fixtures={
   await page.goto('http://molavi.test/wp-admin/admin.php?page=molavi-operations'+query);
   await page.addStyleTag({content:fs.readFileSync(base+'owner-workflows.css','utf8')});
   await page.addStyleTag({content:fs.readFileSync(base+'owner-dashboard.css','utf8')});
-  await page.evaluate(({dashboardBootstrap,dashboardActivity})=>window.molaviOwnerWorkflow={dashboardBootstrap,dashboardActivity,page:'molavi-operations',apiUrl:'https://api.test/pipeline/operations-dashboard',apiProxyUrl:'/wp-admin/admin-ajax.php',apiProxyNonce:'mock',reviewStoreUrl:'/wp-admin/admin-ajax.php',reviewStoreNonce:'mock',workbenchDismissalNonce:'mock',workbenchDismissals:[],workflowApis:Object.fromEntries([
-    ['product_status','/pipeline/product-status-snapshots'],['ai_confirmations','/pipeline/ai-confirmations'],['reference_items','/reference/item-reviews'],['supplier_prices','/pipeline/supplier-price-evidence'],['sheet_conflicts','/pipeline/sheet-conflicts'],['publication_holds','/pipeline/publication-holds'],['reference_decisions','/reference/decisions'],['reconciliation','/pipeline/reconciliation']].map(([key,path])=>[key,{url:'https://api.test'+path}]))},{dashboardBootstrap,dashboardActivity});
+  await page.evaluate(({dashboardBootstrap,dashboardActivity,dashboardDismissals})=>window.molaviOwnerWorkflow={dashboardBootstrap,dashboardActivity,page:'molavi-operations',apiUrl:'https://api.test/pipeline/operations-dashboard',apiProxyUrl:'/wp-admin/admin-ajax.php',apiProxyNonce:'mock',reviewStoreUrl:'/wp-admin/admin-ajax.php',reviewStoreNonce:'mock',workbenchDismissalNonce:'mock',workbenchDismissals:dashboardDismissals,workflowApis:Object.fromEntries([
+    ['product_status','/pipeline/product-status-snapshots'],['ai_confirmations','/pipeline/ai-confirmations'],['reference_items','/reference/item-reviews'],['supplier_prices','/pipeline/supplier-price-evidence'],['sheet_conflicts','/pipeline/sheet-conflicts'],['publication_holds','/pipeline/publication-holds'],['reference_decisions','/reference/decisions'],['reconciliation','/pipeline/reconciliation']].map(([key,path])=>[key,{url:'https://api.test'+path}]))},{dashboardBootstrap,dashboardActivity,dashboardDismissals});
   for(const file of ['reference-snapshots.js','owner-dashboard.js','owner-workflows.js'])await page.addScriptTag({content:fs.readFileSync(base+file,'utf8')});
   await page.waitForSelector('.md-product-card');
  }
@@ -246,6 +256,18 @@ const fixtures={
  await page.getByRole('button',{name:'باز کردن دستهٔ متوقف‌شده',exact:true}).click();
  await page.locator('.md-publication-holds[open] #molavi-batch-batch-4').waitFor();
  assert.equal(await page.getByRole('button',{name:'اجرای دوباره این دسته، فقط یک بار',exact:true}).count(),1);
+ const originalOperations=fixtures['/pipeline/operations-dashboard'].operations;
+ const archivedPublish={kind:'publish',id:'publish:job',state:'waiting_publication'};
+ dashboardDismissals=['operations|publication_hold%3Abatch-4','operations|publish%3Apublish%3Ajob'].map(task_key=>({task_key}));
+ fixtures['/pipeline/operations-dashboard'].operations={by_state:{waiting_publication:1},items:[archivedPublish]};
+ await mount();await page.getByRole('button',{name:'وضعیت سیستم',exact:true}).click();
+ assert.equal(await page.locator('.md-publication-holds').count(),0,'archived holds stay quiet when their waiting jobs were also archived');
+ fixtures['/pipeline/operations-dashboard'].operations={by_state:{waiting_publication:2},items:[archivedPublish,{...archivedPublish,id:'publish:new'}]};
+ await page.getByRole('button',{name:'تازه‌سازی',exact:true}).click();
+ await page.getByRole('button',{name:'بررسی توقف انتشار · ۱ در انتظار',exact:true}).click();
+ await page.locator('.md-publication-holds[open] #molavi-batch-batch-4').waitFor();
+ fixtures['/pipeline/operations-dashboard'].operations=originalOperations;
+ dashboardDismissals=[];
  fixtures['/pipeline/publication-holds'].holds=[];
  fixtures['/pipeline/ai-confirmations'].extraction_policy_version='gemini-2222222222222222';
  await mount('&workbench_action=ai');
@@ -361,6 +383,26 @@ const fixtures={
  await page.locator('.md-quota').getByText('gemini-fixture',{exact:true}).waitFor();
  await bar.getByRole('button',{name:'جزئیات',exact:true}).first().click();
  await page.getByRole('heading',{name:'پیام‌های منبع',exact:true}).waitFor();
+ await page.locator('.molavi-inbox').getByText('هنوز پیامی دریافت نشده است.').waitFor();
+ const received={received_at:now,batch_id:'recent-batch',channel:'@supplier',state:'queued'};
+ inboxMessages=[{...received,receipt_id:701,source_id:'701',excerpt:'متن آزمایشی پیام ربات'},
+  {...received,receipt_id:702,source_id:'702',excerpt:'متن بدون پیشنهاد',state:'done'}];
+ inboxRevision='received';
+ const inbox=page.locator('.molavi-inbox');
+ await inbox.getByText(/در صف استخراج/).waitFor({timeout:15000});
+ assert.equal(inboxOfferReads,0,'receipt refresh is local and does not load collapsed offers');
+ await inbox.getByText(/در صف استخراج/).click();
+ inboxMessages[0]={...inboxMessages[0],state:'done',extraction_state:'success'};
+ inboxRevision='completed';
+ await inbox.getByRole('button',{name:'بررسی پیشنهاد',exact:true}).waitFor({timeout:15000});
+ assert.equal(inboxOfferReads,1,'the open receipt advances to its results automatically');
+ await inbox.locator('details').filter({hasText:'متن بدون پیشنهاد'}).locator('summary').click();
+ await inbox.getByText('استخراج پایان یافت؛ کالایی در این پیام شناسایی نشد.').waitFor();
+ cases.push({...extraction,case_id:'ai-inbox',offer_id:'offer-inbox',product_name:'پیشنهاد تازهٔ ربات'});
+ await inbox.getByRole('button',{name:'بررسی پیشنهاد',exact:true}).click();
+ await page.locator('.md-product-card').getByRole('heading',{name:'پیشنهاد تازهٔ ربات'}).waitFor();
+ assert.equal(new URL(page.url()).searchParams.get('offer_id'),'offer-inbox','refresh prioritizes the new exact offer before a known catalog product');
+ cases.pop();
  assert.deepEqual(errors,[]);
  console.log(JSON.stringify({passed:true,errors,writes:writes.length,captures:['/tmp/molavi-dashboard-desktop.png','/tmp/molavi-dashboard-mobile.png']}));
  await browser.close();
