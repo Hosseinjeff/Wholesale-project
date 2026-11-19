@@ -9,6 +9,7 @@ import os
 from datetime import datetime, timezone
 
 from .ai_matching import POLICY, ReferenceSuggestions
+from .index_tasks import status as reference_index_status
 from .item_reviews import ItemReviewLedger, review_cases
 from .workflow import active_reference_use
 
@@ -111,6 +112,12 @@ def run_suggestion(queue, context, sheet_store, reference_store):
     router = configured_router()
     model = os.getenv('GOOGLE_REFERENCE_EMBEDDING_MODEL', '').strip() if router else None
     fallback = os.getenv('GOOGLE_REFERENCE_EMBEDDING_FALLBACK_MODEL', '').strip() if router else None
+    if model and fallback and model != fallback:
+        progress = reference_index_status(queue) or {}
+        if (progress.get('state') != 'complete' or progress.get('model') != model
+                or progress.get('snapshot_id') != snapshot['snapshot_id']):
+            # A partially built index should not displace the established index.
+            model, fallback = fallback, model
     import requests
     with requests.Session() as session:
         suggestion = ReferenceSuggestions(router, embedding_model=model,

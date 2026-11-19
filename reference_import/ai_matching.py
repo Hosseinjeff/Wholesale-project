@@ -17,7 +17,7 @@ from .importer import HEADERS
 
 IDENTITY_FIELDS = ('name', 'clean_name', 'brand', 'category', 'variant',
                    'package_count', 'volume', 'weight')
-POLICY = 'reference-source-context-v4'
+POLICY = 'reference-source-context-v5'
 # Matching policy changes do not change the embedding input/task format. Preserve
 # the previous namespace rather than spending quota regenerating valid vectors.
 EMBEDDING_POLICY = 'reference-ai-suggestion-v1'

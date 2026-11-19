@@ -90,6 +90,23 @@ class ReferenceSuggestionTasksTests(unittest.TestCase):
             result = run_suggestion(self.queue, self.context, self.store, self.reference)
         self.assertEqual(result['state'], 'superseded')
 
+    def test_suggestions_keep_the_previous_index_until_new_snapshot_index_completes(self):
+        old, new = 'gemini-embedding-001', 'gemini-embedding-2'
+        with patch.dict(os.environ, {'GOOGLE_REFERENCE_EMBEDDING_MODEL': new,
+                                     'GOOGLE_REFERENCE_EMBEDDING_FALLBACK_MODEL': old}):
+            context = task_context(self.case, 'reference', 'snapshot-A')
+            for status, snapshot_id, expected in [('running', 'snapshot-A', (old, new)),
+                                                  ('complete', 'older', (old, new)),
+                                                  ('complete', 'snapshot-A', (new, old))]:
+                with patch('catalog.google_quota.configured_router', return_value=object()), \
+                        patch('reference_import.suggestion_tasks.reference_index_status',
+                              return_value={'state': status, 'snapshot_id': snapshot_id, 'model': new}), \
+                        patch('reference_import.suggestion_tasks.ReferenceSuggestions') as matcher:
+                    matcher.return_value.suggest.return_value = {'reference_id': 'R-1'}
+                    run_suggestion(self.queue, context, self.store, self.reference)
+                    self.assertEqual((matcher.call_args.kwargs['embedding_model'],
+                                      matcher.call_args.kwargs['fallback_embedding_model']), expected)
+
     def test_contextual_options_stay_visible_with_a_full_existing_shortlist(self):
         self.run_job(lambda _: {'ok': True, 'suggestion': {'reference_id': None,
             'candidates': [{'reference_id': 'contextual'}]}})

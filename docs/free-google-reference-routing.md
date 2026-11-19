@@ -45,7 +45,7 @@ Staging uses the following local allocations for the added endpoints. The projec
 | Gemini Decision 1 | Candidate matching fallback | 2 / 30,000 / 100 |
 | Gemini Embedding 2 | Semantic reference index and retrieval | 15 / 15,000 / 500 |
 
-Embedding 2 reserves 40 daily requests for foreground retrieval. Matching can use cached Embedding 001 vectors when Embedding 2 has no vectors for the candidate set or is unavailable. Reindexing uses the existing resumable queue.
+Embedding 2 reserves 40 daily requests for foreground retrieval. Matching keeps using the established Embedding 001 index first until Embedding 2 completes the active snapshot. Either model can provide cached retrieval when the preferred index has no applicable vectors or is unavailable. Reindexing uses the existing resumable queue.
 
 ## Verified staging allocation
 
