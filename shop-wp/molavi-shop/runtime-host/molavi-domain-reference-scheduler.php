@@ -3,6 +3,8 @@
 declare(strict_types=1);
 defined('ABSPATH') || exit;
 
+const MOLAVI_REFERENCE_REFRESH_SECONDS = 86400;
+
 function molavi_domain_reference_event(string $event,string $reason,?string $id): void {
     molavi_domain_tx('reference',static function(SQLite3 $db)use($event,$reason,$id):void {
         $old=molavi_domain_row($db,'SELECT reason,snapshot_id FROM reference_events WHERE event_id=?',[$event]);
@@ -21,7 +23,7 @@ function molavi_domain_reference_use(?float $clock=null): array {
     if(!$snapshot){$event='missing-reference';molavi_domain_reference_event($event,'missing',null);}
     else{$time=molavi_domain_timestamp($snapshot['last_checked_at']??$snapshot['extracted_at']);
         if($time===null||$time>$now)molavi_domain_fail('reference_clock_invalid');
-        if($now-$time>=86400){$event='stale:'.$id;molavi_domain_reference_event($event,'stale',$id);}}
+        if($now-$time>=MOLAVI_REFERENCE_REFRESH_SECONDS){$event='stale:'.$id;molavi_domain_reference_event($event,'stale',$id);}}
     $events=molavi_domain_read('reference',static fn(SQLite3 $db)=>molavi_domain_rows($db,
         'SELECT * FROM reference_events e WHERE snapshot_id IS ? AND NOT EXISTS (SELECT 1 FROM reference_retirements r WHERE r.event_id=e.event_id) ORDER BY created_at,event_id',[$id]));
     $blocked=array_values(array_filter($events,static fn($row)=>$row['choice']!=='use_last_snapshot'));
@@ -46,10 +48,10 @@ function molavi_domain_reference_refresh(bool $force=false,?callable $fetch=null
     return molavi_domain_lock('refresh',static function()use($force,$fetch,$clock,$expected,$checkExpected):array {
         $now=$clock??microtime(true);$previous=molavi_domain_reference_refresh_state()??[];$last=$previous['last_attempt_at']??null;
         if($checkExpected&&$last!==$expected)molavi_domain_fail('refresh_state_changed');
-        $running=($previous['state']??null)==='running';$time=molavi_domain_timestamp($last);$elapsed=$time!==null?$now-$time:86400;
+        $running=($previous['state']??null)==='running';$time=molavi_domain_timestamp($last);$elapsed=$time!==null?$now-$time:MOLAVI_REFERENCE_REFRESH_SECONDS;
         if($force){if(!in_array($previous['state']??null,[null,'failed','running','staged','updated','unchanged'],true))return ['state'=>'not_due'];
             if($last&&!$running&&$elapsed<60)return ['state'=>'cooldown','retry_after_seconds'=>max(0,60-(int)$elapsed)];}
-        elseif(!$running&&$last&&$elapsed<86400)return ['state'=>'not_due','next_check_seconds'=>max(0,86400-(int)$elapsed)];
+        elseif(!$running&&$last&&$elapsed<MOLAVI_REFERENCE_REFRESH_SECONDS)return ['state'=>'not_due','next_check_seconds'=>max(0,MOLAVI_REFERENCE_REFRESH_SECONDS-(int)$elapsed)];
         if($running&&!empty($previous['occurrence_id']))molavi_domain_reference_failure($previous['occurrence_id']);
         $occurrence=gmdate('Ymd\THis',(int)$now).'Z-'.bin2hex(random_bytes(16));
         $stamp=(new DateTimeImmutable('@'.sprintf('%.6F',$now)))->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d\TH:i:s.uP');

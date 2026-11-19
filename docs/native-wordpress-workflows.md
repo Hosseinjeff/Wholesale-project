@@ -418,6 +418,14 @@ supplier post or a reply. The remaining old order, publish, catalog and cart URL
 use the WordPress commerce adapter to preserve callers without a second business
 executor.
 
+## Web price references
+
+Products with no consumer price can use the existing owner review flow to compare current quotes and select a retailer. WordPress verifies a product page’s identity, availability, unit price, and currency before it displays a quote. The selected URL and latest checked price are stored as market evidence alongside the supplier record.
+
+Entire-web discovery uses [Tavily Search](https://docs.tavily.com/documentation/api-reference/endpoint/search). Set `MOLAVI_TAVILY_API_KEY` in the protected WordPress configuration or `TAVILY_API_KEY` in the WordPress process environment. Without a search key, owners can verify a retailer’s product URL and save it for periodic checks.
+
+The native WordPress cron uses the catalog reference’s 24-hour interval for each lookup, processes one due item per tick, and caps checks at 25 per UTC day. Owner requests move a due item ahead of the background queue. An unavailable page preserves the last checked evidence with its timestamp.
+
 ## Final live cutover
 
 Both wholesale Railway services are on demand with WordPress custody and zero

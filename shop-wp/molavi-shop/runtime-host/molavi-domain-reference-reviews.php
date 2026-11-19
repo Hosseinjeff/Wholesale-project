@@ -245,6 +245,12 @@ function molavi_domain_reference_proceed(array $body,string $actor,?string $cloc
 }
 
 function molavi_domain_reference_reviews_api(string $method,?array $body,string $actor,?string $clock=null,array $query=[]): array {
+    if ($method==='GET' && ($query['view']??'')==='market-prices') return molavi_domain_market_price_api($method,$query,$actor);
+    if ($method==='POST' && in_array($body['action']??'',['request_market_prices','select_market_price_source','add_market_price_url'],true)) {
+        $keys=$body['action']==='request_market_prices'?['action','offer_id']:['action','offer_id','url'];
+        molavi_domain_body_keys($body,$keys);
+        return molavi_domain_market_price_api($method,$body,$actor);
+    }
     if ($method==='GET' && ($query['online']??'')==='1') return molavi_domain_search_online_reference($query);
     if ($method==='GET' && ($query['view']??'')==='extracted-titles') {
         $offerId=$query['offer_id']??null;

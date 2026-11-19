@@ -270,6 +270,10 @@
             publication_held_for_review: 'تا بررسی توقف انتشار، این تصمیم ثبت نمی‌شود.',
             source_current_verification_required: 'زمان پیام برای اثبات تازگی قیمت کافی نیست؛ منبع فعلی را بررسی و گزینهٔ تأیید منبع را علامت بزنید.',
             package_count_required: 'برای قیمت بسته، تعداد داخل بسته را مشخص کنید.',
+            invalid_market_price_link: 'پیوند مستقیم و امن صفحهٔ کالا را وارد کنید.',
+            market_price_source_not_verified: 'قیمت یک واحد از همین کالا در این صفحه تأیید نشد.',
+            market_price_sources_unavailable: 'صفحهٔ فروشگاه در دسترس نیست. پیوند دیگری را بررسی کنید.',
+            stale_market_price_source: 'قیمت این منبع تازه نیست. پس از بررسی دوباره آن را انتخاب کنید.',
             unknown_reference: 'نام دقیق یا شناسه کالای مرجع پیدا نشد؛ یکی از پیشنهادها را انتخاب کنید.',
             ambiguous_reference_name: 'این نام با چند کالای مرجع تطبیق دارد؛ یکی از پیشنهادها را انتخاب کنید یا شناسه دقیق را وارد کنید.',
             invalid_price_role: 'نقش قیمت را انتخاب کنید.',
@@ -1329,7 +1333,8 @@
             if (primaryKey === 'references') product.references.forEach(item => {
                 const reference = referenceItemCard(item, contextStored.reference_items, {
                     embedded:true, apiKey:'reference_items', refresh:refreshInPlace,
-                    parentName:product.name, parentChannel:product.channel
+                    parentName:product.name, parentChannel:product.channel,
+                    marketPrice:status.regular_price_missing
                 });
                 reference.prepend(node('h3', 'تطبیق و مبنای قیمت مرجع'));
                 addWorkflowSection(reference, 'references');
@@ -1884,6 +1889,7 @@
             renderSources: sourceReextractionWorkspace,
             renderOfferReextraction: offerReextraction,
             renderProductSearch: onlineProductSearch,
+            renderMarketPrice: marketPriceReview,
             renderReferenceTools: productReferenceTools,
             renderReferences: panel => {
                 const catalog = node('div');
@@ -2638,6 +2644,117 @@
         return tools;
     }
 
+    function marketPriceReview(offerId, productName, expanded = false) {
+        const section = node('details', null, 'molavi-market-price-review');
+        const heading = node('summary','قیمت مصرف‌کننده و مرجع وب');
+        const body = node('div',null,'molavi-market-price-body');
+        const endpoint = new URL('/reference/item-reviews',config.apiUrl);
+        const readUrl = new URL(endpoint);
+        readUrl.searchParams.set('view','market-prices');
+        readUrl.searchParams.set('offer_id',offerId);
+        let timer = null, remaining = 0, busy = false;
+        section.append(heading,body);
+
+        function quoteRow(quote, result) {
+            const row = node('div',null,'molavi-market-quote');
+            const link = node('a',quote.merchant,'molavi-market-source');
+            const url = new URL(quote.url);
+            if (url.protocol !== 'https:') return row;
+            link.href = url.href;link.target = '_blank';link.rel = 'noopener noreferrer';
+            link.title = quote.title;
+            const selected = quote.url === result.selected_url;
+            row.append(node('strong',amount(quote.unit_price)),node('span','برای هر واحد'),link);
+            if (result.stale) return row;
+            if (selected) row.append(node('span','مرجع انتخاب‌شده'));
+            else {
+                const select = node('button','ثبت مرجع قیمت','button');select.type = 'button';
+                select.addEventListener('click',()=>load({action:'select_market_price_source',offer_id:offerId,url:quote.url}));
+                row.append(select);
+            }
+            return row;
+        }
+        function linkForm() {
+            const details = node('details');
+            details.append(node('summary','ثبت پیوند فروشگاه'));
+            const form = node('form',null,'molavi-market-link-form');
+            const input = document.createElement('input');
+            input.type='url';input.required=true;input.dir='ltr';input.placeholder='https://…';
+            input.setAttribute('aria-label','پیوند صفحهٔ کالا در فروشگاه');
+            const save = node('button','بررسی و ثبت','button');save.type='submit';
+            form.append(input,save);
+            form.addEventListener('submit',event=>{
+                event.preventDefault();
+                load({action:'add_market_price_url',offer_id:offerId,url:input.value.trim()});
+            });
+            details.append(form);
+            return details;
+        }
+        function render(result) {
+            body.replaceChildren();
+            const messages = {
+                idle:'قیمت مصرف‌کننده در پیام ثبت نشده است.',
+                unconfigured:'اتصال به سرویس جست‌وجوی وب هنوز تنظیم نشده است.',
+                not_needed:'این کالا در حال حاضر به پیشنهاد قیمت بازار نیاز ندارد.',
+                ambiguous_identity:'برای پیدا کردن قیمت قابل مقایسه، ابتدا نوع دقیق کالا را مشخص کنید.',
+                queued:'در صف جست‌وجوی وب',searching:'در حال بررسی منابع وب…',
+                no_match:'برای این کالا قیمت قابل مقایسه‌ای تأیید نشد.',
+                retry:'بررسی منابع کامل نشد. در نوبت بعد دوباره بررسی می‌شود.',
+                provider_auth:'اتصال سرویس جست‌وجوی وب نیاز به بررسی دارد.',
+                quota:'سهمیهٔ جست‌وجو پر شده است. بررسی در نوبت بعد ادامه می‌یابد.'
+            };
+            if (messages[result.state]) body.append(node('p',messages[result.state]));
+            const quote = result.suggested_price;
+            if (quote) {
+                body.append(node('h4',result.stale ? 'آخرین قیمت مشاهده‌شده' : 'قیمت پیشنهادی بازار'),quoteRow(quote,result));
+                const alternatives = (result.candidates || []).filter(row=>row.url!==quote.url);
+                if (alternatives.length) {
+                    const list = node('details');list.append(node('summary','مقایسهٔ فروشگاه‌ها'));
+                    alternatives.forEach(row=>list.append(quoteRow(row,result)));
+                    body.append(list);
+                }
+            }
+            if (result.selected_url && !result.candidates?.some(row=>row.url===result.selected_url))
+                body.append(node('p','قیمت منبع انتخاب‌شده در آخرین بررسی تأیید نشد.'));
+            const times = [];
+            if (result.checked_at) times.push(`آخرین بررسی ${formatSourceTimestamp(Math.floor(result.checked_at))}`);
+            if (result.next_at && result.next_at*1000>Date.now()) times.push(`نوبت بعد ${formatSourceTimestamp(Math.floor(result.next_at))}`);
+            if (times.length) body.append(node('small',times.join(' · ')));
+            if (['idle','queued'].includes(result.state)) {
+                const search = node('button','جست‌وجوی قیمت در وب','button button-primary');search.type = 'button';
+                search.addEventListener('click',()=>{
+                    remaining=6;load({action:'request_market_prices',offer_id:offerId});
+                });
+                body.append(search);
+            }
+            if (productName && ['unconfigured','provider_auth','no_match'].includes(result.state))
+                body.append(onlineProductSearch(productName));
+            if (!['not_needed','ambiguous_identity'].includes(result.state)) body.append(linkForm());
+            if (remaining>0&&['queued','searching'].includes(result.state)) {
+                remaining--;
+                timer=setTimeout(()=>{if(section.open&&section.isConnected)load();},12000);
+            }
+        }
+        async function load(payload) {
+            if (busy) return;
+            busy=true;clearTimeout(timer);
+            const buttons=payload?[...body.querySelectorAll('button:not(:disabled)')]:[];
+            buttons.forEach(button=>button.disabled=true);
+            const progress=node('p',payload?.action==='add_market_price_url'
+                ? 'در حال بررسی صفحهٔ فروشگاه…' : 'در حال دریافت قیمت‌های بررسی‌شده…');
+            progress.setAttribute('role','status');
+            if (payload||!body.childNodes.length) body.prepend(progress);
+            try {render(await request(payload?'POST':'GET',payload,(payload?endpoint:readUrl).href,'reference_items'));}
+            catch(error) {
+                body.querySelector('.notice-error')?.remove();
+                body.prepend(notice(errorText(error.message),'error'));
+            }
+            finally {progress.remove();buttons.forEach(button=>button.disabled=false);busy=false;}
+        }
+        section.addEventListener('toggle',()=>{if(section.open)load();else clearTimeout(timer);});
+        section.open=expanded;
+        return section;
+    }
+
     function aiReferenceAssignmentSection(item, contextStored, decisionsEnabled, options = {}) {
         if (!item.reference_snapshot_id) return null;
         const candidates = Array.isArray(item.reference_candidates)
@@ -2907,7 +3024,7 @@
             priceFacts.push(['پیشنهاد اول', `${amount(visibleSupplierPrice)} برای بستهٔ ${count}‌تایی · ${amount(Math.round(cartonUnitPrice))} برای هر واحد`]);
         }
         priceFacts.push(
-            ['قیمت مصرف‌کننده / عادی', regularPrice ? amount(regularPrice) : 'در پیام پیدا نشد'],
+            ['قیمت مصرف‌کننده / عادی', regularPrice ? amount(regularPrice) : null],
             ['موجودی اعلام‌شده', aiStockLabel(item.stock_status)],
             ['حداقل خرید', item.min_qty || 'ثبت نشده']
         );
@@ -2916,11 +3033,14 @@
             priceFacts.push(['قیمت کل بسته / کارتن تأمین‌کننده', amount(packagePrice)]);
         }
         if (regularPackagePrice) priceFacts.push(['قیمت عادی کل بسته / کارتن', amount(regularPackagePrice)]);
-        card.appendChild(reviewFacts(priceFacts, 'molavi-review-facts molavi-ai-price-facts'));
+        const priceEvidence = node('section',null,'molavi-product-price-evidence');
+        priceEvidence.appendChild(reviewFacts(priceFacts, 'molavi-review-facts molavi-ai-price-facts'));
         const reviewReason = priceBasisNeedsReview
             ? 'اگر مبلغ فروش برای یک واحد باشد، از قیمت مصرف‌کننده بیشتر است.'
             : aiReviewReason(item.reason);
-        card.appendChild(reviewFacts([['دلیل بررسی', reviewReason]], 'molavi-review-facts molavi-review-reason'));
+        if (!regularPrice && item.offer_id) priceEvidence.appendChild(marketPriceReview(item.offer_id,cardName));
+        priceEvidence.appendChild(reviewFacts([['دلیل بررسی', reviewReason]], 'molavi-review-facts molavi-review-reason'));
+        card.appendChild(priceEvidence);
         const sourceDates = aiSourceDateFacts(item);
         const sourceTools = node('div', null, 'molavi-card-source-tools');
         const sourcePostUrl = aiSourcePostUrl(item);
@@ -4062,7 +4182,7 @@
         const duplicateParentName = Boolean(options.embedded && options.parentName
             && aiDisplayKey(options.parentName) === aiDisplayKey(item.product_name));
         card.appendChild(reviewCardHeader(duplicateParentName ? '' : item.product_name || 'کالای بدون نام', 'تطبیق مرجع'));
-        card.appendChild(onlineProductSearch(item.product_name));
+        if (!options.marketPrice) card.appendChild(onlineProductSearch(item.product_name));
         if (!item.reference_waived) card.appendChild(proceedWithoutReference([item],'reference',{
             enabled:contextStored,refresh:options.refresh}));
         const referenceFacts = [
@@ -4079,6 +4199,7 @@
             [['عنوان استخراج‌شده',item.product_name],['قیمت تأمین‌کننده',amount(item.supplier_price)]],referenceFacts);
         card.appendChild(sourceFacts.container);
         sourceFacts.load();
+        if (options.marketPrice && item.offer_id) card.appendChild(marketPriceReview(item.offer_id,item.product_name));
         const referenceSourceDates = aiSourceDateFacts(item);
         if (referenceSourceDates.length) card.appendChild(reviewFacts(referenceSourceDates,
             'molavi-review-facts molavi-ai-source-date-facts'));

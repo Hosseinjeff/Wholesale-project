@@ -20,6 +20,7 @@ const fixtures={
  const browser=await chromium.launch({executablePath:'/usr/bin/chromium',headless:true,args:['--no-sandbox']});
  const page=await browser.newPage({viewport:{width:1365,height:1000}});const errors=[];const writes=[];let failPrices=false;let acceptPrice=false;let offerPreviews=0;let latestRun='';let runComplete=false;let groupedLoads=0;
  let activeReads=0,maxActiveReads=0,transientStatusOnce=true,statusReads=0,changeReads=0,catalogSearches=0,titleReads=0;
+ let marketReads=0,marketSource=null;
  let inboxMessages=[],inboxRevision='initial',inboxOfferReads=0,dashboardDismissals=[];
  page.on('pageerror',e=>errors.push(e.message));
  await page.route('**/*',async route=>{
@@ -39,6 +40,14 @@ const fixtures={
       const payload=JSON.parse(f.get('payload'));
       fixtures['/pipeline/ai-confirmations'].cases[0].reference_waived='waiver-1';
       return route.fulfill({json:{ok:true,offer_id:payload.offer_id,choice:payload.action,decision_id:'waiver-1'}});
+    }
+    if(path==='/reference/item-reviews'&&JSON.parse(f.get('payload')||'{}').action==='add_market_price_url'){
+      const payload=JSON.parse(f.get('payload'));
+      assert.equal(payload.offer_id,'offer-4');assert.equal(payload.url,'https://retailer.example/biscuit');
+      const quote={title:'بیسکویت شکلاتی',merchant:'retailer.example',url:payload.url,unit_price:150000};
+      marketSource={state:'ready',checked_at:Date.now()/1000,next_at:Date.now()/1000+86400,
+        suggested_price:quote,candidates:[quote],selected_url:quote.url};
+      return route.fulfill({json:{ok:true,...marketSource}});
     }
     if(path==='/reference/item-reviews'&&JSON.parse(f.get('payload')||'{}').action==='assign_ai_reference'){
       const payload=JSON.parse(f.get('payload'));
@@ -106,6 +115,10 @@ const fixtures={
     if (path==='/reference/item-reviews'&&new URLSearchParams(f.get('query')).get('online')==='1') {
      catalogSearches++;
      return await route.fulfill({json:{ok:true,results:[{title:'نمونه آنلاین',url:'https://rezvanpakhsh.com/product/example'}]}});
+    }
+    if(path==='/reference/item-reviews'&&new URLSearchParams(f.get('query')).get('view')==='market-prices'){
+      marketReads++;
+      return route.fulfill({json:{ok:true,...(marketSource||{state:'unconfigured'})}});
     }
     if(path==='/reference/item-reviews'&&new URLSearchParams(f.get('query')).get('view')==='extracted-titles'){
      titleReads++;
@@ -351,6 +364,16 @@ const fixtures={
  const beforeGrouped=groupedLoads;
  await mount('&workbench_action=ai',true);
  assert.equal(groupedLoads,beforeGrouped+1,'dashboard bootstrap replaces the individual initial reads');
+ assert.equal(marketReads,0,'opening a product does not search the web');
+ const market=page.locator('.molavi-market-price-review');
+ await market.getByText('قیمت مصرف‌کننده و مرجع وب',{exact:true}).click();
+ await market.getByText('ثبت پیوند فروشگاه',{exact:true}).click();
+ await market.getByRole('textbox',{name:'پیوند صفحهٔ کالا در فروشگاه'}).fill('https://retailer.example/biscuit');
+ await market.getByRole('button',{name:'بررسی و ثبت',exact:true}).click();
+ await market.getByText('مرجع انتخاب‌شده',{exact:true}).waitFor();
+ await market.getByText('۱۵۰٬۰۰۰ تومان',{exact:true}).waitFor();
+ await market.getByText(/نوبت بعد/).waitFor();
+ assert.equal(await market.getByRole('link',{name:'retailer.example'}).getAttribute('href'),'https://retailer.example/biscuit');
  await page.getByText('جست‌وجوی اینترنتی کالا',{exact:true}).click();
  const productSearch=page.locator('.molavi-product-search[open]');
  const query=productSearch.getByRole('searchbox');

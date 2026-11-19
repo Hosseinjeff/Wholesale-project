@@ -266,6 +266,16 @@ CREATE TABLE IF NOT EXISTS reference_refresh_state (
                 state TEXT, occurrence_id TEXT, snapshot_id TEXT, error_code TEXT,
                 change_summary TEXT)
 MOLAVI_SCHEMA_REFERENCE_7,
+        <<<'SQL'
+CREATE TABLE IF NOT EXISTS market_price_lookups (
+    lookup_key TEXT PRIMARY KEY, identity_json TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1, priority INTEGER NOT NULL DEFAULT 0,
+    state TEXT NOT NULL DEFAULT 'queued', next_at INTEGER NOT NULL,
+    attempted_at INTEGER, checked_at INTEGER, candidates_json TEXT NOT NULL DEFAULT '[]',
+    selected_url TEXT, selected_by TEXT, selected_at INTEGER)
+SQL,
+        'CREATE INDEX IF NOT EXISTS market_price_due ON market_price_lookups(active,next_at)',
+        'CREATE TABLE IF NOT EXISTS market_price_budget (day TEXT PRIMARY KEY, used INTEGER NOT NULL)',
     ];
     default: throw new InvalidArgumentException('Unknown domain store');
     }

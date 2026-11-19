@@ -405,6 +405,8 @@
             const productSections=currentSection
                 ? (currentSection===sourceSection?[sourceSection]:[currentSection,sourceSection])
                 : preferred==='deferred'?[sourceSection]:[sourceSection,sections.at(-1)];
+            if(record.regular_price_missing&&record.latest_offer_id&&!['ai','references'].includes(preferred))
+                productSections.push(['market_prices','قیمت و مرجع']);
             function activate(key, scroll=true) {
                 state.active=product.key;state.section=key;
                 main.querySelectorAll('.md-card-panel').forEach(item=>{if(item!==panelHost)item.hidden=true;});
@@ -444,6 +446,7 @@
                         panel.append(el('p',model.wooLabel(model.wooState(product))));
                         panel.append(button('بررسی وضعیت فروشگاه',event=>model.reconcile(event.currentTarget)));
                     }
+                    else if(key==='market_prices') panel.append(model.renderMarketPrice(record.latest_offer_id,product.name,true));
                     if(hasAction&&key!=='storefront'){
                         const action=model.renderAction(product,key);
                         if (action) panel.append(action);
@@ -460,6 +463,7 @@
                     source_integrity:'متن پیام و بازاستخراج',ai:'مشخصات خوانده‌شده و اصلاح آن‌ها',
                     references:'تطبیق کالا و قیمت واحد یا بسته',supplier_prices:'اعتبار قیمت تأمین‌کننده',
                     conflicts:'اختلاف داده‌های ذخیره‌شده',holds:'توقف‌های انتشار',status:'دلیل وضعیت انتشار',
+                    market_prices:'قیمت پیشنهادی، منبع و زمان بررسی',
                     storefront:'آنچه در ووکامرس دیده یا قابل‌خرید است'
                 }[key];
                 tab.id=`${panelHost.id}-${key}`;tab.setAttribute('role','tab');

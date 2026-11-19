@@ -21,12 +21,16 @@ function molavi_domain_http(string $method,string $url,array $args=[]):array {
     $allowed=wp_parse_url($url,PHP_URL_SCHEME)==='https'&&(
         ($host==='oauth2.googleapis.com'&&$path==='/token'&&$method==='POST')
         ||($host==='sheets.googleapis.com'&&str_starts_with($path,'/v4/spreadsheets/'))
+        ||($url==='https://api.tavily.com/search'&&$method==='POST')
         ||($host==='wholesale-project-staging-staging.up.railway.app'&&$method==='GET'&&str_starts_with($path,'/media/file/'))
         ||($host==='wholesale-project-production.up.railway.app'&&$method==='GET'&&str_starts_with($path,'/media/file/'))
         ||(function_exists('molavi_domain_reference_source')&&$host===wp_parse_url(molavi_domain_reference_source(),PHP_URL_HOST)&&$method==='GET'&&str_starts_with($path,'/wp-json/wc/store/v1/')));
     if(!$allowed)molavi_domain_fail('native_connector_destination_rejected',400);
     if(function_exists('home_url')&&strtolower((string)wp_parse_url(home_url('/'),PHP_URL_HOST))==='staging.molavisale.ir'
         &&$host==='wholesale-project-production.up.railway.app')molavi_domain_fail('staging_production_destination_rejected',400);
+    return molavi_domain_http_exact($method,$url,$args);
+}
+function molavi_domain_http_exact(string $method,string $url,array $args=[]): array {
     $exception=static function($pre,$parsed,$requestUrl)use($url,$method){
         if($requestUrl===$url&&strtoupper((string)($parsed['method']??''))===$method&&is_wp_error($pre)&&$pre->get_error_code()==='molavi_staging_external_blocked')return false;return $pre;
     };

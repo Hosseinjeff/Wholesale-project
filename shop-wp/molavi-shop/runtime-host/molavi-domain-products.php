@@ -171,11 +171,15 @@ function molavi_domain_status_capture(array $tables,string $reason,?float $clock
         return ['snapshot_id'=>$id,'captured_at'=>$at,'reason'=>$reason,'product_count'=>count($records),'changed_count'=>$changed];
     });
 }
-function molavi_domain_status_history(?string $selected=null): array {
-    return molavi_domain_read('pipeline',static function(SQLite3 $db)use($selected):array {
+function molavi_domain_status_history(?string $selected=null,bool $marketEligibility=false): array {
+    return molavi_domain_read('pipeline',static function(SQLite3 $db)use($selected,$marketEligibility):array {
         $snapshots=molavi_domain_rows($db,'SELECT snapshot_id,captured_at,reason,product_count,changed_count,schema_version FROM product_status_snapshots ORDER BY captured_at DESC LIMIT 30');
         $latest=$snapshots[0]['snapshot_id']??null;$id=$selected?:$latest;$exists=$id?molavi_domain_row($db,'SELECT snapshot_id FROM product_status_snapshots WHERE snapshot_id=?',[$id]):null;
-        $products=[];if($exists)foreach(molavi_domain_rows($db,'SELECT state_json FROM product_status_records WHERE snapshot_id=? ORDER BY product_name',[$id]) as $row){$state=molavi_domain_decode($row['state_json']);unset($state['product_record']);$products[]=$state;}
+        $products=[];if($exists)foreach(molavi_domain_rows($db,'SELECT state_json FROM product_status_records WHERE snapshot_id=? ORDER BY product_name',[$id]) as $row){
+            $state=molavi_domain_decode($row['state_json']);
+            if($marketEligibility&&is_array($state['product_record']??null))
+                $state['regular_price_missing']=molavi_domain_market_missing_price($state['product_record']);
+            unset($state['product_record']);$products[]=$state;}
         return ['snapshots'=>$snapshots,'latest_snapshot_id'=>$latest,'selected_snapshot_id'=>$exists?$id:null,'products'=>$products];
     });
 }
@@ -190,6 +194,6 @@ function molavi_domain_status_api(string $method,array $query,?array $body,strin
     $latest=molavi_domain_read('pipeline',static fn(SQLite3 $db)=>molavi_domain_row($db,'SELECT captured_at,schema_version FROM product_status_snapshots ORDER BY captured_at DESC LIMIT 1'));
     if(!$latest||$latest['schema_version']<2||(molavi_domain_timestamp($latest['captured_at'])??0)<=microtime(true)-86400)
         molavi_domain_status_capture(molavi_domain_sheets(['Products','Offers'],true),'daily_status_checkpoint');
-    $history=molavi_domain_status_history($selected?:null);if($selected!==''&&$history['selected_snapshot_id']!==$selected)molavi_domain_fail('snapshot_not_found',404);
+    $history=molavi_domain_status_history($selected?:null,$selected===''&&function_exists('molavi_domain_market_missing_price'));if($selected!==''&&$history['selected_snapshot_id']!==$selected)molavi_domain_fail('snapshot_not_found',404);
     return array_merge(['ok'=>true],$history);
 }
