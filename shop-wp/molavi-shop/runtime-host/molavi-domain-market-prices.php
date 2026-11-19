@@ -3,6 +3,8 @@
 declare(strict_types=1);
 defined('ABSPATH') || exit;
 
+const MOLAVI_MARKET_DAILY_LOOKUPS = 25;
+
 function molavi_domain_market_key(): string {
     return trim((string)(defined('MOLAVI_TAVILY_API_KEY') ? MOLAVI_TAVILY_API_KEY
         : (getenv('MOLAVI_TAVILY_API_KEY') ?: getenv('TAVILY_API_KEY'))));
@@ -207,7 +209,7 @@ function molavi_domain_market_run(int $now,?callable $fetch=null): void {
         $used=(int)(molavi_domain_row($db,'SELECT used FROM market_price_budget WHERE day=?',[$day])['used']??0);
         if (molavi_domain_row($db,"SELECT 1 FROM market_price_lookups WHERE state='searching' AND attempted_at>? LIMIT 1",[$now-60])) return null;
         $row=molavi_domain_row($db,'SELECT * FROM market_price_lookups WHERE active=1 AND next_at<=? AND (?=1 OR selected_url IS NOT NULL)
-            ORDER BY priority DESC,next_at,lookup_key LIMIT 1',[$now,$used<25]);
+            ORDER BY priority DESC,next_at,lookup_key LIMIT 1',[$now,$used<MOLAVI_MARKET_DAILY_LOOKUPS]);
         if (!$row) return null;
         if (!$row['selected_url']) molavi_domain_sql($db,'INSERT INTO market_price_budget VALUES(?,1) ON CONFLICT(day) DO UPDATE SET used=used+1',[$day]);
         molavi_domain_sql($db,"UPDATE market_price_lookups SET state='searching',attempted_at=?,next_at=?,priority=0 WHERE lookup_key=?",
@@ -227,7 +229,8 @@ function molavi_domain_market_run(int $now,?callable $fetch=null): void {
     } catch (MolaviWorkflowError $e) {
         if (in_array($e->getMessage(),['market_price_quota','market_price_provider_auth'],true)) {
             $update['state']=$e->getMessage()==='market_price_quota'?'quota':'provider_auth';
-            molavi_domain_tx('reference',static fn(SQLite3 $db)=>molavi_domain_sql($db,'UPDATE market_price_budget SET used=25 WHERE day=?',[$day]));
+            molavi_domain_tx('reference',static fn(SQLite3 $db)=>molavi_domain_sql($db,'UPDATE market_price_budget SET used=? WHERE day=?',
+                [MOLAVI_MARKET_DAILY_LOOKUPS,$day]));
             $update['next']=strtotime($day.' +1 day UTC');
         }
     }
@@ -286,10 +289,20 @@ function molavi_domain_market_price_api(string $method,array $input,string $acto
         molavi_domain_sql($db,'INSERT INTO market_price_lookups(lookup_key,identity_json,next_at,priority) VALUES(?,?,?,1)
             ON CONFLICT(lookup_key) DO UPDATE SET active=1,priority=1 WHERE next_at<=?',[$key,molavi_domain_json($identity),$now,$now]);
     });
-    $row=molavi_domain_read('reference',static fn(SQLite3 $db)=>
-        molavi_domain_row($db,'SELECT * FROM market_price_lookups WHERE lookup_key=?',[$key])
-        ??molavi_domain_row($db,'SELECT * FROM market_price_lookups WHERE lookup_key=? AND selected_url IS NOT NULL',
-            [molavi_domain_market_previous_key($identity)]));
+    $row=molavi_domain_read('reference',static function(SQLite3 $db)use($key,$identity,$now): ?array {
+        $row=molavi_domain_row($db,'SELECT * FROM market_price_lookups WHERE lookup_key=?',[$key])
+            ??molavi_domain_row($db,'SELECT * FROM market_price_lookups WHERE lookup_key=? AND selected_url IS NOT NULL',
+                [molavi_domain_market_previous_key($identity)]);
+        if (($row['state']??'')==='queued'&&!$row['selected_url']) {
+            $day=gmdate('Y-m-d',$now);
+            $used=(int)(molavi_domain_row($db,'SELECT used FROM market_price_budget WHERE day=?',[$day])['used']??0);
+            if ($used>=MOLAVI_MARKET_DAILY_LOOKUPS) {
+                $row['state']='quota';
+                $row['next_at']=max((int)$row['next_at'],strtotime($day.' +1 day UTC'));
+            }
+        }
+        return $row;
+    });
     if (!$row) return ['ok'=>true,'state'=>'idle'];
     $quotes=molavi_domain_decode($row['candidates_json']);$pinned=$row['selected_url'];
     usort($quotes,static fn($a,$b)=>($a['regular_unit_price']??$a['unit_price'])<=>($b['regular_unit_price']??$b['unit_price'])

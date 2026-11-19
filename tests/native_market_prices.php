@@ -145,5 +145,13 @@ unset($GLOBALS['basalam_products'][62769014]);
 molavi_domain_market_run($updated['next_at']);
 $removed=molavi_domain_market_price_api('GET',['offer_id'=>'rani'],'wp:7');
 check_market($removed['state']==='queued'&&!$removed['selected_url'],'a removed listing returns to the discovery queue');
+$today=gmdate('Y-m-d');
+molavi_domain_tx('reference',static function(SQLite3 $db)use($today,$raniIdentity): void {
+    molavi_domain_sql($db,'INSERT OR REPLACE INTO market_price_budget VALUES(?,?)',[$today,MOLAVI_MARKET_DAILY_LOOKUPS]);
+    molavi_domain_sql($db,'UPDATE market_price_lookups SET next_at=? WHERE lookup_key=?',[time(),molavi_domain_hash($raniIdentity)]);
+});
+$budgetWait=molavi_domain_market_price_api('GET',['offer_id'=>'rani'],'wp:7');
+check_market($budgetWait['state']==='quota'&&$budgetWait['next_at']===strtotime($today.' +1 day UTC'),
+    'the card reports the daily discovery limit and when its deferred search can run');
 foreach(glob(MOLAVI_STATE_ROOT.'/*') as $file) unlink($file);
 rmdir(MOLAVI_STATE_ROOT);
