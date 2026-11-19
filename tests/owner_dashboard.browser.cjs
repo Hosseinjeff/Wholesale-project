@@ -490,7 +490,8 @@ const fixtures={
  assert.equal(await list.getByText('دریافت مرجع نیاز به پیگیری دارد',{exact:true}).count(),0);
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'reference summary fits mobile');
  await list.getByRole('button',{name:'دریافت دوباره از رزوان',exact:true}).waitFor();
- await list.getByText('گزینه‌های تطبیق تا دریافت فهرست تازه',{exact:true}).click();
+ await list.getByRole('button',{name:'توقف تطبیق',exact:true}).waitFor();
+ assert.equal(await list.locator('details[open]').count(),0,'decisions are visible while previews and history stay collapsed');
  await list.getByRole('button',{name:'ادامه با فهرست ذخیره‌شده',exact:true}).click();
  await list.getByText('تطبیق با فهرست ذخیره‌شده انجام می‌شود',{exact:true}).waitFor();
  assert.equal(writes.filter(write=>write.path==='/reference/snapshots').length,1,'reference decisions send one scoped receipt');

@@ -382,11 +382,7 @@
 
     function appendReferenceDecision(parent, review, activeId, usable) {
         if (!review.decision_token) return;
-        const options = element('details',undefined,'molavi-reference-disclosure');
-        options.append(element('summary','گزینه‌های تطبیق تا دریافت فهرست تازه'));
-        options.append(element('p',usable
-            ? 'یک انتخاب برای همهٔ موارد در انتظارِ همین فهرست ثبت می‌شود.'
-            : 'تا دریافت فهرست، می‌توانید توقف تطبیق را ثبت کنید.'));
+        const options = element('div',undefined,'molavi-reference-decision');
         const actions = element('div',undefined,'molavi-reference-actions');
         const choices = usable ? [['use_last_snapshot','ادامه با فهرست ذخیره‌شده']] : [];
         choices.push(['pause_review','توقف تطبیق']);
@@ -418,7 +414,8 @@
                 }
             });
         }
-        options.append(actions);parent.append(options);
+        options.append(actions,element('p','این انتخاب برای همهٔ موارد منتظر همین فهرست ثبت می‌شود.','description'));
+        parent.append(options);
     }
 
     function render(data, message, kind = 'success') {
@@ -445,6 +442,13 @@
         const state=statuses[review.state]
             || (usable?'فهرست برای تطبیق آماده است':initial?'نسخهٔ اول آمادهٔ بررسی است':'فهرست قابل استفاده آماده نیست');
         current.append(element('p',state,'molavi-reference-status'));
+        const next=element('div',undefined,'molavi-reference-next');
+        if (running) addReloadButton(next,'بررسی وضعیت دریافت');
+        else if (initial) appendActionForm(next,initial.reviewed_by?'activate':'review',initial,data.active_snapshot_id);
+        else appendRefreshForm(next,refresh,refresh.state==='failed'||refresh.state==='running'
+            ? 'دریافت دوباره از رزوان' : 'تازه‌سازی از رزوان');
+        appendReferenceDecision(next,review,data.active_snapshot_id,usable);
+        current.append(next);
         const facts=element('dl',undefined,'molavi-reference-facts');
         const lastAttempt=refresh.state==='running'&&!running?'دریافت قبلی نیمه‌تمام ماند':refreshLabel(refresh.state);
         const values=[
@@ -465,11 +469,6 @@
             if (changes.length) current.append(element('p',changes.join(' · '),'description'));
         }
         if (review.state==='paused') current.append(element('p','دریافت موفق، فهرست را برای تطبیق دوباره آماده می‌کند.','description'));
-        if (running) addReloadButton(current,'بررسی وضعیت دریافت');
-        else if (initial) appendActionForm(current,initial.reviewed_by?'activate':'review',initial,data.active_snapshot_id);
-        else appendRefreshForm(current,refresh,refresh.state==='failed'||refresh.state==='running'
-            ? 'دریافت دوباره از رزوان' : 'تازه‌سازی از رزوان');
-        appendReferenceDecision(current,review,data.active_snapshot_id,usable);
         const preview=usable?active:(initial||active);
         if (preview) {
             const details=element('details',undefined,'molavi-reference-disclosure');

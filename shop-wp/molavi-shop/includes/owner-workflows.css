@@ -85,8 +85,11 @@
 #molavi-owner-workflow .molavi-reference-offer-picker select { width:min(100%,38rem); }
 .molavi-reference-summary { display:grid; gap:.8rem; padding:clamp(.85rem,2vw,1.3rem); border:1px solid #dce3dc; border-radius:10px; background:#fff; }
 .molavi-reference-summary > :is(h2,p,dl,form) { margin:0; }
-.molavi-reference-summary > .button { justify-self:start; }
 .molavi-reference-status { font-size:1.05rem; font-weight:600; }
+.molavi-reference-next { display:grid; gap:.65rem; justify-items:start; }
+.molavi-reference-next > form,.molavi-reference-decision > p { margin:0; }
+.molavi-reference-decision { display:grid; gap:.35rem; }
+.molavi-reference-next .button { white-space:normal; }
 .molavi-reference-facts { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,13rem),1fr)); gap:.7rem; padding:.75rem; background:#f7f8f5; border-radius:8px; }
 .molavi-reference-facts dt { color:#505c55; font-size:.92em; }
 .molavi-reference-facts dd { margin:.25rem 0 0; overflow-wrap:anywhere; }
