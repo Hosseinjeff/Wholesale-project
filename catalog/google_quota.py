@@ -125,6 +125,10 @@ class FreeGoogleRouter:
                 day TEXT NOT NULL, tokens INTEGER NOT NULL);
                 CREATE INDEX IF NOT EXISTS google_quota_usage
                 ON google_quota_requests(project,bucket,started);
+                CREATE INDEX IF NOT EXISTS google_quota_daily
+                ON google_quota_requests(project,bucket,day);
+                CREATE INDEX IF NOT EXISTS google_quota_retention
+                ON google_quota_requests(started);
                 CREATE TABLE IF NOT EXISTS google_quota_blocks (
                 project TEXT NOT NULL, bucket TEXT NOT NULL, until REAL NOT NULL,
                 PRIMARY KEY(project,bucket));
@@ -162,12 +166,7 @@ class FreeGoogleRouter:
             for position, item in enumerate(eligible):
                 if tokens > item.tpm:
                     continue
-                rows = db.execute('SELECT started,day,tokens FROM google_quota_requests '
-                                  'WHERE project=? AND bucket=? AND (day=? OR started>?) '
-                                  'ORDER BY started',
-                                  (self.project, item.bucket, day, now - 60)).fetchall()
-                today = sum(row['day'] == day for row in rows)
-                minute = [row for row in rows if row['started'] > now - 60]
+                today, minute = self._usage(db, item.bucket, day, now)
                 block = db.execute('SELECT MAX(until) AS until FROM google_quota_blocks '
                                    'WHERE project=? AND bucket IN (?,?)',
                                    (self.project, item.bucket, 'model:' + item.model)).fetchone()
@@ -197,6 +196,20 @@ class FreeGoogleRouter:
             db.execute('INSERT INTO google_quota_requests VALUES (?,?,?,?,?,?,?,?)',
                        (ticket, self.project, item.bucket, item.model, task, now, day, tokens))
         return item, ticket
+
+    def _usage(self, db, bucket, day, now):
+        # Keep the daily count in SQLite. Only the rolling minute needs
+        # individual requests to calculate when capacity becomes available.
+        rows = db.execute('''
+            SELECT NULL AS started, NULL AS tokens, COUNT(*) AS daily_count
+                FROM google_quota_requests WHERE project=? AND bucket=? AND day=?
+            UNION ALL
+            SELECT started, tokens, NULL
+                FROM google_quota_requests WHERE project=? AND bucket=? AND started>?
+            ORDER BY started
+        ''', (self.project, bucket, day, self.project, bucket, now - 60)).fetchall()
+        summary, *minute = rows
+        return summary['daily_count'], minute
 
     def _account(self, ticket, data):
         usage = data.get('usageMetadata') or data.get('usage') or {}
@@ -337,11 +350,7 @@ class FreeGoogleRouter:
         result = []
         with self.connect() as db:
             for item in self.models:
-                rows = db.execute('SELECT day,started,tokens FROM google_quota_requests '
-                    'WHERE project=? AND bucket=? AND (day=? OR started>?)',
-                    (self.project,item.bucket,day,now-60)).fetchall()
-                used = sum(row['day'] == day for row in rows)
-                minute = [row for row in rows if row['started'] > now-60]
+                used, minute = self._usage(db, item.bucket, day, now)
                 block = db.execute('SELECT until FROM google_quota_blocks WHERE project=? AND bucket=?',
                     (self.project,item.bucket)).fetchone()
                 result.append({'model':item.model,'bucket':item.bucket,'tasks':list(item.tasks),

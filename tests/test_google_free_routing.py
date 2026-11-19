@@ -116,6 +116,27 @@ class FreeRoutingTests(RoutingFixture):
         self.assertEqual(caught.exception.retry_at, pacific_day(self.now)[1])
         self.assertEqual([r['rpd_remaining'] for r in router.status()], [0, 0])
 
+    def test_large_daily_budget_and_rolling_minute_across_midnight(self):
+        model = budget('large-daily', tasks=['match'], rpm=2, rpd=14000)
+        router = self.router(model)
+        day, midnight = pacific_day(self.now)
+        self.now = midnight - 2
+        with router.connect() as db:
+            db.executemany('INSERT INTO google_quota_requests VALUES (?,?,?,?,?,?,?,?)',
+                ((str(i), router.project, model.bucket, model.model, 'match', self.now-120, day, 50)
+                 for i in range(model.rpd-1)))
+        router.reserve('match', 100)
+        with self.assertRaises(QuotaDeferred) as daily:
+            router.reserve('match', 100)
+        self.assertEqual(daily.exception.retry_at, midnight)
+        self.now = midnight + 1
+        router.reserve('match', 100)
+        report = router.status()[0]
+        self.assertEqual((report['rpd_used'], report['rpm_used'], report['tpm_used']), (1, 2, 200))
+        with self.assertRaises(QuotaDeferred) as rolling:
+            router.reserve('match', 100)
+        self.assertAlmostEqual(rolling.exception.retry_at, midnight+58.01)
+
     def test_shared_aliases_cannot_multiply_a_budget(self):
         a = ModelBudget('alias-a', ('match',), 100, 100000, 1, bucket='shared')
         b = ModelBudget('alias-b', ('match',), 100, 100000, 1, bucket='shared')

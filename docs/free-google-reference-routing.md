@@ -17,11 +17,13 @@ project traffic, including the production executor.
 
 With the workspace project key, Gemini 2.5 Flash returned Google Search metadata with one source for Pars Chin tea 500 g and eight for Rani peach 240 ml, including Bamo Market and Digikala. Gemini 3.1 Flash-Lite, 3.5 Flash-Lite, 3.6 Flash, 3.8 Flash, and 4 Hydrogen returned HTTP 429 with a billing-access message when grounding was enabled. Gemini 2.0 Flash and 2.5 Flash-Lite had returned HTTP 404. Neither Gemma model supplied a cited result in these grounding checks.
 
+A follow-up on the same key returned ten grounded sources for Rani on Gemini 2.5 Flash. Both Gemma 4 models returned HTTP 503 on the retry. The Decisions API returned HTTP 400 when the Google Search tool was included with Decision 1. The literal model ID `default` returned HTTP 404 and the `gemini-flash-lite-latest` alias returned HTTP 429 with a billing-access message. The reported 1,500 RPD rows for Gemini 2, Gemini 2.5, and Default refer to the Search grounding tool. **Default** is a quota category. [Decisions API](https://aistudio.google.com/docs/decisions-api) · [Google tool pricing](https://aistudio.google.com/docs/pricing#pricing-for-tools)
+
 Gemini 2.5 Flash extracted unit, carton, and consumer amounts from a synthetic Persian listing. Google is moving its traffic to 3.5 Flash-Lite, which already handles that work. Gemini 3.6 Flash, 3.8 Flash, and 4 Hydrogen returned timeouts or HTTP 503 in qualification calls.
 
 Google publishes free-tier eligibility and directs projects to AI Studio for active generation and embedding quotas. The current credential could call the models, but Cloud Quotas and Service Usage returned HTTP 403. The model limits in the table above are the last owner-verified rows. Extra API keys in the same project share the provider quota. Daily Gemini API limits reset at midnight Pacific. [Google rate limits](https://aistudio.google.com/docs/rate-limits) · [AI Studio project limits](https://aistudio.google.com/rate-limit)
 
-The Search grounding tool has its own allowance. Eligible Flash and Flash-Lite models share up to 500 requests per day on the free tier. The 1,500-per-day figure belongs to Google’s paid-tier grounding rules. Check the selected model’s pricing row for tool availability. Google schedules `gemini-2.5-flash` to move to 3.5 Flash-Lite on December 1, 2026. [Google pricing](https://aistudio.google.com/docs/pricing#pricing-for-tools) · [Google deprecations](https://aistudio.google.com/docs/deprecations#gemini-2.5-flash-models)
+Google’s public pricing lists up to 500 grounded requests per day shared among eligible free-tier Flash and Flash-Lite models and lists the 1,500-per-day figures under its paid-tier tool rules. Project quota rows and endpoint eligibility both matter. Google schedules `gemini-2.5-flash` to move to 3.5 Flash-Lite on December 1, 2026. [Google pricing](https://aistudio.google.com/docs/pricing#pricing-for-tools) · [Google deprecations](https://aistudio.google.com/docs/deprecations#gemini-2.5-flash-models)
 
 Google’s grounding terms limit collecting links for crawling or indexing. Scheduled product discovery requires the separate market-search provider to be configured. WordPress can already recheck a saved retailer URL and validate product identity, size, stock, and price. The Google Custom Search JSON API offers 100 queries per day for existing customers through its January 1, 2027 discontinuation. [Google Search grounding terms](https://aistudio.google.com/docs/terms) · [Custom Search JSON API](https://developers.google.com/custom-search/v1/overview)
 
@@ -35,14 +37,15 @@ Both Gemma models can enter the catalog matching pilot. The 26B model previously
 
 Shortlists of at most four text-supported candidates prefer `gemma-4-26b-a4b-it`. Broader shortlists and candidates found only through semantic retrieval prefer `gemma-4-31b-it`. If neither Gemma can serve the request, try Decision 1 before spending Flash-Lite extraction capacity. Gemma candidates with temporary failures re-enter selection after their cooldown. [Gemma API models and tools](https://gemma.ai/deployment/gemini-api/)
 
-`GOOGLE_FREE_MATCH_MODELS` adds match-only capacity alongside `GOOGLE_FREE_MODELS`. Both hosted Gemma 4 models have free input and output pricing. The 14,400 requests per day often associated with Gemma was documented for Gemma 3 and 3n. This project’s two Gemma 4 quota rows remain unverified. [Gemma 4 pricing](https://aistudio.google.com/docs/pricing#gemma-4) · [Google developer forum’s Gemma 3 limits](https://discuss.ai.google.dev/t/questions-about-gemma-models/100257/3)
+`GOOGLE_FREE_MATCH_MODELS` adds match-only capacity alongside `GOOGLE_FREE_MODELS`. The owner confirmed approximately 15,000 daily requests for each Gemma 4 model and 10,000 for Decision 1 on this project. The first rollout used a shared 500-request daily allocation for Gemma and a 100-request allocation for Decision 1 while awaiting those rows. The new allocations use independent buckets and leave room for other project traffic. [Gemma 4 pricing](https://aistudio.google.com/docs/pricing#gemma-4)
 
 Staging uses the following local allocations for the added endpoints. The project’s provider limits are tracked separately in AI Studio.
 
 | Model | Role | Staging RPM / TPM / RPD |
 | --- | --- | ---: |
-| Gemma 4 26B and 31B | Shared candidate matching budget | 2 / 15,000 / 500 |
-| Gemini Decision 1 | Candidate matching fallback | 2 / 30,000 / 100 |
+| Gemma 4 26B | Candidate matching for shorter lists | 12 / 15,000 / 14,000 |
+| Gemma 4 31B | Candidate matching for broader comparisons | 12 / 15,000 / 14,000 |
+| Gemini Decision 1 | Candidate matching fallback | 8 / 30,000 / 9,500 |
 | Gemini Embedding 2 | Semantic reference index and retrieval | 15 / 15,000 / 500 |
 
 Embedding 2 reserves 40 daily requests for foreground retrieval. Matching keeps using the established Embedding 001 index first until Embedding 2 completes the active snapshot. Either model can provide cached retrieval when the preferred index has no applicable vectors or is unavailable. Reindexing uses the existing resumable queue.
@@ -150,6 +153,7 @@ preserving manual verification, source revisions and original timestamps. It no
 longer makes separate remote state transactions for every product.
 
 SQLite transactions reserve capacity before HTTP requests across concurrent callers.
+Daily usage is counted in SQLite. Only the rolling minute’s rows are returned to the executor.
 The ledger survives restarts, groups all task usage for each model, enforces rolling
 minute request/input-token limits and Pacific-calendar daily limits, including DST.
 Text reservations use a conservative UTF-8 byte bound plus framing allowance; successful
