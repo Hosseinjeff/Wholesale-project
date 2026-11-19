@@ -299,7 +299,8 @@ function molavi_domain_market_price_api(string $method,array $input,string $acto
     $ranked=$exact?:($regular?:$quotes);
     $recommended=$ranked[intdiv(count($ranked),2)]??null;
     foreach ($quotes as $quote) if ($quote['url']===$pinned) $recommended=$quote;
-    return ['ok'=>true,'state'=>$row['state'],'checked_at'=>$row['checked_at'],'next_at'=>$row['next_at'],'search_configured'=>true,
+    return ['ok'=>true,'state'=>$row['state'],'checked_at'=>$row['checked_at'],'next_at'=>$row['next_at'],
+        'search_configured'=>true,'prioritized'=>(bool)$row['priority'],
         'stale'=>$row['checked_at']!==null&&$now-(int)$row['checked_at']>=MOLAVI_REFERENCE_REFRESH_SECONDS,
         'suggested_price'=>$recommended,'candidates'=>$quotes,'selected_url'=>$pinned];
 }

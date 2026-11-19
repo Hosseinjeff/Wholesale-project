@@ -2737,8 +2737,9 @@
             if (result.checked_at) times.push(`آخرین بررسی ${formatSourceTimestamp(Math.floor(result.checked_at))}`);
             if (result.next_at && result.next_at*1000>Date.now()) times.push(`نوبت بعد ${formatSourceTimestamp(Math.floor(result.next_at))}`);
             if (times.length) body.append(node('small',times.join(' · ')));
-            if (result.state==='idle') {
-                const search = node('button','یافتن قیمت بازار','button button-primary');search.type = 'button';
+            if (result.state==='idle'||(result.state==='queued'&&!result.prioritized)) {
+                const search = node('button',result.state==='queued'?'بررسی این کالا زودتر':'یافتن قیمت بازار',
+                    'button button-primary');search.type = 'button';
                 search.addEventListener('click',()=>{
                     remaining=6;load({action:'request_market_prices',offer_id:offerId});
                 });
@@ -2768,7 +2769,10 @@
             }
             finally {progress.remove();buttons.forEach(button=>button.disabled=false);busy=false;}
         }
-        section.addEventListener('toggle',()=>{if(section.open)load();else clearTimeout(timer);});
+        section.addEventListener('toggle',()=>{
+            if (section.open) { remaining=6;load(); }
+            else clearTimeout(timer);
+        });
         section.open=expanded;
         return section;
     }
