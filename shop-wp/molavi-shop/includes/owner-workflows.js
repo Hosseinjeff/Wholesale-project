@@ -1949,6 +1949,13 @@
         return '';
     }
 
+    function aiPriceRoleChoices(placeholder, preferredRole) {
+        const unit = ['unit', 'قیمت هر واحد'];
+        const carton = ['package', 'قیمت کل بسته / کارتن'];
+        if (preferredRole !== 'package') return [['', placeholder], unit, carton];
+        return [['', placeholder], ['package', `${carton[1]} · پیشنهاد اول`], unit];
+    }
+
     function aiSourceDigits(value) {
         return String(value || '')
             .replace(/[۰-۹]/g, digit => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(digit)))
@@ -2689,7 +2696,7 @@
         });
         const roleSelect = document.createElement('select');
         roleSelect.setAttribute('aria-label', 'مبنای قیمت مرجع');
-        [['', 'انتخاب مبنای قیمت'], ['unit', 'قیمت هر واحد'], ['package', 'قیمت کل بسته / کارتن']]
+        aiPriceRoleChoices('انتخاب مبنای قیمت', options.preferredPriceRole)
             .forEach(([value, label]) => {
                 const option = document.createElement('option');
                 option.value = value;
@@ -2734,9 +2741,10 @@
             save.disabled = !contextStored || !decisionsEnabled || !referenceSelect.value || !roleSelect.value;
         };
         referenceSelect.addEventListener('change', () => {
-            if (!roleTouched && !options.priceBasisNeedsReview) {
+            if (!roleTouched) {
                 const selected = candidateById.get(referenceSelect.value);
-                const suggestedRole = selected && selected.price_role_hint && selected.price_role_hint.role;
+                const suggestedRole = selected && (options.preferredPriceRole
+                    || (!options.priceBasisNeedsReview && selected.price_role_hint?.role));
                 roleSelect.value = ['unit','package'].includes(suggestedRole) ? suggestedRole : '';
             }
             renderComparison(); updateEnabled();
@@ -2885,14 +2893,24 @@
             || item.consumer_package_price || item.regular_package_price);
         const priceBasisNeedsReview = packageCount > 1 && regularPrice > 0 && visibleSupplierPrice > regularPrice
             && aiSourceSalePrices(item.original_message).get(String(visibleSupplierPrice)) === true;
+        const cartonUnitPrice = priceBasisNeedsReview ? visibleSupplierPrice / packageCount : 0;
+        const plausibleCartonPrice = Math.round(cartonUnitPrice) > 0 && cartonUnitPrice <= regularPrice
+            && (!packagePrice || packagePrice === visibleSupplierPrice);
+        const preferredPriceRole = plausibleCartonPrice ? 'package' : '';
         const priceFacts = [
             ['قیمت فروش تأمین‌کننده', visibleSupplierPrice ? amount(visibleSupplierPrice) : 'در پیام پیدا نشد'],
             priceBasisNeedsReview ? ['مبنای قیمت', 'در پیام مشخص نشده؛ نیاز به تأیید']
-                : ['مبنای قیمت در استخراج', roleLabel],
+                : ['مبنای قیمت در استخراج', roleLabel]
+        ];
+        if (preferredPriceRole) {
+            const count = new Intl.NumberFormat('fa-IR').format(packageCount);
+            priceFacts.push(['پیشنهاد اول', `${amount(visibleSupplierPrice)} برای بستهٔ ${count}‌تایی · ${amount(Math.round(cartonUnitPrice))} برای هر واحد`]);
+        }
+        priceFacts.push(
             ['قیمت مصرف‌کننده / عادی', regularPrice ? amount(regularPrice) : 'در پیام پیدا نشد'],
             ['موجودی اعلام‌شده', aiStockLabel(item.stock_status)],
             ['حداقل خرید', item.min_qty || 'ثبت نشده']
-        ];
+        );
         if (!options.embedded) priceFacts.push(['تأمین‌کننده', item.channel || 'نامشخص']);
         if (packagePrice && packagePrice !== visibleSupplierPrice) {
             priceFacts.push(['قیمت کل بسته / کارتن تأمین‌کننده', amount(packagePrice)]);
@@ -2900,7 +2918,7 @@
         if (regularPackagePrice) priceFacts.push(['قیمت عادی کل بسته / کارتن', amount(regularPackagePrice)]);
         card.appendChild(reviewFacts(priceFacts, 'molavi-review-facts molavi-ai-price-facts'));
         const reviewReason = priceBasisNeedsReview
-            ? `اگر مبلغ فروش برای کل بسته باشد، قیمت هر واحد ${amount(Math.round(visibleSupplierPrice / packageCount))} است.`
+            ? 'اگر مبلغ فروش برای یک واحد باشد، از قیمت مصرف‌کننده بیشتر است.'
             : aiReviewReason(item.reason);
         card.appendChild(reviewFacts([['دلیل بررسی', reviewReason]], 'molavi-review-facts molavi-review-reason'));
         const sourceDates = aiSourceDateFacts(item);
@@ -2999,7 +3017,7 @@
             && row.reference_assignment?.choice!=='match' && !row.reference_match_id);
         const matching = unmatched.filter(row=>row.reference_snapshot_id && row.reference_candidates?.some(candidate=>
             candidate?.reference_id && String(candidate.name || '').trim()));
-        const assignmentOptions={...options,groupedVariants:relatedItems.length>1,priceBasisNeedsReview};
+        const assignmentOptions={...options,groupedVariants:relatedItems.length>1,priceBasisNeedsReview,preferredPriceRole};
         if (matching.length) {
             card.appendChild(node('h4','گام فعلی · انتخاب مرجع و مبنای قیمت'));
             matching.forEach(row=>{
@@ -3083,9 +3101,9 @@
             });
             refreshConfirmationGates();
         });
-        const addQuickConfirm = (selectedRole, label) => {
+        const addQuickConfirm = (selectedRole, label, style = 'button-primary') => {
             const selectedFields = aiDecisionFields(item, selectedRole);
-            const button = node('button', label, 'button button-primary');
+            const button = node('button', label, `button ${style}`);
             button.type = 'button';
             button.dataset.priceRole = selectedRole;
             button.disabled = !contextStored || !decisionsEnabled || !selectedFields
@@ -3115,6 +3133,9 @@
                 addQuickConfirm('package',
                     `تأیید مبلغ به‌عنوان قیمت کل بستهٔ ${new Intl.NumberFormat('fa-IR').format(packageFields.package_count)}‌تایی`);
             }
+        } else if (preferredPriceRole === 'package') {
+            addQuickConfirm('package', 'تأیید پیشنهاد اول · قیمت کل بسته');
+            addQuickConfirm('unit', 'تأیید به‌عنوان قیمت هر واحد', 'button-secondary');
         } else {
             addQuickConfirm('unit', `تأیید ${relatedItems.length > 1 ? 'همه انواع' : 'کالا'} به‌عنوان قیمت هر واحد`);
             const packageButton = addQuickConfirm('package', `تأیید ${relatedItems.length > 1 ? 'همه انواع' : 'کالا'} به‌عنوان قیمت بسته`);
@@ -3127,8 +3148,8 @@
 
         const form = document.createElement('form');
         const row1 = node('p');
-        row1.appendChild(field('نقش قیمت', 'price_role', role === 'unit' ? 'unit' : (isPackage ? 'package' : ''), 'select', {
-            required: true, choices: [['', 'انتخاب نقش قیمت'], ['unit', 'قیمت هر واحد'], ['package', 'قیمت کل بسته / کارتن']]
+        row1.appendChild(field('نقش قیمت', 'price_role', role || preferredPriceRole, 'select', {
+            required: true, choices: aiPriceRoleChoices('انتخاب نقش قیمت', preferredPriceRole)
         }));
         row1.appendChild(field('قیمت تأییدشده به تومان', 'sale_price', price, 'number', { required: true, min: 1, step: 1 }));
         form.appendChild(row1);

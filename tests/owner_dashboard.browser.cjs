@@ -374,23 +374,40 @@ const fixtures={
  await page.getByText('گام فعلی · تأیید مشخصات',{exact:true}).waitFor();
  assert.equal(await page.getByText('گام فعلی · انتخاب مرجع و مبنای قیمت',{exact:true}).count(),0);
  const extractionCases=fixtures['/pipeline/ai-confirmations'].cases;
- fixtures['/pipeline/ai-confirmations'].cases=[{
+ const priceCase={
    case_id:'ai-price-basis',offer_id:'offer-price-basis',signature:'sig-price-basis',channel:'@supplier',
    product_name:'آبمیوه نمونه ۴ طعم موجود،۲۴ عددی',package_count:24,
    original_message:'آبمیوه نمونه ۴ طعم موجود،۲۴ عددی\nقیمت فروش ما: ۱۶۸۰/۰۰۰ تومان\nقیمت مصرف کننده: ۱۰۵/۰۰۰ تومان',
    price_type:'unit',sale_price:1680000,detected_price:1680000,actual_price:105000,
    reference_snapshot_id:'snapshot-price-basis',
    reference_candidates:[{name:'مرجع آبمیوه نمونه',reference_id:'ref-price-basis',price_role_hint:{role:'unit'}}]
- }];
+ };
+ fixtures['/pipeline/ai-confirmations'].cases=[priceCase];
  await mount('&workbench_action=ai&offer_id=offer-price-basis');
  const priceFacts=page.locator('.molavi-ai-price-facts');
+ const roleSelect=page.getByRole('combobox',{name:'مبنای قیمت مرجع'});
+ const referenceSelect=page.getByRole('combobox',{name:'انتخاب کالای مرجع'});
  await priceFacts.getByText('در پیام مشخص نشده؛ نیاز به تأیید',{exact:true}).waitFor();
- await page.getByText(/اگر مبلغ فروش برای کل بسته باشد، قیمت هر واحد ۷۰٬۰۰۰ تومان است/).waitFor();
- await page.getByRole('combobox',{name:'انتخاب کالای مرجع'}).selectOption('ref-price-basis');
- assert.equal(await page.getByRole('combobox',{name:'مبنای قیمت مرجع'}).inputValue(),'');
+ const proposal=priceFacts.locator('.molavi-review-fact').filter({hasText:'پیشنهاد اول'});
+ await proposal.getByText(/۱٬۶۸۰٬۰۰۰ تومان برای بستهٔ ۲۴.*۷۰٬۰۰۰ تومان برای هر واحد/).waitFor();
  assert.equal(await page.getByRole('button',{name:'ثبت مرجع این مورد',exact:true}).isEnabled(),false);
- await page.getByRole('combobox',{name:'مبنای قیمت مرجع'}).selectOption('package');
+ await referenceSelect.selectOption('ref-price-basis');
+ assert.equal(await roleSelect.inputValue(),'package','source amounts outrank a conflicting comparison hint');
+ assert.equal(await roleSelect.locator('option').nth(1).getAttribute('value'),'package');
+ await roleSelect.selectOption('unit');
+ assert.equal(await roleSelect.inputValue(),'unit','the owner may choose a different basis');
  assert.equal(await page.getByRole('button',{name:'ثبت مرجع این مورد',exact:true}).isEnabled(),true);
+ fixtures['/pipeline/ai-confirmations'].cases=[{...priceCase,reference_snapshot_id:'',reference_candidates:[]}];
+ await mount('&workbench_action=ai&offer_id=offer-price-basis');
+ await page.getByRole('button',{name:'تأیید پیشنهاد اول · قیمت کل بسته',exact:true}).waitFor();
+ assert.equal(await page.locator('.molavi-ai-quick-actions button').first().getAttribute('data-price-role'),'package');
+ fixtures['/pipeline/ai-confirmations'].cases=[{...priceCase,sale_price:3000000,detected_price:3000000,
+   original_message:priceCase.original_message.replace('۱۶۸۰/۰۰۰','۳۰۰۰/۰۰۰')}];
+ await mount('&workbench_action=ai&offer_id=offer-price-basis');
+ await priceFacts.getByText('در پیام مشخص نشده؛ نیاز به تأیید',{exact:true}).waitFor();
+ assert.equal(await proposal.count(),0,'carton basis should not lead if its unit price is also above retail');
+ await referenceSelect.selectOption('ref-price-basis');
+ assert.equal(await roleSelect.inputValue(),'');
  fixtures['/pipeline/ai-confirmations'].cases=extractionCases;
  await mount('&workbench_action=ai',true,true);
  const bar=page.locator('.md-activity');
