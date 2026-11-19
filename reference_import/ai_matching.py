@@ -37,6 +37,18 @@ def _text(product):
     return json.dumps(identity(product), ensure_ascii=False, sort_keys=True)
 
 
+def _generated_json(data):
+    try:
+        generated = data['candidates']
+        if len(generated) != 1 or generated[0].get('finishReason') != 'STOP':
+            raise ValueError
+        text = ''.join(part.get('text', '') for part in generated[0]['content']['parts']
+                       if not part.get('thought'))
+        return json.loads(text)
+    except (ValueError, TypeError, KeyError, AttributeError):
+        raise GoogleProviderError('Google returned an incomplete reference suggestion') from None
+
+
 class EmbeddingIndex:
     def __init__(self, router, model, *, dimensions=768):
         if model not in {'gemini-embedding-001', 'gemini-embedding-2'}:
@@ -233,7 +245,7 @@ class ReferenceSuggestions:
         )
         apis = list(dict.fromkeys(item.api for item in self.router.models if 'match' in item.tasks))
         waits = []
-        unavailable = None
+        failure = None
         for api in apis:
             if api == 'decide':
                 criteria = {f'c{i}': json.dumps(value, ensure_ascii=False)
@@ -241,6 +253,21 @@ class ReferenceSuggestions:
                 criteria['no_match'] = 'No unique compatible reference product'
                 payload = {'input': material, 'questions': {'reference': {
                     'type': 'choice', 'instructions': instruction, 'criteria': criteria}}}
+            elif api == 'generate_choice':
+                records = [{**value, 'choice': chr(ord('A') + i)} for i, value in enumerate(candidates)]
+                choices = {row['choice']: row['reference_id'] for row in records}
+                choices['no_match'] = None
+                choice_material = json.dumps({'supplier': identity(product), 'source_text': source_text,
+                                              'references': records}, ensure_ascii=False)
+                payload = {'contents': [{'parts': [{'text': instruction +
+                    'Return the choice code for the identical reference product or no_match.\n' + choice_material}]}],
+                    'generationConfig': {
+                        'maxOutputTokens': 768, 'thinkingConfig': {'thinkingLevel': 'MINIMAL'},
+                        'responseMimeType': 'application/json', 'responseJsonSchema': {
+                            'type': 'object', 'properties': {'choice': {'type': 'string', 'enum': list(choices)}},
+                            'required': ['choice'], 'additionalProperties': False,
+                        },
+                    }}
             else:
                 payload = {'contents': [{'parts': [{'text': instruction +
                     'Return only JSON with reference_id (existing ID or null), confidence '
@@ -254,8 +281,26 @@ class ReferenceSuggestions:
                 waits.append(exc.retry_at)
                 continue
             except GoogleModelUnavailable as exc:
-                unavailable = exc
+                failure = exc
                 continue
+            except GoogleProviderError as exc:
+                if api != 'generate_choice':
+                    raise
+                failure = exc
+                continue
+            if api == 'generate_choice':
+                try:
+                    value = _generated_json(data)
+                except GoogleProviderError as exc:
+                    failure = exc
+                    continue
+                choice = value.get('choice') if isinstance(value, dict) and value.keys() == {'choice'} else None
+                if not isinstance(choice, str) or choice not in choices:
+                    failure = GoogleProviderError('Google returned an unknown catalog choice')
+                    continue
+                reference_id = choices[choice]
+                return {'reference_id': reference_id, 'confidence': None, 'model': selected,
+                        'reason': 'catalog_candidate_selected' if reference_id else 'no_unique_reference'}
             if api == 'decide':
                 answer = (data.get('answers') or {}).get('reference') or {}
                 choice = answer.get('choice')
@@ -266,15 +311,7 @@ class ReferenceSuggestions:
                 result = {'reference_id': options[choice], 'confidence': answer.get('confidence'),
                           'reason': 'decision_model_suggestion'}
             else:
-                try:
-                    generated = data['candidates']
-                    if len(generated) != 1 or generated[0].get('finishReason') != 'STOP':
-                        raise ValueError
-                    text = ''.join(part.get('text', '') for part in generated[0]['content']['parts']
-                                   if not part.get('thought'))
-                    result = json.loads(text)
-                except (ValueError, TypeError, KeyError):
-                    raise GoogleProviderError('Google returned an incomplete reference suggestion') from None
+                result = _generated_json(data)
             if (not isinstance(result, dict)
                     or not {'reference_id', 'confidence', 'reason'}.issubset(result)
                     or (result.get('reference_id') is not None and not isinstance(result.get('reference_id'), str))
@@ -286,6 +323,6 @@ class ReferenceSuggestions:
             return {key: result[key] for key in ('reference_id', 'confidence', 'reason')} | {'model': selected}
         if waits:
             raise QuotaDeferred(min(waits))
-        if unavailable is not None:
-            raise unavailable
+        if failure is not None:
+            raise failure
         raise GoogleProviderError('No qualified free matching model configured')

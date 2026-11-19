@@ -15,11 +15,17 @@ project traffic, including the production executor.
 
 ## November 19 provider checks
 
-With the workspace project key, Gemini 2.5 Flash returned a Google-grounded shopping response with one cited source. It also extracted the correct unit, carton, and consumer amounts from a synthetic Persian listing. One ambiguous catalog comparison returned a valid no-match response. Another returned incomplete output under the existing matching request settings. Gemini 2.0 Flash and 2.5 Flash-Lite returned HTTP 404 for grounding. Gemini 3.5 Flash-Lite returned HTTP 429 with a billing-access message when grounding was enabled. Attempts to qualify 3.6 Flash, 3.8 Flash, and the two advertised Gemma 4 models ended in timeouts or provider unavailability, so they have no production allocation.
+With the workspace project key, Gemini 2.5 Flash returned a Google-grounded shopping response with one cited source. It also extracted the correct unit, carton, and consumer amounts from a synthetic Persian listing. One ambiguous catalog comparison returned a valid no-match response. Another returned incomplete output under the existing matching request settings. Gemini 2.0 Flash and 2.5 Flash-Lite returned HTTP 404 for grounding. Gemini 3.5 Flash-Lite returned HTTP 429 with a billing-access message when grounding was enabled. Attempts to qualify 3.6 Flash and 3.8 Flash ended in timeouts or provider unavailability, so they have no production allocation.
 
 The Search grounding rows in AI Studio describe the tool. Extraction and catalog matching require the underlying model’s active RPM, TPM, and RPD limits. The workspace service account received HTTP 403 when reading Cloud Quotas. Keep the last verified model allocations until the active AI Studio model rows are available. [Google rate limits](https://aistudio.google.com/docs/rate-limits) · [Google pricing](https://aistudio.google.com/docs/pricing#pricing-for-tools)
 
 Google schedules API requests to `gemini-2.5-flash` to move to 3.5 Flash-Lite on December 1, 2026. Its Search grounding terms forbid collecting grounded links for crawling or indexing. Scheduled product price discovery uses the separate market-search integration, and WordPress verifies prices on the retailer pages it can access. [Google deprecations](https://aistudio.google.com/docs/deprecations#gemini-2.5-flash-models) · [Google Search grounding terms](https://aistudio.google.com/docs/terms)
+
+### Gemma catalog matching pilot
+
+`gemma-4-31b-it` selected the correct synthetic Persian SKU and abstained when its flavor was unspecified using a JSON schema with permitted choice codes. The earlier generic generation format returned invalid or incomplete suggestions. The `generate_choice` API mode uses that schema and minimal thinking for owner-requested catalog suggestions. The existing code still rejects explicit conflicts and checks the reference against the active snapshot. Provider overload occurred during integration checks, so unavailable responses, timeouts, and invalid choices can fall through to the verified Gemini generation pool.
+
+To pilot it, add `gemma-4-31b-it` to `GOOGLE_FREE_MODELS` with `api: "generate_choice"`, `tasks: ["match"]`, and a reviewed allocation based on the model’s active AI Studio RPM, TPM, and RPD. Place it before the shared Gemini generation entries to use its allowance for matching first. `gemma-4-26b-a4b-it` returned repeated capacity errors. A separate Gemma grounding probe returned no cited retailer source, so it supplies no automatic market-price evidence. [Gemma API models and tools](https://gemma.ai/deployment/gemini-api/)
 
 ## Verified staging allocation
 
@@ -53,8 +59,9 @@ requires:
 
 - `model`, `tasks` (any qualified subset of `extract`, `match`, `embed`).
 - Explicit positive integers `rpm`, `tpm`, `rpd` from the project's quota table.
-- `api`: `generate`, `embed`, or `decide`. Embedding models support `embed`; Decision
-  models support `match`. Generation models can extract text or match.
+- `api`: `generate`, `embed`, `decide`, or `generate_choice`. Embedding models
+  support `embed`. Decision and constrained choice generation models support `match`.
+  Standard generation models can extract text or match.
 - `free_tier_verified: true` and `qualified: true`, set only after verifying the
   actual project's free access and evaluating the specified task on reviewed data.
 - Optional `bucket` for aliases/shared quotas (default: model name), and

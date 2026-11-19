@@ -478,6 +478,32 @@ class ReferenceAITests(RoutingFixture):
         self.assertEqual(result['model'], 'flash-a')
         self.assertEqual(result['reference_id'], 'r1')
 
+    def test_constrained_generation_selects_a_catalog_candidate_or_abstains(self):
+        model = budget('gemma-4-31b-it', api='generate_choice', tasks=['match'])
+        service = ReferenceSuggestions(self.router(model))
+        session = Session(generation({'choice': 'A'}), generation({'choice': 'no_match'}))
+        match = service.suggest({'name': 'چای ممتاز'}, [row()], snapshot_id='s1', session=session, api_key='key')
+        abstain = service.suggest({'name': 'چای ممتاز'}, [row()], snapshot_id='s2', session=session, api_key='key')
+        self.assertEqual((match['reference_id'], match['state'], match['model']), ('r1', 'suggestion_only', model.model))
+        self.assertEqual((abstain['reference_id'], abstain['state']), (None, 'needs_review'))
+        self.assertIsNone(match['confidence'])
+        url, request = session.calls[0]
+        self.assertTrue(url.endswith('/gemma-4-31b-it:generateContent'))
+        config = request['json']['generationConfig']
+        self.assertEqual(config['thinkingConfig'], {'thinkingLevel': 'MINIMAL'})
+        self.assertEqual(config['responseJsonSchema']['properties']['choice']['enum'], ['A', 'no_match'])
+        with self.assertRaises(QuotaConfigurationError):
+            budget('gemma-4-31b-it', api='generate_choice', tasks=['extract'])
+
+    def test_constrained_generation_falls_back_after_invalid_output_or_provider_timeout(self):
+        model = budget('gemma-4-31b-it', api='generate_choice', tasks=['match'])
+        service = ReferenceSuggestions(self.router(model, budget()))
+        for snapshot, failed in [('wrong_choice', generation({'choice': 'invented'})), ('timeout', TimeoutError())]:
+            session = Session(failed, generation({'reference_id': 'r1', 'confidence': .9, 'reason': 'same item'}))
+            result = service.suggest({'name': 'چای ممتاز'}, [row()], snapshot_id=snapshot, session=session, api_key='key')
+            self.assertEqual((result['reference_id'], result['model']), ('r1', 'flash-a'))
+            self.assertEqual(len(session.calls), 2)
+
     def test_exact_match_skips_embedding_and_comparison_calls(self):
         router = self.embed_router()
         service = ReferenceSuggestions(router, embedding_model='gemini-embedding-001')

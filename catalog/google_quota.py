@@ -65,9 +65,9 @@ class ModelBudget:
                 or any(task not in {'extract', 'match', 'embed'} for task in tasks)):
             raise QuotaConfigurationError('Invalid model or task configuration')
         api = value.get('api', 'generate')
-        if (api not in {'generate', 'embed', 'decide'}
+        if (api not in {'generate', 'embed', 'decide', 'generate_choice'}
                 or (api == 'embed' and set(tasks) != {'embed'})
-                or (api == 'decide' and set(tasks) != {'match'})
+                or (api in {'decide', 'generate_choice'} and set(tasks) != {'match'})
                 or (api == 'generate' and 'embed' in tasks)):
             raise QuotaConfigurationError('Model API does not support configured tasks')
         numbers = {}
@@ -260,7 +260,7 @@ class FreeGoogleRouter:
                     body['model'] = 'models/' + item.model
             try:
                 response = session.post(endpoint, headers={'x-goog-api-key': api_key},
-                                        timeout=(10, 60), json=body)
+                                        timeout=(10, 30 if api == 'generate_choice' else 60), json=body)
             except Exception:
                 # Unknown transport outcome still consumes the reservation.
                 raise GoogleProviderError('Google request transport failed') from None
