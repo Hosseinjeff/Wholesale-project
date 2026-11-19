@@ -305,7 +305,8 @@ class ItemReviewLedger:
         return output
 
 
-def review_cases(sheet_store, snapshot, ledger, *, include_decided=False, include_candidates=True):
+def review_cases(sheet_store, snapshot, ledger, *, include_decided=False, include_candidates=True,
+                 include_source=False):
     """Build owner cases only for current Products rows and the active snapshot."""
     from catalog.sync import _fresh_read, _records
     from reference_import.matching import RankedCandidateIndex
@@ -375,4 +376,6 @@ def review_cases(sheet_store, snapshot, ledger, *, include_decided=False, includ
             ),
             'decision': decision,
         })
+        if include_source:
+            cases[-1]['original_message'] = str(offer.get('Original Message') or '')
     return cases

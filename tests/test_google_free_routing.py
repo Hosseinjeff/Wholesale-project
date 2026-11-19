@@ -430,6 +430,7 @@ class ReferenceAITests(RoutingFixture):
         self.assertEqual(first['model'], 'gemini-decision-1')
         second = service.suggest({'name': 'چای ممتاز'}, [row()], snapshot_id='s2', session=session, api_key='key')
         self.assertIsNone(second['reference_id'])
+        self.assertEqual(second['state'], 'needs_review')
         self.assertEqual(second['model'], 'flash-a')
 
     def test_exact_match_skips_embedding_and_comparison_calls(self):
@@ -498,17 +499,35 @@ class ReferenceAITests(RoutingFixture):
         self.assertEqual(result['rejected_suggestion_id'], 'r1')
         self.assertIn('variant', result['conflicts'])
 
-    def test_semantic_search_can_recover_a_candidate_missed_by_text_search(self):
+    def test_semantic_search_uses_original_wording_without_relaxing_numeric_constraints(self):
         router = self.router(ModelBudget('gemini-embedding-001', ('embed',), 100, 1000000, 1000,
                             api='embed', bucket='embedding'), budget())
         service = ReferenceSuggestions(router, embedding_model='gemini-embedding-001')
         session = Session(self.embedding(), self.embedding(),
             generation({'reference_id': 'r1', 'confidence': .8, 'reason': 'alias'}))
+        wrong_pack = row('wrong-pack')
+        wrong_pack[6] = 24
         service.embeddings.index([row()], session=session, api_key='key')
-        result = service.suggest({'name': 'tea'}, [row()], snapshot_id='s1', session=session, api_key='key')
+        wording = '🍵 Schwarztee\nลัง 12 ซอง'
+        result = service.suggest({'name': 'Schwarztee', 'package_count': 12}, [row(), wrong_pack],
+            snapshot_id='s1', source_text=wording, session=session, api_key='key')
+        query = session.calls[1][1]['json']['content']['parts'][0]['text']
+        self.assertIn('Schwarztee ลัง 12 ซอง', query)
+        self.assertEqual([item['reference_id'] for item in result['candidates']], ['r1'])
         self.assertEqual(result['reference_id'], 'r1')
         self.assertEqual(result['method'], 'ai')
+        self.assertEqual(result['state'], 'suggestion_only')
         self.assertEqual(len(session.calls), 3)
+
+    def test_embedding_failure_preserves_text_shortlist(self):
+        router = self.router(budget())
+        service = ReferenceSuggestions(router, embedding_model='gemini-embedding-001')
+        session = Session(generation({'reference_id': None, 'confidence': .9, 'reason': 'ambiguous'}))
+        with patch.object(service.embeddings, 'search', side_effect=GoogleProviderError('invalid vector')):
+            result = service.suggest({'name': 'چای ممتاز'}, [row()],
+                snapshot_id='s1', session=session, api_key='key')
+        self.assertEqual([item['reference_id'] for item in result['candidates']], ['r1'])
+        self.assertEqual(result['state'], 'needs_review')
 
 
 if __name__ == '__main__':

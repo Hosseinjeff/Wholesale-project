@@ -52,11 +52,12 @@ def attach_receipts(queue, cases, kind, snapshot_id):
                 # Include semantic candidates in the existing explicit chooser.
                 field = 'reference_candidates' if kind == 'ai' else 'candidates'
                 existing = case.get(field) or []
+                shortlist = suggestion.get('candidates', [])
                 by_id = {item['reference_id']: item for item in existing}
-                for item in suggestion.get('candidates', []):
+                for item in shortlist:
                     by_id[item['reference_id']] = {**by_id.get(item['reference_id'], {}), **item}
                 order = list(dict.fromkeys([suggestion.get('reference_id'),
-                                            *[item['reference_id'] for item in existing], *by_id]))
+                                            *[item['reference_id'] for item in shortlist], *by_id]))
                 case[field] = [by_id[key] for key in order if key in by_id][:12]
 
 
@@ -75,11 +76,11 @@ def resolve_case(sheet_store, snapshot, ledger, queue, context):
         return product, case.get('original_message') or ''
     if context['case_kind'] != 'reference':
         return None
-    cases = review_cases(sheet_store, snapshot, ledger, include_candidates=False)
+    cases = review_cases(sheet_store, snapshot, ledger, include_candidates=False, include_source=True)
     case = next((item for item in cases if item['case_id'] == context['case_id']
                  and item['offer_id'] == context['offer_id']
                  and item['signature'] == context['signature'] and not item.get('decision')), None)
-    return (case['attributes'], '') if case else None
+    return (case['attributes'], case['original_message']) if case else None
 
 
 def eligible_snapshot(reference_store, context):

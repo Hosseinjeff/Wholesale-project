@@ -81,13 +81,22 @@ class ReferenceSuggestionTasksTests(unittest.TestCase):
 
     def test_source_change_during_inference_discards_result(self):
         def suggest(*args, **kwargs):
+            self.assertEqual(kwargs['source_text'], self.offer['Original Message'])
             self.store.write_rows('Offers', 2, [_row_from_map(
-                OFFER_HEADERS, {**self.offer, 'Package Count': 24})])
+                OFFER_HEADERS, {**self.offer, 'Original Message': 'چای ۲۴ عددی'})])
             return {'reference_id': 'R-1'}
         with patch('reference_import.suggestion_tasks.ReferenceSuggestions') as matcher:
             matcher.return_value.suggest.side_effect = suggest
             result = run_suggestion(self.queue, self.context, self.store, self.reference)
         self.assertEqual(result['state'], 'superseded')
+
+    def test_contextual_options_stay_visible_with_a_full_existing_shortlist(self):
+        self.run_job(lambda _: {'ok': True, 'suggestion': {'reference_id': None,
+            'candidates': [{'reference_id': 'contextual'}]}})
+        case = {**self.case, 'candidates': [{'reference_id': str(i)} for i in range(12)]}
+        attach_receipts(self.queue, [case], 'reference', 'snapshot-A')
+        self.assertEqual(len(case['candidates']), 12)
+        self.assertEqual(case['candidates'][0]['reference_id'], 'contextual')
 
     def test_configuration_and_signature_bound_receipts_never_attach_to_changed_case(self):
         self.run_job()

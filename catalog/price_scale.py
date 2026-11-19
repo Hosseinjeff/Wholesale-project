@@ -156,6 +156,9 @@ def assess_price_scale(product, message, offers, reference_rows=(), *, min_histo
                   or product.get('package_price'))
     if raw <= 0:
         return {'certain': True, 'action': 'none', 'package_count': count}
+    if product.get('supplier_price_basis_conflict'):
+        return {'certain': False, 'action': 'confirm_price_scale', 'detected_price': raw,
+                'reason': 'unlabeled supplier amount exceeds the consumer unit price'}
 
     stats = _category_stats(product, reference_rows)
     if stats:

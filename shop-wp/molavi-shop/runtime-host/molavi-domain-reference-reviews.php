@@ -141,10 +141,10 @@ function molavi_domain_reference_receipts(array $cases,string $kind,string $snap
     foreach(array_chunk(array_keys($keys),300) as $group){$rows=molavi_domain_read('pipeline',static fn(SQLite3 $db)=>molavi_domain_rows($db,'SELECT id,state,result,available FROM jobs WHERE id IN ('.implode(',',array_fill(0,count($group),'?')).')',$group));
         foreach($rows as $row){$index=$keys[$row['id']];$result=molavi_domain_decode($row['result']);$suggestion=$row['state']==='done'?($result['suggestion']??null):null;
             $cases[$index]['reference_suggestion']=['state'=>$row['state'],'retry_at'=>$row['state']==='queued'?$row['available']:null,'result'=>$suggestion];
-            if($suggestion){$field=$kind==='ai'?'reference_candidates':'candidates';$existing=$cases[$index][$field]??[];$byId=[];$order=[];
+            if($suggestion){$field=$kind==='ai'?'reference_candidates':'candidates';$existing=$cases[$index][$field]??[];$shortlist=$suggestion['candidates']??[];$byId=[];$order=[];
                 foreach($existing as $item)$byId[$item['reference_id']]=$item;
-                foreach($suggestion['candidates']??[] as $item)$byId[$item['reference_id']]=array_replace($byId[$item['reference_id']]??[],$item);
-                foreach(array_merge([$suggestion['reference_id']??null],array_column($existing,'reference_id'),array_keys($byId)) as $key)if(isset($byId[$key])&&!in_array($key,$order,true))$order[]=$key;
+                foreach($shortlist as $item)$byId[$item['reference_id']]=array_replace($byId[$item['reference_id']]??[],$item);
+                foreach(array_merge([$suggestion['reference_id']??null],array_column($shortlist,'reference_id'),array_keys($byId)) as $key)if(isset($byId[$key])&&!in_array($key,$order,true))$order[]=$key;
                 $cases[$index][$field]=array_map(static fn($key)=>$byId[$key],array_slice($order,0,12));}
         }
     }return $cases;

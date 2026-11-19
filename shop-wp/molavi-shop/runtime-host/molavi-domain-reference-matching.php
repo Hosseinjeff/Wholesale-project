@@ -62,19 +62,38 @@ function molavi_domain_matching_index(array $rows): array {
         $values=molavi_domain_match_values($reference);
         // The reference side uses the structured count. Title inference is for supplier offers.
         $values['package_count']=$reference['package_count']?molavi_domain_cell_text($reference['package_count']):'';
-        $prepared[]=[$reference,$values];
+        $title=molavi_domain_normalize_name(preg_replace('/[（(][^）)]*[）)]/u',' ',$reference['name']));
+        $prepared[]=[$reference,$values,' '.$title.' '];
     }
     return $prepared;
 }
 function molavi_domain_reference_candidates(array $product,array $rows,int $limit=10): array {
     $weights=['name'=>.45,'brand'=>.14,'category'=>.12,'variant'=>.10,'package_count'=>.07,'volume'=>.06,'weight'=>.06];$incoming=molavi_domain_match_values($product);if($incoming['name']==='')return [];
+    if(preg_match('/^(?:در )?\d+ (?:طعم|مزه|رنگ|مدل|نوع)(?: (?:موجود|مختلف|متنوع))?$/uD',$incoming['variant']))$incoming['variant']='';
     $sources=[];foreach(['name','brand','category','variant','volume','weight'] as $key){$value=$product[$key]??null;if($key==='name')$value=molavi_domain_py_value($product['clean_name']??null,$value);
         if($key==='variant')$value=molavi_domain_py_value($value,$product['variation_type']??null);$sources[$key]=trim((string)molavi_domain_py_value($value));}$sources['package_count']=$incoming['package_count'];
     $labels=['name'=>'نام','brand'=>'برند','category'=>'دسته','variant'=>'طعم/مدل','package_count'=>'تعداد در بسته','volume'=>'حجم','weight'=>'وزن'];$scored=[];
-    foreach(molavi_domain_matching_index($rows) as [$reference,$right]){$components=[];$weighted=0.0;$denominator=0.0;
+    $brand=$incoming['brand'];$brandInSupplierTitle=$brand!==''&&str_contains(' '.$incoming['name'].' ',' '.$brand.' ');
+    $identityMatches=[];
+    foreach(molavi_domain_matching_index($rows) as [$reference,$right,$catalogTitle]){
+        if($brandInSupplierTitle&&$right['brand']==='') {
+            $catalogBrand=str_replace([' طرح '.$brand.' ',' سبک '.$brand.' ',' شبیه '.$brand.' '],' ',$catalogTitle);
+            if(str_contains($catalogBrand,' '.$brand.' ')) {
+                $right['brand']=$brand;
+                $reference['brand']=$sources['brand'];
+            }
+        }
+        $sameBrand=$brand!==''&&$right['brand']===$brand;
+        if($sameBrand&&$incoming['variant']!==''&&$right['variant']===''
+            &&str_contains(' '.$right['name'].' ',' '.$incoming['variant'].' ')) {
+            $right['variant']=$incoming['variant'];$reference['variant']=$sources['variant'];
+        }
+        $components=[];$weighted=0.0;$denominator=0.0;
         foreach($weights as $key=>$weight){$left=$incoming[$key];if($left==='')continue;$denominator+=$weight;$score=$right[$key]!==''?molavi_domain_match_ratio($left,$right[$key]):0.0;
             $components[$key]=round($score,4,PHP_ROUND_HALF_EVEN);$weighted+=$weight*$score;}
-        $score=$denominator?$weighted/$denominator:0.0;if($score<.35)continue;$comparisons=[];
+        $score=$denominator?$weighted/$denominator:0.0;
+        if(!$sameBrand&&($score<.35||($components['name']??0)<.35))continue;
+        $comparisons=[];
         foreach($labels as $key=>$label){$source=$sources[$key];$normalized=$incoming[$key];$value=trim(molavi_domain_cell_text(molavi_domain_py_value($reference[$key]??null)));
             if($normalized==='')$state='not_provided';elseif($value==='')$state='reference_missing';
             elseif($key==='name'){$similarity=$components[$key]??0;$state=$similarity>=.92?'match':($similarity>=.72?'close':'conflict');}
@@ -84,9 +103,17 @@ function molavi_domain_reference_candidates(array $product,array $rows,int $limi
             $comparisons[]=['key'=>$key,'label'=>$label,'source'=>$source,'reference'=>$value,'state'=>$state];}
         $candidate=$reference+['score'=>round($score,4,PHP_ROUND_HALF_EVEN),'component_scores'=>$components,'name_similarity'=>round($components['name']??0,4,PHP_ROUND_HALF_EVEN),'comparisons'=>$comparisons];
         $supplier=molavi_domain_match_number(molavi_domain_py_value($product['supplier_price']??null,molavi_domain_py_value($product['detected_price']??null,molavi_domain_py_value($product['sale_price']??null,$product['price']??null))));
-        if($supplier){$candidate['supplier_price']=$supplier;$candidate['price_role_hint']=molavi_domain_reference_role_hint($supplier,$reference);}$scored[]=$candidate;
+        if($supplier){$candidate['supplier_price']=$supplier;$candidate['price_role_hint']=molavi_domain_reference_role_hint($supplier,$reference);}
+        if($sameBrand) $identityMatches[]=$candidate;else $scored[]=$candidate;
     }
-    usort($scored,static fn($a,$b)=>($b['score']<=>$a['score'])?:strcmp($a['reference_id'],$b['reference_id']));return array_slice($scored,0,max(1,min($limit,20)));
+    $ranked=$identityMatches?:$scored;
+    $count=$identityMatches&&$brandInSupplierTitle&&!($incoming['variant']||$incoming['volume']||$incoming['weight'])
+        ? molavi_domain_match_number($incoming['package_count']) : 0;
+    usort($ranked,static function(array $a,array $b) use($count): int {
+        $packOrder=$count ? (($b['package_count']===$count)<=>($a['package_count']===$count)) : 0;
+        return $packOrder?:($b['score']<=>$a['score'])?:strcmp($a['reference_id'],$b['reference_id']);
+    });
+    return array_slice($ranked,0,max(1,min($limit,20)));
 }
 function molavi_domain_reference_role_hint($advertised,array $reference): array {
     $price=molavi_domain_match_number($advertised);$unit=molavi_domain_match_number($reference['unit_price']??null);$package=molavi_domain_match_number($reference['package_price']??null);

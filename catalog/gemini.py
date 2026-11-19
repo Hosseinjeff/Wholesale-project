@@ -22,10 +22,11 @@ from catalog.google_quota import (
 DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash-lite'
 # Increment when extraction behavior changes outside the prompt/model, such as
 # source-backed normalization or validation. Prompt/model changes are fingerprinted.
-_EXTRACTION_POLICY_REVISION = 'supplier-extract-v5-text-only'
+_EXTRACTION_POLICY_REVISION = 'supplier-extract-v6-text-only-source-price-evidence'
 _ARABIC_DIGITS = str.maketrans('٠١٢٣٤٥٦٧٨٩', '0123456789')
+_SUPPLIER_SALE_LABEL = re.compile(r'قیمت\s*فروش(?:\s*ما)?', re.I)
 _UNIT_PRICE_LABEL = re.compile(
-    r'(?:قیمت\s*(?:تکی|واحدی?|فروش\s*ما)|(?:دونه|دانه)\s*ای|'
+    r'(?:قیمت\s*(?:تکی|واحدی?)|(?:دونه|دانه)\s*ای|'
     r'(?:هر\s*|قیمت\s*هر\s*)(?:عدد|دونه|دانه|واحد)|فی\s*(?:عدد|دونه|دانه)|'
     r'هر\s*کیلو(?:گرم)?|کیلویی|کیلوئی|'
     r'\b(?:unit\s+price|price\s+per\s+(?:unit|item)|per[- ]?(?:unit|item))\b)', re.I)
@@ -47,7 +48,8 @@ _CONSUMER_UNIT_PRICE_LABEL = re.compile(
     _CONSUMER_PRICE_LABEL.pattern + r'\s*(?:(?:برای|per)\s+)?'
     r'(?:(?:هر\s*)?(?:عدد|دونه|دانه|واحد|unit|item)|تکی)', re.I)
 _SUPPLIER_PACKAGE_PRICE_LABEL = re.compile(
-    _UNIT_PRICE_LABEL.pattern + rf'\s*(?:برای\s+)?(?:هر\s+)?(?:یک\s+)?{_PACK_BASIS}', re.I)
+    rf'(?:{_SUPPLIER_SALE_LABEL.pattern}|{_UNIT_PRICE_LABEL.pattern})'
+    rf'\s*(?:برای\s+)?(?:هر\s+)?(?:یک\s+)?{_PACK_BASIS}', re.I)
 _SOURCE_PRICE_LABELS = (
     (_CONSUMER_PACKAGE_PRICE_LABEL, _CONSUMER_PACKAGE_PRICE_LABEL),
     (_SUPPLIER_PACKAGE_PRICE_LABEL, _PACKAGE_PRICE_LABEL),
@@ -55,6 +57,7 @@ _SOURCE_PRICE_LABELS = (
     (_CONSUMER_PRICE_LABEL, _CONSUMER_PRICE_LABEL),
     (_PACKAGE_PRICE_LABEL, _PACKAGE_PRICE_LABEL),
     (_UNIT_PRICE_LABEL, _UNIT_PRICE_LABEL),
+    (_SUPPLIER_SALE_LABEL, _SUPPLIER_SALE_LABEL),
 )
 _PRICE_NUMBER = re.compile(r'(?<!\d)\d+(?:[,٬٫./ ]\d{3})*(?!\d)')
 _PRICE_CURRENCY = re.compile(r'تومان|تومن|ریال|\b(?:IRT|IRR|TOMAN)\b', re.I)
@@ -143,9 +146,9 @@ measurement and count, even when the title appears once. Keep the title and use 
 volume, weight and package_count to distinguish the offers.
 
 Price rules:
-- `قیمت فروش ما`, `قیمت واحد`, `دونه ای`, `هر عدد` and `کیلویی` state supplier unit
-  prices unless the price label explicitly names a box, carton or package. Keep explicit
-  unit and package amounts separately. Do not divide package prices yourself.
+- `قیمت فروش ما` states a supplier amount. Copy it to sale_price if it gives no basis.
+  `قیمت واحد`, `دونه ای`, `هر عدد` and `کیلویی` explicitly identify a unit price.
+  Keep labeled carton and unit amounts separately. Do not divide package prices yourself.
 - `قیمت مصرف کننده` and `قیمت مصرف` describe consumer price. A consumer carton price
   belongs in consumer_package_price. Consumer price is optional. Copy neither role into
   the other. A single unlabeled amount is supplier sale_price with uncertain basis.
@@ -251,7 +254,8 @@ def _clean_variant(value):
                 return tail
             return ''
     text = _strip_variant_prefix(text)
-    if not text or _VARIANT_LIST_LABEL.search(text):
+    if not text or _VARIANT_LIST_LABEL.search(text) or re.fullmatch(
+            rf'(?:در\s*)?\d+\s*{_VARIANT_KIND}(?:\s+(?:موجود|مختلف|متنوع))?', _label_text(text)):
         return ''
     text = re.sub(rf'^(?:با\s*)?{_VARIANT_KIND}\s*[:：]?\s*', '', text, flags=re.I)
     return re.sub(r'\s+', ' ', text).strip()
@@ -655,7 +659,8 @@ def _source_price_role(context, variant_hint=''):
     variants = _listed_source_variants(context, variant_hint)
     variant_key = _title_identity(_clean_variant(variant_hint))
     roles = {}
-    for role, pattern in (('unit', _UNIT_PRICE_LABEL), ('package', _PACKAGE_PRICE_LABEL)):
+    for role, pattern in (('unit', _UNIT_PRICE_LABEL), ('package', _PACKAGE_PRICE_LABEL),
+                          ('sale', _SUPPLIER_SALE_LABEL)):
         if variant_key and variants:
             scoped, shared = _variant_price_evidence(
                 context, variants, pattern, package=(role == 'package'))
@@ -692,6 +697,7 @@ def _source_measurement_for_price_block(source_context, kind, candidate_amounts,
             continue
         block_text = '\n'.join(block['lines'])
         supplier_prices = (_labeled_amounts(block_text, _UNIT_PRICE_LABEL)
+                           | _labeled_amounts(block_text, _SUPPLIER_SALE_LABEL)
                            | _labeled_amounts(block_text, _PACKAGE_PRICE_LABEL,
                                               skip_leading_package_count=True))
         if candidates.intersection(supplier_prices):
@@ -897,8 +903,7 @@ def _product(item, content, channel, source_titles=()):
             sale_raw = 0
     source_unit_price = source_price_roles.get('unit', 0)
     source_package_price = source_price_roles.get('package', 0)
-    conflicting_role_amount = bool(
-        source_unit_price and source_package_price and source_unit_price == source_package_price)
+    source_sale_price = source_price_roles.get('sale', 0)
     consumer_context = '\n'.join(source_context) if source_context else content
     variants = _listed_source_variants(source_context, variation_type)
     variant_key = _title_identity(variation_type)
@@ -932,6 +937,13 @@ def _product(item, content, channel, source_titles=()):
         consumer = 0
     if not consumer_package_is_labeled:
         consumer_package = 0
+    above_retail = bool(not source_unit_price and count > 1 and consumer
+                        and source_sale_price > consumer and source_sale_price != source_package_price)
+    if not source_unit_price and source_sale_price and source_sale_price != source_package_price:
+        if source_sale_price * count == source_package_price or (not above_retail and (count <= 1 or consumer)):
+            source_unit_price = source_sale_price
+    conflicting_role_amount = bool(
+        source_unit_price and source_package_price and source_unit_price == source_package_price)
     original_review_reasons = [part.strip() for part in str(item.get('review_reason') or '').split(';') if part.strip()]
     role_review_reasons = {
         'supplier price role is unclear',
@@ -983,7 +995,7 @@ def _product(item, content, channel, source_titles=()):
             confirmed_role = ''
             review = True
             reasons.append('package price has no explicit package count')
-    elif sale_raw > 0 or unit > 0 or package > 0:
+    elif source_sale_price or sale_raw > 0 or unit > 0 or package > 0:
         sale = 0
         # Keep the raw supplier amount for review, but do not trust a model-generated
         # role when the matched source text does not establish its unit/package basis.
@@ -991,6 +1003,8 @@ def _product(item, content, channel, source_titles=()):
         confirmed_role = ''
         review = True
         reasons.append('supplier sale amount has no confirmed unit/package basis')
+        if above_retail:
+            reasons.append('unlabeled supplier amount exceeds the consumer unit price')
     else:
         sale = 0
         price_type = 'needs_review'
@@ -1036,8 +1050,9 @@ def _product(item, content, channel, source_titles=()):
         'brand': str(item.get('brand') or '').strip(),
         'sale_price': sale,
         'price': sale,
-        'detected_price': source_unit_price or source_package_price or unit or package or sale_raw or 0,
-        'source_price_amount': source_unit_price or source_package_price or sale_raw or unit or package or 0,
+        'detected_price': source_unit_price or source_package_price or source_sale_price or unit or package or sale_raw or 0,
+        'source_price_amount': source_unit_price or source_package_price or source_sale_price or sale_raw or unit or package or 0,
+        'supplier_price_basis_conflict': above_retail and not (source_unit_price or source_package_price),
         'confirmed_price_role': confirmed_role,
         'actual_price': consumer or None,
         'consumer_price': consumer or None,

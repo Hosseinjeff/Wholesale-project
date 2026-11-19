@@ -57,6 +57,20 @@ function review_seed($store,$seed){$db=molavi_domain_db($store);foreach($store==
     ['reference_snapshots','reference_active','reference_item_decisions','reference_item_inheritances'] as $table)$db->exec('DELETE FROM '.$table);$db->exec('DELETE FROM sqlite_sequence WHERE name=\'reference_item_decisions\'');
     foreach($seed as $step)molavi_domain_sql($db,$step['sql'],$step['params']);$db->close();}
 $fixture=json_decode(file_get_contents(__DIR__.'/fixtures/native-reference-reviews-parity.json'),true,256,JSON_THROW_ON_ERROR);$clock='2026-11-17T00:00:00+00:00';
+$brandRow=static function(string $name,string $id,int $count): array {
+    $row=array_fill(0,21,'');$row[0]=$row[1]=$name;$row[6]=$count;$row[16]=$id;return $row;
+};
+$brandRows=[
+    $brandRow('آبمیوه برندنو انبه','mango',24),$brandRow('آبمیوه برندنو هلو','peach',24),
+    $brandRow('آبمیوه برندنو هلو شیشه','bottle',12),$brandRow('آبمیوه برند دیگر (طرح برندنو)','lookalike',24),
+    $brandRow('نوار ۴ طعم موجود ۲۴ عددی','unrelated',24),
+];
+$brandProduct=['name'=>'برندنو ۴ طعم موجود،۲۴ عددی','brand'=>'برندنو','variant'=>'۴ طعم','package_count'=>24];
+$brands=molavi_domain_reference_candidates($brandProduct,$brandRows,10);
+$first=array_column(array_slice($brands,0,2),'reference_id');sort($first);
+review_same($first,['mango','peach'],'a broad listing ranks the compatible pack among whole-word brand matches');
+review_same(array_column($brands,'reference_id')[2]??null,'bottle','other package sizes remain comparison options');
+review_same(count($brands),3,'brand-style mentions and matching counts alone are excluded when the brand is known');
 foreach($fixture['matching'] as $i=>$case){review_same(molavi_domain_reference_signature($case['product']),$case['signature'],'reference identity/'.$i);review_same(molavi_domain_reference_candidates($case['product'],$case['rows'],12),$case['candidates'],'reference ranking/'.$i);}
 foreach($fixture['ratios'] as $i=>$case){$ratio=molavi_domain_match_ratio($case['a'],$case['b']);review_same(abs($ratio-$case['ratio'])<1e-14,true,'Unicode Indel similarity/'.$i);}
 foreach($fixture['api'] as $case){review_seed('reference',$case['seed']);review_seed('pipeline',$case['pipeline_seed']);$GLOBALS['review_tables']=$case['tables'];$GLOBALS['review_eligibility']=$case['eligibility'];

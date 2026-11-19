@@ -31,6 +31,17 @@ class MatchingTests(unittest.TestCase):
  def test_ambiguous_or_missing_scale_requires_review(self):
   self.assertEqual(price_role_hint(100000,{'unit_price':40000,'package_price':480000})['role'],'needs_review')
   self.assertEqual(price_role_hint(100,{'unit_price':0,'package_price':100})['role'],'needs_review')
+ def test_brand_in_catalog_titles_ranks_compatible_products_without_guessing_a_flavor(self):
+  refs=[row('آبمیوه برندنو انبه',brand='',count=24,code='mango'),
+        row('آبمیوه برندنو هلو',brand='',count=24,code='peach'),
+        row('آبمیوه برندنو هلو شیشه',brand='',count=12,code='bottle'),
+        row('آبمیوه برند دیگر (طرح برندنو)',brand='',count=24,code='lookalike'),
+        row('نوار ۴ طعم موجود ۲۴ عددی',brand='',count=24,code='unrelated')]
+  product={'name':'برندنو ۴ طعم موجود،۲۴ عددی','brand':'برندنو','variant':'۴ طعم','package_count':24}
+  ranked=ranked_candidates(product,refs)
+  self.assertEqual(set(candidate['reference_id'] for candidate in ranked[:2]),{'mango','peach'})
+  self.assertEqual([candidate['reference_id'] for candidate in ranked[2:]],['bottle'])
+  self.assertEqual(candidate_match(product,refs)['state'],'needs_review')
  def test_ranked_candidates_explain_attribute_comparison_and_supplier_price_scale(self):
   source=row(name='چای ممتاز ۴۰۰ گرمی',brand='الف',variant='هل',count=12,unit=40000,package=480000)
   source[8]='۲۲۰ میلی لیتر';source[9]='۴۰۰ گرم';source[13]='چای'

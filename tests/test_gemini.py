@@ -500,6 +500,24 @@ class GeminiExtractionTests(unittest.TestCase):
                 self.assertEqual(product['stock_status'], 'Out of Stock')
                 self.assertFalse(product['needs_review'])
 
+    def test_generic_sale_label_does_not_prove_a_unit_price_for_packed_goods(self):
+        cases = [
+            ('نوشیدنی نمونه ۴ طعم موجود،۲۴ عددی', '۱۶۵۰/۰۰۰', '۱۰۰/۰۰۰', 1650000, 100000, 24),
+            ('کاپوچینو ۲۰ عددی نمونه', '۸۰۰/۰۰۰', 'ندارد', 800000, None, 20),
+        ]
+        for title, amount, retail, raw, consumer, count in cases:
+            with self.subTest(title=title):
+                post = f'{title}\nقیمت فروش ما: {amount} تومان\nقیمت مصرف کننده: {retail}'
+                result = parse_message_products(json.dumps([{
+                    'name': title, 'variant': '۴ طعم', 'unit_price': raw, 'confidence': 0.99,
+                }]), post, '@supplier')[0]
+                self.assertEqual(result['detected_price'], raw)
+                self.assertEqual(result['consumer_price'], consumer)
+                self.assertEqual(result['package_count'], count)
+                self.assertEqual(result['variation_type'], '')
+                self.assertEqual(result['sale_price'], 0)
+                self.assertTrue(result['needs_review'])
+
     def test_spelled_out_measurement_in_source_title_corrects_model(self):
         title = 'زعفران یک گرم بهمنان'
         product = parse_message_products(json.dumps([{

@@ -115,6 +115,7 @@ class RankedCandidateIndex:
             candidate = _reference(row)
             if not candidate['reference_id']:
                 continue
+            title = _text(re.sub(r'[（(][^）)]*[）)]', ' ', candidate['name']))
             self.rows.append((candidate, {
                 'name': _name(row[1] or row[0]),
                 'brand': _text(row[12]),
@@ -123,7 +124,7 @@ class RankedCandidateIndex:
                 'package_count': str(_number(row[6]) or ''),
                 'volume': _name(row[8]),
                 'weight': _name(row[9]),
-            }))
+            }, f' {title} '))
 
     def ranked_candidates(self, product, *, limit=10):
         """Rank suggestions for the owner. A score never approves a match by itself."""
@@ -148,8 +149,24 @@ class RankedCandidateIndex:
         }
         if not incoming['name']:
             return []
+        if re.fullmatch(r'(?:در )?\d+ (?:طعم|مزه|رنگ|مدل|نوع)(?: (?:موجود|مختلف|متنوع))?', incoming['variant']):
+            incoming['variant'] = ''
         scored = []
-        for reference, right_values in self.rows:
+        identity_matches = []
+        brand = incoming['brand']
+        brand_in_supplier_title = brand and f' {brand} ' in f" {incoming['name']} "
+        for reference, right_values, catalog_title in self.rows:
+            if brand_in_supplier_title and not right_values['brand']:
+                for modifier in ('طرح', 'سبک', 'شبیه'):
+                    catalog_title = catalog_title.replace(f' {modifier} {brand} ', ' ')
+                if f' {brand} ' in catalog_title:
+                    right_values = {**right_values, 'brand': brand}
+                    reference = {**reference, 'brand': source_values['brand']}
+            same_brand = bool(brand and brand == right_values['brand'])
+            variant = incoming['variant']
+            if same_brand and variant and not right_values['variant'] and f' {variant} ' in f" {right_values['name']} ":
+                right_values = {**right_values, 'variant': variant}
+                reference = {**reference, 'variant': source_values['variant']}
             components = {}
             weighted, denominator = 0.0, 0.0
             for key, weight in weights.items():
@@ -162,7 +179,7 @@ class RankedCandidateIndex:
                 components[key] = round(score, 4)
                 weighted += weight * score
             score = weighted / denominator if denominator else 0.0
-            if score < .35:
+            if not same_brand and (score < .35 or components.get('name', 0) < .35):
                 continue
             candidate = {**reference}
             candidate.update({
@@ -176,9 +193,14 @@ class RankedCandidateIndex:
             if supplier_price:
                 candidate['supplier_price'] = supplier_price
                 candidate['price_role_hint'] = price_role_hint(supplier_price, candidate)
-            scored.append(candidate)
-        scored.sort(key=lambda item: (-item['score'], item['reference_id']))
-        return scored[:max(1, min(int(limit), 20))]
+            (identity_matches if same_brand else scored).append(candidate)
+        ranked = identity_matches or scored
+        count = (_number(incoming['package_count']) if identity_matches and brand_in_supplier_title and not any(
+            incoming[key] for key in ('variant', 'volume', 'weight')) else 0)
+        ranked.sort(key=lambda item: (
+            not (count and item['package_count'] == count),
+            -item['score'], item['reference_id']))
+        return ranked[:max(1, min(int(limit), 20))]
 
 
 def ranked_candidates(product, rows, *, limit=10):
