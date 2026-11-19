@@ -265,8 +265,11 @@
 #molavi-owner-workflow .molavi-market-price-body { display:grid; gap:.6rem; padding-block-start:.6rem; }
 #molavi-owner-workflow .molavi-market-price-body :is(h4,p) { margin:0; }
 #molavi-owner-workflow .molavi-market-price-body > .button { justify-self:start; }
-#molavi-owner-workflow .molavi-market-quote { display:flex; flex-wrap:wrap; align-items:center; gap:.4rem .65rem; padding-block:.35rem; }
-#molavi-owner-workflow .molavi-market-quote > :is(span,a) { overflow-wrap:anywhere; }
+#molavi-owner-workflow .molavi-market-quote { display:grid; gap:.45rem; padding:.7rem .8rem; background:#f6f8fa; border-radius:8px; overflow-wrap:anywhere; }
+#molavi-owner-workflow .molavi-market-observed { display:grid; gap:.15rem; }
+#molavi-owner-workflow .molavi-market-observed strong { font-size:1.15rem; }
+#molavi-owner-workflow .molavi-market-source-line { display:flex; flex-wrap:wrap; align-items:center; gap:.45rem .7rem; }
+#molavi-owner-workflow .molavi-market-source-line .button { margin-inline-start:auto; white-space:normal; }
 #molavi-owner-workflow .molavi-market-link-form { display:flex; flex-wrap:wrap; gap:.5rem; margin-block-start:.4rem; }
 #molavi-owner-workflow .molavi-market-link-form input { flex:1; min-width:0; }
 #molavi-owner-workflow .molavi-ai-group-reference-details > .molavi-ai-reference-assignment { margin-top:.65rem; }

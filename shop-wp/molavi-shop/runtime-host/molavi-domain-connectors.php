@@ -22,6 +22,8 @@ function molavi_domain_http(string $method,string $url,array $args=[]):array {
         ($host==='oauth2.googleapis.com'&&$path==='/token'&&$method==='POST')
         ||($host==='sheets.googleapis.com'&&str_starts_with($path,'/v4/spreadsheets/'))
         ||($url==='https://api.tavily.com/search'&&$method==='POST')
+        ||($url==='https://openapi.basalam.com/v1/products/search'&&$method==='POST')
+        ||($host==='openapi.basalam.com'&&$method==='GET'&&preg_match('~^/v1/products/[1-9][0-9]{0,11}$~D',$path))
         ||($host==='wholesale-project-staging-staging.up.railway.app'&&$method==='GET'&&str_starts_with($path,'/media/file/'))
         ||($host==='wholesale-project-production.up.railway.app'&&$method==='GET'&&str_starts_with($path,'/media/file/'))
         ||(function_exists('molavi_domain_reference_source')&&$host===wp_parse_url(molavi_domain_reference_source(),PHP_URL_HOST)&&$method==='GET'&&str_starts_with($path,'/wp-json/wc/store/v1/')));

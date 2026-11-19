@@ -271,7 +271,7 @@
             source_current_verification_required: 'زمان پیام برای اثبات تازگی قیمت کافی نیست؛ منبع فعلی را بررسی و گزینهٔ تأیید منبع را علامت بزنید.',
             package_count_required: 'برای قیمت بسته، تعداد داخل بسته را مشخص کنید.',
             invalid_market_price_link: 'پیوند مستقیم و امن صفحهٔ کالا را وارد کنید.',
-            market_price_source_not_verified: 'قیمت یک واحد از همین کالا در این صفحه تأیید نشد.',
+            market_price_source_not_verified: 'قیمت این کالا و تعداد در بسته از این منبع تأیید نشد.',
             market_price_sources_unavailable: 'صفحهٔ فروشگاه در دسترس نیست. پیوند دیگری را بررسی کنید.',
             stale_market_price_source: 'قیمت این منبع تازه نیست. پس از بررسی دوباره آن را انتخاب کنید.',
             unknown_reference: 'نام دقیق یا شناسه کالای مرجع پیدا نشد؛ یکی از پیشنهادها را انتخاب کنید.',
@@ -2646,7 +2646,7 @@
 
     function marketPriceReview(offerId, productName, expanded = false) {
         const section = node('details', null, 'molavi-market-price-review');
-        const heading = node('summary','قیمت مصرف‌کننده و مرجع وب');
+        const heading = node('summary','قیمت و مرجع');
         const body = node('div',null,'molavi-market-price-body');
         const endpoint = new URL('/reference/item-reviews',config.apiUrl);
         const readUrl = new URL(endpoint);
@@ -2656,20 +2656,35 @@
         section.append(heading,body);
 
         function quoteRow(quote, result) {
-            const row = node('div',null,'molavi-market-quote');
+            const row = node('section',null,'molavi-market-quote');
             const link = node('a',quote.merchant,'molavi-market-source');
             const url = new URL(quote.url);
             if (url.protocol !== 'https:') return row;
             link.href = url.href;link.target = '_blank';link.rel = 'noopener noreferrer';
             link.title = quote.title;
             const selected = quote.url === result.selected_url;
-            row.append(node('strong',amount(quote.unit_price)),node('span','برای هر واحد'),link);
-            if (result.stale) return row;
-            if (selected) row.append(node('span','مرجع انتخاب‌شده'));
-            else {
-                const select = node('button','ثبت مرجع قیمت','button');select.type = 'button';
+            const regular = Number(quote.regular_unit_price);
+            const pack = Number(quote.pack_count);
+            const observed = node('div',null,'molavi-market-observed');
+            observed.append(node('span',regular>0?'قیمت عادی هر واحد':'قیمت فروش مشاهده‌شده برای هر واحد'),
+                node('strong',amount(regular>0?regular:quote.unit_price)));
+            row.append(observed);
+            const notes = [];
+            if (regular>0 && Number(quote.unit_price)!==regular) notes.push(`فروش هر واحد ${amount(quote.unit_price)}`);
+            if (pack>1) {
+                const count=new Intl.NumberFormat('fa-IR').format(pack);
+                notes.push(`بستهٔ ${count} عددی · قیمت عادی بسته ${amount(quote.regular_price)}`);
+                if (Number(quote.current_price)!==Number(quote.regular_price))
+                    notes.push(`فروش بسته ${amount(quote.current_price)}`);
+            }
+            if (notes.length) row.append(node('small',notes.join(' · ')));
+            const source = node('div',null,'molavi-market-source-line');
+            source.append(link);row.append(source);
+            if (selected) source.append(node('span','مرجع انتخاب‌شده'));
+            if (!result.stale && !selected) {
+                const select = node('button','ثبت مرجع قیمت','button button-primary');select.type = 'button';
                 select.addEventListener('click',()=>load({action:'select_market_price_source',offer_id:offerId,url:quote.url}));
-                row.append(select);
+                source.append(select);
             }
             return row;
         }
@@ -2696,19 +2711,22 @@
                 unconfigured:'اتصال به سرویس جست‌وجوی وب هنوز تنظیم نشده است.',
                 not_needed:'این کالا در حال حاضر به پیشنهاد قیمت بازار نیاز ندارد.',
                 ambiguous_identity:'برای پیدا کردن قیمت قابل مقایسه، ابتدا نوع دقیق کالا را مشخص کنید.',
-                queued:'در صف جست‌وجوی وب',searching:'در حال بررسی منابع وب…',
+                queued:'در صف بررسی قیمت بازار',searching:'در حال بررسی قیمت بازار…',
                 no_match:'برای این کالا قیمت قابل مقایسه‌ای تأیید نشد.',
                 retry:'بررسی منابع کامل نشد. در نوبت بعد دوباره بررسی می‌شود.',
                 provider_auth:'اتصال سرویس جست‌وجوی وب نیاز به بررسی دارد.',
                 quota:'سهمیهٔ جست‌وجو پر شده است. بررسی در نوبت بعد ادامه می‌یابد.'
             };
-            if (messages[result.state]) body.append(node('p',messages[result.state]));
+            if (messages[result.state]) {
+                const status=node('p',messages[result.state]);status.setAttribute('role','status');body.append(status);
+            }
             const quote = result.suggested_price;
             if (quote) {
-                body.append(node('h4',result.stale ? 'آخرین قیمت مشاهده‌شده' : 'قیمت پیشنهادی بازار'),quoteRow(quote,result));
+                if (result.stale) body.append(node('small','آخرین قیمت معتبر ثبت‌شده'));
+                body.append(quoteRow(quote,result));
                 const alternatives = (result.candidates || []).filter(row=>row.url!==quote.url);
                 if (alternatives.length) {
-                    const list = node('details');list.append(node('summary','مقایسهٔ فروشگاه‌ها'));
+                    const list = node('details');list.append(node('summary','قیمت‌های دیگر'));
                     alternatives.forEach(row=>list.append(quoteRow(row,result)));
                     body.append(list);
                 }
@@ -2719,8 +2737,8 @@
             if (result.checked_at) times.push(`آخرین بررسی ${formatSourceTimestamp(Math.floor(result.checked_at))}`);
             if (result.next_at && result.next_at*1000>Date.now()) times.push(`نوبت بعد ${formatSourceTimestamp(Math.floor(result.next_at))}`);
             if (times.length) body.append(node('small',times.join(' · ')));
-            if (['idle','queued'].includes(result.state)) {
-                const search = node('button','جست‌وجوی قیمت در وب','button button-primary');search.type = 'button';
+            if (result.state==='idle') {
+                const search = node('button','یافتن قیمت بازار','button button-primary');search.type = 'button';
                 search.addEventListener('click',()=>{
                     remaining=6;load({action:'request_market_prices',offer_id:offerId});
                 });

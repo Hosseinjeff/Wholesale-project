@@ -82,6 +82,7 @@
         const activityLabels={
             reextract:'بازاستخراج پیام',batch:'پردازش پیام‌های ربات',intake:'پیام ورودی',
             reference_suggest:'پیشنهاد مرجع',reference_index:'نمایه‌سازی مرجع',reference_refresh:'به‌روزرسانی فهرست مرجع',
+            market_prices:'بررسی قیمت بازار',
         };
         const activityStates={running:'در حال اجرا',queued:'در صف',quota_wait:'منتظر سهمیه',needs_reference:'منتظر تصمیم مرجع'};
         const taskLabels={extract:'استخراج',match:'تطبیق مرجع',embed:'نمایه‌سازی'};

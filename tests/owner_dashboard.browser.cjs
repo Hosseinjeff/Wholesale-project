@@ -118,7 +118,9 @@ const fixtures={
     }
     if(path==='/reference/item-reviews'&&new URLSearchParams(f.get('query')).get('view')==='market-prices'){
       marketReads++;
-      return route.fulfill({json:{ok:true,...(marketSource||{state:'unconfigured'})}});
+      const quote={title:'بیسکویت شکلاتی ۱۲ عددی',merchant:'باسلام',url:'https://basalam.com/p/100',
+        regular_unit_price:160000,unit_price:150000,pack_count:12,regular_price:1920000,current_price:1800000};
+      return route.fulfill({json:{ok:true,...(marketSource||{state:'ready',suggested_price:quote,candidates:[quote]})}});
     }
     if(path==='/reference/item-reviews'&&new URLSearchParams(f.get('query')).get('view')==='extracted-titles'){
      titleReads++;
@@ -366,7 +368,10 @@ const fixtures={
  assert.equal(groupedLoads,beforeGrouped+1,'dashboard bootstrap replaces the individual initial reads');
  assert.equal(marketReads,0,'opening a product does not search the web');
  const market=page.locator('.molavi-market-price-review');
- await market.getByText('قیمت مصرف‌کننده و مرجع وب',{exact:true}).click();
+ await market.getByText('قیمت و مرجع',{exact:true}).click();
+ await market.getByText('۱۶۰٬۰۰۰ تومان',{exact:true}).waitFor();
+ await market.getByText(/بستهٔ ۱۲ عددی/).waitFor();
+ assert.equal(await market.getByRole('button',{name:'ثبت مرجع قیمت',exact:true}).count(),1);
  await market.getByText('ثبت پیوند فروشگاه',{exact:true}).click();
  await market.getByRole('textbox',{name:'پیوند صفحهٔ کالا در فروشگاه'}).fill('https://retailer.example/biscuit');
  await market.getByRole('button',{name:'بررسی و ثبت',exact:true}).click();

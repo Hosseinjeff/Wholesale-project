@@ -114,9 +114,12 @@ function molavi_domain_dashboard_activity(?float $clock=null): array {
             FROM inbox i LEFT JOIN jobs j ON j.id=i.batch_id
             LEFT JOIN publication_holds h ON i.batch_id LIKE 'batch:%' AND h.hold_id=substr(i.batch_id,7) ORDER BY i.rowid DESC LIMIT 12")),
     ]);
-    $refresh=molavi_domain_read('reference',static fn(SQLite3 $db)=>molavi_domain_row($db,
-        "SELECT r.state FROM reference_refresh_state r JOIN molavi_state_locks l
-        ON l.name='refresh' AND l.expires>? WHERE r.state='running' AND r.singleton=1",[$now]));
-    if ($refresh) $activity['groups'][]=['kind'=>'reference_refresh','state'=>'running'];
+    $reference=molavi_domain_read('reference',static fn(SQLite3 $db)=>molavi_domain_row($db,
+        "SELECT EXISTS(SELECT 1 FROM reference_refresh_state r JOIN molavi_state_locks l
+            ON l.name='refresh' AND l.expires>? WHERE r.state='running' AND r.singleton=1) AS refreshing,
+            EXISTS(SELECT 1 FROM market_price_lookups WHERE active=1 AND state='searching' AND attempted_at>?) AS pricing",
+        [$now,$now-60]));
+    if ($reference['refreshing']) $activity['groups'][]=['kind'=>'reference_refresh','state'=>'running'];
+    if ($reference['pricing']) $activity['groups'][]=['kind'=>'market_prices','state'=>'running'];
     return ['ok'=>true,'observed_at'=>$now]+$activity;
 }
