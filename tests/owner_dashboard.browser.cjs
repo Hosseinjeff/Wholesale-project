@@ -373,6 +373,25 @@ const fixtures={
  await page.getByRole('button',{name:'ادامه بدون مرجع',exact:true}).click();
  await page.getByText('گام فعلی · تأیید مشخصات',{exact:true}).waitFor();
  assert.equal(await page.getByText('گام فعلی · انتخاب مرجع و مبنای قیمت',{exact:true}).count(),0);
+ const extractionCases=fixtures['/pipeline/ai-confirmations'].cases;
+ fixtures['/pipeline/ai-confirmations'].cases=[{
+   case_id:'ai-price-basis',offer_id:'offer-price-basis',signature:'sig-price-basis',channel:'@supplier',
+   product_name:'آبمیوه نمونه ۴ طعم موجود،۲۴ عددی',package_count:24,
+   original_message:'آبمیوه نمونه ۴ طعم موجود،۲۴ عددی\nقیمت فروش ما: ۱۶۸۰/۰۰۰ تومان\nقیمت مصرف کننده: ۱۰۵/۰۰۰ تومان',
+   price_type:'unit',sale_price:1680000,detected_price:1680000,actual_price:105000,
+   reference_snapshot_id:'snapshot-price-basis',
+   reference_candidates:[{name:'مرجع آبمیوه نمونه',reference_id:'ref-price-basis',price_role_hint:{role:'unit'}}]
+ }];
+ await mount('&workbench_action=ai&offer_id=offer-price-basis');
+ const priceFacts=page.locator('.molavi-ai-price-facts');
+ await priceFacts.getByText('در پیام مشخص نشده؛ نیاز به تأیید',{exact:true}).waitFor();
+ await page.getByText(/اگر مبلغ فروش برای کل بسته باشد، قیمت هر واحد ۷۰٬۰۰۰ تومان است/).waitFor();
+ await page.getByRole('combobox',{name:'انتخاب کالای مرجع'}).selectOption('ref-price-basis');
+ assert.equal(await page.getByRole('combobox',{name:'مبنای قیمت مرجع'}).inputValue(),'');
+ assert.equal(await page.getByRole('button',{name:'ثبت مرجع این مورد',exact:true}).isEnabled(),false);
+ await page.getByRole('combobox',{name:'مبنای قیمت مرجع'}).selectOption('package');
+ assert.equal(await page.getByRole('button',{name:'ثبت مرجع این مورد',exact:true}).isEnabled(),true);
+ fixtures['/pipeline/ai-confirmations'].cases=extractionCases;
  await mount('&workbench_action=ai',true,true);
  const bar=page.locator('.md-activity');
  await bar.getByText(/بازاستخراج گروهی.*۳ از ۸.*gemini-fixture.*۹۸/).waitFor();

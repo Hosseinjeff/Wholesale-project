@@ -1939,10 +1939,11 @@
         return Number.isSafeInteger(number) && number > 0 ? number : '';
     }
 
-    function aiPriceRole(item) {
+    function aiPriceRole(item, useExtracted = true) {
         const fields = item.decision && item.decision.fields || {};
         const assignedRole = item.reference_assignment && item.reference_assignment.price_role;
-        const role = String(fields.price_role || assignedRole || item.price_type || item.reference_price_role_hint || '').toLowerCase();
+        const extractedRole = useExtracted ? item.price_type || item.reference_price_role_hint : '';
+        const role = String(fields.price_role || assignedRole || extractedRole || '').toLowerCase();
         if (['unit', 'single', 'per_unit'].includes(role)) return 'unit';
         if (['pack', 'package', 'carton'].includes(role)) return 'package';
         return '';
@@ -1967,11 +1968,16 @@
     }
 
     function aiSourceSalePrices(content) {
-        const prices = new Set();
-        const pattern = /(?:قیمت\s*فروش(?:\s*ما)?|قیمت\s*هر\s*(?:یک\s*)?(?:بسته|کارتن|عدد|واحد))(?:\s+[^:：\n]+?)?\s*[:：]\s*([\d۰-۹٠-٩][\d۰-۹٠-٩\s٬,./٫]*)/giu;
-        for (const match of String(content || '').matchAll(pattern)) {
-            const digits = aiSourceDigits(match[1]);
-            if (digits && Number.isSafeInteger(Number(digits)) && Number(digits) > 0) prices.add(digits);
+        const prices = new Map();
+        const source = String(content || '');
+        const pattern = /((?:قیمت\s*فروش(?:\s*ما)?|قیمت\s*هر\s*(?:یک\s*)?(?:بسته|کارتن|عدد|واحد))(?:\s+[^:：\n]+?)?)\s*[:：]\s*([\d۰-۹٠-٩][\d۰-۹٠-٩\s٬,./٫]*)/giu;
+        for (const match of source.matchAll(pattern)) {
+            const digits = aiSourceDigits(match[2]);
+            if (!digits || !Number.isSafeInteger(Number(digits)) || Number(digits) <= 0) continue;
+            const afterAmount = source.slice(match.index + match[0].trimEnd().length).split(/\r?\n/, 1)[0].trim();
+            const unspecified = /^قیمت\s*فروش(?:\s*ما)?$/u.test(match[1].trim())
+                && /^(?:(?:تومان|تومن|ریال)\s*)?[^\p{L}\p{N}]*$/u.test(afterAmount);
+            prices.set(digits, unspecified && prices.get(digits) !== false);
         }
         return prices;
     }
@@ -2003,7 +2009,7 @@
                 }
             }
         });
-        const missing = [...sourcePrices].filter(price => !extractedPrices.has(price) && !packageTotals.has(price));
+        const missing = [...sourcePrices.keys()].filter(price => !extractedPrices.has(price) && !packageTotals.has(price));
         return missing.length || matchedByCount.size
             ? {sourceCount:sourcePrices.size, missing, matchedByCount:[...matchedByCount.values()]} : null;
     }
@@ -2535,7 +2541,7 @@
             ['قیمت بسته در ستون قدیمی',legacyPackage!==packagePrice ? legacyPackage : null],
             ['مبلغ خوانده‌شده از پیام',detected && detected!==sale && detected!==packagePrice ? detected : null],
             ['قیمت ثبت‌شده',listed && listed!==sale && listed!==detected && listed!==packagePrice ? listed : null],
-            ['مبنای قیمت',role==='unit' ? 'هر واحد' : role==='package' ? 'بسته / کارتن' : fields.price_type ? 'نامشخص؛ نیازمند بررسی' : null],
+            ['مبنای ثبت‌شده در استخراج',role==='unit' ? 'هر واحد' : role==='package' ? 'بسته / کارتن' : fields.price_type ? 'نامشخص؛ نیازمند بررسی' : null],
             ['واحد پول',sale || consumer || actual || packagePrice || consumerPackage || detected || listed ? null : currency],
             ['بسته‌بندی',fields.packaging],['تعداد در بسته / کارتن',fields.package_count],['حداقل خرید',fields.min_qty],
             ['حجم',fields.volume],['وزن',fields.weight],['موجودی',fields.stock_status ? aiStockLabel(fields.stock_status) : null],
@@ -2728,7 +2734,7 @@
             save.disabled = !contextStored || !decisionsEnabled || !referenceSelect.value || !roleSelect.value;
         };
         referenceSelect.addEventListener('change', () => {
-            if (!roleTouched) {
+            if (!roleTouched && !options.priceBasisNeedsReview) {
                 const selected = candidateById.get(referenceSelect.value);
                 const suggestedRole = selected && selected.price_role_hint && selected.price_role_hint.role;
                 roleSelect.value = ['unit','package'].includes(suggestedRole) ? suggestedRole : '';
@@ -2877,9 +2883,12 @@
         const regularPrice = normalizedAiInteger(item.actual_price || item.consumer_price);
         const regularPackagePrice = normalizedAiInteger(item.double_pack_consumer_price
             || item.consumer_package_price || item.regular_package_price);
+        const priceBasisNeedsReview = packageCount > 1 && regularPrice > 0 && visibleSupplierPrice > regularPrice
+            && aiSourceSalePrices(item.original_message).get(String(visibleSupplierPrice)) === true;
         const priceFacts = [
             ['قیمت فروش تأمین‌کننده', visibleSupplierPrice ? amount(visibleSupplierPrice) : 'در پیام پیدا نشد'],
-            ['مبنای قیمت در پیام', roleLabel],
+            priceBasisNeedsReview ? ['مبنای قیمت', 'در پیام مشخص نشده؛ نیاز به تأیید']
+                : ['مبنای قیمت در استخراج', roleLabel],
             ['قیمت مصرف‌کننده / عادی', regularPrice ? amount(regularPrice) : 'در پیام پیدا نشد'],
             ['موجودی اعلام‌شده', aiStockLabel(item.stock_status)],
             ['حداقل خرید', item.min_qty || 'ثبت نشده']
@@ -2890,7 +2899,10 @@
         }
         if (regularPackagePrice) priceFacts.push(['قیمت عادی کل بسته / کارتن', amount(regularPackagePrice)]);
         card.appendChild(reviewFacts(priceFacts, 'molavi-review-facts molavi-ai-price-facts'));
-        card.appendChild(reviewFacts([['دلیل بررسی', aiReviewReason(item.reason)]], 'molavi-review-facts molavi-review-reason'));
+        const reviewReason = priceBasisNeedsReview
+            ? `اگر مبلغ فروش برای کل بسته باشد، قیمت هر واحد ${amount(Math.round(visibleSupplierPrice / packageCount))} است.`
+            : aiReviewReason(item.reason);
+        card.appendChild(reviewFacts([['دلیل بررسی', reviewReason]], 'molavi-review-facts molavi-review-reason'));
         const sourceDates = aiSourceDateFacts(item);
         const sourceTools = node('div', null, 'molavi-card-source-tools');
         const sourcePostUrl = aiSourcePostUrl(item);
@@ -2987,7 +2999,7 @@
             && row.reference_assignment?.choice!=='match' && !row.reference_match_id);
         const matching = unmatched.filter(row=>row.reference_snapshot_id && row.reference_candidates?.some(candidate=>
             candidate?.reference_id && String(candidate.name || '').trim()));
-        const assignmentOptions={...options,groupedVariants:relatedItems.length>1};
+        const assignmentOptions={...options,groupedVariants:relatedItems.length>1,priceBasisNeedsReview};
         if (matching.length) {
             card.appendChild(node('h4','گام فعلی · انتخاب مرجع و مبنای قیمت'));
             matching.forEach(row=>{
@@ -3009,7 +3021,7 @@
         }
 
         const fields = item.decision && item.decision.fields || {};
-        const role = aiPriceRole(item);
+        const role = aiPriceRole(item, !priceBasisNeedsReview);
         const isPackage = ['pack', 'package', 'carton'].includes(String(role).toLowerCase());
         const price = fields.sale_price ?? (isPackage && item.package_price ? item.package_price : (item.sale_price || item.detected_price || ''));
         const confirmation=node('div',null,'molavi-ai-confirmation-step');
