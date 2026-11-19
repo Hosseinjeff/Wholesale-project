@@ -82,6 +82,7 @@ function molavi_domain_reference_snapshots(array $query): array {
             foreach($candidate['rows']??[] as $index=>$values)if(is_array($values)&&count($values)===21)$rows[]=molavi_domain_reference_preview($values,(string)($candidate['source_product_ids'][$index]??''));
             return ['ok'=>true,'snapshot_id'=>$id,'row_count'=>$candidate['row_count']??null,'coverage_verified'=>molavi_domain_reference_coverage($candidate),'rows'=>$rows];
         }
+        $refresh=molavi_domain_reference_refresh_view($db,microtime(true));
         $active=molavi_domain_row($db,'SELECT snapshot_id FROM reference_active WHERE singleton=1')['snapshot_id']??null;
         $check=molavi_domain_row($db,'SELECT snapshot_id,checked_at FROM reference_source_check WHERE singleton=1');$snapshots=[];$activeCheckedAt=null;
         foreach(molavi_domain_rows($db,'SELECT * FROM reference_snapshots ORDER BY rowid DESC LIMIT 50') as $row){
@@ -94,11 +95,7 @@ function molavi_domain_reference_snapshots(array $query): array {
                 'reviewed_by'=>$row['reviewed_by'],'review_note'=>$row['review_note'],'reviewed_at'=>$row['reviewed_at'],
                 'active'=>$row['snapshot_id']===$active,'last_checked_at'=>($check['snapshot_id']??null)===$row['snapshot_id']?$check['checked_at']:null]);
         }
-        $refresh=molavi_domain_row($db,'SELECT * FROM reference_refresh_state WHERE singleton=1');
-        if($refresh){$summary=molavi_domain_decode($refresh['change_summary'],null);if(is_array($summary)){$compact=[];foreach(['added_count','updated_count','removed_count','has_changes','metadata_upgrade','order_changed'] as $field)$compact[$field]=$summary[$field]??0;$summary=$compact;}$refresh['change_summary']=$summary;
-            $refresh['in_progress']=$refresh['state']==='running'&&(bool)molavi_domain_row($db,
-                "SELECT 1 FROM molavi_state_locks WHERE name='refresh' AND expires>?",[microtime(true)]);
-        }
+        if($refresh){$summary=molavi_domain_decode($refresh['change_summary'],null);if(is_array($summary)){$compact=[];foreach(['added_count','updated_count','removed_count','has_changes','metadata_upgrade','order_changed'] as $field)$compact[$field]=$summary[$field]??0;$summary=$compact;}$refresh['change_summary']=$summary;}
         $review=molavi_domain_reference_review_status($active,molavi_domain_reference_live_events($db,$active));
         $checkedAt=molavi_domain_timestamp($activeCheckedAt);
         if($review['state']==='ready'&&($checkedAt===null||microtime(true)-$checkedAt>=MOLAVI_REFERENCE_REFRESH_SECONDS))

@@ -1,6 +1,19 @@
 (() => {
     function mount(root, config) {
     if (!root) return;
+    let revision = null;
+    let loading = false;
+    let writing = false;
+
+    function editing() {
+        return root.querySelector('.molavi-reference-input[open]');
+    }
+
+    root.addEventListener('molavi-reference-refresh', event => {
+        if (event.detail && event.detail !== revision && !writing && !editing()) {
+            load(null, 'success', true);
+        }
+    });
 
     function element(tag, text, className) {
         const node = document.createElement(tag);
@@ -165,11 +178,7 @@
 
     function appendActionForm(parent, action, snapshot, activeId) {
         const form = element('form');
-        const isActive = snapshot.snapshot_id === activeId;
-        const buttonText = action === 'review'
-            ? 'ثبت بررسی'
-            : (isActive ? 'ثبت دوباره در فهرست قیمت‌ها' : 'فعال‌سازی و ثبت قیمت‌ها');
-        const button = element('button', buttonText, action === 'activate' ? 'button button-primary' : 'button');
+        const button = element('button', action === 'review' ? 'ثبت بررسی' : 'فعال‌سازی مرجع', 'button button-primary');
         button.type = 'submit';
         let noteField = null;
         if (action === 'review') {
@@ -180,17 +189,19 @@
             noteField.maxLength = 1000;
             noteField.rows = 3;
             noteField.className = 'large-text';
-            noteField.placeholder = 'بنویسید نمونه کالاها و قیمت‌ها را بررسی کردید.';
+            noteField.placeholder = 'نتیجهٔ بررسی کالاها و قیمت‌ها';
             label.appendChild(noteField);
             form.appendChild(label);
         }
         form.appendChild(button);
         form.addEventListener('submit', async (event) => {
             event.preventDefault();
+            if (writing) return;
             if (action === 'activate' && !window.confirm(
                 'با این کار، قیمت‌های این نسخه در فهرست مرجع ثبت و برای استفاده فعال می‌شوند. ادامه می‌دهید؟')) {
                 return;
             }
+            writing = true;
             button.disabled = true;
             try {
                 const payload = {
@@ -208,27 +219,35 @@
                     throw new Error('invalid_receipt');
                 }
                 await load(action === 'review'
-                    ? 'یادداشت بررسی ثبت شد. برای وارد شدن قیمت‌ها به فهرست، نسخه را فعال کنید.'
-                    : 'قیمت‌ها در فهرست مرجع ثبت شد و این نسخه فعال شد.');
+                    ? 'بررسی ثبت شد.' : 'فهرست مرجع فعال شد.');
             } catch (error) {
                 root.prepend(notice(messageText(error.message), 'error'));
                 button.disabled = false;
-            }
+            } finally { writing = false; }
         });
         parent.appendChild(form);
     }
 
-    function appendRefreshForm(parent, refresh, label) {
+    function appendRefreshForm(parent, refresh, label, primary = true) {
         const form = element('form');
-        const button = element('button', label, 'button button-primary');
+        const button = element('button', label, primary ? 'button button-primary' : 'button');
         button.type = 'submit';
         form.appendChild(button);
+        const delay = (Number(refresh.retry_at) || 0)*1000 - Date.now();
+        if (delay > 0 && delay <= 60000) {
+            button.disabled = true;
+            button.textContent = 'دریافت دوباره پس از ' + formatDate(Number(refresh.retry_at)*1000);
+            window.setTimeout(() => {
+                button.disabled = false;
+                button.textContent = label;
+            }, delay);
+        }
         form.addEventListener('submit', async (event) => {
             event.preventDefault();
-            if (!window.confirm('فهرست رزوان دریافت می‌شود و تغییرات آن در مرجع تطبیق اعمال می‌شود. ادامه می‌دهید؟')) {
-                return;
-            }
+            if (button.disabled || writing || !window.confirm('فهرست رزوان بررسی می‌شود و تغییرات تأییدشده در مرجع اعمال می‌شود. ادامه می‌دهید؟')) return;
+            writing = true;
             button.disabled = true;
+            button.textContent = 'در حال دریافت فهرست…';
             config.onRefresh?.(true);
             try {
                 const receipt = await request('POST', {
@@ -239,22 +258,19 @@
                     || typeof receipt.last_attempt_at !== 'string') {
                     throw new Error('invalid_receipt');
                 }
-                const summary = receipt.change_summary || {};
-                const count = value => new Intl.NumberFormat('fa-IR').format(Number(value) || 0);
-                const success = receipt.state === 'updated'
-                    ? (summary.metadata_upgrade
-                        ? 'شناسه‌های پایدار و دادهٔ خام به نسخهٔ مرجع فعال پیوند داده شدند.'
-                        : `مرجع به‌روز شد: ${count(summary.added_count)} کالای تازه، ${count(summary.updated_count)} کالای تغییرکرده و ${count(summary.removed_count)} کالای حذف‌شده.`)
-                    : receipt.state === 'unchanged'
-                        ? 'تغییری نبود؛ دادهٔ مرجع قبلی برای مقایسه باقی ماند.'
-                        : receipt.state === 'staged'
-                            ? 'دریافت کامل شد؛ این نسخهٔ اولیه برای بررسی آماده است.'
-                            : null;
-                await load(success);
+                await load(receipt.state === 'failed' ? null : refreshLabel(receipt.state));
             } catch (error) {
+                if (['refresh_state_changed', 'workflow_busy_retry'].includes(error.message)) {
+                    await load(messageText(error.message),'error');
+                    return;
+                }
                 root.prepend(notice(messageText(error.message), 'error'));
                 button.disabled = false;
-            } finally { config.onRefresh?.(false); }
+                button.textContent = label;
+            } finally {
+                writing = false;
+                config.onRefresh?.(false);
+            }
         });
         parent.appendChild(form);
     }
@@ -310,13 +326,15 @@
             body.appendChild(row);
         });
         table.appendChild(body);
-        card.appendChild(table);
+        const scroll = element('div', undefined, 'molavi-reference-table');
+        scroll.tabIndex = 0;
+        scroll.setAttribute('role', 'region');
+        scroll.setAttribute('aria-label', 'نمونهٔ کالاهای فهرست');
+        scroll.append(table);
+        card.appendChild(scroll);
         card.appendChild(element('p', 'این نمونه ' + new Intl.NumberFormat('fa-IR').format(preview.length)
             + ' ردیف از ' + new Intl.NumberFormat('fa-IR').format(Number(snapshot.row_count) || preview.length)
-            + ' محصول را نشان می‌دهد. فایل CSV همه ردیف‌ها، عنوان‌های کامل و مشخصات موجود را دارد.', 'description'));
-        if (snapshot.coverage_verified === true) {
-            card.appendChild(element('p', 'تعداد محصولات با تعداد اعلام‌شدهٔ منبع و شماره ردیف تطبیق دارد؛ این بررسی درستی اطلاعات فروشنده را ثابت نمی‌کند. عنوان، کد و قیمت را با منبع مرجع مقایسه کنید.', 'description'));
-        }
+            + ' محصول را نشان می‌دهد.', 'description'));
         try {
             const source = new URL(snapshot.source_url);
             if (source.protocol === 'https:' && source.hostname === 'rezvanpakhsh.com'
@@ -380,25 +398,33 @@
         parent.appendChild(button);
     }
 
-    function appendReferenceDecision(parent, review, activeId, usable) {
-        if (!review.decision_token) return;
-        const options = element('div',undefined,'molavi-reference-decision');
+    function disclosure(label, className = '') {
+        const details = element('details', undefined, 'molavi-reference-disclosure ' + className);
+        details.append(element('summary',label));
+        return details;
+    }
+
+    function appendReferenceDecision(parent, review, activeId) {
+        const options = disclosure('تصمیم دربارهٔ فهرست ذخیره‌شده', 'molavi-reference-input');
         const actions = element('div',undefined,'molavi-reference-actions');
-        const choices = usable ? [['use_last_snapshot','ادامه با فهرست ذخیره‌شده']] : [];
-        choices.push(['pause_review','توقف تطبیق']);
-        for (const [choice,label] of choices) {
-            const button = element('button',label,'button button-secondary');
+        options.append(element('p','این تصمیم برای همهٔ موارد منتظر همین فهرست اعمال می‌شود.','description'), actions);
+        for (const [choice,label] of [
+            ['use_last_snapshot','ادامه با فهرست ذخیره‌شده'],
+            ['pause_review','توقف تطبیق تا دریافت فهرست تازه']
+        ]) {
+            const button = element('button',label,'button');
             button.type = 'button';
             actions.append(button);
             button.addEventListener('click',async()=>{
-                const controls = [...parent.querySelectorAll('button')];
-                controls.forEach(control=>control.disabled=true);
+                if (writing) return;
+                writing = true;
+                for (const control of actions.children) control.disabled = true;
                 options.querySelector('.molavi-reference-error')?.remove();
                 try {
                     const receipt=await request('POST',{action:'decide_reference_use',choice,
-                        snapshot_id:activeId||null,decision_token:review.decision_token});
+                        snapshot_id:activeId,decision_token:review.decision_token});
                     if (receipt.action!=='decide_reference_use'||receipt.choice!==choice
-                        ||receipt.snapshot_id!==(activeId||null)||receipt.applied_count!==review.pending_count)
+                        ||receipt.snapshot_id!==activeId||receipt.applied_count!==review.pending_count)
                         throw new Error('invalid_receipt');
                     await load(choice==='use_last_snapshot'
                         ? 'ادامهٔ تطبیق با فهرست ذخیره‌شده ثبت شد.' : 'توقف تطبیق ثبت شد.');
@@ -410,97 +436,156 @@
                     const message=notice(messageText(error.message),'error');
                     message.classList.add('molavi-reference-error');
                     options.append(message);
-                    controls.forEach(control=>control.disabled=false);
-                }
+                    for (const control of actions.children) control.disabled = false;
+                } finally { writing = false; }
             });
         }
-        options.append(actions,element('p','این انتخاب برای همهٔ موارد منتظر همین فهرست ثبت می‌شود.','description'));
         parent.append(options);
     }
 
     function render(data, message, kind = 'success') {
         root.replaceChildren();
-        if (message) root.appendChild(notice(message,kind));
-        const snapshots=data.snapshots.filter(item=>item && /^[a-f0-9]{64}$/.test(item.snapshot_id||''));
-        const active=snapshots.find(item=>item.snapshot_id===data.active_snapshot_id);
-        const verified=item=>item?.source_type==='woocommerce_store_api'&&item.coverage_verified===true;
-        const usable=verified(active);
-        const initial=!usable&&snapshots.find(item=>item.snapshot_id!==data.active_snapshot_id
-            && verified(item)&&!item.automatic_update);
-        const refresh=data.refresh_state||{};
-        const review=data.reference_review||{};
-        const running=refresh.state==='running'&&refresh.in_progress!==false;
-        const current=element('section',undefined,'molavi-reference-summary');
-        current.append(element('h2','مرجع رزوان'),
-            element('p','مبنای تطبیق کالاهای پیام‌های منبع','description'));
-        const statuses={
-            awaiting_owner:'تطبیق منتظر تصمیم شماست',
-            paused:'تطبیق متوقف شده است',
-            using_saved:'تطبیق با فهرست ذخیره‌شده انجام می‌شود',
-            refresh_due:'زمان تازه‌سازی فهرست رسیده است',
-        };
-        const state=statuses[review.state]
-            || (usable?'فهرست برای تطبیق آماده است':initial?'نسخهٔ اول آمادهٔ بررسی است':'فهرست قابل استفاده آماده نیست');
-        current.append(element('p',state,'molavi-reference-status'));
-        const next=element('div',undefined,'molavi-reference-next');
-        if (running) addReloadButton(next,'بررسی وضعیت دریافت');
-        else if (initial) appendActionForm(next,initial.reviewed_by?'activate':'review',initial,data.active_snapshot_id);
-        else appendRefreshForm(next,refresh,refresh.state==='failed'||refresh.state==='running'
-            ? 'دریافت دوباره از رزوان' : 'تازه‌سازی از رزوان');
-        appendReferenceDecision(next,review,data.active_snapshot_id,usable);
-        current.append(next);
-        const facts=element('dl',undefined,'molavi-reference-facts');
-        const lastAttempt=refresh.state==='running'&&!running?'دریافت قبلی نیمه‌تمام ماند':refreshLabel(refresh.state);
-        const values=[
-            ['نسخهٔ فعال',active?formatCount(active.row_count,'کالا'):'هنوز فعال نشده'],
-            ['آخرین دریافت موفق',active?formatDate(active.last_checked_at||active.extracted_at):'ثبت نشده'],
-        ];
-        if (refresh.state) values.push(['آخرین تلاش',lastAttempt+' · '+formatDate(refresh.last_attempt_at)]);
-        for (const [label,value] of values) {
-            const fact=element('div');fact.append(element('dt',label),element('dd',value));facts.append(fact);
+        if (message) root.append(notice(message,kind));
+        const snapshots = data.snapshots.filter(item=>item && /^[a-f0-9]{64}$/.test(item.snapshot_id||''));
+        const activeId = data.active_snapshot_id;
+        const active = snapshots.find(item=>item.snapshot_id===activeId);
+        const verified = item=>item?.source_type==='woocommerce_store_api'&&item.coverage_verified===true;
+        const usable = verified(active);
+        const initial = !usable && snapshots.find(item=>item.snapshot_id!==activeId && verified(item) && !item.automatic_update);
+        const refresh = data.refresh_state || {};
+        const review = data.reference_review || {};
+        const running = refresh.state==='running' && refresh.in_progress!==false;
+        const interrupted = refresh.state==='running' && !running;
+        const failed = refresh.state==='failed' || interrupted;
+        const updating = refresh.state==='staged'
+            && snapshots.some(item=>item.snapshot_id===refresh.snapshot_id && item.automatic_update);
+        const awaiting = review.state==='awaiting_owner';
+        const paused = review.state==='paused';
+        const usingSaved = usable && review.state==='using_saved';
+
+        const current = element('section',undefined,'molavi-reference-summary');
+        current.setAttribute('aria-label','مرجع رزوان');
+        const header = element('header');
+        header.append(element('span','رزوان پخش','molavi-reference-source'));
+        const status = element('h2',undefined,'molavi-reference-status');
+        status.setAttribute('aria-live','polite');
+        header.append(status);
+        current.append(header);
+        const next = element('div',undefined,'molavi-reference-next');
+        let description;
+        let manualRefresh = false;
+        if (running || updating) {
+            status.textContent = running ? 'دریافت فهرست در جریان است' : 'فهرست تازه در انتظار ثبت است';
+            if (!usable || awaiting || paused) description = 'تطبیق منتظر فهرست تازه است.';
+            if (!config.liveActivity) addReloadButton(next,'بررسی وضعیت دریافت');
+        } else if (initial) {
+            if (initial.reviewed_by) {
+                status.textContent = 'فهرست آمادهٔ فعال‌سازی است';
+                description = 'با فعال‌سازی، قیمت‌ها در مرجع تطبیق ثبت می‌شوند.';
+                appendActionForm(next,'activate',initial,activeId);
+            } else {
+                status.textContent = 'نسخهٔ نخست آمادهٔ بررسی است';
+                const reviewStep = disclosure('بررسی نسخهٔ نخست','molavi-reference-input molavi-reference-review');
+                appendPreview(reviewStep,initial);
+                appendActionForm(reviewStep,'review',initial,activeId);
+                next.append(reviewStep);
+            }
+        } else if (!usable || paused || awaiting || review.state==='refresh_due' || (failed && !usingSaved)) {
+            status.textContent = !usable ? 'فهرست قابل استفاده آماده نیست'
+                : paused ? 'تطبیق متوقف است'
+                : failed ? 'دریافت فهرست کامل نشد' : 'فهرست به تازه‌سازی نیاز دارد';
+            if (!usable) description = 'برای شروع تطبیق، نخستین فهرست رزوان را دریافت و بررسی کنید.';
+            else if (awaiting) description = 'تطبیق منتظر فهرست تازه است. در صورت نیاز می‌توانید از فهرست ذخیره‌شده استفاده کنید.';
+            else if (paused || failed) description = 'دریافت موفق، فهرست را برای تطبیق آماده می‌کند.';
+            appendRefreshForm(next,refresh,failed ? 'دریافت دوباره از رزوان' : 'دریافت فهرست از رزوان');
+        } else {
+            status.textContent = usingSaved ? 'تطبیق با فهرست ذخیره‌شده انجام می‌شود' : 'فهرست برای تطبیق آماده است';
+            manualRefresh = true;
         }
-        current.append(facts);
-        if (refresh.state==='failed') current.append(element('p',refreshErrorText(refresh.error_code),'description'));
+        if (description) header.append(element('p',description,'description'));
+        if (usable && awaiting && review.decision_token) appendReferenceDecision(next,review,activeId);
+        if (next.childElementCount) current.append(next);
+
+        const facts = element('dl',undefined,'molavi-reference-facts');
+        const currentList = usable ? active : initial;
+        if (currentList) {
+            for (const [label,value] of [
+                [usable ? 'فهرست فعال' : 'نسخهٔ آماده', formatCount(currentList.row_count,'کالا')],
+                [usable ? 'آخرین بررسی موفق' : 'زمان دریافت', formatDate(currentList.last_checked_at||currentList.extracted_at)]
+            ]) {
+                const fact = element('div');
+                fact.append(element('dt',label),element('dd',value));
+                facts.append(fact);
+            }
+            current.append(facts);
+        }
         if (refresh.state==='updated') {
-            const summary=refresh.change_summary||{};
-            const changes=[['added_count','کالا اضافه شد'],['updated_count','کالا تغییر کرد'],['removed_count','کالا حذف شد']]
+            const summary = refresh.change_summary || {};
+            const changes = [['added_count','اضافه شد'],['updated_count','تغییر کرد'],['removed_count','حذف شد']]
                 .filter(([key])=>Number(summary[key])>0)
                 .map(([key,label])=>formatCount(summary[key],label));
-            if (changes.length) current.append(element('p',changes.join(' · '),'description'));
+            if (changes.length) current.append(element('p','آخرین تغییرات · '+changes.join(' · '),'description'));
         }
-        if (review.state==='paused') current.append(element('p','دریافت موفق، فهرست را برای تطبیق دوباره آماده می‌کند.','description'));
-        const preview=usable?active:(initial||active);
-        if (preview) {
-            const details=element('details',undefined,'molavi-reference-disclosure');
-            details.append(element('summary',preview===active?'نمونه و فایل فهرست فعال':'نمونهٔ نسخهٔ آمادهٔ بررسی'));
-            appendPreview(details,preview);current.append(details);
-        }
-        if (snapshots.length||review.failed_attempts) {
-            const history=element('details',undefined,'molavi-reference-disclosure');
-            history.append(element('summary','سابقهٔ دریافت'));
-            if (review.failed_attempts) history.append(element('p',formatCount(review.failed_attempts,'تلاش ناموفق برای همین فهرست')));
-            snapshots.forEach(item=>history.append(element('p',`${formatDate(item.last_checked_at||item.extracted_at)} · ${formatCount(item.row_count,'کالا')}${item===active?' · فعال':''}`)));
-            current.append(history);
+
+        if (refresh.state || snapshots.length || manualRefresh) {
+            const details = disclosure('داده‌ها و سابقه','molavi-reference-history');
+            if (refresh.state) {
+                const label = interrupted ? 'دریافت قبلی نیمه‌تمام ماند' : refreshLabel(refresh.state);
+                details.append(element('p',label+' · '+formatDate(refresh.last_attempt_at)));
+                if (refresh.state==='failed') details.append(element('p',refreshErrorText(refresh.error_code),'description'));
+            }
+            if (review.failed_attempts) {
+                details.append(element('p',formatCount(review.failed_attempts,'تلاش ناموفق برای همین فهرست'),'description'));
+            }
+            const preview = active || (initial?.reviewed_by ? initial : null);
+            if (preview) appendPreview(details,preview);
+            const past = snapshots.filter(item=>item!==active && item!==initial);
+            if (past.length) {
+                details.append(element('h3','نسخه‌های قبلی'));
+                const history = element('ul');
+                for (const item of past) {
+                    history.append(element('li',formatDate(item.extracted_at)+' · '+formatCount(item.row_count,'کالا')));
+                }
+                details.append(history);
+            }
+            if (manualRefresh) appendRefreshForm(details,refresh,'تازه‌سازی دستی از رزوان',false);
+            current.append(details);
         }
         root.append(current);
     }
 
-    async function load(message,kind='success') {
+    async function load(message,kind='success',quiet=false) {
+        if (loading && quiet) return;
         if (!config || !config.apiUrl || !config.apiProxyUrl || !config.apiProxyNonce) {
             root.replaceChildren(notice('اتصال فهرست قیمت تنظیم نشده است.', 'error'));
             return;
         }
-        root.replaceChildren(element('p', 'در حال بارگذاری قیمت‌ها…'));
+        const requestId = Symbol();
+        loading = requestId;
+        if (!quiet) root.replaceChildren(element('p','در حال بارگذاری فهرست…'));
         try {
             const data = await request('GET');
+            if (loading!==requestId || (quiet && (writing || editing()))) return;
             if (!Array.isArray(data.snapshots) || !Object.prototype.hasOwnProperty.call(data, 'active_snapshot_id')) {
                 throw new Error('invalid_response');
             }
+            const hadHistoryOpen = quiet && root.querySelector('.molavi-reference-history[open]');
+            const restoreFocus = hadHistoryOpen && hadHistoryOpen.contains(document.activeElement);
+            revision = data.refresh_state?.revision ?? null;
             render(data,message,kind);
-            if (message&&kind==='success') config.onUpdated?.(message);
+            const history = hadHistoryOpen && root.querySelector('.molavi-reference-history');
+            if (history) {
+                history.open = true;
+                if (restoreFocus) history.firstElementChild.focus({preventScroll:true});
+            }
+            if (message && kind==='success') config.onUpdated?.(message);
         } catch (error) {
-            root.replaceChildren(notice(messageText(error.message), 'error'));
-            addReloadButton(root);
+            if (!quiet && loading===requestId) {
+                root.replaceChildren(notice(messageText(error.message), 'error'));
+                addReloadButton(root);
+            }
+        } finally {
+            if (loading===requestId) loading = false;
         }
     }
 

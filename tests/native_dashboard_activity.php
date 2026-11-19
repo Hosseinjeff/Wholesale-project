@@ -6,7 +6,7 @@ function add_action(...$args){}
 function add_filter(...$args){}
 function get_option($name,$default=null){return $GLOBALS['activity_options'][$name]??$default;}
 
-foreach(['state-host','domain-core','domain-schemas','domain-bot-capabilities','domain-dashboard-activity','domain-reference-parser','domain-products','domain-publication-recovery','domain-reconciliation'] as $part) {
+foreach(['state-host','domain-core','domain-schemas','domain-bot-capabilities','domain-dashboard-activity','domain-reference-scheduler','domain-reference-parser','domain-products','domain-publication-recovery','domain-reconciliation'] as $part) {
     require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-'.$part.'.php';
 }
 function activity_check(bool $condition,string $message): void {
@@ -77,6 +77,30 @@ try {
     activity_check(molavi_domain_inbox_message_outcome([$record],'batch','123','supplier')==='no_product','explicit no-product receipt has a distinct outcome');
     activity_check(molavi_domain_inbox_message_outcome([$record,$record],'batch','123','supplier')==='unverified','duplicate messages cannot establish an extraction outcome');
     activity_check(molavi_domain_inbox_message_outcome([$record],'batch','123','other')==='unverified','an unrelated source cannot establish an outcome');
+    $referenceId=str_repeat('b',64);
+    $db=molavi_domain_db('reference');
+    molavi_domain_sql($db,"INSERT INTO reference_refresh_state(singleton,last_attempt_at,state,occurrence_id)
+        VALUES(1,?,'running','attempt-1')",[gmdate('c',$now)]);
+    molavi_domain_sql($db,"INSERT INTO molavi_state_locks VALUES('refresh','fixture',?)",[$now+10]);
+    $db->close();
+    $fetching=molavi_domain_dashboard_activity($now);
+    activity_check(in_array('reference_refresh',array_column($fetching['groups'],'kind'),true)
+        && strlen($fetching['reference_revision'])===64,'a leased catalog fetch appears in the activity feed');
+    $expired=molavi_domain_dashboard_activity($now+11);
+    activity_check(!in_array('reference_refresh',array_column($expired['groups'],'kind'),true)
+        && $expired['reference_revision']!==$fetching['reference_revision'],'an expired fetch changes the revision without displaying active work');
+    $db=molavi_domain_db('reference');
+    molavi_domain_sql($db,"UPDATE reference_refresh_state SET state='staged',snapshot_id=?",[$referenceId]);
+    molavi_domain_sql($db,"INSERT INTO reference_snapshots(snapshot_id,payload) VALUES (?,'{}')",[$referenceId]);
+    $staged=molavi_domain_reference_refresh_view($db,$now+11);
+    activity_check($staged['retry_at']===$now+60.0 && $staged['revision']!==$expired['reference_revision'],'the first catalog is staged with the actual retry time');
+    molavi_domain_sql($db,"UPDATE reference_snapshots SET reviewed_at=? WHERE snapshot_id=?",[gmdate('c',$now+12),$referenceId]);
+    $reviewed=molavi_domain_reference_refresh_view($db,$now+12);
+    activity_check($reviewed['revision']!==$staged['revision'],'catalog approval advances the activity revision');
+    molavi_domain_sql($db,'INSERT INTO reference_active VALUES (1,?)',[$referenceId]);
+    $db->close();
+    $activated=molavi_domain_dashboard_activity($now+13);
+    activity_check($activated['reference_revision']!==$reviewed['revision'],'catalog activation advances the activity revision');
     echo "PASS dashboard activity and daily quota\n";
 } finally {
     foreach (glob($root.'/*') as $file) unlink($file);

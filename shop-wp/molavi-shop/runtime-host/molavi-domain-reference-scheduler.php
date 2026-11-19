@@ -58,6 +58,24 @@ function molavi_domain_reference_refresh_state(): ?array {
         $row['change_summary']=!empty($row['change_summary'])?molavi_domain_decode($row['change_summary']):null;return $row;
     });
 }
+function molavi_domain_reference_refresh_view(SQLite3 $db,float $now): ?array {
+    $row=molavi_domain_row($db,"SELECT r.*, EXISTS(
+        SELECT 1 FROM molavi_state_locks WHERE name='refresh' AND expires>=? AND r.state='running'
+    ) AS in_progress, a.snapshot_id AS active_id, s.reviewed_at AS candidate_reviewed_at
+        FROM reference_refresh_state r
+        LEFT JOIN reference_active a ON a.singleton=r.singleton
+        LEFT JOIN reference_snapshots s ON s.snapshot_id=r.snapshot_id
+        WHERE r.singleton=1",[(int)$now]);
+    if(!$row)return null;
+    $row['in_progress']=(bool)$row['in_progress'];
+    $row['revision']=molavi_domain_hash([
+        $row['occurrence_id'],$row['state'],$row['snapshot_id'],$row['in_progress'],$row['active_id'],$row['candidate_reviewed_at']
+    ]);
+    unset($row['active_id'],$row['candidate_reviewed_at']);
+    $last=molavi_domain_timestamp($row['last_attempt_at']);
+    $row['retry_at']=$last!==null&&$row['state']!=='running'&&$last+60>$now?$last+60:null;
+    return $row;
+}
 function molavi_domain_reference_refresh(bool $force=false,?callable $fetch=null,?float $clock=null,?string $expected=null,bool $checkExpected=false): array {
     return molavi_domain_lock('refresh',static function()use($force,$fetch,$clock,$expected,$checkExpected):array {
         $now=$clock??microtime(true);$previous=molavi_domain_reference_refresh_state()??[];$last=$previous['last_attempt_at']??null;

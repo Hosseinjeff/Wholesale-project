@@ -21,6 +21,7 @@ const fixtures={
  const page=await browser.newPage({viewport:{width:1365,height:1000}});const errors=[];const writes=[];let failPrices=false;let acceptPrice=false;let offerPreviews=0;let latestRun='';let runComplete=false;let groupedLoads=0;
  let activeReads=0,maxActiveReads=0,transientStatusOnce=true,statusReads=0,changeReads=0,catalogSearches=0,titleReads=0;
  let marketReads=0,marketSource=null;
+ let referenceRevision=null;
  let inboxMessages=[],inboxRevision='initial',inboxOfferReads=0,dashboardDismissals=[];
  page.on('pageerror',e=>errors.push(e.message));
  await page.route('**/*',async route=>{
@@ -36,6 +37,22 @@ const fixtures={
       const applied_count=snap.reference_review.pending_count;
       snap.reference_review={state:'using_saved',pending_count:0,failed_attempts:10,decision_token:null};
       return route.fulfill({json:{ok:true,...payload,applied_count}});
+    }
+    if(path==='/reference/snapshots'){
+      const payload=JSON.parse(f.get('payload'));
+      const snap=fixtures[path];
+      if(payload.action==='review'){
+        assert.equal(payload.snapshot_id,snap.snapshots[0].snapshot_id);
+        assert.equal(payload.expected_active_id,null);
+        assert.equal(payload.note,'قیمت و مشخصات بررسی شد');
+        snap.snapshots[0].reviewed_by='owner';
+        return route.fulfill({json:{ok:true,...payload}});
+      }
+      if(payload.action==='activate'){
+        assert.equal(snap.snapshots[0].reviewed_by,'owner');
+        snap.active_snapshot_id=payload.snapshot_id;
+        return route.fulfill({json:{ok:true,...payload,active_snapshot_id:payload.snapshot_id,projection_state:'written',row_count:3390}});
+      }
     }
     if(path==='/pipeline/ai-confirmations'&&JSON.parse(f.get('payload')||'{}').action==='start_offer_reextraction'){
       const payload=JSON.parse(f.get('payload'));
@@ -95,7 +112,7 @@ const fixtures={
     }
     if(failPrices&&path==='/pipeline/supplier-price-evidence')return await route.fulfill({status:503,json:{ok:false,error:'upstream_unavailable'}});
     if (path==='/pipeline/dashboard-activity') {
-     return await route.fulfill({json:{ok:true,inbox_revision:inboxRevision,groups:[
+     return await route.fulfill({json:{ok:true,inbox_revision:inboxRevision,reference_revision:referenceRevision,groups:[
       {kind:'reextract',state:'running',total:8,completed:3},
       {kind:'reference_index',state:'quota_wait',model:'gemini-embedding-001',total:50,completed:20,
        retry_at:Date.now()/1000+3600},
@@ -478,23 +495,57 @@ const fixtures={
  cases.pop();
  const refId='a'.repeat(64);
  fixtures['/reference/snapshots']={active_snapshot_id:refId,snapshots:[{
-  snapshot_id:refId,source_type:'woocommerce_store_api',coverage_verified:true,row_count:3390,last_checked_at:now
+  snapshot_id:refId,source_type:'woocommerce_store_api',coverage_verified:true,row_count:3390,last_checked_at:now,
+  preview:[{source_product_id:'12',product_name:'آبمیوه پرتقال',unit_price:12000,package_count:12}]
  }],refresh_state:{state:'running',in_progress:false,last_attempt_at:now},
  reference_review:{state:'awaiting_owner',pending_count:10,failed_attempts:10,decision_token:'b'.repeat(64)}};
  fixtures['/reference/decisions'].events=Array.from({length:10},(_,i)=>({event_id:'failed-'+i,reason:'refresh_failed',snapshot_id:refId}));
  await mount('',true);
  await page.getByRole('button',{name:'فهرست مرجع',exact:true}).click();
  const list=page.locator('.md-reference-catalog');
- await list.getByText('تطبیق منتظر تصمیم شماست',{exact:true}).waitFor();
+ await list.getByRole('heading',{name:'دریافت فهرست کامل نشد'}).waitFor();
  assert.equal(await list.locator('.molavi-reference-summary').count(),1);
  assert.equal(await list.getByText('دریافت مرجع نیاز به پیگیری دارد',{exact:true}).count(),0);
- assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'reference summary fits mobile');
  await list.getByRole('button',{name:'دریافت دوباره از رزوان',exact:true}).waitFor();
- await list.getByRole('button',{name:'توقف تطبیق',exact:true}).waitFor();
- assert.equal(await list.locator('details[open]').count(),0,'decisions are visible while previews and history stay collapsed');
+ assert.equal(await list.getByRole('button').count(),1,'retry is the only visible button before an owner opens alternatives');
+ await list.getByText('تصمیم دربارهٔ فهرست ذخیره‌شده',{exact:true}).click();
+ await list.getByRole('button',{name:'توقف تطبیق تا دریافت فهرست تازه',exact:true}).waitFor();
  await list.getByRole('button',{name:'ادامه با فهرست ذخیره‌شده',exact:true}).click();
- await list.getByText('تطبیق با فهرست ذخیره‌شده انجام می‌شود',{exact:true}).waitFor();
+ await list.getByRole('heading',{name:'تطبیق با فهرست ذخیره‌شده انجام می‌شود'}).waitFor();
  assert.equal(writes.filter(write=>write.path==='/reference/snapshots').length,1,'reference decisions send one scoped receipt');
+ assert.equal(await list.getByRole('button').count(),0,'a working catalog has no required action');
+ await list.getByText('داده‌ها و سابقه',{exact:true}).click();
+ await list.getByText('آبمیوه پرتقال',{exact:true}).waitFor();
+ assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'an open reference preview fits mobile');
+ await list.getByRole('button',{name:'تازه‌سازی دستی از رزوان',exact:true}).waitFor();
+
+ const catalog=fixtures['/reference/snapshots'];
+ catalog.refresh_state={state:'running',in_progress:true,last_attempt_at:now,revision:'running'};
+ referenceRevision='running';
+ await mount('',true,true);
+ await page.getByRole('button',{name:'فهرست مرجع',exact:true}).click();
+ await list.getByRole('heading',{name:'دریافت فهرست در جریان است'}).waitFor();
+ assert.equal(await list.getByRole('button').count(),0,'activity keeps a running refresh current without presenting controls');
+ catalog.refresh_state={state:'updated',last_attempt_at:now,revision:'updated',change_summary:{updated_count:12}};
+ catalog.reference_review={state:'ready'};
+ referenceRevision='updated';
+ await list.getByRole('heading',{name:'فهرست برای تطبیق آماده است'}).waitFor({timeout:15000});
+ await list.getByText(/۱۲ تغییر کرد/).waitFor();
+
+ catalog.active_snapshot_id=null;
+ catalog.refresh_state={state:'staged',last_attempt_at:now,revision:'staged'};
+ catalog.reference_review={state:'missing'};
+ await mount('',true);
+ await page.getByRole('button',{name:'فهرست مرجع',exact:true}).click();
+ await list.getByRole('heading',{name:'نسخهٔ نخست آمادهٔ بررسی است'}).waitFor();
+ assert.equal(await list.getByRole('button',{name:'فعال‌سازی مرجع'}).count(),0,'activation waits for review');
+ await list.getByText('بررسی نسخهٔ نخست',{exact:true}).click();
+ await list.getByLabel('یادداشت بررسی').fill('قیمت و مشخصات بررسی شد');
+ await list.getByRole('button',{name:'ثبت بررسی',exact:true}).click();
+ await list.getByRole('heading',{name:'فهرست آمادهٔ فعال‌سازی است'}).waitFor();
+ page.once('dialog',dialog=>dialog.accept());
+ await list.getByRole('button',{name:'فعال‌سازی مرجع',exact:true}).click();
+ await list.getByRole('heading',{name:'فهرست برای تطبیق آماده است'}).waitFor();
  assert.deepEqual(errors,[]);
  console.log(JSON.stringify({passed:true,errors,writes:writes.length,captures:['/tmp/molavi-dashboard-desktop.png','/tmp/molavi-dashboard-mobile.png']}));
  await browser.close();

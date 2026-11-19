@@ -1892,13 +1892,14 @@
             renderMarketPrice: marketPriceReview,
             renderReferenceTools: productReferenceTools,
             renderReferences: panel => {
-                const catalog = node('div');
+                const catalog = node('div',null,'molavi-reference-panel');
                 panel.appendChild(catalog);
                 window.MolaviReferenceCatalog.mount(catalog,{
                     apiUrl:new URL('/reference/snapshots',config.apiUrl).toString(),
                     apiProxyUrl:config.apiProxyUrl,apiProxyNonce:config.apiProxyNonce,
+                    liveActivity:Boolean(config.dashboardActivity),
                     onRefresh:running=>dashboardApp.setReferenceRefresh(running),
-                    onUpdated:message=>dashboard(message,'success',['reference_items','product_status','reference_decisions','operations'])
+                    onUpdated:()=>dashboard('','info',['reference_items','product_status','reference_decisions','operations'])
                 });
             },
             reconcile:reconcileStorefront,

@@ -197,6 +197,7 @@
                 activityReport=report;
                 activityStale=false;
                 if (inboxChanged) refreshInbox(report.inbox_revision);
+                refreshReferenceView(report.reference_revision);
             }).catch(()=>{activityStale=true;}).finally(()=>{
                 activityRequest=null;
                 paintActivity();
@@ -208,6 +209,10 @@
         }
         function refreshInbox(revision) {
             main.querySelector('.molavi-inbox')?.dispatchEvent(new CustomEvent('molavi-inbox-refresh',{detail:revision}));
+        }
+        function refreshReferenceView(revision) {
+            if (!revision||state.view!=='references') return;
+            main.querySelector('.molavi-reference-panel')?.dispatchEvent(new CustomEvent('molavi-reference-refresh',{detail:revision}));
         }
         function setReferenceRefresh(running) {
             updatingReference=running;
@@ -233,7 +238,8 @@
         function navigate(view, product=null) {
             if(view==='sources'&&product){state.sourceContext=product;state.pageCache.delete('sources');}
             state.view=view;saveURL();paint();main.scrollIntoView({block:'start',behavior:'smooth'});
-            if(view==='sources') refreshActivity();
+            if(view==='references') refreshReferenceView(activityReport?.reference_revision);
+            if(view==='sources'||view==='references') refreshActivity();
         }
         function facts(rows) {
             const list=el('dl',null,'md-facts');
@@ -548,7 +554,8 @@
             else {
                 if(!state.pageCache.has(state.view))state.pageCache.set(state.view,
                     state.view==='references'?referencesView():state.view==='sources'?sourcesView():systemView());
-                main.replaceChildren(state.pageCache.get(state.view));
+                const page=state.pageCache.get(state.view);
+                if(main.firstElementChild!==page) main.replaceChildren(page);
                 if(state.view==='sources') refreshInbox();
             }
         }
@@ -607,7 +614,11 @@
                 const focused=model.products.find(matches);
                 if(focused){state.active=focused.key;state.section=['next','deferred'].includes(next(focused))?'source_integrity':next(focused);}
             }
-            state.panels.clear();state.pageCache.clear();healthView();paint();
+            const references=state.view==='references'&&state.pageCache.get('references');
+            state.panels.clear();
+            state.pageCache.clear();
+            if(references) state.pageCache.set('references',references);
+            healthView();paint();
         }
         async function reviewHold(id) {
             navigate('system');
