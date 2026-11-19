@@ -37,6 +37,10 @@ class GoogleProviderError(ValueError):
     """Intentionally excludes provider response bodies and credentials."""
 
 
+class GoogleModelUnavailable(GoogleProviderError):
+    """The configured model endpoint rejected the project's access."""
+
+
 @dataclass(frozen=True)
 class ModelBudget:
     model: str
@@ -139,11 +143,13 @@ class FreeGoogleRouter:
         finally:
             db.close()
 
-    def reserve(self, task, tokens, *, api='generate', model=None, background=False, excluded=()):
+    def reserve(self, task, tokens, *, api='generate', model=None, background=False, excluded=(),
+                excluded_models=()):
         if type(tokens) is not int or tokens < 1:
             raise QuotaConfigurationError('Positive input token reservation required')
         eligible = [item for item in self.models if task in item.tasks and item.api == api
-                    and (model is None or item.model == model) and item.bucket not in excluded]
+                    and (model is None or item.model == model) and item.bucket not in excluded
+                    and item.model not in excluded_models]
         if not eligible:
             raise QuotaConfigurationError('No qualified free model configured for this task')
         now = self.clock()
@@ -162,9 +168,10 @@ class FreeGoogleRouter:
                                   (self.project, item.bucket, day, now - 60)).fetchall()
                 today = sum(row['day'] == day for row in rows)
                 minute = [row for row in rows if row['started'] > now - 60]
-                block = db.execute('SELECT until FROM google_quota_blocks WHERE project=? AND bucket=?',
-                                   (self.project, item.bucket)).fetchone()
-                available = max(now, block['until'] if block else now)
+                block = db.execute('SELECT MAX(until) AS until FROM google_quota_blocks '
+                                   'WHERE project=? AND bucket IN (?,?)',
+                                   (self.project, item.bucket, 'model:' + item.model)).fetchone()
+                available = max(now, block['until'] or now)
                 cap = item.rpd - (item.reserve_rpd if background else 0)
                 if today >= cap:
                     available = max(available, reset)
@@ -178,14 +185,13 @@ class FreeGoogleRouter:
                 if available > now:
                     waits.append(available)
                 else:
-                    # Spread work across qualified models in proportion to daily
-                    # allowance; configuration order breaks ties.
-                    ready.append((today / cap, position, item))
+                    # Prefer a task's dedicated capacity, then balance the remaining pool.
+                    ready.append((len(set(item.tasks)) != 1, today / cap, position, item))
             if not ready:
                 if not waits:
                     raise QuotaConfigurationError('Input exceeds every qualified model token budget')
                 raise QuotaDeferred(min(waits))
-            item = min(ready, key=lambda value: value[:2])[2]
+            item = min(ready, key=lambda value: value[:3])[3]
             ticket = uuid4().hex
             db.execute('INSERT INTO google_quota_requests VALUES (?,?,?,?,?,?,?,?)',
                        (ticket, self.project, item.bucket, item.model, task, now, day, tokens))
@@ -217,26 +223,30 @@ class FreeGoogleRouter:
                         until = max(until, now + min(delay, 86400))
         except (ValueError, TypeError, AttributeError):
             pass
+        self._set_block(item.bucket, until)
+        return until
+
+    def _set_block(self, key, until):
         with self.connect() as db:
             db.execute('INSERT INTO google_quota_blocks VALUES (?,?,?) '
                        'ON CONFLICT(project,bucket) DO UPDATE SET until=MAX(until,excluded.until)',
-                       (self.project, item.bucket, until))
-        return until
+                       (self.project, key, until))
 
     def request(self, task, payload, *, session, api_key, api='generate', model=None, background=False):
-        """Try each qualified quota bucket at most once; never sleep or buy capacity."""
-        excluded, waits = set(), []
+        """Try qualified models within their budgets; never sleep or buy capacity."""
+        excluded, unavailable, waits = set(), {}, []
         eligible = [item for item in self.models if task in item.tasks and item.api == api
                     and (model is None or item.model == model)]
-        while any(item.bucket not in excluded for item in eligible):
+        while any(item.bucket not in excluded and item.model not in unavailable for item in eligible):
             try:
                 item, ticket = self.reserve(task, input_token_bound(payload), api=api, model=model,
-                                            background=background, excluded=excluded)
+                                            background=background, excluded=excluded,
+                                            excluded_models=unavailable)
             except QuotaDeferred as exc:
-                raise QuotaDeferred(min([exc.retry_at, *waits])) from None
+                raise QuotaDeferred(min([exc.retry_at, *waits, *unavailable.values()])) from None
             except QuotaConfigurationError:
                 if waits:
-                    raise QuotaDeferred(min(waits)) from None
+                    raise QuotaDeferred(min([*waits, *unavailable.values()])) from None
                 raise
             body = dict(payload)
             name = quote(item.model, safe='-._')
@@ -258,6 +268,11 @@ class FreeGoogleRouter:
                 waits.append(self.block(item, response))
                 excluded.add(item.bucket)
                 continue
+            if response.status_code == 404:
+                retry_at = self.clock() + 900
+                self._set_block('model:' + item.model, retry_at)
+                unavailable[item.model] = retry_at
+                continue
             if response.status_code != 200:
                 raise GoogleProviderError(f'Google model {item.model} failed (HTTP {response.status_code})')
             try:
@@ -269,7 +284,9 @@ class FreeGoogleRouter:
             self._account(ticket, data)
             return data, item.model
         if waits:
-            raise QuotaDeferred(min(waits))
+            raise QuotaDeferred(min([*waits, *unavailable.values()]))
+        if unavailable:
+            raise GoogleModelUnavailable('Configured Google models unavailable (HTTP 404)')
         raise QuotaConfigurationError('No qualified free model configured for this task')
 
     def cached(self, key):

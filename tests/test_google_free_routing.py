@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 
 from catalog.google_quota import (
     FreeGoogleRouter, ModelBudget, QuotaConfigurationError, QuotaDeferred,
-    GoogleProviderError, configured_router, pacific_day,
+    GoogleModelUnavailable, GoogleProviderError, configured_router, pacific_day,
 )
 from catalog.gemini import extract_message_products
 from catalog.durable import Handoffs
@@ -108,6 +108,41 @@ class FreeRoutingTests(RoutingFixture):
             router.reserve('match', 1)
         with self.assertRaises(QuotaConfigurationError):
             self.router(a, ModelBudget('alias-b', ('match',), 100, 100000, 2, bucket='shared'))
+
+    def test_404_falls_through_a_shared_bucket_without_repeatedly_calling_the_missing_alias(self):
+        missing = ModelBudget('retired-alias', ('match',), 10, 100000, 5, bucket='shared')
+        available = ModelBudget('valid-alias', ('match',), 10, 100000, 5, bucket='shared')
+        router = self.router(missing, available)
+        session = Session(Response({}, status=404), Response({}), Response({}))
+        result = router.request('match', {}, session=session, api_key='synthetic')
+        self.assertEqual(result[1], 'valid-alias')
+        result = self.router(missing, available).request('match', {}, session=session, api_key='synthetic')
+        self.assertEqual(result[1], 'valid-alias')
+        self.assertEqual([url.split('/')[-1].split(':')[0] for url, _ in session.calls],
+                         ['retired-alias', 'valid-alias', 'valid-alias'])
+        self.assertEqual(router.status()[0]['rpd_used'], 3)
+
+    def test_explicit_model_pin_preserves_unavailable_error_without_trying_another_model(self):
+        router = self.router(budget('retired'), budget('available'))
+        session = Session(Response({}, status=404))
+        with self.assertRaises(GoogleModelUnavailable):
+            router.request('extract', {}, session=session, api_key='synthetic', model='retired')
+        self.assertEqual(len(session.calls), 1)
+
+    def test_retry_accounts_for_the_inaccessible_model_cooldown_when_other_capacity_is_used(self):
+        router = self.router(budget('unavailable'), budget('exhausted', rpd=1))
+        router.reserve('match', 10, model='exhausted')
+        session = Session(Response({}, status=404))
+        with self.assertRaises(QuotaDeferred) as caught:
+            router.request('match', {}, session=session, api_key='synthetic')
+        self.assertEqual(caught.exception.retry_at, self.now + 900)
+
+    def test_dedicated_match_capacity_is_used_before_shared_extraction_capacity(self):
+        router = self.router(budget('shared-generative'), budget('match-only', tasks=['match'], rpd=2))
+        self.assertEqual(router.reserve('match', 10)[0].model, 'match-only')
+        self.assertEqual(router.reserve('extract', 10)[0].model, 'shared-generative')
+        self.assertEqual(router.reserve('match', 10)[0].model, 'match-only')
+        self.assertEqual(router.reserve('match', 10)[0].model, 'shared-generative')
 
     def test_different_projects_do_not_share_local_counters(self):
         item = ModelBudget('a', ('match',), 100, 100000, 1, bucket='a')
@@ -432,6 +467,16 @@ class ReferenceAITests(RoutingFixture):
         self.assertIsNone(second['reference_id'])
         self.assertEqual(second['state'], 'needs_review')
         self.assertEqual(second['model'], 'flash-a')
+
+    def test_unavailable_decision_endpoint_falls_through_to_generation(self):
+        decision = ModelBudget('decision-retired', ('match',), 10, 100000, 10,
+                               api='decide', bucket='decision-retired')
+        service = ReferenceSuggestions(self.router(decision, budget()))
+        session = Session(Response({}, status=404),
+                          generation({'reference_id': 'r1', 'confidence': .9, 'reason': 'same product'}))
+        result = service.suggest({'name': 'چای ممتاز'}, [row()], snapshot_id='s1', session=session, api_key='synthetic')
+        self.assertEqual(result['model'], 'flash-a')
+        self.assertEqual(result['reference_id'], 'r1')
 
     def test_exact_match_skips_embedding_and_comparison_calls(self):
         router = self.embed_router()

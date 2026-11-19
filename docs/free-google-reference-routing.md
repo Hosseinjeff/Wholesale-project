@@ -1,15 +1,27 @@
 # Free Google quota routing and reference suggestions
 
-Updated 2026-11-18, Asia/Tehran. Staging runs verified free routing at `b95e93b`,
-Railway deployment `36ca155e-c0b3-487a-a385-84737ef10bbf`. The owner supplied
-the active AI Studio project limits. The lower allocations leave room for other
-project traffic, including the current production executor.
+Updated 2026-11-19, Asia/Tehran. Free routing was verified at `b95e93b`,
+Railway deployment `36ca155e-c0b3-487a-a385-84737ef10bbf`. The currently deployed
+staging bot is `b909736`. Its WordPress activity response showed quota totals as
+unavailable during the November 19 check. The owner supplied the model limits
+below for the earlier verified release. Staging allocations leave room for other
+project traffic, including the production executor.
 
 | Model | Google project RPM / TPM / RPD | Staging RPM / TPM / RPD |
 | --- | ---: | ---: |
 | Gemini 3.5 Flash-Lite | 15 / 250,000 / 500 | 3 / 50,000 / 50 |
 | Gemini 3.1 Flash-Lite | 15 / 250,000 / 500 | 12 / 200,000 / 450 |
 | Gemini Embedding 001 | 100 / 30,000 / 1,000 | 80 / 27,000 / 950 |
+
+## November 19 provider checks
+
+With the workspace project key, Gemini 2.5 Flash returned a Google-grounded shopping response with one cited source. It also extracted the correct unit, carton, and consumer amounts from a synthetic Persian listing. One ambiguous catalog comparison returned a valid no-match response. Another returned incomplete output under the existing matching request settings. Gemini 2.0 Flash and 2.5 Flash-Lite returned HTTP 404 for grounding. Gemini 3.5 Flash-Lite returned HTTP 429 with a billing-access message when grounding was enabled. Attempts to qualify 3.6 Flash, 3.8 Flash, and the two advertised Gemma 4 models ended in timeouts or provider unavailability, so they have no production allocation.
+
+The Search grounding rows in AI Studio describe the tool. Extraction and catalog matching require the underlying model’s active RPM, TPM, and RPD limits. The workspace service account received HTTP 403 when reading Cloud Quotas. Keep the last verified model allocations until the active AI Studio model rows are available. [Google rate limits](https://aistudio.google.com/docs/rate-limits) · [Google pricing](https://aistudio.google.com/docs/pricing#pricing-for-tools)
+
+Google schedules API requests to `gemini-2.5-flash` to move to 3.5 Flash-Lite on December 1, 2026. Its Search grounding terms forbid collecting grounded links for crawling or indexing. Scheduled product price discovery uses the separate market-search integration, and WordPress verifies prices on the retailer pages it can access. [Google deprecations](https://aistudio.google.com/docs/deprecations#gemini-2.5-flash-models) · [Google Search grounding terms](https://aistudio.google.com/docs/terms)
+
+## Verified staging allocation
 
 Both Flash-Lite models passed the synthetic extraction and reference comparison
 checks, including an explicit no-match case. The Embedding 001 allocation reserves
@@ -56,9 +68,11 @@ text so they work through the WordPress transaction transport.
 
 Different models have independent buckets by default. Aliases that Google counts
 together must share a bucket and identical limits. Only qualified models can receive
-a task. Routing spreads generation work by fraction of daily capacity used, breaking
-ties in configuration order. Matching tries configured API types in configuration
-order, allowing Decision capacity and generation capacity to complement each other.
+a task. A match-only or extraction-only model takes the task first when its allowance
+is available. Mixed-task models remain available as fallback and balance by fraction
+of daily capacity used, breaking ties in configuration order. Matching tries configured
+API types in configuration order, allowing Decision capacity and generation capacity
+to complement each other.
 An explicit model override can only select a configured qualified model.
 
 The API key must belong to the verified **Free-tier API project**. Google enforces
@@ -112,8 +126,10 @@ Google input-token usage reconciles the reservation. Image extraction is disable
 models cannot be configured with an OCR task.
 
 Failed/unknown requests are not refunded. Structured daily 429s block that bucket
-until midnight Pacific; minute/unknown 429s and 503s create a bounded cooldown. Each
-qualified bucket is tried at most once per call. Exhaustion returns `QuotaDeferred`
+until midnight Pacific. Minute or unknown 429s and 503s create a bounded bucket cooldown.
+A 404 pauses the specific model for 15 minutes and allows the next qualified model to
+use its remaining allocation, including a working alias in the same bucket. An explicit
+model pin still applies. Exhaustion returns `QuotaDeferred`
 with the next retry time instead of sleeping. Existing durable intake/re-extraction
 jobs retain that due time and do not consume failure retries. WordPress's established
 due-work scheduler can wake the on-demand executor then. No new idle process or poll

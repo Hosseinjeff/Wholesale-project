@@ -8,7 +8,7 @@ import heapq
 import json
 import math
 
-from catalog.google_quota import GoogleProviderError, QuotaDeferred
+from catalog.google_quota import GoogleModelUnavailable, GoogleProviderError, QuotaDeferred
 from .matching import (RankedCandidateIndex, _reference, candidate_match,
                        explicit_reference_conflicts)
 from .importer import HEADERS
@@ -233,6 +233,7 @@ class ReferenceSuggestions:
         )
         apis = list(dict.fromkeys(item.api for item in self.router.models if 'match' in item.tasks))
         waits = []
+        unavailable = None
         for api in apis:
             if api == 'decide':
                 criteria = {f'c{i}': json.dumps(value, ensure_ascii=False)
@@ -251,6 +252,9 @@ class ReferenceSuggestions:
                     session=session, api_key=api_key)
             except QuotaDeferred as exc:
                 waits.append(exc.retry_at)
+                continue
+            except GoogleModelUnavailable as exc:
+                unavailable = exc
                 continue
             if api == 'decide':
                 answer = (data.get('answers') or {}).get('reference') or {}
@@ -282,4 +286,6 @@ class ReferenceSuggestions:
             return {key: result[key] for key in ('reference_id', 'confidence', 'reason')} | {'model': selected}
         if waits:
             raise QuotaDeferred(min(waits))
+        if unavailable is not None:
+            raise unavailable
         raise GoogleProviderError('No qualified free matching model configured')
