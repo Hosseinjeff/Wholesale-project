@@ -171,11 +171,11 @@ function molavi_domain_market_run(int $now,?callable $fetch=null): void {
     $day=gmdate('Y-m-d',$now);$canDiscover=molavi_domain_market_key()!=='';
     $row=molavi_domain_tx('reference',static function(SQLite3 $db)use($now,$day,$canDiscover): ?array {
         $used=(int)(molavi_domain_row($db,'SELECT used FROM market_price_budget WHERE day=?',[$day])['used']??0);
-        if ($used>=25||molavi_domain_row($db,"SELECT 1 FROM market_price_lookups WHERE state='searching' AND attempted_at>? LIMIT 1",[$now-60])) return null;
+        if (molavi_domain_row($db,"SELECT 1 FROM market_price_lookups WHERE state='searching' AND attempted_at>? LIMIT 1",[$now-60])) return null;
         $row=molavi_domain_row($db,'SELECT * FROM market_price_lookups WHERE active=1 AND next_at<=? AND (?=1 OR selected_url IS NOT NULL)
-            ORDER BY priority DESC,next_at,lookup_key LIMIT 1',[$now,$canDiscover]);
+            ORDER BY priority DESC,next_at,lookup_key LIMIT 1',[$now,$canDiscover&&$used<25]);
         if (!$row) return null;
-        molavi_domain_sql($db,'INSERT INTO market_price_budget VALUES(?,1) ON CONFLICT(day) DO UPDATE SET used=used+1',[$day]);
+        if (!$row['selected_url']) molavi_domain_sql($db,'INSERT INTO market_price_budget VALUES(?,1) ON CONFLICT(day) DO UPDATE SET used=used+1',[$day]);
         molavi_domain_sql($db,"UPDATE market_price_lookups SET state='searching',attempted_at=?,next_at=?,priority=0 WHERE lookup_key=?",
             [$now,$now+300,$row['lookup_key']]);
         return $row;

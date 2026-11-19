@@ -424,7 +424,7 @@ Products with no consumer price can use the existing owner review flow to compar
 
 Entire-web discovery uses [Tavily Search](https://docs.tavily.com/documentation/api-reference/endpoint/search). Set `MOLAVI_TAVILY_API_KEY` in the protected WordPress configuration or `TAVILY_API_KEY` in the WordPress process environment. Without a search key, owners can verify a retailer’s product URL and save it for periodic checks.
 
-The native WordPress cron uses the catalog reference’s 24-hour interval for each lookup, processes one due item per tick, and caps checks at 25 per UTC day. Owner requests move a due item ahead of the background queue. An unavailable page preserves the last checked evidence with its timestamp.
+The native WordPress cron uses the catalog reference’s 24-hour interval for each lookup and processes one due item per tick. It caps web discovery at 25 searches per UTC day. Checks of selected retailer links can continue after the discovery budget is reached. Owner requests move a due item ahead of the background queue. An unavailable page preserves the last checked evidence with its timestamp.
 
 ## Final live cutover
 
