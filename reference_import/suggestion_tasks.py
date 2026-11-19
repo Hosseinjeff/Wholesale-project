@@ -17,9 +17,10 @@ def policy_version():
     settings = [POLICY, os.getenv('GOOGLE_FREE_ROUTING', ''),
                 os.getenv('GOOGLE_FREE_MODELS', ''),
                 os.getenv('GOOGLE_REFERENCE_EMBEDDING_MODEL', '')]
-    matching = os.getenv('GOOGLE_FREE_MATCH_MODELS', '')
-    if matching:
-        settings.append(matching)
+    for setting in ('GOOGLE_FREE_MATCH_MODELS', 'GOOGLE_FREE_EMBED_MODELS',
+                    'GOOGLE_REFERENCE_EMBEDDING_FALLBACK_MODEL'):
+        if value := os.getenv(setting):
+            settings.append([setting, value])
     return hashlib.sha256(json.dumps(settings).encode()).hexdigest()
 
 
@@ -109,9 +110,11 @@ def run_suggestion(queue, context, sheet_store, reference_store):
         return superseded
     router = configured_router()
     model = os.getenv('GOOGLE_REFERENCE_EMBEDDING_MODEL', '').strip() if router else None
+    fallback = os.getenv('GOOGLE_REFERENCE_EMBEDDING_FALLBACK_MODEL', '').strip() if router else None
     import requests
     with requests.Session() as session:
-        suggestion = ReferenceSuggestions(router, embedding_model=model or None).suggest(
+        suggestion = ReferenceSuggestions(router, embedding_model=model,
+                                          fallback_embedding_model=fallback).suggest(
             resolved[0], snapshot['rows'], snapshot_id=snapshot['snapshot_id'],
             source_text=resolved[1], overrides=ledger.overrides(snapshot['snapshot_id']),
             session=session, api_key=google_api_key() if router else '')

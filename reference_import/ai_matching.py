@@ -17,7 +17,7 @@ from .importer import HEADERS
 
 IDENTITY_FIELDS = ('name', 'clean_name', 'brand', 'category', 'variant',
                    'package_count', 'volume', 'weight')
-POLICY = 'reference-source-context-v3'
+POLICY = 'reference-source-context-v4'
 # Matching policy changes do not change the embedding input/task format. Preserve
 # the previous namespace rather than spending quota regenerating valid vectors.
 EMBEDDING_POLICY = 'reference-ai-suggestion-v1'
@@ -56,6 +56,19 @@ def _generated_choice(data, choices):
     if not isinstance(choice, str) or choice not in choices:
         raise GoogleProviderError('Google returned an unknown catalog choice')
     return choices[choice]
+
+
+def _decision_suggestion(data, choices):
+    answers = data.get('answers')
+    answer = answers.get('reference') if isinstance(answers, dict) else None
+    choice = answer.get('choice') if isinstance(answer, dict) else None
+    if not isinstance(choice, str) or choice not in choices:
+        raise GoogleProviderError('Google returned an unknown reference choice')
+    confidence = answer.get('confidence')
+    if type(confidence) not in {int, float} or not 0 <= confidence <= 1:
+        raise GoogleProviderError('Google returned an invalid reference confidence')
+    return {'reference_id': choices[choice], 'confidence': confidence,
+            'reason': 'decision_model_suggestion'}
 
 
 class EmbeddingIndex:
@@ -161,11 +174,14 @@ class EmbeddingIndex:
 
 
 class ReferenceSuggestions:
-    def __init__(self, router, *, embedding_model=None):
+    def __init__(self, router, *, embedding_model=None, fallback_embedding_model=None):
         self.router = router
-        if embedding_model and router is None:
+        if (embedding_model or fallback_embedding_model) and router is None:
             raise ValueError('An embedding model requires configured free routing')
         self.embeddings = EmbeddingIndex(router, embedding_model) if embedding_model else None
+        self.fallback_embeddings = (EmbeddingIndex(router, fallback_embedding_model)
+                                    if fallback_embedding_model and fallback_embedding_model != embedding_model
+                                    else None)
 
     def suggest(self, product, rows, *, snapshot_id, session=None, api_key='', source_text='', overrides=None):
         if not isinstance(snapshot_id, str) or not snapshot_id:
@@ -187,15 +203,21 @@ class ReferenceSuggestions:
         semantic, retrieval_wait = [], None
         source_context = ' '.join(source_text[:1600].split())
         has_name = bool(str(product.get('clean_name') or product.get('name') or '').strip())
-        if self.embeddings and filtered and (has_name or source_context) and api_key:
-            try:
-                semantic = self.embeddings.search(product, filtered, session=session, api_key=api_key,
-                                                  source_context=source_context)
-            except QuotaDeferred as exc:
-                retrieval_wait = exc.retry_at
-            except GoogleProviderError:
-                # A failed embedding must not hide compatible text results.
-                pass
+        if filtered and (has_name or source_context) and api_key:
+            for index in (self.embeddings, self.fallback_embeddings):
+                if index is None:
+                    continue
+                try:
+                    semantic = index.search(product, filtered, session=session, api_key=api_key,
+                                            source_context=source_context)
+                except QuotaDeferred as exc:
+                    retrieval_wait = min(retrieval_wait or exc.retry_at, exc.retry_at)
+                except (GoogleProviderError, QuotaConfigurationError):
+                    # A failed index can still leave a compatible previous index or text results.
+                    continue
+                if semantic:
+                    retrieval_wait = None
+                    break
         verified_brand_ids = {candidate['reference_id'] for candidate in lexical
                               if candidate['component_scores'].get('brand') == 1}
         if verified_brand_ids:
@@ -254,10 +276,8 @@ class ReferenceSuggestions:
             'Select no_match when identity is ambiguous, conflicts, or is not in the list. '
             'This is a suggestion for owner review, not approval. '
         )
-        apis = list(dict.fromkeys(item.api for item in self.router.models if 'match' in item.tasks))
-        if 'generate_choice' in apis:
-            apis.remove('generate_choice')
-            apis.insert(0, 'generate_choice')
+        configured_apis = {item.api for item in self.router.models if 'match' in item.tasks}
+        apis = [api for api in ('generate_choice', 'decide', 'generate') if api in configured_apis]
         waits = []
         failure = None
         for api in apis:
@@ -268,6 +288,9 @@ class ReferenceSuggestions:
                 criteria['no_match'] = 'No unique compatible reference product'
                 payload = {'input': material, 'questions': {'reference': {
                     'type': 'choice', 'instructions': instruction, 'criteria': criteria}}}
+                choices = {f'c{i}': value['reference_id'] for i, value in enumerate(candidates)}
+                choices['no_match'] = None
+                options['validate'] = lambda data: _decision_suggestion(data, choices)
             elif api == 'generate_choice':
                 records = [{**value, 'choice': chr(ord('A') + i)} for i, value in enumerate(candidates)]
                 choices = {row['choice']: row['reference_id'] for row in records}
@@ -303,7 +326,7 @@ class ReferenceSuggestions:
                 failure = exc
                 continue
             except (GoogleProviderError, QuotaConfigurationError) as exc:
-                if api != 'generate_choice':
+                if api == 'generate':
                     raise
                 failure = exc
                 continue
@@ -311,16 +334,8 @@ class ReferenceSuggestions:
                 return {'reference_id': data, 'confidence': None, 'model': selected,
                         'reason': 'catalog_candidate_selected' if data else 'no_unique_reference'}
             if api == 'decide':
-                answer = (data.get('answers') or {}).get('reference') or {}
-                choice = answer.get('choice')
-                options = {f'c{i}': value['reference_id'] for i, value in enumerate(candidates)}
-                options['no_match'] = None
-                if not isinstance(choice, str) or choice not in options:
-                    raise GoogleProviderError('Google returned an unknown reference choice')
-                result = {'reference_id': options[choice], 'confidence': answer.get('confidence'),
-                          'reason': 'decision_model_suggestion'}
-            else:
-                result = _generated_json(data)
+                return {**data, 'model': selected}
+            result = _generated_json(data)
             if (not isinstance(result, dict)
                     or not {'reference_id', 'confidence', 'reason'}.issubset(result)
                     or (result.get('reference_id') is not None and not isinstance(result.get('reference_id'), str))

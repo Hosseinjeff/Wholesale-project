@@ -68,7 +68,7 @@ def status(queue):
 def start(queue):
     index = _configured_index()
     current = status(queue)
-    if current and current['state'] in {'queued', 'running'}:
+    if current and current['model'] == index.model and current['state'] in {'queued', 'running'}:
         return current
     snapshot = _eligible_snapshot()
     if not snapshot:

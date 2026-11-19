@@ -92,10 +92,16 @@ class FreeRoutingTests(RoutingFixture):
         base = {'model': 'flash-a', 'tasks': ['extract', 'match'], 'rpm': 10, 'tpm': 50000,
                 'rpd': 50, 'qualified': True, 'free_tier_verified': True}
         matching = {**base, 'model': 'gemma-4-26b-a4b-it', 'tasks': ['match'], 'api': 'generate_choice'}
+        embedding = {**base, 'model': 'gemini-embedding-2', 'tasks': ['embed'], 'api': 'embed'}
         with patch.dict(os.environ, {'GOOGLE_FREE_ROUTING': '1', 'GOOGLE_FREE_MODELS': json.dumps([base]),
-                                     'GOOGLE_FREE_MATCH_MODELS': json.dumps([matching])}):
-            self.assertEqual([item.model for item in configured_model_budgets()], [base['model'], matching['model']])
+                                     'GOOGLE_FREE_MATCH_MODELS': json.dumps([matching]),
+                                     'GOOGLE_FREE_EMBED_MODELS': json.dumps([embedding])}):
+            self.assertEqual([item.model for item in configured_model_budgets()],
+                             [base['model'], matching['model'], embedding['model']])
             with patch.dict(os.environ, {'GOOGLE_FREE_MATCH_MODELS': json.dumps([base])}):
+                with self.assertRaises(QuotaConfigurationError):
+                    configured_model_budgets()
+            with patch.dict(os.environ, {'GOOGLE_FREE_EMBED_MODELS': json.dumps([matching])}):
                 with self.assertRaises(QuotaConfigurationError):
                     configured_model_budgets()
 
@@ -343,6 +349,22 @@ class FreeRoutingTests(RoutingFixture):
 
 
 class ReferenceAITests(RoutingFixture):
+    def test_a_pending_old_index_does_not_block_the_new_model(self):
+        from reference_import import index_tasks
+        queue = Handoffs(str(Path(self.temp.name) / 'pipeline.sqlite'))
+        old, new = 'gemini-embedding-001', 'gemini-embedding-2'
+        router = self.embed_router((old, new))
+        snapshot = {'snapshot_id': 'verified', 'rows': [row('one')]}
+        with patch.object(index_tasks, '_eligible_snapshot', return_value=snapshot):
+            with patch.object(index_tasks, '_configured_index', return_value=EmbeddingIndex(router, old)):
+                first = index_tasks.start(queue)
+            with patch.object(index_tasks, '_configured_index', return_value=EmbeddingIndex(router, new)):
+                second = index_tasks.start(queue)
+                self.assertEqual(second['model'], new)
+                self.assertNotEqual(first['job_id'], second['job_id'])
+                self.assertEqual(index_tasks.start(queue)['job_id'], second['job_id'])
+                self.assertEqual(index_tasks.run_slice(queue, {'model': old})['state'], 'superseded')
+
     def test_durable_reference_index_resumes_same_slice_after_quota_wait(self):
         from catalog.runtime_host import next_work_at, run_runtime_task
         from reference_import import index_tasks
@@ -488,6 +510,22 @@ class ReferenceAITests(RoutingFixture):
         result = service.suggest({'name': 'چای ممتاز'}, [row()], snapshot_id='s1', session=session, api_key='synthetic')
         self.assertEqual(result['model'], 'flash-a')
         self.assertEqual(result['reference_id'], 'r1')
+
+    def test_decision_handles_gemma_overload_before_using_extraction_capacity(self):
+        decision = budget('gemini-decision-1', tasks=['match'], api='decide')
+        gemma = budget('gemma-4-26b-a4b-it', tasks=['match'], api='generate_choice')
+        service = ReferenceSuggestions(self.router(budget(), gemma, decision))
+        session = Session(Response({}, status=503),
+            Response({'answers': {'reference': {'choice': 'c0', 'confidence': .9}}}))
+        result = service.suggest({'name': 'چای ممتاز'}, [row()], snapshot_id='s1', session=session, api_key='key')
+        self.assertEqual(result['model'], decision.model)
+        self.assertEqual(result['reference_id'], 'r1')
+        self.assertTrue(session.calls[1][0].endswith('/decisions'))
+
+        session = Session(Response({'answers': {'reference': {'choice': 'invented', 'confidence': .9}}}),
+                          generation({'reference_id': 'r1', 'confidence': .9, 'reason': 'same product'}))
+        result = service.suggest({'name': 'چای ممتاز'}, [row()], snapshot_id='s2', session=session, api_key='key')
+        self.assertEqual(result['model'], 'flash-a')
 
     def test_constrained_generation_selects_a_catalog_candidate_or_abstains(self):
         model = budget('gemma-4-31b-it', api='generate_choice', tasks=['match'])
@@ -652,6 +690,21 @@ class ReferenceAITests(RoutingFixture):
                 snapshot_id='s1', session=session, api_key='key')
         self.assertEqual([item['reference_id'] for item in result['candidates']], ['r1'])
         self.assertEqual(result['state'], 'needs_review')
+
+    def test_embedding_migration_searches_the_compatible_cached_index(self):
+        primary, fallback = 'gemini-embedding-2', 'gemini-embedding-001'
+        service = ReferenceSuggestions(self.embed_router((primary, fallback)),
+                                       embedding_model=primary, fallback_embedding_model=fallback)
+        session = Session(*(self.embedding() for _ in range(5)))
+        rows, product = [row()], {'name': 'Schwarztee', 'package_count': 12}
+        service.fallback_embeddings.index(rows, session=session, api_key='key')
+        saved = service.suggest(product, rows, snapshot_id='s1', session=session, api_key='key')
+        self.assertEqual(saved['candidates'][0]['reference_id'], 'r1')
+        self.assertIn(fallback, session.calls[-1][0])
+        service.embeddings.index(rows, session=session, api_key='key')
+        service.suggest(product, rows, snapshot_id='s1', session=session, api_key='key')
+        self.assertIn(primary, session.calls[-1][0])
+        self.assertEqual(len(session.calls), 4)
 
     def test_semantic_retrieval_cannot_displace_explicit_brand_evidence(self):
         service = ReferenceSuggestions(self.router(), embedding_model='gemini-embedding-001')

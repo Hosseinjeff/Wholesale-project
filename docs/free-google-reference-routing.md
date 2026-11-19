@@ -1,8 +1,8 @@
 # Free Google quota routing and reference suggestions
 
 Updated 2026-11-19, Asia/Tehran. Free routing was verified at `b95e93b`,
-Railway deployment `36ca155e-c0b3-487a-a385-84737ef10bbf`. The currently deployed
-staging bot is `b909736`. Its WordPress activity response showed quota totals as
+Railway deployment `36ca155e-c0b3-487a-a385-84737ef10bbf`. Before the current model
+configuration, the `b909736` bot's WordPress activity response showed quota totals as
 unavailable during the November 19 check. The owner supplied the model limits
 below for the earlier verified release. Staging allocations leave room for other
 project traffic, including the production executor.
@@ -15,7 +15,9 @@ project traffic, including the production executor.
 
 ## November 19 provider checks
 
-With the workspace project key, Gemini 2.5 Flash returned a Google-grounded shopping response with one cited source. It also extracted the correct unit, carton, and consumer amounts from a synthetic Persian listing. One ambiguous catalog comparison returned a valid no-match response. Another returned incomplete output under the existing matching request settings. Gemini 2.0 Flash and 2.5 Flash-Lite returned HTTP 404 for grounding. Gemini 3.5 Flash-Lite returned HTTP 429 with a billing-access message when grounding was enabled. Attempts to qualify 3.6 Flash and 3.8 Flash ended in timeouts or provider unavailability, so they have no production allocation.
+With the workspace project key, Gemini 2.5 Flash returned Google Search metadata with one source for Pars Chin tea 500 g and eight for Rani peach 240 ml, including Bamo Market and Digikala. Gemini 3.1 Flash-Lite, 3.5 Flash-Lite, 3.6 Flash, 3.8 Flash, and 4 Hydrogen returned HTTP 429 with a billing-access message when grounding was enabled. Gemini 2.0 Flash and 2.5 Flash-Lite had returned HTTP 404. Neither Gemma model supplied a cited result in these grounding checks.
+
+Gemini 2.5 Flash extracted unit, carton, and consumer amounts from a synthetic Persian listing. Google is moving its traffic to 3.5 Flash-Lite, which already handles that work. Gemini 3.6 Flash, 3.8 Flash, and 4 Hydrogen returned timeouts or HTTP 503 in qualification calls.
 
 Google publishes free-tier eligibility and directs projects to AI Studio for active generation and embedding quotas. The current credential could call the models, but Cloud Quotas and Service Usage returned HTTP 403. The model limits in the table above are the last owner-verified rows. Extra API keys in the same project share the provider quota. Daily Gemini API limits reset at midnight Pacific. [Google rate limits](https://aistudio.google.com/docs/rate-limits) · [AI Studio project limits](https://aistudio.google.com/rate-limit)
 
@@ -23,7 +25,7 @@ The Search grounding tool has its own allowance. Eligible Flash and Flash-Lite m
 
 Google’s grounding terms limit collecting links for crawling or indexing. Scheduled product discovery requires the separate market-search provider to be configured. WordPress can already recheck a saved retailer URL and validate product identity, size, stock, and price. The Google Custom Search JSON API offers 100 queries per day for existing customers through its January 1, 2027 discontinuation. [Google Search grounding terms](https://aistudio.google.com/docs/terms) · [Custom Search JSON API](https://developers.google.com/custom-search/v1/overview)
 
-Embedding 2 passed a synthetic English-query/Persian-product ranking check through the existing embedding adapter. Its vectors use a separate cache namespace from Embedding 001. Gemini Decision 1 correctly chose the matching product and abstained when the flavor was unspecified. Gemini 4 Hydrogen returned HTTP 503 in extraction and matching checks. These three endpoints have no staging allocation. The existing Flash-Lite models continue to cover intake and re-extraction in the staged router. [Google model pricing](https://aistudio.google.com/docs/pricing)
+Embedding 2 passed an English-query/Persian-product ranking check. Gemini Decision 1 correctly chose the matching product and abstained when the flavor was unspecified. The Staging configuration uses both models with separately tracked local allocations. The existing Flash-Lite models continue to cover intake and re-extraction. [Google model pricing](https://aistudio.google.com/docs/pricing)
 
 The Sheets API uses separate quotas for spreadsheet integration. Reads and writes each allow 300 requests per minute per project and 60 per minute per user per project, with no daily limit within those rates. [Sheets API usage limits](https://developers.google.com/workspace/sheets/api/limits)
 
@@ -31,11 +33,19 @@ The Sheets API uses separate quotas for spreadsheet integration. Reads and write
 
 Both Gemma models can enter the catalog matching pilot. The 26B model previously returned overload errors and later selected the correct Persian SKU in 1.45 seconds. The 31B model selected the correct Persian SKU and abstained when flavor was unspecified. The `generate_choice` mode uses a schema of allowed catalog choices and minimal thinking. Code resolves proven identities first and checks the suggestions against explicit facts and the active snapshot.
 
-Shortlists of at most four text-supported candidates prefer `gemma-4-26b-a4b-it`. Broader shortlists and candidates found only through semantic retrieval prefer `gemma-4-31b-it`. The other Gemma model can serve the same request if its allowance is available. The verified Gemini pool remains the fallback and continues handling text extraction. Gemma candidates with temporary failures re-enter selection after their cooldown. A separate Gemma grounding probe returned no cited retailer source. [Gemma API models and tools](https://gemma.ai/deployment/gemini-api/)
+Shortlists of at most four text-supported candidates prefer `gemma-4-26b-a4b-it`. Broader shortlists and candidates found only through semantic retrieval prefer `gemma-4-31b-it`. If neither Gemma can serve the request, try Decision 1 before spending Flash-Lite extraction capacity. Gemma candidates with temporary failures re-enter selection after their cooldown. [Gemma API models and tools](https://gemma.ai/deployment/gemini-api/)
 
 `GOOGLE_FREE_MATCH_MODELS` adds match-only capacity alongside `GOOGLE_FREE_MODELS`. Both hosted Gemma 4 models have free input and output pricing. The 14,400 requests per day often associated with Gemma was documented for Gemma 3 and 3n. This project’s two Gemma 4 quota rows remain unverified. [Gemma 4 pricing](https://aistudio.google.com/docs/pricing#gemma-4) · [Google developer forum’s Gemma 3 limits](https://discuss.ai.google.dev/t/questions-about-gemma-models/100257/3)
 
-The first pending staging configuration shared 8 requests per day between the two models for a smoke test. Its replacement shares a local allocation of 500 requests per day, 2 requests per minute, and 15,000 input tokens per minute. The daily value matches the combined staging generation budget for the two Flash-Lite models so catalog matching can use Gemma before falling back to that pool. Record both active Gemma 4 rows from this project’s AI Studio before assigning independent quotas or deploying the allocation to production.
+Staging uses the following local allocations for the added endpoints. The project’s provider limits are tracked separately in AI Studio.
+
+| Model | Role | Staging RPM / TPM / RPD |
+| --- | --- | ---: |
+| Gemma 4 26B and 31B | Shared candidate matching budget | 2 / 15,000 / 500 |
+| Gemini Decision 1 | Candidate matching fallback | 2 / 30,000 / 100 |
+| Gemini Embedding 2 | Semantic reference index and retrieval | 15 / 15,000 / 500 |
+
+Embedding 2 reserves 40 daily requests for foreground retrieval. Matching can use cached Embedding 001 vectors when Embedding 2 has no vectors for the candidate set or is unavailable. Reindexing uses the existing resumable queue.
 
 ## Verified staging allocation
 
@@ -76,6 +86,11 @@ requires:
   actual project's free access and evaluating the specified task on reviewed data.
 - Optional `bucket` for aliases/shared quotas (default: model name), and
   `reserve_rpd` to protect foreground work from background indexing.
+
+`GOOGLE_FREE_MATCH_MODELS` and `GOOGLE_FREE_EMBED_MODELS` add qualified models for
+their respective tasks. `GOOGLE_REFERENCE_EMBEDDING_MODEL` sets the indexing and
+primary search model. `GOOGLE_REFERENCE_EMBEDDING_FALLBACK_MODEL` optionally enables
+retrieval from an existing cached index.
 
 With `PIPELINE_STATE_HOST=wordpress`, quota tables and the compressed text cache use
 the existing authoritative pipeline store through `catalog.state`. Only its empty
@@ -230,8 +245,8 @@ Use reviewed Persian examples spanning aliases, reordered names, missing attribu
 no-match cases, conflicting flavors, packaging levels and decimal sizes such as `1/2ل`.
 Measure candidate recall, wrong-identity rate, review workload and latency for each
 task/model. Qualify models independently; a high quota does not establish quality.
-Decision 1 is optional pending real project availability and this evaluation. Local
-tests use synthetic HTTP responses and cannot establish live Persian accuracy.
+Local tests use synthetic HTTP responses. Qualification checks with this project's
+key exercise real model behavior on controlled product examples.
 
 ## Local verification
 

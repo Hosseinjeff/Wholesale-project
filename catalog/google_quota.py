@@ -367,24 +367,22 @@ def configured_model_budgets():
     """Read the verified configuration without opening or changing the ledger."""
     if os.getenv('GOOGLE_FREE_ROUTING', '').strip() != '1':
         return ()
-    try:
-        values = json.loads(os.getenv('GOOGLE_FREE_MODELS', ''))
-        if not isinstance(values, list):
-            raise ValueError
-    except ValueError:
-        raise QuotaConfigurationError('GOOGLE_FREE_MODELS must be a verified model-budget array') from None
-    base = tuple(ModelBudget.parse(value) for value in values)
-    try:
-        matching = json.loads(os.getenv('GOOGLE_FREE_MATCH_MODELS', '[]'))
-        if not isinstance(matching, list):
-            raise ValueError
-    except ValueError:
-        raise QuotaConfigurationError('GOOGLE_FREE_MATCH_MODELS must be a verified model-budget array') from None
-    additions = tuple(ModelBudget.parse(value) for value in matching)
-    if any(set(item.tasks) != {'match'} for item in additions):
-        raise QuotaConfigurationError('Additional Google models must serve catalog matching only')
-    existing = {item.model for item in base}
-    return base + tuple(item for item in additions if item.model not in existing)
+    models = []
+    for variable, task in (('GOOGLE_FREE_MODELS', None),
+                           ('GOOGLE_FREE_MATCH_MODELS', 'match'),
+                           ('GOOGLE_FREE_EMBED_MODELS', 'embed')):
+        try:
+            values = json.loads(os.getenv(variable, '[]' if task else ''))
+            if not isinstance(values, list):
+                raise ValueError
+        except ValueError:
+            raise QuotaConfigurationError(f'{variable} must be a verified model-budget array') from None
+        additions = [ModelBudget.parse(value) for value in values]
+        if task and any(set(item.tasks) != {task} for item in additions):
+            raise QuotaConfigurationError(f'{variable} must only contain models for {task}')
+        existing = {item.model for item in models}
+        models.extend(item for item in additions if item.model not in existing)
+    return tuple(models)
 
 
 def configured_router():
