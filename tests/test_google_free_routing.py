@@ -529,6 +529,17 @@ class ReferenceAITests(RoutingFixture):
         self.assertEqual([item['reference_id'] for item in result['candidates']], ['r1'])
         self.assertEqual(result['state'], 'needs_review')
 
+    def test_semantic_retrieval_cannot_displace_explicit_brand_evidence(self):
+        service = ReferenceSuggestions(self.router(), embedding_model='gemini-embedding-001')
+        real, unrelated = row(), row('wrong-brand')
+        real[0] = real[1] = 'چای برندنو'
+        unrelated[0] = unrelated[1] = 'چای برند دیگر'
+        session = Session(generation({'reference_id': None, 'confidence': .9, 'reason': 'ambiguous'}))
+        with patch.object(service.embeddings, 'search', return_value=[{'reference_id': 'wrong-brand'}]):
+            result = service.suggest({'name': 'چای برندنو ممتاز', 'brand': 'برندنو'},
+                [real, unrelated], snapshot_id='s1', session=session, api_key='key')
+        self.assertEqual([item['reference_id'] for item in result['candidates']], ['r1'])
+
 
 if __name__ == '__main__':
     unittest.main()

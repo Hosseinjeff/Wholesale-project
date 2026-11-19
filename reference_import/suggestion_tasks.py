@@ -116,4 +116,4 @@ def run_suggestion(queue, context, sheet_store, reference_store):
     if (not eligible_snapshot(reference_store, context)
             or resolve_case(sheet_store, snapshot, ledger, queue, context) != resolved):
         return superseded
-    return {'ok': True, 'suggestion': suggestion}
+    return {'ok': True, 'suggestion': {**suggestion, 'retrieval_policy': POLICY}}

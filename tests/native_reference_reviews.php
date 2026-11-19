@@ -71,6 +71,22 @@ $first=array_column(array_slice($brands,0,2),'reference_id');sort($first);
 review_same($first,['mango','peach'],'a broad listing ranks the compatible pack among whole-word brand matches');
 review_same(array_column($brands,'reference_id')[2]??null,'bottle','other package sizes remain comparison options');
 review_same(count($brands),3,'brand-style mentions and matching counts alone are excluded when the brand is known');
+$suggestionCase=['case_id'=>'ai:receipt','offer_id'=>'sample-offer','signature'=>'current','reference_candidates'=>$brands];
+$context=['case_kind'=>'ai','case_id'=>$suggestionCase['case_id'],'offer_id'=>$suggestionCase['offer_id'],
+    'signature'=>$suggestionCase['signature'],'snapshot_id'=>'active-list','policy_version'=>str_repeat('b',64)];
+$job=molavi_domain_queue('reference_suggest',molavi_domain_hash($context,true,true),$context);
+$updateSuggestion=static function(array $suggestion)use($job): void {
+    $db=molavi_domain_db('pipeline');
+    molavi_domain_sql($db,"UPDATE jobs SET state='done',result=? WHERE id=?",[molavi_domain_json(['suggestion'=>$suggestion]),$job]);
+    $db->close();
+};
+$legacy=['reference_id'=>null,'candidates'=>[['reference_id'=>'unrelated']]];
+$updateSuggestion($legacy);
+review_same(molavi_domain_reference_receipts([$suggestionCase],'ai','active-list'),[$suggestionCase],
+    'a legacy receipt cannot replace a current shortlist during upgrade');
+$updateSuggestion(['reference_id'=>null,'candidates'=>[['reference_id'=>'contextual']],'retrieval_policy'=>'reference-source-context-v3']);
+$withSuggestion=molavi_domain_reference_receipts([$suggestionCase],'ai','active-list')[0];
+review_same($withSuggestion['reference_candidates'][0]['reference_id'],'contextual','current contextual options appear first');
 foreach($fixture['matching'] as $i=>$case){review_same(molavi_domain_reference_signature($case['product']),$case['signature'],'reference identity/'.$i);review_same(molavi_domain_reference_candidates($case['product'],$case['rows'],12),$case['candidates'],'reference ranking/'.$i);}
 foreach($fixture['ratios'] as $i=>$case){$ratio=molavi_domain_match_ratio($case['a'],$case['b']);review_same(abs($ratio-$case['ratio'])<1e-14,true,'Unicode Indel similarity/'.$i);}
 foreach($fixture['api'] as $case){review_seed('reference',$case['seed']);review_seed('pipeline',$case['pipeline_seed']);$GLOBALS['review_tables']=$case['tables'];$GLOBALS['review_eligibility']=$case['eligibility'];

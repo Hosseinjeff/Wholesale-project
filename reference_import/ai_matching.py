@@ -175,6 +175,11 @@ class ReferenceSuggestions:
             except GoogleProviderError:
                 # A failed embedding must not hide compatible text results.
                 pass
+        verified_brand_ids = {candidate['reference_id'] for candidate in lexical
+                              if candidate['component_scores'].get('brand') == 1}
+        if verified_brand_ids:
+            lexical = [item for item in lexical if item['reference_id'] in verified_brand_ids]
+            semantic = [item for item in semantic if item['reference_id'] in verified_brand_ids]
         # Reciprocal rank fusion retains candidates found by either retrieval method.
         fused, ranks = {}, {}
         for candidates in (lexical, semantic):
