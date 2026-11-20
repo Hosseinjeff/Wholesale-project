@@ -22,6 +22,9 @@ const fixtures={
  let activeReads=0,maxActiveReads=0,transientStatusOnce=true,statusReads=0,changeReads=0,catalogSearches=0,titleReads=0;
  let marketReads=0,marketSource=null;
  let referenceRevision=null;
+ let pricingRules={household_bp:4500,shop_bp:7000,household_target:5280000,shop_target:21120000};
+ const repriceId='e'.repeat(32);
+ let repricing=null;
  let lazyCandidates=0, marketWatch='';
  const lookupKey='b'.repeat(64);
  let inboxMessages=[],inboxRevision='initial',inboxOfferReads=0,dashboardDismissals=[];
@@ -31,6 +34,14 @@ const fixtures={
    const f=new URLSearchParams(req.postData());const path=f.get('path');
    if(f.get('method')==='POST'||f.get('action')!=='molavi_owner_workflow_proxy'){
     writes.push({action:f.get('action'),path,payload:f.get('payload')});
+    if(path==='/catalog/discount-policy'){
+      const {action,...rules}=JSON.parse(f.get('payload'));
+      assert.equal(action,'save_discount_policy');
+      assert.deepEqual(rules,{household_bp:4600,shop_bp:7000,household_target:5100000,shop_target:21000000});
+      pricingRules=rules;
+      repricing={id:repriceId,state:'running',completed:9,total:24};
+      return route.fulfill({json:{ok:true,state:'queued',rules,run:{...repricing,state:'queued',completed:0}}});
+    }
     if(path==='/pipeline/dashboard-activity'){
       assert.deepEqual(JSON.parse(f.get('payload')),{kind:'market_prices',key:lookupKey});
       marketWatch='cancelled';
@@ -126,7 +137,7 @@ const fixtures={
     if(failPrices&&path==='/pipeline/supplier-price-evidence')return await route.fulfill({status:503,json:{ok:false,error:'upstream_unavailable'}});
     if (path==='/pipeline/dashboard-activity') {
      return await route.fulfill({json:{ok:true,inbox_revision:inboxRevision,reference_revision:referenceRevision,
-      watched:marketWatch?{[lookupKey]:{state:marketWatch}}:{},groups:[
+      watched:{...(marketWatch?{[lookupKey]:{state:marketWatch}}:{}),...(repricing?{[repriceId]:repricing}:{})},groups:[
       {kind:'reextract',state:'running',total:8,completed:3},
       {kind:'reference_index',state:'quota_wait',model:'gemini-embedding-001',total:50,completed:20,
        retry_at:Date.now()/1000+3600},
@@ -135,6 +146,7 @@ const fixtures={
       buckets:[{models:['gemini-fixture'],tasks:['extract'],rpd_used:2,rpd_limit:100,rpd_remaining:98,
        rpm_limit:3,tpm_limit:20000}]}}});
     }
+    if(path==='/catalog/discount-policy')return route.fulfill({json:{ok:true,rules:pricingRules,run:repricing||{}}});
     if (path==='/pipeline/dashboard-bootstrap') {
      groupedLoads++;
      const routes={product_status:'/pipeline/product-status-snapshots',ai_confirmations:'/pipeline/ai-confirmations',
@@ -492,7 +504,10 @@ const fixtures={
  await mount('&workbench_action=ai',true,true);
  const bar=page.locator('.md-activity');
  await bar.getByText(/بازاستخراج گروهی.*۳ از ۸.*gemini-fixture.*۹۸/).waitFor();
+ assert.equal(await bar.locator('li:visible').count(),1,'summary starts with one notification');
+ await bar.getByRole('button',{name:/بیشتر/}).click();
  await bar.getByText(/نمایه‌سازی مرجع.*منتظر سهمیه/).waitFor();
+ await bar.getByRole('button',{name:'کمتر',exact:true}).click();
  await page.getByRole('button',{name:'وضعیت سیستم',exact:true}).click();
  await page.getByText('۲ از ۱۰۰ درخواست ثبت شد · ۹۸ باقی‌مانده',{exact:true}).waitFor();
  await page.getByText('سهمیهٔ هر مدل',{exact:true}).click();
@@ -609,6 +624,22 @@ const fixtures={
  await mount('&offer_id=offer-focus',true,true);
  await page.locator('.md-product-card').getByRole('heading',{name:'پیشنهاد خارج از صفحه'}).waitFor();
  assert.equal(await page.locator('.md-offer-history').count(),0,'an active offer outside the summary limit opens for review');
+ await page.getByRole('button',{name:'تنظیمات تخفیف',exact:true}).click();
+ const pricing=page.locator('.md-pricing-form');
+ await pricing.waitFor();
+ assert.equal(await pricing.locator('[name=household_bp]').inputValue(),'45');
+ assert.equal(await pricing.locator('[name=shop_bp]').inputValue(),'70');
+ await pricing.locator('[name=household_bp]').fill('46');
+ await pricing.locator('[name=household_target]').fill('5100000');
+ await pricing.locator('[name=shop_target]').fill('21000000');
+ await pricing.getByRole('button',{name:'ذخیره و به‌روزرسانی قیمت‌ها'}).click();
+ const discountReceipt=bar.locator('.md-activity-action').filter({hasText:'به‌روزرسانی تخفیف‌ها'});
+ await discountReceipt.getByText(/۹ از ۲۴/).waitFor({timeout:15000});
+ await page.getByRole('button',{name:'محصولات',exact:true}).click();
+ await discountReceipt.getByRole('button',{name:'رفتن به مبدأ',exact:true}).click();
+ await pricing.waitFor();
+ repricing={...repricing,state:'completed',completed:24};
+ await discountReceipt.getByText(/کامل شد.*۲۴ از ۲۴/).waitFor({timeout:16000});
  assert.deepEqual(errors,[]);
  console.log(JSON.stringify({passed:true,errors,writes:writes.length,captures:['/tmp/molavi-dashboard-desktop.png','/tmp/molavi-dashboard-mobile.png']}));
  await browser.close();

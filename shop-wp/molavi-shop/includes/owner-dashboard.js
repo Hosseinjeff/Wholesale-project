@@ -30,7 +30,7 @@
         const focusType=['product_id','offer_id','case_id','conflict_id','hold_id','reference_id'].find(key=>params.get(key)) || 'product_id';
         const state = {
             focusType,
-            view:['products','references','sources','system'].includes(params.get('view')) ? params.get('view')
+            view:['products','references','sources','system','pricing'].includes(params.get('view')) ? params.get('view')
                 : params.get('workbench_action') === 'reextract' || location.hash.includes('reextract') ? 'sources' : 'products',
             scope:params.get('scope') || 'ready',action:params.get('workbench_action') || '',
             focus:['product_id','offer_id','case_id','conflict_id','hold_id','reference_id'].map(key=>params.get(key)).find(Boolean) || '',
@@ -69,7 +69,10 @@
         const brand = el('div',null,'md-brand');
         brand.append(el('span','مولوی‌سل','md-wordmark'),el('span','مدیریت فروشگاه','md-subtitle'));
         const refresh = button('تازه‌سازی',()=> (hooks.manualRefresh||hooks.refresh)(),'md-button md-button-quiet');
-        head.append(brand,refresh);
+        const headerActions=el('div',null,'md-header-actions');
+        if(hooks.renderPricing) headerActions.append(button('تنظیمات تخفیف',()=>navigate('pricing'),'md-button md-button-quiet'));
+        headerActions.append(refresh);
+        head.append(brand,headerActions);
         const nav = el('nav',null,'md-navigation');
         nav.setAttribute('aria-label','مدیریت فروشگاه');
         const navButtons = new Map();
@@ -103,7 +106,7 @@
         const activityLabels={
             reextract:'بازاستخراج پیام',batch:'پردازش پیام‌های ربات',intake:'پیام ورودی',
             reference_suggest:'پیشنهاد مرجع',reference_index:'نمایه‌سازی مرجع',reference_refresh:'به‌روزرسانی فهرست مرجع',
-            market_prices:'بررسی قیمت بازار',
+            market_prices:'بررسی قیمت بازار',repricing:'به‌روزرسانی تخفیف‌ها',
         };
         const activityStates={running:'در حال اجرا',queued:'در صف',quota_wait:'منتظر سهمیه',needs_reference:'منتظر تصمیم مرجع',
             submitting:'در حال ارسال',completed:'کامل شد',failed:'ناموفق',cancelled:'لغو شد',
@@ -132,6 +135,7 @@
             return text.filter(Boolean).join(' · ');
         }
         function openActivity(kind) {
+            if(kind==='repricing')return navigate('pricing');
             if (['reextract','batch','intake'].includes(kind)) {
                 state.sourceContext=null;
                 state.pageCache.delete('sources');
@@ -220,7 +224,11 @@
             return {
                 finish(result) {
                     item.controller=null;
-                    if(payload?.action?.startsWith('start_') && result.run_id) {
+                    if(payload?.action==='save_discount_policy' && ['queued','running'].includes(result.state) && result.run?.id) {
+                        item.watch={kind:'repricing',key:result.run.id};
+                        item.state=result.state;
+                        item.detail=`${fa(result.run.completed)} از ${fa(result.run.total)}`;
+                    } else if(payload?.action?.startsWith('start_') && result.run_id) {
                         item.watch={kind:'reextract',key:result.run_id};item.state='queued';
                     } else if(payload?.action==='request_market_prices' && result.lookup_key
                         && ['queued','searching','quota'].includes(result.state)) {
@@ -234,6 +242,7 @@
                         const outcomes={no_match:'قیمت قابل مقایسه پیدا نشد.',not_needed:'قیمت عادی در دادهٔ کالا موجود است.',
                             ambiguous_identity:'ابتدا نوع دقیق کالا را مشخص کنید.',unchanged:'فهرست تغییری نداشت.',
                             staged:'فهرست آمادهٔ بررسی است.',updated:'فهرست به‌روز شد.',failed:'جزئیات خطا در مبدأ قابل مشاهده است.'};
+                        if (payload?.action==='save_discount_policy') outcomes.unchanged='تنظیمات فعلی ثبت شده است.';
                         item.detail=outcomes[result.state] || (Array.isArray(result.results)?fa(result.results.length)+' نتیجه':'');
                     }
                     saveActions();
@@ -295,23 +304,34 @@
             activitySignature=signature;
             const watched=new Set(receipts.filter(activeAction).map(item=>item.watch?.kind));
             const automatic=groups.filter(entry=>!watched.has(entry.kind));
+            const strip=el('div',null,'md-activity-strip');
             const top=el('ul',null,'md-activity-list');
             const all=el('ul',null,'md-activity-list');
-            const rows=[...receipts.map(actionRow),...automatic.map(entry=>groupRow(entry,quota))];
+            const otherRepricing=automatic.find(entry=>entry.kind==='repricing');
+            const rows=[...(otherRepricing?[groupRow(otherRepricing,quota)]:[]),
+                ...receipts.map(actionRow),...automatic.filter(entry=>entry!==otherRepricing).map(entry=>groupRow(entry,quota))];
             const focused=activityBar.contains(document.activeElement);
             const focusIndex=focused?[...activityBar.querySelectorAll('button')].indexOf(document.activeElement):-1;
-            top.append(...rows.slice(0,2));
-            activityLive.textContent=rows.slice(0,2).map(row=>row.firstChild.textContent).join(' | ');
-            activityBar.replaceChildren(top);
+            if (rows.length) top.append(rows[0]);
+            const announcement=rows[0]?.firstChild.textContent || '';
+            if (activityLive.textContent!==announcement) activityLive.textContent=announcement;
+            strip.append(top);
+            activityBar.replaceChildren(strip);
             activityBar.hidden=!rows.length;
-            if (rows.length>2) {
-                const history=el('details',null,'md-activity-history');
-                history.open=activityHistoryOpen;
-                history.addEventListener('toggle',()=>{if(history.isConnected) activityHistoryOpen=history.open;});
-                const list=el('ul',null,'md-activity-list');
-                list.append(...rows.slice(2));
-                history.append(el('summary',`فعالیت‌های دیگر (${fa(rows.length-2)})`),list);
-                activityBar.append(history);
+            if (rows.length>1) {
+                const other=el('ul',null,'md-activity-list md-activity-history');
+                other.id='md-activity-history';
+                other.hidden=!activityHistoryOpen;
+                other.append(...rows.slice(1));
+                const toggle=button(activityHistoryOpen?'کمتر':`بیشتر (${fa(rows.length-1)})`,()=>{
+                    activityHistoryOpen=!activityHistoryOpen;
+                    activitySignature='';
+                    paintActivity();
+                },'md-button md-activity-toggle');
+                toggle.setAttribute('aria-expanded',String(activityHistoryOpen));
+                toggle.setAttribute('aria-controls',other.id);
+                strip.append(toggle);
+                activityBar.append(other);
             }
             if (focusIndex>=0) activityBar.querySelectorAll('button')[focusIndex]?.focus({preventScroll:true});
             if (activityStale && groups.length) activityBar.appendChild(el('small','آخرین وضعیت دریافت‌شده'));
@@ -339,7 +359,7 @@
                     item.detail=result.code==='no_match'?'قیمت قابل مقایسه پیدا نشد.'
                         : result.code==='unavailable'?'منبع قیمت در دسترس نبود.'
                         : result.code==='no_suggestion'?'مرجع قابل پیشنهاد پیدا نشد.'
-                        : result.total?`${fa(result.completed)} از ${fa(result.total)}`:'';
+                        : result.total?`${fa(result.completed)} از ${fa(result.total)}${result.failed?' · '+fa(result.failed)+' ناموفق':''}`:'';
                 }
                 if (watching.length) saveActions();
                 const inboxChanged=report.inbox_revision && report.inbox_revision!==activityReport?.inbox_revision;
@@ -693,6 +713,14 @@
             card.append(technical);
             return card;
         }
+        function pricingView() {
+            const view=el('section');
+            view.append(el('h1','تنظیمات تخفیف'));
+            const panel=el('div');
+            view.append(panel);
+            hooks.renderPricing(panel);
+            return view;
+        }
         function referencesView() {
             const view=el('section');view.append(el('h1','فهرست مرجع'));
             const panel=el('div',null,'md-reference-catalog');view.append(panel);(hooks.renderReferences||model.renderReferences)(panel);return view;
@@ -751,7 +779,8 @@
             if(state.view==='products')main.replaceChildren(productsView());
             else {
                 if(!state.pageCache.has(state.view))state.pageCache.set(state.view,
-                    state.view==='references'?referencesView():state.view==='sources'?sourcesView():systemView());
+                    state.view==='pricing'?pricingView():state.view==='references'?referencesView()
+                        :state.view==='sources'?sourcesView():systemView());
                 const page=state.pageCache.get(state.view);
                 if(main.firstElementChild!==page) main.replaceChildren(page);
                 if(state.view==='sources') refreshInbox(activityReport?.inbox_revision);
@@ -790,7 +819,7 @@
             event.preventDefault();
             const view=url.searchParams.get('view');
             const focusKey=['offer_id','product_id','case_id','hold_id','conflict_id','reference_id'].find(key=>url.searchParams.has(key));
-            if(['products','sources','references','system'].includes(view)) navigate(view);
+            if(['products','sources','references','system','pricing'].includes(view)) navigate(view);
             else if(focusKey==='hold_id') reviewHold('molavi-batch-'+encodeURIComponent(url.searchParams.get(focusKey)));
             else if(focusKey&&model) reviewInboxItem(focusKey,url.searchParams.get(focusKey));
             else if(url.searchParams.get('workbench_action')==='reextract'||url.hash.includes('reextract'))navigate('sources');
@@ -816,7 +845,9 @@
             const references=state.pageCache.get('references');
             const sources=state.pageCache.get('sources');
             state.panels.clear();
+            const pricing=state.pageCache.get('pricing');
             state.pageCache.clear();
+            if(pricing) state.pageCache.set('pricing',pricing);
             if(references) state.pageCache.set('references',references);
             if(sources) state.pageCache.set('sources',sources);
             healthView();paint();

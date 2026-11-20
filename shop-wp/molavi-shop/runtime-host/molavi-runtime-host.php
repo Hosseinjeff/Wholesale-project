@@ -72,6 +72,11 @@ function molavi_runtime_tick():void {
         if(!add_option('molavi_runtime_host_lock',$now,'',false))return;
     }
     try {
+        if(function_exists('molavi_reprice_tick') && get_option('molavi_state_active',false)){
+            try {molavi_reprice_tick();}
+            catch(MolaviWorkflowError $e){if($e->getMessage()!=='workflow_busy_retry')error_log('[molavi] discount_repricing_pending');}
+            catch(Throwable $e){error_log('[molavi] discount_repricing_pending');}
+        }
         if(function_exists('molavi_domain_drain_outbox')){
             $nativeOutbox=molavi_domain_drain_outbox();
             if($nativeOutbox['claimed']||$nativeOutbox['error'])update_option('molavi_native_outbox_receipt_v1',[

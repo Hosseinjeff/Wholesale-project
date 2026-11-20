@@ -631,7 +631,7 @@ $priced_row=['id'=>'b123456789ab','name'=>'Synthetic customer price','status'=>'
     'supplier_availability'=>'instock'];
 $priced_product_id=molavi_upsert_product(0,molavi_clean_product($priced_row));
 $priced_product=wc_get_product($priced_product_id);
-$expected_curve=molavi_band(37500,85000);
+$expected_curve=molavi_public_opening_curve(molavi_curve_from_prices(85000,37500));
 ref_assert((int)$priced_product->get_regular_price()===85000
     && (int)$priced_product->get_sale_price()===$expected_curve['ceiling'], 'public Woo prices use the customer price band, not supplier cost');
 ref_assert((int)$priced_product->get_meta('_molavi_supplier_cost_toman')===37500

@@ -447,7 +447,7 @@ function molavi_upsert_product(int $productId, array $clean, ?bool &$changed = n
     $changed = true;
     $shelf = max(0, (int) $clean['shelf']);
     $supplierCost = max(0, (int) $clean['sale']);
-    $curve = molavi_curve_from_prices($shelf, $supplierCost);
+    $curve = molavi_public_opening_curve(molavi_curve_from_prices($shelf, $supplierCost));
     if ($productId > 0) {
         $product = wc_get_product($productId);
         if (!$product instanceof WC_Product) {

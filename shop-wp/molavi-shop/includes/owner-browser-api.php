@@ -199,6 +199,22 @@ function molavi_owner_workflow_proxy_ajax(): void {
         ? strtoupper(sanitize_text_field(wp_unslash($_POST['method']))) : '';
     $path = isset($_POST['path']) && is_string($_POST['path'])
         ? wp_unslash($_POST['path']) : '';
+    if ($path==='/catalog/discount-policy' && in_array($method, ['GET', 'POST'], true)) {
+        nocache_headers();
+        try {
+            $raw=is_string($_POST['payload']??null)?wp_unslash($_POST['payload']):'';
+            $payload=$method==='POST' && strlen($raw)<=800 ? json_decode($raw,true) : [];
+            if ($method==='POST' && (!is_array($payload) || !get_option('molavi_state_active',false))) {
+                molavi_domain_fail('invalid_body',400);
+            }
+            wp_send_json(molavi_discount_policy_api($method,$payload));
+        } catch (MolaviWorkflowError $error) {
+            wp_send_json(['ok'=>false,'error'=>$error->getMessage()],$error->status);
+        } catch (Throwable $error) {
+            wp_send_json(['ok'=>false,'error'=>'discount_policy_unavailable'],503);
+        }
+        return;
+    }
     if ($path==='/pipeline/dashboard-activity' && in_array($method,['GET','POST'],true)) {
         nocache_headers();
         if (!function_exists('molavi_domain_dashboard_activity') || !get_option('molavi_state_active',false)) {
@@ -216,8 +232,15 @@ function molavi_owner_workflow_proxy_ajax(): void {
                 if (strlen($raw)>6500) molavi_domain_fail('invalid_query',400);
                 parse_str(ltrim($raw,'?'),$query);
                 $watches=is_string($query['watch']??null)?json_decode($query['watch'],true):[];
-                if (!is_array($watches)) molavi_domain_fail('invalid_query',400);
-                $report=molavi_domain_dashboard_activity(null,$watches);
+                if (!is_array($watches) || count($watches)>12) molavi_domain_fail('invalid_query',400);
+                $pricing=[];$native=[];
+                foreach($watches as $watch){
+                    if(is_array($watch)&&($watch['kind']??null)==='repricing'){
+                        if(!is_string($watch['key']??null)||!preg_match('/^[a-f0-9]{32}$/D',$watch['key']))molavi_domain_fail('invalid_query',400);
+                        $pricing[]=$watch;
+                    }else $native[]=$watch;
+                }
+                $report=molavi_discount_activity(molavi_domain_dashboard_activity(null,$native),$pricing);
             }
         } catch (MolaviWorkflowError $error) {
             wp_send_json(['ok'=>false,'error'=>$error->getMessage()],$error->status);

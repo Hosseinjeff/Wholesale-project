@@ -334,7 +334,10 @@
             unknown_reference: 'این مرجع در نسخه فعال فهرست نیست؛ فهرست را تازه کنید.',
             online_reference_unavailable: 'کاتالوگ آنلاین رزوان در دسترس نیست؛ دوباره تلاش کنید.',
             extracted_titles_unavailable: 'جزئیات استخراج این پیشنهاد در دسترس نیست.',
-            invalid_search_query: 'برای جست‌وجو بین ۲ تا ۱۲۰ حرف وارد کنید.'
+            invalid_search_query: 'برای جست‌وجو بین ۲ تا ۱۲۰ حرف وارد کنید.',
+            invalid_discount_policy: 'درصدها باید بین صفر تا صد باشند و آستانهٔ سبد باید عدد مثبت باشد.',
+            discount_update_running: 'قیمت‌های منتشرشده هنوز در حال به‌روزرسانی هستند.',
+            discount_policy_unavailable: 'تنظیمات تخفیف در دسترس نیست. دوباره تلاش کنید.'
         };
         return labels[code] || 'ارتباط با سرور برقرار نشد. کد پیگیری: ' + (code || 'نامشخص');
     }
@@ -353,7 +356,7 @@
         start_media_reextraction:'بازاستخراج رسانه',cancel_reextraction:'لغو پیام‌های باقی‌مانده',
         refresh:'تازه‌سازی فهرست مرجع',review:'ثبت بررسی فهرست',activate:'فعال‌سازی مرجع',
         pause_review:'توقف تطبیق',use_last_snapshot:'ادامه با فهرست ذخیره‌شده',capture:'ثبت وضعیت محصولات',
-        confirm:'تأیید مشخصات',not_product:'رد پیشنهاد',
+        confirm:'تأیید مشخصات',not_product:'رد پیشنهاد',save_discount_policy:'به‌روزرسانی تخفیف‌ها',
     };
     const routeNames = {supplier_prices:'تأیید قیمت تأمین‌کننده',sheet_conflicts:'رفع تعارض',
         publication_holds:'ثبت تصمیم انتشار',telegram_operators:'ثبت تصمیم حساب ربات',
@@ -1117,6 +1120,60 @@
         });
     }
 
+    async function renderDiscountPolicy(panel) {
+        const endpoint=new URL('/catalog/discount-policy',config.apiUrl).href;
+        const feedback=node('p','در حال دریافت تنظیمات…');
+        feedback.setAttribute('role','status');
+        panel.replaceChildren(feedback);
+        try {
+            const result=await request('GET',undefined,endpoint);
+            const form=node('form',null,'md-pricing-form');
+            const fields=node('div',null,'md-pricing-fields');
+            const save=node('button','ذخیره و به‌روزرسانی قیمت‌ها','button button-primary');
+            save.type='submit';
+            for (const [buyer,label] of [['household','خانوار'],['shop','فروشگاه']]) {
+                const group=node('fieldset');
+                group.append(node('legend',label));
+                for (const [suffix,title,min,max,step,value] of [
+                    ['bp','سقف تخفیف از اختلاف قیمت خرید و مرجع (٪)',0,100,0.01,result.rules[buyer+'_bp']/100],
+                    ['target','ارزش سبد برای رسیدن به سقف تخفیف (تومان)',1,1000000000000,1,result.rules[buyer+'_target']]
+                ]) {
+                    const labelNode=node('label',title);
+                    const input=node('input');
+                    Object.assign(input,{type:'number',name:buyer+'_'+suffix,min,max,step,value,required:true,dir:'ltr'});
+                    input.inputMode=suffix==='bp'?'decimal':'numeric';
+                    labelNode.append(input);
+                    group.append(labelNode);
+                }
+                fields.append(group);
+            }
+            form.append(fields,save,feedback);
+            feedback.textContent='';
+            form.addEventListener('submit',async(event)=>{
+                event.preventDefault();
+                const payload={action:'save_discount_policy'};
+                for (const [key,value] of new FormData(form)) {
+                    payload[key]=key.endsWith('_bp')?Math.round(Number(value)*100):Number(value);
+                }
+                save.disabled=true;
+                feedback.textContent='';
+                try {
+                    const response=await request('POST',payload,endpoint);
+                    feedback.textContent=response.state==='unchanged'?'تنظیمات فعلی ثبت شده است.':'تنظیمات ذخیره شد.';
+                } catch(error) {
+                    feedback.textContent=errorText(error.message);
+                } finally {save.disabled=false;}
+            });
+            panel.replaceChildren(form);
+        } catch(error) {
+            const retry=node('button','دریافت دوباره','button');
+            retry.type='button';
+            retry.addEventListener('click',()=>renderDiscountPolicy(panel));
+            feedback.textContent=errorText(error.message);
+            panel.append(retry);
+        }
+    }
+
     async function readOfferHistory(offerId) {
         const url=new URL('/pipeline/ai-confirmations',config.apiUrl);
         url.searchParams.set('view','workbench-offer');
@@ -1151,6 +1208,7 @@
                 },
                 actionStore:config.ownerCacheKey?.split(':')[0],
                 renderReferences:renderReferenceCatalog,
+                renderPricing:renderDiscountPolicy,
                 renderSources:sourceReextractionWorkspace,
                 readOfferHistory,
                 renderOfferFacts:offer=>reviewFacts(referenceExtractionRows(offer)),

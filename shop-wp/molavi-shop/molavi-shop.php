@@ -18,6 +18,7 @@ if (is_readable($molavi_runtime_config)) {
 
 require_once __DIR__ . '/includes/pricing.php';
 require_once __DIR__ . '/includes/sync.php';
+require_once __DIR__ . '/includes/discount-policy.php';
 require_once __DIR__ . '/includes/reference-decisions.php';
 require_once __DIR__ . '/includes/reference-snapshots.php';
 require_once __DIR__ . '/includes/owner-browser-api.php';

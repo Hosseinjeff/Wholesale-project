@@ -29,7 +29,7 @@ class WC_Product{
  public $id;public $name;public $available=true;function __construct($id,$name){$this->id=$id;$this->name=$name;}
  function get_id(){return $this->id;}function get_name(){return $this->name;}function get_slug(){return 'product-'.$this->id;}
  function is_purchasable(){return $this->available;}function is_in_stock(){return $this->available;}function is_type($type){return $type==='simple';}
- function get_meta($key,$single=true){return ['_molavi_curve'=>'1','_molavi_shelf'=>100000,'_molavi_sale'=>90000,'_molavi_floor'=>80000,'_molavi_ceiling'=>95000,'_molavi_max'=>.2,'_molavi_discountable'=>'1','_molavi_pack_size'=>24,'_molavi_supplier'=>'','_molavi_category'=>'نوشیدنی','_molavi_packaging'=>'۲۴ عددی'][$key]??'';}
+ function get_meta($key,$single=true){return ['_molavi_curve'=>'spread-v1','_molavi_shelf'=>100000,'_molavi_sale'=>90000,'_molavi_floor'=>80000,'_molavi_ceiling'=>95000,'_molavi_max'=>.2,'_molavi_discountable'=>'1','_molavi_pack_size'=>24,'_molavi_supplier'=>'','_molavi_category'=>'نوشیدنی','_molavi_packaging'=>'۲۴ عددی'][$key]??'';}
  function get_date_created(){return new DateTime('2026-11-01 +'.$this->id.' minutes');}function get_image_id(){return 0;}
  function get_image($size,$attrs=[]){return '<img src="http://molavi.test/placeholder.svg" width="280" height="280" loading="lazy" alt="'.esc_attr($this->name).'">';}
  function get_permalink(){return home_url('/product/'.$this->id.'/');}function get_regular_price(){return '100000';}function get_sale_price(){return '90000';}
@@ -54,12 +54,13 @@ $map=[];
 for($id=1;$id<=52;$id++){
  $name=$id===1?'نوشیدنی كیوي ۲۴ عددی':'کالای نمونه '.$id;
  $GLOBALS['products'][$id]=new WC_Product($id,$name);
+ $curve=molavi_curve_from_prices(100000,90000);
+ $profile=molavi_product_profile($GLOBALS['products'][$id]);
  $map[(string)$id]=['name'=>$name,'min'=>12,'pack_size'=>24,'household_unit'=>4,'shop_unit'=>12,
- 'household_threshold_units'=>1,'shop_threshold_units'=>4,'household_cap_ratio'=>.5,'shop_cap_ratio'=>1,
- 'household_max_discount'=>.1,'shop_max_discount'=>.2,'shelf'=>100000,'sale'=>90000,'floor'=>80000,'ceiling'=>95000,'max'=>.2,'discountable'=>1,
- 'tuna_threshold_candidate'=>false,'tuna_threshold_anchor'=>false];
+ 'household_max_discount'=>molavi_profile_curve($curve,$profile,'household')['max'],
+ 'shop_max_discount'=>molavi_profile_curve($curve,$profile,'shop')['max']]+$profile+$curve;
 }
-set_transient('molavi_catalog_v5',$map,86400);
+set_transient(molavi_discount_catalog_key(),$map,86400);
 function test_assert($ok,$name){if(!$ok)throw new RuntimeException('FAILED: '.$name);echo 'PASS '.$name."\n";}
 // Prices and quantities use the actual pricing.php functions.
 $first=\Molavi\Elementor\molavi_storefront_catalog_page();
