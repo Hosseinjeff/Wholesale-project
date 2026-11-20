@@ -29,6 +29,22 @@ function molavi_domain_price_age(?string $verified,float $now): string {
     if($stamp===null||$stamp>$now)return 'needs_review';$age=$now-$stamp;
     return $age>=14*86400?'blocked':($age>=7*86400?'warning':'current');
 }
+function molavi_domain_saved_price_state(string $revision,?array $saved,?float $sourceAt,float $now): array {
+    $verified=$saved['verified_at']??null;
+    $matches=$saved&&$revision!==''&&$saved['source_revision']===$revision;
+    $state=$matches&&($sourceAt===null||$sourceAt<=$now)?molavi_domain_price_age($verified,$now):'needs_review';
+    return ['state'=>$state,'verified_at'=>$verified,'method'=>$matches?($saved['method']??null):null];
+}
+function molavi_domain_product_saved_price(array $record,array $saved,float $now): array {
+    $id=trim((string)($record['Product ID']??''));
+    if($id==='')return [];
+    return molavi_domain_saved_price_state(molavi_domain_source_revision($record),$saved[$id]??null,
+        molavi_domain_timestamp($record['Message Timestamp']??null),$now);
+}
+function molavi_domain_price_evidence_by_product(SQLite3 $db): array {
+    // The legacy offer_id column stores the product ID. The revision identifies the offer and price.
+    return array_column(molavi_domain_rows($db,'SELECT offer_id,source_revision,verified_at,method FROM supplier_price_evidence'),null,'offer_id');
+}
 function molavi_domain_freshness(array $records,?float $clock=null,bool $observe=true): array {
     $now=$clock??microtime(true);$out=[];
     return molavi_domain_tx('pipeline',static function(SQLite3 $db)use($records,$now,$observe):array {
@@ -46,9 +62,8 @@ function molavi_domain_freshness(array $records,?float $clock=null,bool $observe
                 molavi_domain_sql($db,"INSERT INTO supplier_price_evidence_history (offer_id,source_revision,verified_at,method,verified_by,note) VALUES (?,?,?,'source',NULL,'')",[$id,$revision,$iso]);
                 $saved=['source_revision'=>$revision,'verified_at'=>$iso,'method'=>'source'];
             }
-            $state=['state'=>'needs_review','verified_at'=>$saved['verified_at']??null];
-            if($saved&&$revision!==''&&$saved['source_revision']===$revision)$state=['state'=>molavi_domain_price_age($saved['verified_at'],$now),'verified_at'=>$saved['verified_at'],'method'=>$saved['method']];
-            if($stamp!==null&&$stamp>$now)$state['state']='needs_review';
+            $state=molavi_domain_saved_price_state($revision,$saved,$stamp,$now);
+            if($state['method']===null)unset($state['method']);
             $out[]=array_merge(['product_id'=>$id,'name'=>(string)($record['Product Name']??''),'channel'=>(string)($record['Channel Username']??''),
                 'sale_price'=>molavi_domain_py_value($record['Sale Price']??null),'source_revision'=>$revision,'source_timestamp'=>$iso,
                 'source_timestamp_basis'=>$basis?:'legacy_unknown','source_timestamp_trusted'=>$trusted],$state);
@@ -139,14 +154,10 @@ function molavi_domain_current_products(?array $tables=null,?float $clock=null,b
     $tables=$tables??molavi_domain_sheets(['Products','Offers'],true);$now=$clock??microtime(true);
     $products=molavi_domain_records($tables['Products']??[]);$offers=molavi_domain_records($tables['Offers']??[]);$issues=[];
     foreach(molavi_domain_source_issues($products,$offers) as $issue)if($issue['product_id']!=='')$issues[$issue['product_id']]=$issue['codes'];
-    $saved=molavi_domain_read('pipeline',static fn(SQLite3 $db)=>molavi_domain_rows($db,'SELECT offer_id,source_revision,verified_at,method FROM supplier_price_evidence'));
-    $evidence=[];foreach($saved as $row)$evidence[(string)$row['offer_id']]=$row;
+    $evidence=molavi_domain_read('pipeline','molavi_domain_price_evidence_by_product');
     $result=[];
     foreach($products as $record){if(empty($record['Product Name'])&&empty($record['Product ID']))continue;
-        $offer=(string)($record['Latest Offer ID']??'');$state=[];
-        if($offer!==''){$revision=molavi_domain_source_revision($record);$row=$evidence[$offer]??null;
-            $state=['state'=>$row&&$revision!==''&&$row['source_revision']===$revision?molavi_domain_price_age($row['verified_at'],$now):'needs_review',
-                'verified_at'=>$row['verified_at']??null,'method'=>$row['method']??null];}
+        $state=molavi_domain_product_saved_price($record,$evidence,$now);
         $item=molavi_domain_product_state($record,$state,$issues[trim((string)($record['Product ID']??''))]??[]);
         if($withRecords)$item['product_record']=array_diff_key($record,array_flip(['Original Message','Contact Info']));$result[]=$item;
     }
@@ -171,14 +182,22 @@ function molavi_domain_status_capture(array $tables,string $reason,?float $clock
         return ['snapshot_id'=>$id,'captured_at'=>$at,'reason'=>$reason,'product_count'=>count($records),'changed_count'=>$changed];
     });
 }
-function molavi_domain_status_history(?string $selected=null,bool $marketEligibility=false): array {
-    return molavi_domain_read('pipeline',static function(SQLite3 $db)use($selected,$marketEligibility):array {
+function molavi_domain_status_history(?string $selected=null,bool $marketEligibility=false,bool $livePrices=false): array {
+    return molavi_domain_read('pipeline',static function(SQLite3 $db)use($selected,$marketEligibility,$livePrices):array {
         $snapshots=molavi_domain_rows($db,'SELECT snapshot_id,captured_at,reason,product_count,changed_count,schema_version FROM product_status_snapshots ORDER BY captured_at DESC LIMIT 30');
         $latest=$snapshots[0]['snapshot_id']??null;$id=$selected?:$latest;$exists=$id?molavi_domain_row($db,'SELECT snapshot_id FROM product_status_snapshots WHERE snapshot_id=?',[$id]):null;
+        $livePrices=$livePrices&&$selected===null;
+        $evidence=$livePrices?molavi_domain_price_evidence_by_product($db):[];
+        $now=microtime(true);
         $products=[];if($exists)foreach(molavi_domain_rows($db,'SELECT state_json FROM product_status_records WHERE snapshot_id=? ORDER BY product_name',[$id]) as $row){
-            $state=molavi_domain_decode($row['state_json']);
-            if($marketEligibility&&is_array($state['product_record']??null))
-                $state['regular_price_missing']=molavi_domain_market_missing_price($state['product_record']);
+            $state=molavi_domain_decode($row['state_json']);$record=$state['product_record']??null;
+            if(is_array($record)){
+                if($livePrices){
+                    $price=molavi_domain_product_saved_price($record,$evidence,$now);
+                    $state=array_replace($state,molavi_domain_product_state($record,$price,$state['source_integrity_issues']??[]));
+                }
+                if($marketEligibility)$state['regular_price_missing']=molavi_domain_market_missing_price($record);
+            }
             unset($state['product_record']);$products[]=$state;}
         return ['snapshots'=>$snapshots,'latest_snapshot_id'=>$latest,'selected_snapshot_id'=>$exists?$id:null,'products'=>$products];
     });
@@ -194,6 +213,6 @@ function molavi_domain_status_api(string $method,array $query,?array $body,strin
     $latest=molavi_domain_read('pipeline',static fn(SQLite3 $db)=>molavi_domain_row($db,'SELECT captured_at,schema_version FROM product_status_snapshots ORDER BY captured_at DESC LIMIT 1'));
     if(!$latest||$latest['schema_version']<2||(molavi_domain_timestamp($latest['captured_at'])??0)<=microtime(true)-86400)
         molavi_domain_status_capture(molavi_domain_sheets(['Products','Offers'],true),'daily_status_checkpoint');
-    $history=molavi_domain_status_history($selected?:null,$selected===''&&function_exists('molavi_domain_market_missing_price'));if($selected!==''&&$history['selected_snapshot_id']!==$selected)molavi_domain_fail('snapshot_not_found',404);
+    $history=molavi_domain_status_history($selected?:null,$selected===''&&function_exists('molavi_domain_market_missing_price'),$selected==='');if($selected!==''&&$history['selected_snapshot_id']!==$selected)molavi_domain_fail('snapshot_not_found',404);
     return array_merge(['ok'=>true],$history);
 }
