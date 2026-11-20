@@ -73,7 +73,15 @@ function molavi_domain_ai_find_case(array $offers,string $case,string $id,?float
             [(string)molavi_domain_py_value($source['Message ID']??null),(string)molavi_domain_py_value($source['Channel Username']??null)])return null;
     return molavi_domain_ai_case($source,molavi_domain_ai_decision_history($case,1)[0]??null,$clock);
 }
-function molavi_domain_ai_review_cases(array $tables,?array $snapshot=null,bool $history=false,int $limit=200,?float $clock=null): array {
+function molavi_domain_ai_candidates(array $case,array $snapshot): array {
+    return molavi_domain_reference_candidates([
+        'name'=>$case['product_name'],'clean_name'=>$case['product_name'],'brand'=>$case['brand'],
+        'category'=>$case['category'],'variant'=>$case['variation_type'],'volume'=>$case['volume'],
+        'weight'=>$case['weight'],'package_count'=>$case['package_count'],
+        'supplier_price'=>molavi_domain_py_value($case['detected_price'],$case['sale_price']),
+    ],$snapshot['rows']??[],12);
+}
+function molavi_domain_ai_review_cases(array $tables,?array $snapshot=null,bool $history=false,int $limit=200,?float $clock=null,bool $candidates=true): array {
     $offers=molavi_domain_records($tables['Offers']??[]);$snapshotId=(string)($snapshot['snapshot_id']??'');$referenceNames=[];
     foreach($snapshot['rows']??[] as $row)if(is_array($row)&&count($row)>16)$referenceNames[(string)molavi_domain_py_value($row[16],molavi_domain_py_value($row[2]))]=(string)molavi_domain_py_value($row[0]);
     $data=molavi_domain_read('pipeline',static fn(SQLite3 $db)=>['decisions'=>molavi_domain_rows($db,'SELECT d.* FROM ai_confirmation_decisions d WHERE rowid=(SELECT p.rowid FROM ai_confirmation_decisions p WHERE p.case_id=d.case_id ORDER BY p.created_at DESC,p.rowid DESC LIMIT 1)'),
@@ -93,8 +101,7 @@ function molavi_domain_ai_review_cases(array $tables,?array $snapshot=null,bool 
             if($snapshotId!==''){$case['reference_snapshot_id']=$snapshotId;$attrs=molavi_domain_offer_attributes($offer);$refDecision=$referenceDecisions[molavi_domain_reference_case_id($id,$snapshotId)]??null;
                 if($refDecision&&$refDecision['snapshot_id']===$snapshotId&&$refDecision['signature']===molavi_domain_reference_signature($attrs)){$refId=(string)molavi_domain_py_value($refDecision['reference_id']);
                     $case['reference_assignment']=['decision_id'=>$refDecision['decision_id'],'snapshot_id'=>$snapshotId,'choice'=>$refDecision['choice'],'reference_id'=>$refId,'reference_name'=>$referenceNames[$refId]??$refId,'price_role'=>$refDecision['price_role']];}
-                $case['reference_candidates']=molavi_domain_reference_candidates(['name'=>$case['product_name'],'clean_name'=>$case['product_name'],'brand'=>$case['brand'],'category'=>$case['category'],
-                    'variant'=>$case['variation_type'],'volume'=>$case['volume'],'weight'=>$case['weight'],'package_count'=>$case['package_count'],'supplier_price'=>molavi_domain_py_value($case['detected_price'],$case['sale_price'])],$snapshot['rows']??[],12);}
+                if($candidates)$case['reference_candidates']=molavi_domain_ai_candidates($case,$snapshot);}
             $decided=(bool)($decision&&$decision['signature']===$case['signature']);$duplicate=molavi_domain_ai_duplicate_key($offer);
             if($duplicate!==null)$duplicates[$duplicate][]=[$case,$decided];elseif(!$decided)$cases[]=$case;}$all[$id]=[$offer,$decision];
     }

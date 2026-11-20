@@ -47,8 +47,19 @@
         let activityTimer = 0;
         let activityRequest = null;
         let activityStale = false;
-        let updatingReference = false;
         let activitySignature = '';
+        let watchOffset=0;
+        const activityKey=hooks.actionStore && 'molavi.activity.'+hooks.actionStore;
+        const actions=new Map();
+        let activityHistoryOpen=false;
+        if (activityKey) {
+            try {
+                for (const item of JSON.parse(localStorage.getItem(activityKey) || '[]')) {
+                    if (item.state==='submitting') item.state='unknown';
+                    actions.set(item.id,item);
+                }
+            } catch (_) {}
+        }
         root.className = 'molavi-dashboard';
         root.removeAttribute('aria-live');
         root.dir = 'rtl';
@@ -56,7 +67,7 @@
         const head = el('header',null,'md-header');
         const brand = el('div',null,'md-brand');
         brand.append(el('span','مولوی‌سل','md-wordmark'),el('span','مدیریت فروشگاه','md-subtitle'));
-        const refresh = button('تازه‌سازی',()=>hooks.refresh(),'md-button md-button-quiet');
+        const refresh = button('تازه‌سازی',()=> (hooks.manualRefresh||hooks.refresh)(),'md-button md-button-quiet');
         head.append(brand,refresh);
         const nav = el('nav',null,'md-navigation');
         nav.setAttribute('aria-label','مدیریت فروشگاه');
@@ -68,7 +79,7 @@
         const status = el('p','','md-feedback');
         status.setAttribute('role','status'); status.setAttribute('aria-live','polite'); status.hidden=true;
         const activityBar = el('aside',null,'md-activity');
-        activityBar.setAttribute('aria-label','کارهای در جریان');
+        activityBar.setAttribute('aria-label','فعالیت داشبورد');
         activityBar.hidden=true;
         const activityLive = el('span',null,'screen-reader-text');
         activityLive.setAttribute('role','status');
@@ -84,7 +95,9 @@
             reference_suggest:'پیشنهاد مرجع',reference_index:'نمایه‌سازی مرجع',reference_refresh:'به‌روزرسانی فهرست مرجع',
             market_prices:'بررسی قیمت بازار',
         };
-        const activityStates={running:'در حال اجرا',queued:'در صف',quota_wait:'منتظر سهمیه',needs_reference:'منتظر تصمیم مرجع'};
+        const activityStates={running:'در حال اجرا',queued:'در صف',quota_wait:'منتظر سهمیه',needs_reference:'منتظر تصمیم مرجع',
+            submitting:'در حال ارسال',completed:'کامل شد',failed:'ناموفق',cancelled:'لغو شد',
+            partial:'با موارد نیازمند بررسی پایان یافت',unknown:'نتیجه تأیید نشد',cancelling:'در حال لغو'};
         const taskLabels={extract:'استخراج',match:'تطبیق مرجع',embed:'نمایه‌سازی'};
         const localClock=new Intl.DateTimeFormat('fa-IR',{timeZone:'Asia/Tehran',hour:'2-digit',minute:'2-digit'});
         const localDateTime=new Intl.DateTimeFormat('fa-IR',{timeZone:'Asia/Tehran',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
@@ -151,38 +164,149 @@
             if (models.length) section.appendChild(el('small',`آخرین مدل‌های استفاده‌شده · ${models.join(' | ')}`));
             return section;
         }
-        function paintActivity() {
-            if (!hooks.readActivity) return;
-            const groups=[...(activityReport?.groups || [])];
-            if (updatingReference && !groups.some(entry=>entry.kind==='reference_refresh')) {
-                groups.unshift({kind:'reference_refresh',state:'running'});
+        const activeAction = item => ['queued','running','submitting','quota_wait','cancelling'].includes(item.state);
+        function saveActions() {
+            if (activityKey) {
+                try {
+                    localStorage.setItem(activityKey,JSON.stringify([...actions.values()].map(({controller,...item})=>item)));
+                } catch (_) {}
             }
+            paintActivity();
+        }
+        function actionOrigin(payload) {
+            const card=document.activeElement?.closest('.md-product-card');
+            const product=state.view==='products' && model?.products.find(row=>
+                (card && row.key===card.dataset.productKey) || (payload?.offer_id && identities(row).includes(payload.offer_id))
+                || (!card && !payload?.offer_id && row.key===state.active));
+            const market=Boolean(payload?.action?.includes('market_price') || document.activeElement?.closest('.molavi-market-price-review'));
+            return {view:state.view,key:product?.key||'',section:state.section,product:product?.name||'',
+                offer:payload?.offer_id||product?.status?.latest_offer_id||(product?sourceFor(product).offer_id:'')||'',
+                hold:payload?.hold_id||'',market};
+        }
+        function openOrigin(origin) {
+            if(origin.hold && origin.view==='system') return reviewHold(origin.hold);
+            if(origin.view!=='products'||!origin.key||!model) return navigate(origin.view);
+            const product=model.products.find(row=>row.key===origin.key || (origin.offer && identities(row).includes(origin.offer)));
+            if (!product) return origin.offer ? reviewInboxItem('offer_id',origin.offer) : navigate('products');
+            state.scope='all';state.action='';state.search='';state.channel='';
+            const offer=identities(product).includes(origin.offer)?origin.offer:'';
+            state.focusType=offer?'offer_id':'product_id';
+            state.focus=offer||product.product_id;
+            state.active=product.key;
+            state.section=origin.section || (origin.market?'market_prices':'source_integrity');
+            navigate('products');
+            const card=main.querySelector('.md-selected') || [...main.querySelectorAll('.md-product-card')].find(row=>row.dataset.productKey===product.key);
+            if(origin.market) {
+                const price=card?.querySelector('.molavi-market-price-review');
+                if(price) price.open=true;
+            }
+            card?.scrollIntoView({block:'nearest',behavior:'smooth'});
+        }
+        function startAction(label,payload,controller) {
+            const item={id:window.crypto?.randomUUID?.() || Math.random().toString(36),label,
+                origin:actionOrigin(payload),state:'submitting',controller};
+            actions.set(item.id,item);
+            saveActions();
+            return {
+                finish(result) {
+                    item.controller=null;
+                    if(payload?.action?.startsWith('start_') && result.run_id) {
+                        item.watch={kind:'reextract',key:result.run_id};item.state='queued';
+                    } else if(payload?.action==='request_market_prices' && result.lookup_key
+                        && ['queued','searching','quota'].includes(result.state)) {
+                        item.watch={kind:'market_prices',key:result.lookup_key};item.state=result.state==='quota'?'quota_wait':'queued';
+                    } else if(typeof result.job_id==='string' || typeof result.publish_job==='string') {
+                        const key=result.job_id || result.publish_job;
+                        const kind=key.startsWith('reference_suggest:')?'reference_suggest':'job';
+                        item.watch={kind,key};item.state='queued';
+                    } else {
+                        item.state=result.state==='failed'||result.issues?'failed':'completed';
+                        const outcomes={no_match:'قیمت قابل مقایسه پیدا نشد.',not_needed:'قیمت عادی در دادهٔ کالا موجود است.',
+                            ambiguous_identity:'ابتدا نوع دقیق کالا را مشخص کنید.',unchanged:'فهرست تغییری نداشت.',
+                            staged:'فهرست آمادهٔ بررسی است.',updated:'فهرست به‌روز شد.',failed:'جزئیات خطا در مبدأ قابل مشاهده است.'};
+                        item.detail=outcomes[result.state] || (Array.isArray(result.results)?fa(result.results.length)+' نتیجه':'');
+                    }
+                    saveActions();
+                    if(item.watch) refreshActivity();
+                },
+                fail(message,known) {
+                    item.controller=null;
+                    item.state=message ? (known?'failed':'unknown') : 'cancelled';
+                    item.detail=message || '';
+                    saveActions();
+                }
+            };
+        }
+        function actionRow(item) {
+            const row=el('li',null,'md-activity-action');
+            const text=[item.label,item.origin.product,activityStates[item.state],item.detail].filter(Boolean).join(' · ');
+            const controls=el('div',null,'md-activity-controls');
+            controls.append(button('رفتن به مبدأ',()=>openOrigin(item.origin),'md-link'));
+            if (activeAction(item)) {
+                const canCancel=item.controller || (item.watch && ['reextract','reference_suggest','market_prices'].includes(item.watch.kind)
+                    && (item.state!=='running'||item.watch.kind==='reextract'));
+                const control=button('لغو',async()=>{
+                    if(item.controller) {item.controller.abort();return;}
+                    const previous=item.state;
+                    item.state='cancelling';
+                    saveActions();
+                    try {
+                        const result=await hooks.cancelAction(item.watch);
+                        item.state=result.state || 'cancelled';
+                        item.detail=result.running?'لغو پیام‌های در انتظار ثبت شد.':'';
+                        if (item.watch.kind==='market_prices') refreshMarket(item.watch.key);
+                        if (item.state==='cancelled') delete item.watch;
+                        refreshActivity();
+                    } catch (_) {
+                        item.state=previous;
+                        item.detail='لغو این کار تأیید نشد.';
+                    }
+                    saveActions();
+                },'md-link');
+                control.disabled=!canCancel || item.state==='cancelling';
+                if(control.disabled) control.title='این مرحله پس از ارسال قابل لغو نیست.';
+                controls.append(control);
+            } else controls.append(button('بستن اعلان',()=>{actions.delete(item.id);saveActions();},'md-link'));
+            row.append(el('span',text),controls);
+            return row;
+        }
+        function groupRow(entry,quota) {
+            const row=el('li');
+            row.append(el('span',activityDescription(entry,quota)),button('جزئیات',()=>openActivity(entry.kind),'md-link'));
+            return row;
+        }
+        function paintActivity() {
+            const groups=[...(activityReport?.groups || [])];
             groups.sort((a,b)=>Number(b.state==='running')-Number(a.state==='running'));
+            const receipts=[...actions.values()].reverse().sort((a,b)=>Number(activeAction(b))-Number(activeAction(a)));
             const quota=activityReport?.quota || {};
-            const signature=JSON.stringify([groups,quota,activityStale]);
+            const signature=JSON.stringify([groups,quota,activityStale,receipts]);
             if (signature===activitySignature) return;
             activitySignature=signature;
-            const visible=groups.slice(0,2);
-            const description=visible.map(entry=>activityDescription(entry,quota));
-            const announcement=description.join(' | ');
-            if (announcement!==activityLive.textContent) activityLive.textContent=announcement;
-            const all=el('ul',null,'md-activity-list');
+            const watched=new Set(receipts.filter(activeAction).map(item=>item.watch?.kind));
+            const automatic=groups.filter(entry=>!watched.has(entry.kind));
             const top=el('ul',null,'md-activity-list');
-            groups.forEach((entry,index)=>{
-                const row=el('li');
-                row.append(el('span',activityDescription(entry,quota)),
-                    button('جزئیات',()=>openActivity(entry.kind),'md-link'));
-                all.appendChild(row);
-                if (index<visible.length) {
-                    const short=el('li');
-                    short.append(el('span',description[index]),button('جزئیات',()=>openActivity(entry.kind),'md-link'));
-                    top.appendChild(short);
-                }
-            });
+            const all=el('ul',null,'md-activity-list');
+            const rows=[...receipts.map(actionRow),...automatic.map(entry=>groupRow(entry,quota))];
+            const focused=activityBar.contains(document.activeElement);
+            const focusIndex=focused?[...activityBar.querySelectorAll('button')].indexOf(document.activeElement):-1;
+            top.append(...rows.slice(0,2));
+            activityLive.textContent=rows.slice(0,2).map(row=>row.firstChild.textContent).join(' | ');
             activityBar.replaceChildren(top);
-            activityBar.hidden=!groups.length;
-            if (groups.length>2) activityBar.appendChild(button(`همهٔ کارها (${fa(groups.length)})`,()=>navigate('system'),'md-link'));
+            activityBar.hidden=!rows.length;
+            if (rows.length>2) {
+                const history=el('details',null,'md-activity-history');
+                history.open=activityHistoryOpen;
+                history.addEventListener('toggle',()=>{if(history.isConnected) activityHistoryOpen=history.open;});
+                const list=el('ul',null,'md-activity-list');
+                list.append(...rows.slice(2));
+                history.append(el('summary',`فعالیت‌های دیگر (${fa(rows.length-2)})`),list);
+                activityBar.append(history);
+            }
+            if (focusIndex>=0) activityBar.querySelectorAll('button')[focusIndex]?.focus({preventScroll:true});
             if (activityStale && groups.length) activityBar.appendChild(el('small','آخرین وضعیت دریافت‌شده'));
+            if (!hooks.readActivity) return;
+            all.append(...groups.map(entry=>groupRow(entry,quota)));
             const nextQuota=quotaView(quota);
             systemActivity.replaceChildren();
             if (groups.length) systemActivity.appendChild(all);
@@ -192,7 +316,22 @@
         function refreshActivity() {
             clearTimeout(activityTimer);
             if (!hooks.readActivity || document.hidden || activityRequest) return;
-            activityRequest=hooks.readActivity().then(report=>{
+            const pending=[...actions.values()].filter(item=>item.watch&&activeAction(item));
+            const start=watchOffset%Math.max(1,pending.length);
+            const watching=[...pending.slice(start),...pending.slice(0,start)].slice(0,12);
+            watchOffset=start+watching.length;
+            activityRequest=hooks.readActivity(watching.map(item=>item.watch)).then(report=>{
+                for (const item of watching) {
+                    const result=report.watched?.[item.watch?.key];
+                    if (!result || item.state==='cancelling' || !activeAction(item)) continue;
+                    if (item.watch.kind==='market_prices'&&item.state!==result.state) refreshMarket(item.watch.key);
+                    item.state=result.state;
+                    item.detail=result.code==='no_match'?'قیمت قابل مقایسه پیدا نشد.'
+                        : result.code==='unavailable'?'منبع قیمت در دسترس نبود.'
+                        : result.code==='no_suggestion'?'مرجع قابل پیشنهاد پیدا نشد.'
+                        : result.total?`${fa(result.completed)} از ${fa(result.total)}`:'';
+                }
+                if (watching.length) saveActions();
                 const inboxChanged=report.inbox_revision && report.inbox_revision!==activityReport?.inbox_revision;
                 activityReport=report;
                 activityStale=false;
@@ -202,10 +341,15 @@
                 activityRequest=null;
                 paintActivity();
                 if (!document.hidden) {
-                    const active=state.view==='sources'||updatingReference||activityReport?.groups?.some(entry=>['running','queued'].includes(entry.state));
+                    const active=state.view==='sources'||[...actions.values()].some(item=>item.watch&&activeAction(item)&&item.state!=='quota_wait')||activityReport?.groups?.some(entry=>['running','queued'].includes(entry.state));
                     activityTimer=setTimeout(refreshActivity,active?7000:30000);
                 }
             });
+        }
+        function refreshMarket(key) {
+            for(const panel of main.querySelectorAll('.molavi-market-price-review[open]')){
+                if(panel.dataset.lookupKey===key)panel.dispatchEvent(new Event('molavi-market-activity'));
+            }
         }
         function refreshInbox(revision) {
             main.querySelector('.molavi-inbox')?.dispatchEvent(new CustomEvent('molavi-inbox-refresh',{detail:revision}));
@@ -214,11 +358,7 @@
             if (!revision||state.view!=='references') return;
             main.querySelector('.molavi-reference-panel')?.dispatchEvent(new CustomEvent('molavi-reference-refresh',{detail:revision}));
         }
-        function setReferenceRefresh(running) {
-            updatingReference=running;
-            paintActivity();
-            refreshActivity();
-        }
+        paintActivity();
         if (hooks.readActivity) {
             document.addEventListener('visibilitychange',refreshActivity);
             paintActivity();
@@ -238,6 +378,9 @@
         function navigate(view, product=null) {
             if(view==='sources'&&product){state.sourceContext=product;state.pageCache.delete('sources');}
             state.view=view;saveURL();paint();main.scrollIntoView({block:'start',behavior:'smooth'});
+            if(view==='products') for(const item of actions.values()) {
+                if(item.watch?.kind==='market_prices'&&!activeAction(item)) refreshMarket(item.watch.key);
+            }
             if(view==='references') refreshReferenceView(activityReport?.reference_revision);
             if(view==='sources'||view==='references') refreshActivity();
         }
@@ -500,7 +643,7 @@
         }
         function referencesView() {
             const view=el('section');view.append(el('h1','فهرست مرجع'));
-            const panel=el('div',null,'md-reference-catalog');view.append(panel);model.renderReferences(panel);return view;
+            const panel=el('div',null,'md-reference-catalog');view.append(panel);(hooks.renderReferences||model.renderReferences)(panel);return view;
         }
         function sourcesView() {
             const view=el('section');view.append(el('h1','پیام‌های منبع'));
@@ -508,11 +651,11 @@
             if(context){
                 const hint=el('div',null,'md-source-context');
                 hint.append(el('strong',`منبع ${context.name}`),el('p',`تأمین‌کننده: ${context.channel||'ثبت نشده'}`));
-                const link=model.sourceLink(context.status?.source_post_url||sourceFor(context).source_post_url);
+                const link=model?.sourceLink(context.status?.source_post_url||sourceFor(context).source_post_url);
                 if(link)hint.append(link);
                 hint.append(button('نمایش همهٔ پیام‌ها',()=>{state.sourceContext=null;state.pageCache.delete('sources');paint();},'md-link'));view.append(hint);
             }
-            const panel=el('div');view.append(panel);model.renderSources(panel,context);return view;
+            const panel=el('div');view.append(panel);(hooks.renderSources||model.renderSources)(panel,context);return view;
         }
         function systemView() {
             const view=el('section');view.append(el('h1','وضعیت سیستم'));
@@ -548,8 +691,11 @@
             });view.append(utilities);return view;
         }
         function paint() {
-            if(!model)return;
             navButtons.forEach((button,key)=>button.setAttribute('aria-current',key===state.view?'page':'false'));
+            if(!model&&['products','system'].includes(state.view)) {
+                main.replaceChildren(state.view==='system'?systemActivity:el('p','در حال دریافت محصولات…'));
+                return;
+            }
             if(state.view==='products')main.replaceChildren(productsView());
             else {
                 if(!state.pageCache.has(state.view))state.pageCache.set(state.view,
@@ -614,10 +760,12 @@
                 const focused=model.products.find(matches);
                 if(focused){state.active=focused.key;state.section=['next','deferred'].includes(next(focused))?'source_integrity':next(focused);}
             }
-            const references=state.view==='references'&&state.pageCache.get('references');
+            const references=state.pageCache.get('references');
+            const sources=state.pageCache.get('sources');
             state.panels.clear();
             state.pageCache.clear();
             if(references) state.pageCache.set('references',references);
+            if(sources) state.pageCache.set('sources',sources);
             healthView();paint();
         }
         async function reviewHold(id) {
@@ -659,7 +807,8 @@
                 else {state.focusType=kind;state.focus=id;}
             }
         }
-        return {update,loading,navigate,dismissTask,reviewHold,showReviewResults,reviewInboxItem,refreshActivity,setReferenceRefresh,reviewSource:product=>navigate('sources',product)};
+        paint();
+        return {update,loading,navigate,dismissTask,reviewHold,showReviewResults,reviewInboxItem,refreshActivity,startAction,reviewSource:product=>navigate('sources',product)};
     }
     window.MolaviDashboard={create,normalize,identities};
 })();

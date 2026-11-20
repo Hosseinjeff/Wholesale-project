@@ -6,7 +6,7 @@ function add_action(...$args){}
 function add_filter(...$args){}
 function get_option($name,$default=null){return $GLOBALS['activity_options'][$name]??$default;}
 
-foreach(['state-host','domain-core','domain-schemas','domain-bot-capabilities','domain-dashboard-activity','domain-reference-scheduler','domain-reference-parser','domain-products','domain-publication-recovery','domain-reconciliation'] as $part) {
+foreach(['state-host','domain-core','domain-schemas','domain-bot-capabilities','domain-dashboard-activity','domain-reference-scheduler','domain-market-prices','domain-reference-parser','domain-products','domain-publication-recovery','domain-reconciliation'] as $part) {
     require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-'.$part.'.php';
 }
 function activity_check(bool $condition,string $message): void {
@@ -101,6 +101,23 @@ try {
     $db->close();
     $activated=molavi_domain_dashboard_activity($now+13);
     activity_check($activated['reference_revision']!==$reviewed['revision'],'catalog activation advances the activity revision');
+    $runWatch=['kind'=>'reextract','key'=>str_repeat('f',32)];
+    $marketWatch=['kind'=>'market_prices','key'=>str_repeat('c',64)];
+    $matchWatch=['kind'=>'reference_suggest','key'=>'reference_suggest:'.str_repeat('b',64)];
+    $db=molavi_domain_db('pipeline');
+    molavi_domain_sql($db,"INSERT INTO jobs(id,kind,payload,state,available) VALUES (?,'reference_suggest','{}','queued',?)",[$matchWatch['key'],$now]);
+    $db->close();
+    $db=molavi_domain_db('reference');
+    molavi_domain_sql($db,"INSERT INTO market_price_lookups(lookup_key,identity_json,next_at,priority) VALUES (?,'{}',?,1)",
+        [$marketWatch['key'],$now]);
+    $db->close();
+    $watched=(array)molavi_domain_dashboard_activity($now,[$runWatch,$marketWatch,$matchWatch])['watched'];
+    activity_check($watched[$runWatch['key']]['completed']===1 && $watched[$runWatch['key']]['total']===2,'tracked runs return compact progress');
+    foreach([$marketWatch,$matchWatch] as $watch) {
+        activity_check(molavi_domain_dashboard_cancel($watch,'wp:1')['state']==='cancelled','queued work can be cancelled');
+        $state=(array)molavi_domain_dashboard_activity($now,[$watch])['watched'];
+        activity_check($state[$watch['key']]['state']==='cancelled','the activity feed returns the durable cancellation receipt');
+    }
     echo "PASS dashboard activity and daily quota\n";
 } finally {
     foreach (glob($root.'/*') as $file) unlink($file);

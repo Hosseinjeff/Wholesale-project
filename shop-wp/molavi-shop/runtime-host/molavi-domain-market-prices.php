@@ -286,8 +286,11 @@ function molavi_domain_market_price_api(string $method,array $input,string $acto
                 WHERE lookup_key=?",[$url,$actor,$now,(int)$row['checked_at']+MOLAVI_REFERENCE_REFRESH_SECONDS,$key]);
             return;
         }
-        molavi_domain_sql($db,'INSERT INTO market_price_lookups(lookup_key,identity_json,next_at,priority) VALUES(?,?,?,1)
-            ON CONFLICT(lookup_key) DO UPDATE SET active=1,priority=1 WHERE next_at<=?',[$key,molavi_domain_json($identity),$now,$now]);
+        molavi_domain_sql($db,"INSERT INTO market_price_lookups(lookup_key,identity_json,next_at,priority) VALUES(?,?,?,1)
+            ON CONFLICT(lookup_key) DO UPDATE SET active=1,priority=1,
+                next_at=CASE WHEN state='cancelled' THEN excluded.next_at ELSE next_at END,
+                state=CASE WHEN state='cancelled' THEN 'queued' ELSE state END
+                WHERE next_at<=? OR state='cancelled'",[$key,molavi_domain_json($identity),$now,$now]);
     });
     $row=molavi_domain_read('reference',static function(SQLite3 $db)use($key,$identity,$now): ?array {
         $row=molavi_domain_row($db,'SELECT * FROM market_price_lookups WHERE lookup_key=?',[$key])
@@ -312,7 +315,7 @@ function molavi_domain_market_price_api(string $method,array $input,string $acto
     $ranked=$exact?:($regular?:$quotes);
     $recommended=$ranked[intdiv(count($ranked),2)]??null;
     foreach ($quotes as $quote) if ($quote['url']===$pinned) $recommended=$quote;
-    return ['ok'=>true,'state'=>$row['state'],'checked_at'=>$row['checked_at'],'next_at'=>$row['next_at'],
+    return ['ok'=>true,'state'=>$row['state'],'lookup_key'=>$key,'checked_at'=>$row['checked_at'],'next_at'=>$row['next_at'],
         'search_configured'=>true,'prioritized'=>(bool)$row['priority'],
         'stale'=>$row['checked_at']!==null&&$now-(int)$row['checked_at']>=MOLAVI_REFERENCE_REFRESH_SECONDS,
         'suggested_price'=>$recommended,'candidates'=>$quotes,'selected_url'=>$pinned];

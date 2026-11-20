@@ -159,17 +159,21 @@ function molavi_owner_dashboard_cache_clear(): void {
     delete_transient(molavi_owner_dashboard_cache_key());
 }
 
-function molavi_owner_dashboard_bootstrap(bool $force): array {
+function molavi_owner_dashboard_bootstrap(bool $force, array $sections=[]): array {
     if (!molavi_owner_dashboard_native()) return ['status'=>503,'body'=>['ok'=>false,'error'=>'workflow_route_unavailable']];
+    $routes=molavi_owner_dashboard_routes();
+    if ($sections && array_diff($sections,array_keys($routes))) return ['status'=>400,'body'=>['ok'=>false,'error'=>'invalid_query']];
     $key=molavi_owner_dashboard_cache_key();
-    $cached=$force?false:get_transient($key);
+    $cached=($force||$sections)?false:get_transient($key);
     if (is_array($cached)) return ['status'=>200,'body'=>$cached+['cached'=>true]];
     $actor='wp:'.get_current_user_id();
-    $read=static function() use ($actor): array {
+    $read=static function() use ($actor,$routes,$sections): array {
         $sources=[];
-        foreach (molavi_owner_dashboard_routes() as $name=>$path) {
+        foreach ($routes as $name=>$path) {
+            if ($sections && !in_array($name,$sections,true)) continue;
+            $query=$name==='ai_confirmations'?['view'=>'workbench-summary']:[];
             $result=molavi_domain_route_enabled('GET',$path)
-                ? molavi_domain_dispatch('GET',$path,[],null,$actor)
+                ? molavi_domain_dispatch('GET',$path,$query,null,$actor)
                 : molavi_owner_workflow_proxy_call('GET',$path);
             $sources[$name]=$result['body'];
         }
@@ -178,7 +182,7 @@ function molavi_owner_dashboard_bootstrap(bool $force): array {
     try { $sources=molavi_domain_dashboard_snapshot($read); }
     catch (Throwable $error) { return ['status'=>503,'body'=>['ok'=>false,'error'=>'native_workflow_unavailable']]; }
     $body=['ok'=>true,'sources'=>$sources];
-    if (!array_filter($sources,static fn($source)=>empty($source['ok']))) set_transient($key,$body,20);
+    if (!$sections&&!array_filter($sources,static fn($source)=>empty($source['ok']))) set_transient($key,$body,45);
     return ['status'=>200,'body'=>$body+['cached'=>false]];
 }
 
@@ -195,14 +199,30 @@ function molavi_owner_workflow_proxy_ajax(): void {
         ? strtoupper(sanitize_text_field(wp_unslash($_POST['method']))) : '';
     $path = isset($_POST['path']) && is_string($_POST['path'])
         ? wp_unslash($_POST['path']) : '';
-    if ($path==='/pipeline/dashboard-activity' && $method==='GET') {
+    if ($path==='/pipeline/dashboard-activity' && in_array($method,['GET','POST'],true)) {
         nocache_headers();
         if (!function_exists('molavi_domain_dashboard_activity') || !get_option('molavi_state_active',false)) {
             wp_send_json(['ok'=>false,'error'=>'workflow_route_unavailable'],503);
             return;
         }
-        try { $report=molavi_domain_dashboard_activity(); }
-        catch (Throwable $error) {
+        try {
+            if ($method==='POST') {
+                $raw=is_string($_POST['payload']??null)?wp_unslash($_POST['payload']):'';
+                $watch=strlen($raw)<=350?json_decode($raw,true):null;
+                if (!is_array($watch) || !function_exists('molavi_domain_dashboard_cancel')) molavi_domain_fail('invalid_body',400);
+                $report=molavi_domain_dashboard_cancel($watch,'wp:'.get_current_user_id());
+            } else {
+                $raw=is_string($_POST['query']??null)?wp_unslash($_POST['query']):'';
+                if (strlen($raw)>6500) molavi_domain_fail('invalid_query',400);
+                parse_str(ltrim($raw,'?'),$query);
+                $watches=is_string($query['watch']??null)?json_decode($query['watch'],true):[];
+                if (!is_array($watches)) molavi_domain_fail('invalid_query',400);
+                $report=molavi_domain_dashboard_activity(null,$watches);
+            }
+        } catch (MolaviWorkflowError $error) {
+            wp_send_json(['ok'=>false,'error'=>$error->getMessage()],$error->status);
+            return;
+        } catch (Throwable $error) {
             wp_send_json(['ok'=>false,'error'=>'native_workflow_unavailable'],503);
             return;
         }
@@ -210,8 +230,10 @@ function molavi_owner_workflow_proxy_ajax(): void {
         return;
     }
     if ($path==='/pipeline/dashboard-bootstrap' && $method==='GET') {
-        $force=isset($_POST['query']) && $_POST['query']==='?force=1';
-        $result=molavi_owner_dashboard_bootstrap($force);
+        $raw=isset($_POST['query'])&&is_string($_POST['query'])?wp_unslash($_POST['query']):'';
+        parse_str(ltrim(substr($raw,0,512),'?'),$query);
+        $sections=is_string($query['sections']??null)?explode(',',$query['sections']):[];
+        $result=molavi_owner_dashboard_bootstrap(($query['force']??'')==='1',$sections);
         nocache_headers();
         wp_send_json($result['body'],$result['status']);
         return;
@@ -245,7 +267,9 @@ function molavi_owner_workflow_proxy_ajax(): void {
     } elseif ($method !== 'GET') {
         wp_send_json(['ok'=>false, 'error'=>'workflow_route_unavailable'], 400);
     }
-    $result = molavi_owner_workflow_proxy_call($method, $path, $query, $payload);
+    $result = molavi_owner_dashboard_native() && molavi_domain_route_enabled($method,$path)
+        ? molavi_domain_dispatch($method,$path,$query,$payload,'wp:'.get_current_user_id())
+        : molavi_owner_workflow_proxy_call($method, $path, $query, $payload);
     if ($method==='POST' && $result['status']<300) molavi_owner_dashboard_cache_clear();
     nocache_headers();
     wp_send_json($result['body'], $result['status']);
@@ -410,6 +434,7 @@ add_action('admin_enqueue_scripts', static function (): void {
     }
     $browserConfig = [
         'page' => $page,
+        'ownerCacheKey' => (string)get_current_user_id() . ':' . filemtime($script),
         'apiUrl' => rtrim($base, '/') . $pages[$page][0],
         'apiProxyUrl' => molavi_owner_workflow_relative_admin_url('admin-ajax.php'),
         'apiProxyNonce' => wp_create_nonce('molavi_owner_workflow_proxy'),

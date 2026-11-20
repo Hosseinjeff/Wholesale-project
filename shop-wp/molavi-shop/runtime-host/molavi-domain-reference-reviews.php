@@ -280,6 +280,9 @@ function molavi_domain_reference_reviews_api(string $method,?array $body,string 
         else foreach(molavi_domain_reference_review_cases($tables,$snapshot,false,false) as $case)if($case['case_id']===$body['case_id']&&$case['offer_id']===$body['offer_id']&&$case['signature']===$body['signature']&&!$case['decision']){$source=$case;break;}
         if(!$source)molavi_domain_fail('stale_case');$context=$body;unset($context['action']);$context['policy_version']=molavi_domain_bot_capabilities()['suggestion_policy_version'];
         $job=molavi_domain_queue('reference_suggest',molavi_domain_hash($context,true,true),$context);
+        molavi_domain_tx('pipeline',static fn(SQLite3 $db)=>molavi_domain_sql($db,
+            "UPDATE jobs SET state='queued',available=?,updated_at=?,error=NULL WHERE id=? AND state='cancelled'",
+            [microtime(true),microtime(true),$job]));
         return ['ok'=>true,'job_id'=>$job,'state'=>'queued','snapshot_id'=>$context['snapshot_id'],'case_id'=>$context['case_id'],'_http_status'=>202];
     }
     $assign=($body['action']??null)==='assign_ai_reference';

@@ -24,6 +24,9 @@
 #molavi-owner-workflow .md-activity-list {list-style:none;margin:0;padding:0;}
 #molavi-owner-workflow .md-activity-list li {display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:4px 0;}
 #molavi-owner-workflow .md-activity-list span {overflow-wrap:anywhere;min-width:0;}
+#molavi-owner-workflow .md-activity-controls {display:flex;flex-wrap:wrap;justify-content:flex-end;gap:.35rem .65rem;}
+#molavi-owner-workflow .md-activity-history summary {cursor:pointer;padding-block:.3rem;font-weight:600;}
+#molavi-owner-workflow .md-activity-action .md-link:disabled {opacity:.55;cursor:default;}
 #molavi-owner-workflow .md-activity-list button {flex-shrink:0;}
 #molavi-owner-workflow .md-system-activity {margin:12px 0;padding:12px 15px;background:var(--md-paper);border:1px solid var(--md-line);border-radius:9px;}
 #molavi-owner-workflow .md-system-activity small {color:var(--md-muted);}

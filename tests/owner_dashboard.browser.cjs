@@ -22,6 +22,8 @@ const fixtures={
  let activeReads=0,maxActiveReads=0,transientStatusOnce=true,statusReads=0,changeReads=0,catalogSearches=0,titleReads=0;
  let marketReads=0,marketSource=null;
  let referenceRevision=null;
+ let lazyCandidates=0, marketWatch='';
+ const lookupKey='b'.repeat(64);
  let inboxMessages=[],inboxRevision='initial',inboxOfferReads=0,dashboardDismissals=[];
  page.on('pageerror',e=>errors.push(e.message));
  await page.route('**/*',async route=>{
@@ -29,6 +31,17 @@ const fixtures={
    const f=new URLSearchParams(req.postData());const path=f.get('path');
    if(f.get('method')==='POST'||f.get('action')!=='molavi_owner_workflow_proxy'){
     writes.push({action:f.get('action'),path,payload:f.get('payload')});
+    if(path==='/pipeline/dashboard-activity'){
+      assert.deepEqual(JSON.parse(f.get('payload')),{kind:'market_prices',key:lookupKey});
+      marketWatch='cancelled';
+      marketSource={state:'cancelled',lookup_key:lookupKey};
+      return route.fulfill({json:{ok:true,state:'cancelled'}});
+    }
+    if(path==='/reference/item-reviews'&&JSON.parse(f.get('payload')||'{}').action==='request_market_prices'){
+      marketWatch='queued';
+      marketSource={state:'queued',lookup_key:lookupKey,prioritized:true};
+      return route.fulfill({json:{ok:true,...marketSource}});
+    }
     if(path==='/reference/snapshots'&&JSON.parse(f.get('payload')||'{}').action==='decide_reference_use'){
       const payload=JSON.parse(f.get('payload'));
       const snap=fixtures[path];
@@ -112,7 +125,8 @@ const fixtures={
     }
     if(failPrices&&path==='/pipeline/supplier-price-evidence')return await route.fulfill({status:503,json:{ok:false,error:'upstream_unavailable'}});
     if (path==='/pipeline/dashboard-activity') {
-     return await route.fulfill({json:{ok:true,inbox_revision:inboxRevision,reference_revision:referenceRevision,groups:[
+     return await route.fulfill({json:{ok:true,inbox_revision:inboxRevision,reference_revision:referenceRevision,
+      watched:marketWatch?{[lookupKey]:{state:marketWatch}}:{},groups:[
       {kind:'reextract',state:'running',total:8,completed:3},
       {kind:'reference_index',state:'quota_wait',model:'gemini-embedding-001',total:50,completed:20,
        retry_at:Date.now()/1000+3600},
@@ -159,6 +173,10 @@ const fixtures={
     if(path==='/pipeline/ai-confirmations'){
      const query=new URLSearchParams(f.get('query'));
      const common={ok:true,ai_configured:true,policy_version:fixtures[path].extraction_policy_version,digest:'a'.repeat(64)};
+     if(query.get('view')==='workbench-candidates'){
+      lazyCandidates++;
+      return route.fulfill({json:{ok:true,snapshot_id:query.get('snapshot_id'),candidates:[]}});
+     }
      if(query.get('reextract')==='offer'){
       offerPreviews++;
       return await route.fulfill({json:{...common,reason:latestRun?'already_current':'updated_policy',
@@ -187,12 +205,12 @@ const fixtures={
   }
   return route.fulfill({contentType:'text/html',body:'<!doctype html><html lang="fa" dir="rtl"><body style="background:#f0f0f1;margin:20px"><div id="molavi-owner-workflow"></div></body></html>'});
  });
- async function mount(query='', dashboardBootstrap=false, dashboardActivity=false){
+ async function mount(query='', dashboardBootstrap=false, dashboardActivity=false, ownerCacheKey=''){
   await page.goto('http://molavi.test/wp-admin/admin.php?page=molavi-operations'+query);
   await page.addStyleTag({content:fs.readFileSync(base+'owner-workflows.css','utf8')});
   await page.addStyleTag({content:fs.readFileSync(base+'owner-dashboard.css','utf8')});
-  await page.evaluate(({dashboardBootstrap,dashboardActivity,dashboardDismissals})=>window.molaviOwnerWorkflow={dashboardBootstrap,dashboardActivity,page:'molavi-operations',apiUrl:'https://api.test/pipeline/operations-dashboard',apiProxyUrl:'/wp-admin/admin-ajax.php',apiProxyNonce:'mock',reviewStoreUrl:'/wp-admin/admin-ajax.php',reviewStoreNonce:'mock',workbenchDismissalNonce:'mock',workbenchDismissals:dashboardDismissals,workflowApis:Object.fromEntries([
-    ['product_status','/pipeline/product-status-snapshots'],['ai_confirmations','/pipeline/ai-confirmations'],['reference_items','/reference/item-reviews'],['supplier_prices','/pipeline/supplier-price-evidence'],['sheet_conflicts','/pipeline/sheet-conflicts'],['publication_holds','/pipeline/publication-holds'],['reference_decisions','/reference/decisions'],['reconciliation','/pipeline/reconciliation']].map(([key,path])=>[key,{url:'https://api.test'+path}]))},{dashboardBootstrap,dashboardActivity,dashboardDismissals});
+  await page.evaluate(({dashboardBootstrap,dashboardActivity,dashboardDismissals,ownerCacheKey})=>window.molaviOwnerWorkflow={dashboardBootstrap,dashboardActivity,ownerCacheKey,page:'molavi-operations',apiUrl:'https://api.test/pipeline/operations-dashboard',apiProxyUrl:'/wp-admin/admin-ajax.php',apiProxyNonce:'mock',reviewStoreUrl:'/wp-admin/admin-ajax.php',reviewStoreNonce:'mock',workbenchDismissalNonce:'mock',workbenchDismissals:dashboardDismissals,workflowApis:Object.fromEntries([
+    ['product_status','/pipeline/product-status-snapshots'],['ai_confirmations','/pipeline/ai-confirmations'],['reference_items','/reference/item-reviews'],['supplier_prices','/pipeline/supplier-price-evidence'],['sheet_conflicts','/pipeline/sheet-conflicts'],['publication_holds','/pipeline/publication-holds'],['reference_decisions','/reference/decisions'],['reconciliation','/pipeline/reconciliation']].map(([key,path])=>[key,{url:'https://api.test'+path}]))},{dashboardBootstrap,dashboardActivity,dashboardDismissals,ownerCacheKey});
   for(const file of ['reference-snapshots.js','owner-dashboard.js','owner-workflows.js'])await page.addScriptTag({content:fs.readFileSync(base+file,'utf8')});
   await page.waitForSelector('.md-product-card');
  }
@@ -546,6 +564,30 @@ const fixtures={
  page.once('dialog',dialog=>dialog.accept());
  await list.getByRole('button',{name:'فعال‌سازی مرجع',exact:true}).click();
  await list.getByRole('heading',{name:'فهرست برای تطبیق آماده است'}).waitFor();
+ const aiSource=fixtures['/pipeline/ai-confirmations'];
+ aiSource.candidates_deferred=true;
+ extraction.reference_snapshot_id=refId;
+ extraction.reference_candidates=[];
+ marketSource={state:'idle',lookup_key:lookupKey};
+ await mount('',true,true,'fixture-owner:1');
+ assert.equal(lazyCandidates,0,'bootstrap never loads per-offer candidates for unopened cards');
+ const biscuit=page.locator('.md-product-card').filter({hasText:'بیسکویت شکلاتی'});
+ await biscuit.getByRole('button',{name:'بررسی مشخصات',exact:true}).click();
+ const marketPanel=biscuit.locator('.molavi-market-price-review');
+ await marketPanel.getByText('قیمت و مرجع',{exact:true}).click();
+ await marketPanel.getByRole('button',{name:'یافتن قیمت بازار',exact:true}).click();
+ assert.equal(lazyCandidates,1,'opening one card loads one shortlist');
+ const marketReceipt=page.locator('.md-activity-action').filter({hasText:'یافتن قیمت بازار'});
+ await marketReceipt.getByText(/در صف/).waitFor();
+ await page.getByRole('button',{name:'فهرست مرجع',exact:true}).click();
+ await marketReceipt.getByRole('button',{name:'رفتن به مبدأ',exact:true}).click();
+ await biscuit.locator('.molavi-market-price-review[open]').waitFor();
+ await marketReceipt.getByRole('button',{name:'لغو',exact:true}).click();
+ await marketReceipt.getByText(/لغو شد/).waitFor();
+ await mount('',true,true,'fixture-owner:1');
+ await marketReceipt.getByText(/لغو شد/).waitFor();
+ await marketReceipt.getByRole('button',{name:'بستن اعلان'}).click();
+ assert.equal(await marketReceipt.count(),0,'a receipt survives reload until dismissed');
  assert.deepEqual(errors,[]);
  console.log(JSON.stringify({passed:true,errors,writes:writes.length,captures:['/tmp/molavi-dashboard-desktop.png','/tmp/molavi-dashboard-mobile.png']}));
  await browser.close();

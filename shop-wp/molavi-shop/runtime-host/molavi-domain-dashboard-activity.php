@@ -103,22 +103,113 @@ function molavi_domain_dashboard_quota(SQLite3 $db,array $caps,float $now): arra
         'total'=>$total,'buckets'=>$buckets,'last_models'=>(object)$selected];
 }
 
-function molavi_domain_dashboard_activity(?float $clock=null): array {
+function molavi_domain_dashboard_watch_valid(array $watch): bool {
+    if(!is_string($watch['kind']??null)||!is_string($watch['key']??null)) return false;
+    $pattern=match($watch['kind']){
+        'reextract'=>'/^[a-f0-9]{32}$/D',
+        'market_prices'=>'/^[a-f0-9]{64}$/D',
+        'reference_suggest'=>'/^reference_suggest:[a-f0-9]{64}$/D',
+        'job'=>'/^(?:publish:|publish-)[A-Za-z0-9_:-]{1,180}$/D',
+        default=>null,
+    };
+    return $pattern!==null&&(bool)preg_match($pattern,$watch['key']);
+}
+function molavi_domain_dashboard_watched_pipeline(SQLite3 $db,array $watch,float $now): array {
+    $key=$watch['key'];
+    if($watch['kind']==='reextract') {
+        $counts=array_column(molavi_domain_rows($db,"SELECT state,COUNT(*) AS n FROM jobs WHERE kind='reextract'
+            AND id LIKE ? GROUP BY state",['reextract:'.$key.':%']),'n','state');
+        $total=array_sum($counts);
+        $complete=($counts['done']??0)+($counts['failed']??0)+($counts['cancelled']??0)+($counts['needs_review']??0);
+        $state=match(true){
+            !$total=>'unknown',!empty($counts['running'])=>'running',!empty($counts['queued'])=>'queued',
+            ($counts['failed']??0)===$total=>'failed',
+            !empty($counts['failed'])||!empty($counts['needs_review'])=>'partial',
+            !empty($counts['cancelled'])=>empty($counts['done'])?'cancelled':'partial',
+            default=>'completed',
+        };
+        return ['state'=>$state,'completed'=>$complete,'total'=>$total];
+    }
+    $job=molavi_domain_row($db,'SELECT state,error,available,result FROM jobs WHERE id=?',[$key]);
+    $state=match($job['state']??null){
+        'queued'=>($job['error']==='google_free_quota_wait'&&$job['available']>$now)?'quota_wait':'queued',
+        'running'=>'running','done'=>'completed','cancelled'=>'cancelled','needs_review'=>'partial','failed'=>'failed',
+        default=>'unknown',
+    };
+    $code=null;
+    if ($state==='completed' && $watch['kind']==='reference_suggest') {
+        $result=molavi_domain_decode($job['result']??null);
+        if(in_array($result['state']??'',['no_match','no_suggestion','low_confidence'],true))$code='no_suggestion';
+    }
+    return ['state'=>$state,'code'=>$code];
+}
+function molavi_domain_dashboard_watched_market(SQLite3 $db,array $watch,float $now): array {
+    $row=molavi_domain_row($db,'SELECT state,selected_url FROM market_price_lookups WHERE lookup_key=?',[$watch['key']]);
+    $state=$row['state']??null;
+    if($state==='queued'&&!$row['selected_url']){
+        $used=(int)(molavi_domain_row($db,'SELECT used FROM market_price_budget WHERE day=?',[gmdate('Y-m-d',(int)$now)])['used']??0);
+        if($used>=MOLAVI_MARKET_DAILY_LOOKUPS)$state='quota';
+    }
+    return ['state'=>match($state){
+        'queued'=>'queued','searching'=>'running','quota'=>'quota_wait','ready','no_match'=>'completed',
+        'retry','provider_auth'=>'failed','cancelled'=>'cancelled',default=>'unknown',
+    },'code'=>match($state){
+        'no_match'=>'no_match','retry','provider_auth'=>'unavailable',default=>null,
+    }];
+}
+function molavi_domain_dashboard_cancel(array $watch,string $actor): array {
+    if(!molavi_domain_dashboard_watch_valid($watch))molavi_domain_fail('invalid_body',400);
+    $key=$watch['key'];
+    if($watch['kind']==='reextract'){
+        $receipt=molavi_domain_ai_cancel(['action'=>'cancel_reextraction','run_id'=>$key],$actor);
+        if (!$receipt['running']&&!$receipt['cancelled'])molavi_domain_fail('dashboard_action_changed');
+        return ['ok'=>true,'state'=>$receipt['running']?'running':'cancelled','running'=>$receipt['running']];
+    }
+    if($watch['kind']==='reference_suggest'){
+        $changed=molavi_domain_tx('pipeline',static fn(SQLite3 $db)=>molavi_domain_sql($db,
+            "UPDATE jobs SET state='cancelled',updated_at=?,error=NULL WHERE id=? AND kind='reference_suggest' AND state='queued'",
+            [microtime(true),$key])['changes']);
+    }elseif($watch['kind']==='market_prices'){
+        $changed=molavi_domain_tx('reference',static fn(SQLite3 $db)=>molavi_domain_sql($db,
+            "UPDATE market_price_lookups SET state='cancelled',priority=0,next_at=?
+            WHERE lookup_key=? AND state='queued' AND priority=1 AND selected_url IS NULL",
+            [time()+MOLAVI_REFERENCE_REFRESH_SECONDS,$key])['changes']);
+    }else molavi_domain_fail('dashboard_action_changed');
+    if(!$changed)molavi_domain_fail('dashboard_action_changed');
+    return ['ok'=>true,'state'=>'cancelled'];
+}
+
+function molavi_domain_dashboard_activity(?float $clock=null,array $watching=[]): array {
     $now=$clock??microtime(true);
     try { $caps=molavi_domain_bot_capabilities(); }
     catch (MolaviWorkflowError $e) { $caps=[]; }
-    $activity=molavi_domain_read('pipeline',static fn(SQLite3 $db)=>[
+    if(count($watching)>12)molavi_domain_fail('invalid_query',400);
+    foreach($watching as $watch)if(!is_array($watch)||!molavi_domain_dashboard_watch_valid($watch))molavi_domain_fail('invalid_query',400);
+    $activity=molavi_domain_read('pipeline',static function(SQLite3 $db)use($now,$caps,$watching): array{
+        $watched=[];
+        foreach($watching as $watch)if($watch['kind']!=='market_prices')
+            $watched[$watch['key']]=molavi_domain_dashboard_watched_pipeline($db,$watch,$now);
+        return [
+        'watched'=>$watched,
         'groups'=>molavi_domain_dashboard_job_groups($db,$now),
         'quota'=>molavi_domain_dashboard_quota($db,$caps,$now),
         'inbox_revision'=>molavi_domain_hash(molavi_domain_rows($db,"SELECT i.rowid,i.batch_id,j.state,j.updated_at,j.available,j.error,h.hold_id
             FROM inbox i LEFT JOIN jobs j ON j.id=i.batch_id
             LEFT JOIN publication_holds h ON i.batch_id LIKE 'batch:%' AND h.hold_id=substr(i.batch_id,7) ORDER BY i.rowid DESC LIMIT 12")),
-    ]);
-    $reference=molavi_domain_read('reference',static fn(SQLite3 $db)=>[
+        ];
+    });
+    $reference=molavi_domain_read('reference',static function(SQLite3 $db)use($now,$watching): array{
+        $watched=[];
+        foreach($watching as $watch)if($watch['kind']==='market_prices')
+            $watched[$watch['key']]=molavi_domain_dashboard_watched_market($db,$watch,$now);
+        return [
+        'watched'=>$watched,
         'refresh'=>molavi_domain_reference_refresh_view($db,$now),
         'pricing'=>molavi_domain_row($db,
             "SELECT 1 FROM market_price_lookups WHERE active=1 AND state='searching' AND attempted_at>? LIMIT 1",[$now-60]),
-    ]);
+        ];
+    });
+    $activity['watched']=(object)($activity['watched']+$reference['watched']);
     $activity['reference_revision']=$reference['refresh']['revision']??null;
     if ($reference['refresh']['in_progress']??false) $activity['groups'][]=['kind'=>'reference_refresh','state'=>'running'];
     if ($reference['pricing']) $activity['groups'][]=['kind'=>'market_prices','state'=>'running'];

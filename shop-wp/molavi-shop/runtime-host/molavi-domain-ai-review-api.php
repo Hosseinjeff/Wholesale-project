@@ -6,6 +6,22 @@ defined('ABSPATH') || exit;
 function molavi_domain_ai_reviews_api(string $method, array $query, ?array $body, string $actor): array {
     if ($method==='GET') {
         $mode = $query['reextract'] ?? '';
+        $view = $query['view'] ?? '';
+        if ($view==='workbench-candidates') {
+            $id=$query['offer_id']??'';
+            if(!is_string($id)||$id===''||strlen($id)>300)molavi_domain_fail('invalid_query',400);
+            $snapshot=molavi_domain_reference_active();
+            $use=molavi_domain_reference_use();
+            if(!$snapshot||!$use['allow_automatic']||($use['snapshot_id']??null)!==$snapshot['snapshot_id'])
+                return ['ok'=>true,'snapshot_id'=>'','candidates'=>[]];
+            if(isset($query['snapshot_id'])&&$query['snapshot_id']!==$snapshot['snapshot_id'])molavi_domain_fail('stale_snapshot');
+            $table=molavi_domain_sheets(['Offers'])['Offers'];
+            foreach(molavi_domain_records($table) as $row) {
+                if(($row['Offer ID']??null)===$id && ($case=molavi_domain_ai_case($row)))
+                    return ['ok'=>true,'snapshot_id'=>$snapshot['snapshot_id'],'candidates'=>molavi_domain_ai_candidates($case,$snapshot)];
+            }
+            molavi_domain_fail('stale_case');
+        }
         if ($mode==='offer') return molavi_domain_ai_offer_preview($query,molavi_domain_sheets(['MessageData','Offers'],true));
         if ($mode==='preview') return molavi_domain_ai_preview($query,molavi_domain_sheets(['MessageData','Offers'],true),null,$actor);
         if ($mode==='archive-review') {
@@ -17,7 +33,7 @@ function molavi_domain_ai_reviews_api(string $method, array $query, ?array $body
             $tables=($query['summary']??'')==='1'?null:molavi_domain_sheets(['Offers'],true);
             return molavi_domain_ai_run_report($query,$tables);
         }
-        return molavi_domain_ai_reviews_get(molavi_domain_sheets(['Offers'],true));
+        return molavi_domain_ai_reviews_get(molavi_domain_sheets(['Offers'],true),null,$view!=='workbench-summary');
     }
     return match ($body['action'] ?? '') {
         'start_reextraction','start_open_case_reextraction','start_recent_policy_reextraction','start_offer_reextraction','start_media_reextraction' => molavi_domain_ai_start($body,$actor),
@@ -57,9 +73,9 @@ function molavi_domain_ai_decide(array $payload,?float $clock=null): array {
         return molavi_domain_ai_decision_decode(molavi_domain_row($db,'SELECT * FROM ai_confirmation_decisions WHERE decision_id=?',[$id]));
     });
 }
-function molavi_domain_ai_reviews_get(array $tables,?float $clock=null): array {
+function molavi_domain_ai_reviews_get(array $tables,?float $clock=null,bool $candidates=true): array {
     $snapshot=null;try{$candidate=molavi_domain_reference_active();$state=molavi_domain_reference_use();if($candidate&&$state['allow_automatic']&&$candidate['snapshot_id']===$state['snapshot_id'])$snapshot=$candidate;}catch(Throwable $e){}
-    [$cases,$recent]=molavi_domain_ai_review_cases($tables,$snapshot,true,200,$clock);if($snapshot)$cases=molavi_domain_reference_receipts($cases,'ai',$snapshot['snapshot_id']);$scope=molavi_domain_ai_hold_scope();
+    [$cases,$recent]=molavi_domain_ai_review_cases($tables,$snapshot,true,200,$clock,$candidates);if($snapshot)$cases=molavi_domain_reference_receipts($cases,'ai',$snapshot['snapshot_id']);$scope=molavi_domain_ai_hold_scope();
     foreach($cases as &$case)$case['publication_held']=molavi_domain_ai_held($scope,$case);unset($case);foreach($recent as &$case)$case['publication_held']=molavi_domain_ai_held($scope,$case);unset($case);
     $snapshotId=$snapshot['snapshot_id']??'';
     $waivers=molavi_domain_read('reference',static fn(SQLite3 $db)=>molavi_domain_rows($db,
@@ -71,7 +87,7 @@ function molavi_domain_ai_reviews_get(array $tables,?float $clock=null): array {
     unset($case);
     $policy=null;
     try {$policy=molavi_domain_bot_capabilities()['extraction_policy_version'];} catch(MolaviWorkflowError $e) {}
-    return ['ok'=>true,'cases'=>$cases,'recent_decisions'=>$recent,'publication_held'=>(bool)$scope['batch_ids'],
+    return ['ok'=>true,'cases'=>$cases,'recent_decisions'=>$recent]+($candidates?[]:['candidates_deferred'=>true])+['publication_held'=>(bool)$scope['batch_ids'],
         'publication_hold_scope'=>'source_batch','extraction_policy_version'=>$policy];
 }
 function molavi_domain_ai_reviews_decide(?array $body,string $actor,?string $clock=null): array {

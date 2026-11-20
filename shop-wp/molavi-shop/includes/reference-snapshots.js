@@ -143,7 +143,8 @@
         return 'استخراج کامل نشد؛ پیش‌نویس تازه ساخته نشد. کد پیگیری: ' + (code || 'نامشخص');
     }
 
-    async function request(method, payload, url) {
+    async function request(method, payload, url, options) {
+        if (config.dashboardRequest) return config.dashboardRequest(method,payload,url,options);
         if (!config.apiProxyUrl || !config.apiProxyNonce) throw new Error('workflow_proxy_unavailable');
         const target = new URL(url || config.apiUrl, window.location.href);
         const apiBase = new URL(config.apiUrl, window.location.href);
@@ -362,7 +363,7 @@
                 const url = new URL(config.apiUrl);
                 url.searchParams.set('snapshot_id', snapshot.snapshot_id);
                 url.searchParams.set('include_rows', '1');
-                const result = await request('GET', undefined, url.toString());
+                const result = await request('GET', undefined, url.toString(),{label:'دریافت فایل فهرست مرجع'});
                 if (result.snapshot_id !== snapshot.snapshot_id || !Array.isArray(result.rows)
                     || result.rows.length !== Number(snapshot.row_count)) {
                     throw new Error('invalid_receipt');
