@@ -426,7 +426,7 @@ const fixtures={
  fixtures['/pipeline/supplier-price-evidence'].offers=[{product_id:'4',offer_id:'offer-4',name:extraction.product_name,
    source_revision:'revision-4',source_post_url:extraction.source_post_url}];
  await mount('&workbench_action=supplier_prices&offer_id=offer-4');
- assert.equal(await page.getByRole('tab',{name:/^قیمت/}).count(),0,'a deep link cannot skip extraction');
+ assert.equal(await page.getByRole('tab',{name:'قیمت',exact:true}).count(),0,'a deep link cannot skip extraction to verify supplier price');
  assert.equal(await page.getByRole('button',{name:'منبع فعلی را دیدم؛ قیمت تأیید است'}).count(),0);
  await page.getByText('گام فعلی · انتخاب مرجع و مبنای قیمت',{exact:true}).waitFor();
  assert.equal(titleReads,1,'comparison fetch waits until the existing disclosure is opened');
@@ -447,7 +447,8 @@ const fixtures={
  assert.equal(groupedLoads,beforeGrouped+1,'dashboard bootstrap replaces the individual initial reads');
  assert.equal(marketReads,0,'opening a product does not search the web');
  const market=page.locator('.molavi-market-price-review');
- await market.getByText('قیمت و مرجع',{exact:true}).click();
+ const marketCard=page.locator('.md-product-card').filter({hasText:extraction.product_name});
+ await marketCard.getByRole('tab',{name:'قیمت عادی',exact:true}).click();
  await market.getByText('۱۶۰٬۰۰۰ تومان',{exact:true}).waitFor();
  await market.getByText(/بستهٔ ۱۲ عددی/).waitFor();
  assert.equal(await market.getByRole('button',{name:'ثبت مرجع قیمت',exact:true}).count(),1);
@@ -458,6 +459,7 @@ const fixtures={
  await market.getByText('۱۵۰٬۰۰۰ تومان',{exact:true}).waitFor();
  await market.getByText(/نوبت بعد/).waitFor();
  assert.equal(await market.getByRole('link',{name:'retailer.example'}).getAttribute('href'),'https://retailer.example/biscuit');
+ await marketCard.getByRole('tab',{name:'منبع',exact:true}).click();
  await page.getByText('جست‌وجوی اینترنتی کالا',{exact:true}).click();
  const productSearch=page.locator('.molavi-product-search[open]');
  const query=productSearch.getByRole('searchbox');
@@ -477,6 +479,7 @@ const fixtures={
  await productSearch.getByRole('button',{name:'جست‌وجو در رزوان'}).click();
  await page.getByRole('link',{name:'نمونه آنلاین'}).waitFor();
  assert.equal(catalogSearches,1,'Rezvan uses its separate catalog lookup');
+ await marketCard.getByRole('button',{name:'بررسی مشخصات',exact:true}).click();
  await page.getByRole('button',{name:'ادامه بدون مرجع',exact:true}).click();
  await page.getByText('گام فعلی · تأیید مشخصات',{exact:true}).waitFor();
  assert.equal(await page.getByText('گام فعلی · انتخاب مرجع و مبنای قیمت',{exact:true}).count(),0);
@@ -608,11 +611,15 @@ const fixtures={
  await mount('',true,true,'fixture-owner:1');
  assert.equal(lazyCandidates,0,'bootstrap never loads per-offer candidates for unopened cards');
  const biscuit=page.locator('.md-product-card').filter({hasText:'بیسکویت شکلاتی'});
- await biscuit.getByRole('button',{name:'بررسی مشخصات',exact:true}).click();
+ await biscuit.getByRole('tab',{name:'قیمت عادی',exact:true}).click();
  const marketPanel=biscuit.locator('.molavi-market-price-review');
- await marketPanel.getByText('قیمت و مرجع',{exact:true}).click();
+ await marketPanel.getByRole('button',{name:'یافتن قیمت بازار',exact:true}).waitFor();
+ assert.equal(lazyCandidates,0,'market prices work without loading the internal shortlist');
+ await biscuit.getByRole('button',{name:'تطبیق با فهرست مرجع',exact:true}).click();
+ await biscuit.locator('.molavi-ai-review-card').waitFor();
+ assert.equal(lazyCandidates,1,'the internal reference opens through the existing review');
+ await biscuit.getByRole('tab',{name:'قیمت عادی',exact:true}).click();
  await marketPanel.getByRole('button',{name:'یافتن قیمت بازار',exact:true}).click();
- assert.equal(lazyCandidates,1,'opening one card loads one shortlist');
  const marketReceipt=page.locator('.md-activity-action').filter({hasText:'یافتن قیمت بازار'});
  await marketReceipt.getByText(/در صف/).waitFor();
  assert.equal(await marketReceipt.locator('.md-activity-icon').count(),1,'a cancellable notification has one separate icon');

@@ -1587,8 +1587,7 @@
                 const renderCase=row=>{
                     const reference = referenceItemCard(row, contextStored.reference_items, {
                         embedded:true, apiKey:'reference_items', refresh:refreshInPlace,
-                        parentName:product.name, parentChannel:product.channel,
-                        marketPrice:status.regular_price_missing
+                        parentName:product.name, parentChannel:product.channel
                     });
                     reference.prepend(node('h3', 'تطبیق و مبنای قیمت مرجع'));
                     return reference;
@@ -2166,6 +2165,15 @@
             renderOfferReextraction: offerReextraction,
             renderProductSearch: onlineProductSearch,
             renderMarketPrice: marketPriceReview,
+            marketPriceOffers:(product,key)=>{
+                const status=product.status;
+                if (product.ai.length&&(key==='ai'||!status?.latest_offer_id)) {
+                    return product.ai.filter(item=>item.offer_id&&!normalizedAiInteger(item.actual_price||item.consumer_price))
+                        .map(item=>({offer_id:item.offer_id,case_id:item.case_id,name:item.product_name||product.name}));
+                }
+                return status?.regular_price_missing&&status.latest_offer_id
+                    ? [{offer_id:status.latest_offer_id,name:product.name}] : [];
+            },
             renderReferenceTools: productReferenceTools,
             reconcile:reconcileStorefront,
             dismissalTask:(product,key)=>({task_key:workbenchCurrentDismissalKey(product,key),queue:key,
@@ -2893,9 +2901,10 @@
         return tools;
     }
 
-    function marketPriceReview(offerId, productName, expanded = false) {
+    function marketPriceReview(offerId, productName) {
         const section = node('details', null, 'molavi-market-price-review');
-        const heading = node('summary','قیمت و مرجع');
+        const heading = node('summary','قیمت عادی');
+        heading.hidden=true;
         const body = node('div',null,'molavi-market-price-body');
         const endpoint = new URL('/reference/item-reviews',config.apiUrl);
         const readUrl = new URL(endpoint);
@@ -3026,7 +3035,7 @@
             if (section.open) { remaining=6;load(); }
             else clearTimeout(timer);
         });
-        section.open=expanded;
+        section.open=true;
         return section;
     }
 
@@ -3313,7 +3322,6 @@
         const reviewReason = priceBasisNeedsReview
             ? 'اگر مبلغ فروش برای یک واحد باشد، از قیمت مصرف‌کننده بیشتر است.'
             : aiReviewReason(item.reason);
-        if (!regularPrice && item.offer_id) priceEvidence.appendChild(marketPriceReview(item.offer_id,cardName));
         priceEvidence.appendChild(reviewFacts([['دلیل بررسی', reviewReason]], 'molavi-review-facts molavi-review-reason'));
         card.appendChild(priceEvidence);
         const sourceDates = aiSourceDateFacts(item);
@@ -4486,7 +4494,6 @@
             [['عنوان استخراج‌شده',item.product_name],['قیمت تأمین‌کننده',amount(item.supplier_price)]],referenceFacts);
         card.appendChild(sourceFacts.container);
         sourceFacts.load();
-        if (options.marketPrice && item.offer_id) card.appendChild(marketPriceReview(item.offer_id,item.product_name));
         const referenceSourceDates = aiSourceDateFacts(item);
         if (referenceSourceDates.length) card.appendChild(reviewFacts(referenceSourceDates,
             'molavi-review-facts molavi-ai-source-date-facts'));

@@ -678,6 +678,7 @@
             const record=product.status||{};
             const source=sourceFor(product);
             const preferred=next(product);
+            const priceOffers=model.marketPriceOffers(product,preferred);
             const [label,tone]=stateLabel(product);
             const card=el('article',null,'md-product-card');card.dataset.productKey=product.key;
             const header=el('header',null,'md-card-header');
@@ -719,8 +720,7 @@
             const productSections=currentSection
                 ? (currentSection===sourceSection?[sourceSection]:[currentSection,sourceSection])
                 : preferred==='deferred'?[sourceSection]:[sourceSection,sections.at(-1)];
-            if(record.regular_price_missing&&record.latest_offer_id&&!['ai','references'].includes(preferred))
-                productSections.push(['market_prices','قیمت و مرجع']);
+            if(priceOffers.length) productSections.splice(currentSection?1:0,0,['market_prices','قیمت عادی']);
             function activate(key, scroll=true) {
                 state.active=product.key;state.section=key;
                 main.querySelectorAll('.md-card-panel').forEach(item=>{if(item!==panelHost)item.hidden=true;});
@@ -760,7 +760,24 @@
                         panel.append(el('p',model.wooLabel(model.wooState(product))));
                         panel.append(button('بررسی وضعیت فروشگاه',event=>model.reconcile(event.currentTarget)));
                     }
-                    else if(key==='market_prices') panel.append(model.renderMarketPrice(record.latest_offer_id,product.name,true));
+                    else if(key==='market_prices') {
+                        if (['ai','references'].includes(preferred))
+                            panel.append(button('تطبیق با فهرست مرجع',()=>activate(preferred),'md-link'));
+                        const host=el('div');
+                        const showPrice=offer=>host.replaceChildren(model.renderMarketPrice(offer.offer_id,offer.name));
+                        const selected=priceOffers.find(offer=>offer[state.focusType]===state.focus)||priceOffers[0];
+                        if (priceOffers.length>1) {
+                            const select=el('select');select.setAttribute('aria-label','پیشنهاد مورد بررسی برای قیمت عادی');
+                            priceOffers.forEach(({offer_id,name})=>{
+                                const option=el('option',name);option.value=offer_id;select.append(option);
+                            });
+                            select.value=selected.offer_id;
+                            select.addEventListener('change',()=>showPrice(priceOffers.find(row=>row.offer_id===select.value)));
+                            panel.append(select);
+                        }
+                        showPrice(selected);
+                        panel.append(host);
+                    }
                     if(hasAction&&key!=='storefront'){
                         const action=model.renderAction(product,key);
                         if (action) panel.append(action);
