@@ -63,6 +63,7 @@
 #molavi-owner-workflow .md-product-card {background:var(--md-paper);border:1px solid var(--md-line);border-radius:11px;min-width:0;overflow:clip;}
 #molavi-owner-workflow .md-product-card.md-selected {border-color:#94b5a0;}
 #molavi-owner-workflow .md-card-header {display:flex;align-items:center;gap:13px;padding:19px 21px 10px;}
+#molavi-owner-workflow .md-unlinked-header {flex-wrap:wrap;padding-block:12px;}
 #molavi-owner-workflow .md-product-mark {display:grid;place-items:center;flex:0 0 42px;height:42px;border-radius:10px;background:var(--md-soft);color:var(--md-green);font-size:20px;}
 #molavi-owner-workflow .md-product-identity {flex:1;min-width:0;}
 #molavi-owner-workflow .md-product-identity h2 {overflow-wrap:anywhere;}

@@ -11,7 +11,14 @@ function molavi_domain_sheet_fields($name,$row,$headers,$values){
     foreach($values as $field=>$value)$GLOBALS['ai_tables'][$name][$row-1][array_search($field,$headers,true)]=$value;
 }
 function molavi_domain_sheet_append($name,$rows){foreach($rows as $row)$GLOBALS['ai_tables'][$name][]=$row;return [];}
-function molavi_catalog_identity_snapshot(): array {return [['source_record_id'=>'product-1','published'=>true]];}
+function wc_get_products(...$args){}
+function get_edit_post_link($id,$context){return '/wp-admin/post.php?post='.$id.'&action=edit';}
+function molavi_catalog_identity_snapshot(bool $publishedOnly=false): array {
+    return [
+        ['source_record_id'=>'product-1','published'=>true,'woo_product_id'=>1,'name'=>'Sample juice','supplier'=>'supplier'],
+        ['source_record_id'=>'','published'=>true,'woo_product_id'=>2,'name'=>'Manual listing','supplier'=>''],
+    ];
+}
 $root=molavi_state_root();foreach(['pipeline','reference'] as $store){$db=new SQLite3($root.'/'.$store.'.sqlite3');$db->close();}$count=0;
 function ai_decision_diff($a,$b,$path=''){if(molavi_domain_json($a)===molavi_domain_json($b))return '';if(is_array($a)&&is_array($b)){
     foreach(array_unique(array_merge(array_keys($a),array_keys($b))) as $key){if(!array_key_exists($key,$a)||!array_key_exists($key,$b))return $path.'/'.$key.' missing';$diff=ai_decision_diff($a[$key],$b[$key],$path.'/'.$key);if($diff!=='')return $diff;}}
@@ -40,6 +47,9 @@ $GLOBALS['ai_tables']=[
     'Offers'=>molavi_domain_rows_from_records(molavi_domain_offer_headers(),[$source])
 ];
 $before=$GLOBALS['ai_tables'];
+$status=molavi_domain_status_api('GET',[],null,'wp:7');
+ai_decision_same($status['products'][0]['published'],true,'a linked WooCommerce listing is published');
+ai_decision_same(array_column($status['published_unlinked'],'woo_product_id'),[2],'manual listing stays visible with its own WooCommerce identity');
 $open=['action'=>'reopen_products','items'=>[['product_id'=>'product-1','offer_id'=>'approved-offer'],
     ['product_id'=>'other-product','offer_id'=>'other-offer']]];
 $opened=molavi_domain_ai_reviews_api('POST',[],$open,'wp:7');

@@ -215,9 +215,23 @@ function molavi_domain_status_api(string $method,array $query,?array $body,strin
         molavi_domain_status_capture(molavi_domain_sheets(['Products','Offers'],true),'daily_status_checkpoint');
     $history=molavi_domain_status_history($selected?:null,$selected===''&&function_exists('molavi_domain_market_missing_price'),$selected==='');if($selected!==''&&$history['selected_snapshot_id']!==$selected)molavi_domain_fail('snapshot_not_found',404);
     if ($selected==='') {
-        $published=molavi_domain_published_review_ids();
-        foreach ($history['products'] as &$product) $product['published']=isset($published[$product['product_id']]);
+        $catalog=molavi_domain_published_review_catalog();
+        $published=molavi_domain_published_review_ids($catalog);
+        $linked=[];
+        foreach ($history['products'] as &$product) {
+            $id=$product['product_id'];
+            $product['published']=isset($published[$id]);
+            if ($product['published']) $linked[$id]=true;
+        }
         unset($product);
+        $history['published_unlinked']=[];
+        foreach ($catalog as $listing) {
+            if (isset($linked[$listing['source_record_id']])) continue;
+            $history['published_unlinked'][]=[
+                'woo_product_id'=>$listing['woo_product_id'],'name'=>$listing['name'],'supplier'=>$listing['supplier'],
+                'edit_url'=>(string)get_edit_post_link($listing['woo_product_id'],'raw'),
+            ];
+        }
     }
     return array_merge(['ok'=>true],$history);
 }

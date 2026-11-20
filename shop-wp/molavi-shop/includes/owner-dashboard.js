@@ -464,7 +464,7 @@
                 },'md-link'));
             return note;
         }
-        function next(product) { return model.primaryAction(product); }
+        function next(product) { return product.listing?'next':model.primaryAction(product); }
         function ready(product) { return model.readyAction(product); }
         function published(product) { return Boolean(product.status?.published); }
         function reopenable(product) {
@@ -497,7 +497,7 @@
             return ['اقدام بازی ثبت نشده','neutral'];
         }
         function matches(product) {
-            const text=normalize([product.name,product.channel,...identities(product)].join(' '));
+            const text=normalize([product.name,product.channel,product.listing?.woo_product_id,...identities(product)].join(' '));
             if(state.search&&!text.includes(normalize(state.search)))return false;
             if(state.channel&&product.channel!==state.channel)return false;
             if(state.focus){
@@ -566,10 +566,14 @@
                 const label=`توقف‌های انتشار · ${fa(pendingBatches.length)}`;
                 view.append(button(label,()=>reviewHold(),'md-button md-link'));
             }
+            const unlinked=(model.data.product_status?.published_unlinked||[]).map(listing=>({
+                key:`woo:${listing.woo_product_id}`,name:listing.name,channel:listing.supplier,listing,
+                status:{published:true},ai:[],references:[],conflicts:[],holds:[],supplierPrices:[]
+            }));
             const scopeBar=el('div',null,'md-scopes');scopeBar.setAttribute('aria-label','فهرست محصولات');
             [['ready','آمادهٔ بررسی',model.products.filter(ready).length],
                 ['waiting','در انتظار پیگیری',model.products.filter(waiting).length],
-                ['published','منتشرشده',model.products.filter(published).length],
+                ['published','منتشرشده',model.products.filter(published).length+unlinked.length],
                 ['all','همهٔ محصولات',model.products.length]].forEach(([key,label,count])=>{
                 const item=button(`${label}  ${fa(count)}`,()=>{
                     clearSelection();state.scope=key;state.action='';state.focus='';state.limit=24;saveURL();paint();
@@ -584,7 +588,8 @@
             });action.value=state.action;
             const channel=el('select');channel.setAttribute('aria-label','تأمین‌کننده');
             const all=el('option','همهٔ تأمین‌کنندگان');all.value='';channel.append(all);
-            [...new Set(model.products.map(p=>p.channel).filter(Boolean))].sort().forEach(value=>{const o=el('option',value);o.value=value;channel.append(o);});
+            const candidates=state.scope==='published'?[...model.products,...unlinked]:model.products;
+            [...new Set(candidates.map(p=>p.channel).filter(Boolean))].sort().forEach(value=>{const o=el('option',value);o.value=value;channel.append(o);});
             channel.value=state.channel;
             filters.append(search,action,channel);view.append(filters);
             const focus=el('div',null,'md-active-filter');focus.hidden=!state.focus;
@@ -625,7 +630,8 @@
             const list=el('div',null,'md-product-list');
             const more=button('نمایش بیشتر',()=>{state.limit+=24;paintList();},'md-button md-more');
             const paintList=()=>{
-                const rows=model.products.filter(matches).sort((a,b)=>model.actionRank(next(a))-model.actionRank(next(b))||a.name.localeCompare(b.name,'fa'));
+                const rows=candidates.filter(matches).sort((a,b)=>Number(Boolean(a.listing))-Number(Boolean(b.listing))
+                    ||model.actionRank(next(a))-model.actionRank(next(b))||a.name.localeCompare(b.name,'fa'));
                 eligible=rows.filter(product=>reopenable(product)||dismissal(product)?.task_key);
                 const eligibleKeys=new Set(eligible.map(product=>product.key));
                 state.selected=new Set([...state.selected].filter(key=>eligibleKeys.has(key)));
@@ -656,6 +662,19 @@
             view.append(controls,selection,list,more);paintList();return view;
         }
         function productCard(product,selectionChanged=null) {
+            if(product.listing) {
+                const card=el('article',null,'md-product-card');card.dataset.productKey=product.key;
+                const header=el('header',null,'md-card-header md-unlinked-header');
+                const identity=el('div',null,'md-product-identity');identity.append(el('h2',product.name));
+                if(product.channel) identity.append(el('p',product.channel));
+                header.append(identity,el('span','بدون پیوند بررسی','md-badge md-neutral'));
+                if(product.listing.edit_url) {
+                    const link=el('a','ویرایش در ووکامرس','md-link');
+                    link.href=product.listing.edit_url;header.append(link);
+                }
+                card.append(header);
+                return card;
+            }
             const record=product.status||{};
             const source=sourceFor(product);
             const preferred=next(product);

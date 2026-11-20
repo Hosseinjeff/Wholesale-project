@@ -657,10 +657,16 @@ const fixtures={
  await discountReceipt.getByText(/کامل شد.*۲۴ از ۲۴/).waitFor({timeout:16000});
  const products=fixtures['/pipeline/product-status-snapshots'].products;
  products[0].published=true;products[1].published=true;
+ fixtures['/pipeline/product-status-snapshots'].published_unlinked=[
+    {woo_product_id:30,name:'کالای ووکامرس',supplier:'',edit_url:'/wp-admin/post.php?post=30&action=edit'}
+ ];
  await mount('',true,true);
  await page.getByRole('button',{name:/^منتشرشده/}).click();
  const cards=page.locator('.md-product-list .md-product-card');
- assert.equal(await cards.count(),2,'Published lists source-linked storefront products');
+ assert.equal(await cards.count(),3,'Published lists linked and unlinked storefront products');
+ const manual=cards.filter({hasText:'کالای ووکامرس'});
+ await manual.getByRole('link',{name:'ویرایش در ووکامرس'}).waitFor();
+ assert.equal(await manual.getByRole('button',{name:'بازگشایی بررسی'}).count(),0,'a manually published listing has no synthetic source review');
  const noodle=cards.filter({hasText:products[0].product_name});
  await noodle.getByRole('button',{name:'بازگشایی بررسی',exact:true}).click();
  await page.getByRole('dialog').getByRole('button',{name:'انصراف'}).click();
@@ -673,7 +679,7 @@ const fixtures={
  await page.waitForFunction(()=>document.querySelectorAll('.md-product-list .md-product-card').length===1);
  assert.equal(await bulk.getByRole('button',{name:/بازگشایی بررسی/}).count(),0,'filtering clears selection');
  await publishedSearch.fill('');
- await page.waitForFunction(()=>document.querySelectorAll('.md-product-list .md-product-card').length===2);
+ await page.waitForFunction(()=>document.querySelectorAll('.md-product-list .md-product-card').length===3);
  await bulk.getByRole('button',{name:/انتخاب همهٔ نتایج قابل اقدام/}).click();
  await bulk.getByRole('button',{name:/بازگشایی بررسی.*۲/}).click();
  await page.getByRole('dialog').getByRole('button',{name:'بازگشایی بررسی'}).click();

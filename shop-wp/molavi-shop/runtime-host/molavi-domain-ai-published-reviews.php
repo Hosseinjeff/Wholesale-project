@@ -3,14 +3,15 @@
 declare(strict_types=1);
 defined('ABSPATH') || exit;
 
-function molavi_domain_published_review_ids(): array {
-    if (!function_exists('molavi_catalog_identity_snapshot')) return [];
-    $published=[];
-    foreach (molavi_catalog_identity_snapshot() as $row) {
-        $id=trim((string)($row['source_record_id']??''));
-        if (!empty($row['published']) && $id!=='') $published[$id]=true;
-    }
-    return $published;
+function molavi_domain_published_review_catalog(): array {
+    if (!function_exists('molavi_catalog_identity_snapshot')||!function_exists('wc_get_products')) return [];
+    return array_values(array_filter(molavi_catalog_identity_snapshot(true),static fn($row)=>!empty($row['published'])));
+}
+
+function molavi_domain_published_review_ids(array $catalog): array {
+    $counts=array_count_values(array_column($catalog,'source_record_id'));
+    unset($counts['']);
+    return array_filter($counts,static fn($count)=>$count===1);
 }
 
 function molavi_domain_published_review_reopen(array $body,string $actor): array {
@@ -33,7 +34,7 @@ function molavi_domain_published_review_reopen(array $body,string $actor): array
         $sourceIssues=array_column(molavi_domain_source_issues($products,$offers),'codes','product_id');
         $offerCounts=array_count_values(array_column($offers,'Offer ID'));
         $products=array_column($products,null,'Product ID');$offers=array_column($offers,null,'Offer ID');
-        $published=molavi_domain_published_review_ids();
+        $published=molavi_domain_published_review_ids(molavi_domain_published_review_catalog());
         return molavi_domain_tx('pipeline',static function(SQLite3 $db)use($requested,$products,$offers,$published,$sourceIssues,$offerCounts,$actor):array{
             $results=[];$opened=0;$already=0;
             foreach($requested as $id=>$offer) {

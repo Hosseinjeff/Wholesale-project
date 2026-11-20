@@ -61,16 +61,17 @@ function molavi_sync_reply(array $body, int $status = 200): void
 }
 
 /** Return private identifiers for an authenticated reconciliation check. */
-function molavi_catalog_identity_snapshot(): array
+function molavi_catalog_identity_snapshot(bool $publishedOnly = false): array
 {
-    $index = molavi_product_index();
+    $ids = $publishedOnly ? wc_get_products(['status' => 'publish', 'limit' => -1, 'return' => 'ids'])
+        : molavi_product_index()['managed'];
     $products = [];
-    foreach ($index['managed'] as $productId) {
+    foreach ($ids as $productId) {
         $product = wc_get_product((int) $productId);
         if (!$product instanceof WC_Product) {
             continue;
         }
-        $products[] = [
+        $identity = [
             'source_record_id' => (string) get_post_meta((int) $productId, '_molavi_supplier_offer_id', true),
             'source_id' => (string) get_post_meta((int) $productId, '_molavi_source_id', true),
             'sku' => (string) $product->get_sku(),
@@ -80,6 +81,10 @@ function molavi_catalog_identity_snapshot(): array
             'published' => $product->get_status() === 'publish',
             'purchasable' => (bool) $product->is_purchasable(),
         ];
+        if ($publishedOnly) {
+            $identity['woo_product_id'] = (int) $productId;
+        }
+        $products[] = $identity;
     }
     return $products;
 }
