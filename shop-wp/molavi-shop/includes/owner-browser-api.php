@@ -171,7 +171,7 @@ function molavi_owner_dashboard_bootstrap(bool $force, array $sections=[]): arra
         $sources=[];
         foreach ($routes as $name=>$path) {
             if ($sections && !in_array($name,$sections,true)) continue;
-            $query=$name==='ai_confirmations'?['view'=>'workbench-summary']:[];
+            $query=in_array($name,['ai_confirmations','reference_items'],true)?['view'=>'workbench-summary']:[];
             $result=molavi_domain_route_enabled('GET',$path)
                 ? molavi_domain_dispatch('GET',$path,$query,null,$actor)
                 : molavi_owner_workflow_proxy_call('GET',$path);
@@ -182,7 +182,7 @@ function molavi_owner_dashboard_bootstrap(bool $force, array $sections=[]): arra
     try { $sources=molavi_domain_dashboard_snapshot($read); }
     catch (Throwable $error) { return ['status'=>503,'body'=>['ok'=>false,'error'=>'native_workflow_unavailable']]; }
     $body=['ok'=>true,'sources'=>$sources];
-    if (!$sections&&!array_filter($sources,static fn($source)=>empty($source['ok']))) set_transient($key,$body,45);
+    if (!$sections&&!array_filter($sources,static fn($source)=>empty($source['ok']))) set_transient($key,$body,90);
     return ['status'=>200,'body'=>$body+['cached'=>false]];
 }
 

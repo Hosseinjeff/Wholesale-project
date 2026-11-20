@@ -388,10 +388,10 @@
             };
             return options.quiet ? send() : runAction(label,payload,send);
         }
-        const key=apiKey+'|'+url;
+        const key=apiKey+'|'+url+'|'+(options.revision||'');
         const generation=readGeneration;
         const cached=readCache.get(key);
-        if (!options.force && !options.label && cached?.expires>Date.now()) return cached.value;
+        if (!options.force && cached?.expires>Date.now()) return cached.value;
         if (!options.label && pendingReads.has(key)) return pendingReads.get(key);
         const controller=options.label ? new AbortController() : null;
         const read=async()=>{
@@ -1117,6 +1117,13 @@
         });
     }
 
+    async function readOfferHistory(offerId) {
+        const url=new URL('/reference/item-reviews',config.apiUrl);
+        url.searchParams.set('view','workbench-link');
+        url.searchParams.set('offer_id',offerId);
+        return request('GET',undefined,url.href,'reference_items',{ttl:30000});
+    }
+
     async function dashboard(message = '', messageKind = 'info', refreshKeys = null, force = false, signal) {
         let warmStart = false;
         const cacheKey=config.ownerCacheKey && 'molavi.dashboard.'+config.ownerCacheKey;
@@ -1135,6 +1142,8 @@
                 actionStore:config.ownerCacheKey?.split(':')[0],
                 renderReferences:renderReferenceCatalog,
                 renderSources:sourceReextractionWorkspace,
+                readOfferHistory,
+                renderOfferFacts:offer=>reviewFacts(referenceExtractionRows(offer)),
                 cancelAction:cancelDashboardAction,
                 readActivity: config.dashboardActivity
                     ? watches => {
@@ -1487,13 +1496,37 @@
                 readCandidates();
             });
             if (primaryKey === 'references') product.references.forEach(item => {
-                const reference = referenceItemCard(item, contextStored.reference_items, {
-                    embedded:true, apiKey:'reference_items', refresh:refreshInPlace,
-                    parentName:product.name, parentChannel:product.channel,
-                    marketPrice:status.regular_price_missing
-                });
-                reference.prepend(node('h3', 'تطبیق و مبنای قیمت مرجع'));
-                addWorkflowSection(reference, 'references');
+                const renderCase=row=>{
+                    const reference = referenceItemCard(row, contextStored.reference_items, {
+                        embedded:true, apiKey:'reference_items', refresh:refreshInPlace,
+                        parentName:product.name, parentChannel:product.channel,
+                        marketPrice:status.regular_price_missing
+                    });
+                    reference.prepend(node('h3', 'تطبیق و مبنای قیمت مرجع'));
+                    return reference;
+                };
+                if (!data.reference_items?.candidates_deferred) {
+                    addWorkflowSection(renderCase(item));
+                    return;
+                }
+                const panel=node('section',null,'molavi-reference-lazy-case');
+                const load=async()=>{
+                    panel.replaceChildren(node('p','در حال دریافت گزینه‌های مرجع…'));
+                    try {
+                        const url=new URL('/reference/item-reviews',config.apiUrl);
+                        url.searchParams.set('offer_id',item.offer_id);
+                        const {cases}=await request('GET',undefined,url.href,'reference_items',{ttl:30000});
+                        const current=cases?.find(row=>row.case_id===item.case_id);
+                        if(!current) throw new Error('stale_case');
+                        panel.replaceChildren(renderCase(current));
+                    } catch(error) {
+                        const retry=node('button','تلاش دوباره','button');
+                        retry.type='button';retry.addEventListener('click',load);
+                        panel.replaceChildren(notice(errorText(error.message),'error'),retry);
+                    }
+                };
+                addWorkflowSection(panel);
+                load();
             });
             if (primaryKey === 'supplier_prices') product.supplierPrices.forEach(offer => {
                 const section = node('section', null, 'molavi-product-subsection molavi-review-block molavi-supplier-price-review');
@@ -3749,7 +3782,7 @@
             try {
                 const url=new URL(reextractionUrl('offer'),window.location.href);
                 url.searchParams.set('offer_id',offerId);
-                const preview=await reextractionRequest('GET',undefined,url.toString(),{label:'بررسی امکان بازاستخراج پیام'});
+                const preview=await reextractionRequest('GET',undefined,url.toString(),{label:'بررسی امکان بازاستخراج پیام',ttl:15000});
                 if (preview.offer_id!==offerId) throw new Error('invalid_receipt');
                 panel.replaceChildren();
                 const active=activeReextraction(preview);
@@ -3796,7 +3829,8 @@
             url.search=new URLSearchParams({
                 view:'inbox-offers',batch_id:item.batch_id,message_id:item.source_id,channel:item.channel,
             });
-            const {offers,outcome}=await request('GET',undefined,url.toString(),'reconciliation');
+            const {offers,outcome}=await request('GET',undefined,url.toString(),'reconciliation',
+                {ttl:15000,revision:[item.receipt_id,item.state,item.extraction_state].join(':')});
             container.replaceChildren();
             const labels={known:'سابقهٔ همین کالا',compare:'کالاهای مشابه برای مقایسه',new:'پیشنهاد تازه'};
             for (const offer of offers || []) {
@@ -3923,7 +3957,7 @@
         recent.textContent='در حال دریافت وضعیت پیام‌ها…';
         await readInbox();
         try {
-            const preview=await reextractionRequest('GET',undefined,reextractionUrl('preview')+'&latest_run=1');
+            const preview=await reextractionRequest('GET',undefined,reextractionUrl('preview')+'&latest_run=1',{ttl:15000});
             recent.replaceChildren(node('h2','بازاستخراج با قواعد فعلی'));
             const active=activeReextraction(preview);
             if (active?.run_id) {
@@ -4064,7 +4098,7 @@
         panel.appendChild(node('h2', 'انتخاب پیام‌ها برای بازاستخراج'));
         panel.appendChild(node('p', 'کانال و تاریخ پیام را انتخاب کنید؛ تعداد پیش از اجرا نمایش داده می‌شود.'));
         try {
-            const initial = await reextractionRequest('GET', undefined, reextractionUrl('preview')+'&selection=1');
+            const initial = await reextractionRequest('GET', undefined, reextractionUrl('preview')+'&selection=1',{ttl:15000});
             const counts = initial.selection_counts || {};
             const filtersCard = node('section', null, 'molavi-reextract-filters');
             const selectionCard = node('section', null, 'molavi-reextract-selection');
@@ -4224,7 +4258,7 @@
                 refreshButton.disabled = true;
                 previewStatus.textContent = 'در حال تازه‌کردن شمارش از سرویس…';
                 try {
-                    const data = await reextractionRequest('GET',undefined,previewUrl());
+                    const data = await reextractionRequest('GET',undefined,previewUrl(),{ttl:10000});
                     if (version !== selectionVersion) return;
                     drawSelection(data);
                 } catch (error) {
@@ -4580,7 +4614,7 @@
             const requestedSnapshot = new URLSearchParams(window.location.search).get('snapshot_id') || '';
             const snapshotUrl = new URL(config.apiUrl);
             if (requestedSnapshot) snapshotUrl.searchParams.set('snapshot_id', requestedSnapshot);
-            const data = await request('GET', undefined, snapshotUrl.toString());
+            const data = await request('GET',undefined,snapshotUrl.toString(),'',{ttl:30000});
             const products = Array.isArray(data.products) ? data.products : [];
             const snapshots = Array.isArray(data.snapshots) ? data.snapshots : [];
             const selectedSnapshotId = data.selected_snapshot_id || data.latest_snapshot_id || '';

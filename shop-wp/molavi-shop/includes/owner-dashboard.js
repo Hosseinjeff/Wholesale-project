@@ -47,6 +47,7 @@
         let activityTimer = 0;
         let activityRequest = null;
         let activityStale = false;
+        let activityReadAt=0;
         let activitySignature = '';
         let watchOffset=0;
         const activityKey=hooks.actionStore && 'molavi.activity.'+hooks.actionStore;
@@ -184,7 +185,7 @@
                 hold:payload?.hold_id||'',market};
         }
         function openOrigin(origin) {
-            if(origin.hold && origin.view==='system') return reviewHold(origin.hold);
+            if(origin.hold && origin.view==='system') return reviewHold('molavi-batch-'+encodeURIComponent(origin.hold));
             if(origin.view!=='products'||!origin.key||!model) return navigate(origin.view);
             const product=model.products.find(row=>row.key===origin.key || (origin.offer && identities(row).includes(origin.offer)));
             if (!product) return origin.offer ? reviewInboxItem('offer_id',origin.offer) : navigate('products');
@@ -254,8 +255,7 @@
                         const result=await hooks.cancelAction(item.watch);
                         item.state=result.state || 'cancelled';
                         item.detail=result.running?'لغو پیام‌های در انتظار ثبت شد.':'';
-                        if (item.watch.kind==='market_prices') refreshMarket(item.watch.key);
-                        if (item.state==='cancelled') delete item.watch;
+                        if (item.watch.kind==='market_prices') refreshMarket(item.watch.key,item.state);
                         refreshActivity();
                     } catch (_) {
                         item.state=previous;
@@ -324,7 +324,7 @@
                 for (const item of watching) {
                     const result=report.watched?.[item.watch?.key];
                     if (!result || item.state==='cancelling' || !activeAction(item)) continue;
-                    if (item.watch.kind==='market_prices'&&item.state!==result.state) refreshMarket(item.watch.key);
+                    if (item.watch.kind==='market_prices'&&item.state!==result.state) refreshMarket(item.watch.key,result.state);
                     item.state=result.state;
                     item.detail=result.code==='no_match'?'قیمت قابل مقایسه پیدا نشد.'
                         : result.code==='unavailable'?'منبع قیمت در دسترس نبود.'
@@ -334,6 +334,7 @@
                 if (watching.length) saveActions();
                 const inboxChanged=report.inbox_revision && report.inbox_revision!==activityReport?.inbox_revision;
                 activityReport=report;
+                activityReadAt=Date.now();
                 activityStale=false;
                 if (inboxChanged) refreshInbox(report.inbox_revision);
                 refreshReferenceView(report.reference_revision);
@@ -346,13 +347,18 @@
                 }
             });
         }
-        function refreshMarket(key) {
+        function refreshMarket(key,state) {
             for(const panel of main.querySelectorAll('.molavi-market-price-review[open]')){
-                if(panel.dataset.lookupKey===key)panel.dispatchEvent(new Event('molavi-market-activity'));
+                if(panel.dataset.lookupKey!==key||panel.dataset.activityState===state)continue;
+                panel.dataset.activityState=state;
+                panel.dispatchEvent(new Event('molavi-market-activity'));
             }
         }
         function refreshInbox(revision) {
-            main.querySelector('.molavi-inbox')?.dispatchEvent(new CustomEvent('molavi-inbox-refresh',{detail:revision}));
+            const inbox=main.querySelector('.molavi-inbox');
+            if(!inbox||!revision||inbox.dataset.activityRevision===revision)return;
+            inbox.dataset.activityRevision=revision;
+            inbox.dispatchEvent(new CustomEvent('molavi-inbox-refresh',{detail:revision}));
         }
         function refreshReferenceView(revision) {
             if (!revision||state.view!=='references') return;
@@ -379,10 +385,10 @@
             if(view==='sources'&&product){state.sourceContext=product;state.pageCache.delete('sources');}
             state.view=view;saveURL();paint();main.scrollIntoView({block:'start',behavior:'smooth'});
             if(view==='products') for(const item of actions.values()) {
-                if(item.watch?.kind==='market_prices'&&!activeAction(item)) refreshMarket(item.watch.key);
+                if(item.watch?.kind==='market_prices'&&!activeAction(item)) refreshMarket(item.watch.key,item.state);
             }
             if(view==='references') refreshReferenceView(activityReport?.reference_revision);
-            if(view==='sources'||view==='references') refreshActivity();
+            if((view==='sources'||view==='references')&&Date.now()-activityReadAt>5000) refreshActivity();
         }
         function facts(rows) {
             const list=el('dl',null,'md-facts');
@@ -460,6 +466,29 @@
             if(state.scope==='waiting')return waiting(product);
             return true;
         }
+        async function showOfferHistory(list,offerId) {
+            if (!hooks.readOfferHistory) return;
+            const panel=el('article',null,'md-product-card md-offer-history');
+            panel.append(el('p','در حال دریافت پیشنهاد پیوندشده…'));
+            list.replaceChildren(panel);
+            try {
+                const record=await hooks.readOfferHistory(offerId);
+                const previous=record.reviewed_offer;
+                if(!previous) throw new Error('missing_offer');
+                const text=el('p','این پیشنهاد در صف بررسی فعلی نیست.','description');
+                panel.replaceChildren(el('h2',previous.title||'پیشنهاد پیوندشده'),text,hooks.renderOfferFacts(previous));
+                const candidates=(record.titles||[]).filter(row=>
+                    row.offer_id && row.offer_id!==offerId && model.products.some(product=>identities(product).includes(row.offer_id)));
+                if(candidates.length) {
+                    panel.append(el('h3','پیشنهادهای آخرین استخراج'));
+                    for(const offer of candidates) {
+                        panel.append(button('بررسی '+offer.title,()=>reviewInboxItem('offer_id',offer.offer_id),'md-button'));
+                    }
+                }
+            } catch (_) {
+                panel.replaceChildren(el('p','پیشنهاد پیوندشده در دسترس نیست.'));
+            }
+        }
         function productsView() {
             const view=el('section',null,'md-products');
             const title=el('div',null,'md-page-heading');
@@ -506,7 +535,9 @@
                 count.textContent=`${fa(rows.length)} کالا`;
                 list.replaceChildren();
                 rows.slice(0,state.limit).forEach(product=>list.append(productCard(product)));
-                if(!rows.length) {
+                if(!rows.length&&state.focusType==='offer_id'&&state.focus&&hooks.readOfferHistory) {
+                    showOfferHistory(list,state.focus);
+                } else if(!rows.length) {
                     const readyScope = state.scope==='ready'&&!state.action&&!state.search&&!state.channel;
                     list.append(empty(readyScope
                         ? (Object.values(model.errors).some(Boolean) ? 'فهرست کارهای آماده کامل نیست' : 'کار آمادهٔ بررسی در این فهرست نیست')
@@ -702,7 +733,7 @@
                     state.view==='references'?referencesView():state.view==='sources'?sourcesView():systemView());
                 const page=state.pageCache.get(state.view);
                 if(main.firstElementChild!==page) main.replaceChildren(page);
-                if(state.view==='sources') refreshInbox();
+                if(state.view==='sources') refreshInbox(activityReport?.inbox_revision);
             }
         }
         async function dismissTask(task) {
@@ -736,10 +767,11 @@
             const url=new URL(link.href,location.href);
             if(url.origin!==location.origin||url.searchParams.get('page')!=='molavi-operations')return;
             event.preventDefault();
-            if(url.searchParams.get('view'))navigate(url.searchParams.get('view'));
-            else if(url.searchParams.get('offer_id')){
-                reviewInboxItem('offer_id',url.searchParams.get('offer_id'));
-            }
+            const view=url.searchParams.get('view');
+            const focusKey=['offer_id','product_id','case_id','hold_id','conflict_id','reference_id'].find(key=>url.searchParams.has(key));
+            if(['products','sources','references','system'].includes(view)) navigate(view);
+            else if(focusKey==='hold_id') reviewHold('molavi-batch-'+encodeURIComponent(url.searchParams.get(focusKey)));
+            else if(focusKey&&model) reviewInboxItem(focusKey,url.searchParams.get(focusKey));
             else if(url.searchParams.get('workbench_action')==='reextract'||url.hash.includes('reextract'))navigate('sources');
             else {state.view='products';state.action=url.searchParams.get('workbench_action')||'';saveURL();paint();}
         });

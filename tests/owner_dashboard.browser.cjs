@@ -162,6 +162,10 @@ const fixtures={
         regular_unit_price:160000,unit_price:150000,pack_count:12,regular_price:1920000,current_price:1800000};
       return route.fulfill({json:{ok:true,...(marketSource||{state:'ready',suggested_price:quote,candidates:[quote]})}});
     }
+    if(path==='/reference/item-reviews'&&new URLSearchParams(f.get('query')).get('view')==='workbench-link'){
+      return route.fulfill({json:{ok:true,reviewed_offer:{title:'استخراج پیشین بیسکویت',fields:{consumer_price:'150000',currency:'IRT'}},
+        titles:[{offer_id:'offer-4',title:'بیسکویت شکلاتی'}]}});
+    }
     if(path==='/reference/item-reviews'&&new URLSearchParams(f.get('query')).get('view')==='extracted-titles'){
      titleReads++;
      const offer=new URLSearchParams(f.get('query')).get('offer_id');
@@ -588,6 +592,13 @@ const fixtures={
  await marketReceipt.getByText(/لغو شد/).waitFor();
  await marketReceipt.getByRole('button',{name:'بستن اعلان'}).click();
  assert.equal(await marketReceipt.count(),0,'a receipt survives reload until dismissed');
+ await mount('&offer_id=offer-old',true,true);
+ const old=page.locator('.md-offer-history');
+ await old.getByRole('heading',{name:'استخراج پیشین بیسکویت'}).waitFor();
+ await old.getByText('۱۵۰٬۰۰۰ تومان',{exact:true}).waitFor();
+ await old.getByRole('button',{name:'بررسی بیسکویت شکلاتی'}).click();
+ await page.locator('.md-product-card').getByRole('heading',{name:'بیسکویت شکلاتی'}).waitFor();
+ assert.equal(new URL(page.url()).searchParams.get('offer_id'),'offer-4','historical link navigates to the current extraction');
  assert.deepEqual(errors,[]);
  console.log(JSON.stringify({passed:true,errors,writes:writes.length,captures:['/tmp/molavi-dashboard-desktop.png','/tmp/molavi-dashboard-mobile.png']}));
  await browser.close();
