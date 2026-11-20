@@ -177,7 +177,9 @@ const fixtures={
       if(query.get('offer_id')==='offer-focus')return route.fulfill({json:{ok:true,
         cases:[{...fixtures[path].cases[0],offer_id:'offer-focus',product_name:'پیشنهاد خارج از صفحه'}]}});
       return route.fulfill({json:{ok:true,cases:[],reviewed_offer:{title:'استخراج پیشین بیسکویت',
-        fields:{consumer_price:'150000',currency:'IRT'}},titles:[{offer_id:'offer-4',title:'بیسکویت شکلاتی'}]}});
+        fields:{consumer_price:'150000',currency:'IRT'}},recent_decisions:[{offer_id:'offer-old',
+          decision:{choice:'confirm',fields:{price_role:'package',sale_price:120000,actual_price:140000,package_count:12}}}],
+        titles:[{offer_id:'offer-4',title:'بیسکویت شکلاتی'}]}});
      }
      if(query.get('view')==='workbench-candidates'){
       lazyCandidates++;
@@ -597,6 +599,9 @@ const fixtures={
  await mount('&offer_id=offer-old',true,true);
  const old=page.locator('.md-offer-history');
  await old.getByRole('heading',{name:'استخراج پیشین بیسکویت'}).waitFor();
+ await old.getByText('۱۴۰٬۰۰۰ تومان',{exact:true}).waitFor();
+ assert.equal(await old.getByText('۱۵۰٬۰۰۰ تومان',{exact:true}).isVisible(),false,'saved approval takes precedence over the extracted price');
+ await old.getByText('مشخصات استخراج اولیه',{exact:true}).click();
  await old.getByText('۱۵۰٬۰۰۰ تومان',{exact:true}).waitFor();
  await old.getByRole('button',{name:'بررسی بیسکویت شکلاتی'}).click();
  await page.locator('.md-product-card').getByRole('heading',{name:'بیسکویت شکلاتی'}).waitFor();

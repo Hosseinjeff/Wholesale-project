@@ -476,8 +476,18 @@
                 if(!record)return;
                 const previous=record.reviewed_offer;
                 if(!previous) throw new Error('missing_offer');
-                const text=el('p','این پیشنهاد در صف بررسی فعلی نیست.','description');
-                panel.replaceChildren(el('h2',previous.title||'پیشنهاد پیوندشده'),text,hooks.renderOfferFacts(previous));
+                const decision=record.recent_decisions?.find(row=>row.offer_id===offerId)?.decision;
+                const title=el('h2',previous.title||'پیشنهاد پیوندشده');
+                const facts=hooks.renderOfferFacts(previous);
+                if (decision) {
+                    const confirmed=decision.choice==='confirm';
+                    const heading=el('p',confirmed?'تأیید مشخصات ثبت شده است.':'تصمیم رد پیشنهاد ثبت شده است.');
+                    const raw=el('details');
+                    raw.append(el('summary','مشخصات استخراج اولیه'),facts);
+                    panel.replaceChildren(title,heading);
+                    if(confirmed) panel.append(hooks.renderOfferApproval(decision.fields||{}));
+                    panel.append(raw);
+                } else panel.replaceChildren(title,el('p','پیشنهاد ذخیره‌شده','description'),facts);
                 const candidates=(record.titles||[]).filter(row=>
                     row.offer_id && row.offer_id!==offerId && model.products.some(product=>identities(product).includes(row.offer_id)));
                 if(candidates.length) {

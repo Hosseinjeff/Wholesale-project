@@ -1154,6 +1154,12 @@
                 renderSources:sourceReextractionWorkspace,
                 readOfferHistory,
                 renderOfferFacts:offer=>reviewFacts(referenceExtractionRows(offer)),
+                renderOfferApproval:fields=>reviewFacts([
+                    ['قیمت فروش تأییدشده',amount(fields.sale_price)],
+                    ['مبنای قیمت تأییدشده',fields.price_role==='package'?'بسته / کارتن':'هر واحد'],
+                    ['قیمت مصرف‌کننده',amount(fields.actual_price)],
+                    ['تعداد در بسته',fields.package_count],
+                ]),
                 cancelAction:cancelDashboardAction,
                 readActivity: config.dashboardActivity
                     ? watches => {
