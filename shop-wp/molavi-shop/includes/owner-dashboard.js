@@ -91,6 +91,15 @@
         function button(text, onClick, name='md-button') {
             const item=el('button',text,name);item.type='button';item.addEventListener('click',onClick);return item;
         }
+        function activityButton(label, icon, onClick) {
+            const control=button(null,onClick,'md-activity-icon');
+            control.setAttribute('aria-label',label);
+            control.title=label;
+            const glyph=el('span',null,'dashicons dashicons-'+icon);
+            glyph.setAttribute('aria-hidden','true');
+            control.append(glyph);
+            return control;
+        }
         const activityLabels={
             reextract:'بازاستخراج پیام',batch:'پردازش پیام‌های ربات',intake:'پیام ورودی',
             reference_suggest:'پیشنهاد مرجع',reference_index:'نمایه‌سازی مرجع',reference_refresh:'به‌روزرسانی فهرست مرجع',
@@ -242,11 +251,11 @@
             const row=el('li',null,'md-activity-action');
             const text=[item.label,item.origin.product,activityStates[item.state],item.detail].filter(Boolean).join(' · ');
             const controls=el('div',null,'md-activity-controls');
-            controls.append(button('رفتن به مبدأ',()=>openOrigin(item.origin),'md-link'));
+            controls.append(activityButton('رفتن به مبدأ','arrow-left-alt',()=>openOrigin(item.origin)));
             if (activeAction(item)) {
                 const canCancel=item.controller || (item.watch && ['reextract','reference_suggest','market_prices'].includes(item.watch.kind)
                     && (item.state!=='running'||item.watch.kind==='reextract'));
-                const control=button('لغو',async()=>{
+                const control=activityButton('لغو','dismiss',async()=>{
                     if(item.controller) {item.controller.abort();return;}
                     const previous=item.state;
                     item.state='cancelling';
@@ -262,17 +271,18 @@
                         item.detail='لغو این کار تأیید نشد.';
                     }
                     saveActions();
-                },'md-link');
+                });
                 control.disabled=!canCancel || item.state==='cancelling';
-                if(control.disabled) control.title='این مرحله پس از ارسال قابل لغو نیست.';
+                if(control.disabled) control.title=item.state==='cancelling'
+                    ? 'در حال لغو…' : 'این مرحله پس از ارسال قابل لغو نیست.';
                 controls.append(control);
-            } else controls.append(button('بستن اعلان',()=>{actions.delete(item.id);saveActions();},'md-link'));
+            } else controls.append(activityButton('بستن اعلان','no-alt',()=>{actions.delete(item.id);saveActions();}));
             row.append(el('span',text),controls);
             return row;
         }
         function groupRow(entry,quota) {
             const row=el('li');
-            row.append(el('span',activityDescription(entry,quota)),button('جزئیات',()=>openActivity(entry.kind),'md-link'));
+            row.append(el('span',activityDescription(entry,quota)),activityButton('جزئیات','info-outline',()=>openActivity(entry.kind)));
             return row;
         }
         function paintActivity() {

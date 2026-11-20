@@ -423,7 +423,7 @@ add_action('admin_enqueue_scripts', static function (): void {
             $dependencies[] = 'molavi-' . $asset;
         }
         wp_enqueue_style('molavi-owner-dashboard', plugins_url('owner-dashboard.css', __FILE__),
-            ['molavi-owner-workflows'], (string) filemtime(__DIR__ . '/owner-dashboard.css'));
+            ['molavi-owner-workflows', 'dashicons'], (string) filemtime(__DIR__ . '/owner-dashboard.css'));
     }
     wp_enqueue_script('molavi-owner-workflows', plugins_url('owner-workflows.js', __FILE__), $dependencies,
         (string) filemtime($script), true);
