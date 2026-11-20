@@ -1118,10 +1118,20 @@
     }
 
     async function readOfferHistory(offerId) {
-        const url=new URL('/reference/item-reviews',config.apiUrl);
-        url.searchParams.set('view','workbench-link');
+        const url=new URL('/pipeline/ai-confirmations',config.apiUrl);
+        url.searchParams.set('view','workbench-offer');
         url.searchParams.set('offer_id',offerId);
-        return request('GET',undefined,url.href,'reference_items',{ttl:30000});
+        const result=await request('GET',undefined,url.href,'ai_confirmations',{ttl:15000});
+        const current=result.cases?.find(row=>row.offer_id===offerId);
+        if(current && new URL(location.href).searchParams.get('offer_id')===offerId && workbenchData?.ai_confirmations) {
+            const source=workbenchData.ai_confirmations;
+            if (!source.cases.some(row=>row.offer_id===offerId)) {
+                source.cases=[...source.cases,current];
+                await dashboard('','info',[]);
+            }
+            return null;
+        }
+        return result;
     }
 
     async function dashboard(message = '', messageKind = 'info', refreshKeys = null, force = false, signal) {

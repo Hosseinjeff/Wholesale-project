@@ -473,6 +473,7 @@
             list.replaceChildren(panel);
             try {
                 const record=await hooks.readOfferHistory(offerId);
+                if(!record)return;
                 const previous=record.reviewed_offer;
                 if(!previous) throw new Error('missing_offer');
                 const text=el('p','این پیشنهاد در صف بررسی فعلی نیست.','description');

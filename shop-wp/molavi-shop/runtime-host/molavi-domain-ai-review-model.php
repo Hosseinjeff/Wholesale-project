@@ -81,7 +81,7 @@ function molavi_domain_ai_candidates(array $case,array $snapshot): array {
         'supplier_price'=>molavi_domain_py_value($case['detected_price'],$case['sale_price']),
     ],$snapshot['rows']??[],12);
 }
-function molavi_domain_ai_review_cases(array $tables,?array $snapshot=null,bool $history=false,int $limit=200,?float $clock=null,bool $candidates=true): array {
+function molavi_domain_ai_review_cases(array $tables,?array $snapshot=null,bool $history=false,int $limit=200,?float $clock=null,bool $candidates=true,string $focused=''): array {
     $offers=molavi_domain_records($tables['Offers']??[]);$snapshotId=(string)($snapshot['snapshot_id']??'');$referenceNames=[];
     foreach($snapshot['rows']??[] as $row)if(is_array($row)&&count($row)>16)$referenceNames[(string)molavi_domain_py_value($row[16],molavi_domain_py_value($row[2]))]=(string)molavi_domain_py_value($row[0]);
     $data=molavi_domain_read('pipeline',static fn(SQLite3 $db)=>['decisions'=>molavi_domain_rows($db,'SELECT d.* FROM ai_confirmation_decisions d WHERE rowid=(SELECT p.rowid FROM ai_confirmation_decisions p WHERE p.case_id=d.case_id ORDER BY p.created_at DESC,p.rowid DESC LIMIT 1)'),
@@ -107,8 +107,9 @@ function molavi_domain_ai_review_cases(array $tables,?array $snapshot=null,bool 
     }
     foreach($duplicates as $group){$pending=[];$decided=false;foreach($group as [$case,$done]){if($done)$decided=true;else $pending[]=$case;}if($decided||!$pending)continue;$case=end($pending);if(count($group)>1)$case['duplicate_count']=count($group);$cases[]=$case;}
     usort($cases,static fn($a,$b)=>strcmp($b['message_timestamp'],$a['message_timestamp'])?:strcmp($b['offer_id'],$a['offer_id']));$cases=molavi_domain_ai_variant_groups($cases);
+    if($focused!=='')$cases=array_values(array_filter($cases,static fn($case)=>$case['offer_id']===$focused));
     if(!$history)return array_slice($cases,0,$limit);$recent=[];$seen=[];
-    foreach(molavi_domain_ai_decision_history(null,$limit) as $decision){if(isset($seen[$decision['case_id']]))continue;$seen[$decision['case_id']]=true;$pair=$all[$decision['offer_id']]??null;if(!$pair)continue;$source=$pair[0];
+    foreach(molavi_domain_ai_decision_history($focused!==''?'ai:'.hash('sha256',$focused):null,$limit) as $decision){if(isset($seen[$decision['case_id']]))continue;$seen[$decision['case_id']]=true;$pair=$all[$decision['offer_id']]??null;if(!$pair)continue;$source=$pair[0];
         $marker=molavi_domain_json([(string)molavi_domain_py_value($source['Message ID']??null),(string)molavi_domain_py_value($source['Channel Username']??null)]);
         if(isset($markers[$marker])&&!str_starts_with((string)molavi_domain_py_value($source['Batch ID']??null),'reextract:'))continue;
         $case=molavi_domain_ai_case($source,molavi_domain_ai_reviewable($source)?($latest['ai:'.hash('sha256',(string)molavi_domain_py_value($source['Offer ID']??null))]??null):null,$clock);

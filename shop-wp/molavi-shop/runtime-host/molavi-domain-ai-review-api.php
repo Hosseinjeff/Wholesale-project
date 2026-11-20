@@ -7,6 +7,14 @@ function molavi_domain_ai_reviews_api(string $method, array $query, ?array $body
     if ($method==='GET') {
         $mode = $query['reextract'] ?? '';
         $view = $query['view'] ?? '';
+        if ($view==='workbench-offer') {
+            $id=$query['offer_id']??'';
+            if(!is_string($id)||$id===''||strlen($id)>300)molavi_domain_fail('invalid_query',400);
+            $tables=molavi_domain_sheets(['Offers']);
+            $data=molavi_domain_ai_reviews_get($tables,null,false,$id);
+            if($data['cases'])return $data;
+            return $data+molavi_domain_reference_extracted_offers(molavi_domain_records($tables['Offers']),$id,true);
+        }
         if ($view==='workbench-candidates') {
             $id=$query['offer_id']??'';
             if(!is_string($id)||$id===''||strlen($id)>300)molavi_domain_fail('invalid_query',400);
@@ -73,9 +81,9 @@ function molavi_domain_ai_decide(array $payload,?float $clock=null): array {
         return molavi_domain_ai_decision_decode(molavi_domain_row($db,'SELECT * FROM ai_confirmation_decisions WHERE decision_id=?',[$id]));
     });
 }
-function molavi_domain_ai_reviews_get(array $tables,?float $clock=null,bool $candidates=true): array {
+function molavi_domain_ai_reviews_get(array $tables,?float $clock=null,bool $candidates=true,string $focused=''): array {
     $snapshot=null;try{$candidate=molavi_domain_reference_active();$state=molavi_domain_reference_use();if($candidate&&$state['allow_automatic']&&$candidate['snapshot_id']===$state['snapshot_id'])$snapshot=$candidate;}catch(Throwable $e){}
-    [$cases,$recent]=molavi_domain_ai_review_cases($tables,$snapshot,true,200,$clock,$candidates);if($snapshot)$cases=molavi_domain_reference_receipts($cases,'ai',$snapshot['snapshot_id']);$scope=molavi_domain_ai_hold_scope();
+    [$cases,$recent]=molavi_domain_ai_review_cases($tables,$snapshot,true,200,$clock,$candidates,$focused);if($snapshot)$cases=molavi_domain_reference_receipts($cases,'ai',$snapshot['snapshot_id']);$scope=molavi_domain_ai_hold_scope();
     foreach($cases as &$case)$case['publication_held']=molavi_domain_ai_held($scope,$case);unset($case);foreach($recent as &$case)$case['publication_held']=molavi_domain_ai_held($scope,$case);unset($case);
     $snapshotId=$snapshot['snapshot_id']??'';
     $waivers=molavi_domain_read('reference',static fn(SQLite3 $db)=>molavi_domain_rows($db,
