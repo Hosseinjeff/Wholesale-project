@@ -217,10 +217,19 @@ function molavi_domain_status_api(string $method,array $query,?array $body,strin
     if ($selected==='') {
         $catalog=molavi_domain_published_review_catalog();
         $published=molavi_domain_published_review_ids($catalog);
+        $market=[];
+        if (function_exists('molavi_domain_market_source_rows')&&($sources=molavi_domain_market_source_rows())) {
+            $tables=molavi_domain_sheets(['Products','Offers']);
+            $market=molavi_domain_market_catalog_sources(molavi_domain_records($tables['Products']),molavi_domain_records($tables['Offers']),$sources);
+        }
         $linked=[];
         foreach ($history['products'] as &$product) {
             $id=$product['product_id'];
             $product['published']=isset($published[$id]);
+            if (isset($market[$id])) {
+                $product['market_tracked']=true;
+                if (isset($market[$id]['price']['regular_price'])) $product['regular_price_missing']=false;
+            }
             if ($product['published']) $linked[$id]=true;
         }
         unset($product);

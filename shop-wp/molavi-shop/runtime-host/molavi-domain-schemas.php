@@ -290,6 +290,25 @@ CREATE TABLE IF NOT EXISTS market_price_lookups (
 SQL,
         'CREATE INDEX IF NOT EXISTS market_price_due ON market_price_lookups(active,next_at)',
         'CREATE TABLE IF NOT EXISTS market_price_budget (day TEXT PRIMARY KEY, used INTEGER NOT NULL)',
+        <<<'SQL'
+CREATE TABLE IF NOT EXISTS market_product_sources (
+    target TEXT PRIMARY KEY, product_id TEXT NOT NULL, offer_id TEXT NOT NULL,
+    title TEXT NOT NULL, identity_json TEXT NOT NULL,
+    url TEXT, quote_json TEXT, regular_price INTEGER,
+    next_at INTEGER, checked_at INTEGER, lease TEXT, failure TEXT,
+    attachment_id INTEGER, image_identity_json TEXT, image_source_url TEXT,
+    changed_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS market_product_sources_due ON market_product_sources(next_at) WHERE url IS NOT NULL;
+CREATE TABLE IF NOT EXISTS market_source_events (
+    id TEXT PRIMARY KEY, product_id TEXT NOT NULL, offer_id TEXT NOT NULL,
+    title TEXT NOT NULL, kind TEXT NOT NULL,
+    old_price INTEGER, regular_price INTEGER, code TEXT,
+    occurred_at INTEGER NOT NULL, publish_pending INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS market_source_events_recent ON market_source_events(occurred_at);
+CREATE INDEX IF NOT EXISTS market_source_events_pending ON market_source_events(publish_pending,occurred_at);
+SQL,
     ];
     default: throw new InvalidArgumentException('Unknown domain store');
     }

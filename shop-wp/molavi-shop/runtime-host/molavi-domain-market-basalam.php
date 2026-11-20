@@ -59,12 +59,15 @@ function molavi_domain_basalam_quote(int $id,array $identity): ?array {
     if (!$count||!is_int($regular)||!is_int($current)||$current<10||$regular<$current||$regular>1e13) return null;
     $vendor=$product['vendor']['id']??null;
     $shop=$product['vendor']['title']??'';
+    $photo=$product['photo']??[];
     return ['title'=>$title,'url'=>'https://basalam.com/p/'.$id,'provider'=>'basalam','listing_id'=>$id,
         'merchant'=>is_string($shop)&&trim($shop)!==''&&molavi_domain_strlen($shop)<=80?'باسلام · '.trim($shop):'باسلام',
         'seller_id'=>is_int($vendor)&&$vendor>0?$vendor:null,'pack_count'=>$count,
         'regular_price'=>(int)round($regular/10),'current_price'=>(int)round($current/10),
         'regular_unit_price'=>(int)round($regular/10/$count),'unit_price'=>(int)round($current/10/$count),
-        'regular_source_price'=>$regular,'source_price'=>$current,'source_currency'=>'IRR'];
+        'regular_source_price'=>$regular,'source_price'=>$current,'source_currency'=>'IRR',
+        'image_url'=>molavi_domain_market_photo_url($photo['lg']??$photo['original']??null),
+        'thumbnail_url'=>molavi_domain_market_photo_url($photo['xs']??$photo['sm']??null)];
 }
 
 function molavi_domain_basalam_search(array $identity): array {

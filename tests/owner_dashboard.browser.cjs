@@ -20,7 +20,8 @@ const fixtures={
  const browser=await chromium.launch({executablePath:'/usr/bin/chromium',headless:true,args:['--no-sandbox']});
  const page=await browser.newPage({viewport:{width:1365,height:1000}});const errors=[];const writes=[];let failPrices=false;let acceptPrice=false;let offerPreviews=0;let latestRun='';let runComplete=false;let groupedLoads=0;
  let activeReads=0,maxActiveReads=0,transientStatusOnce=true,statusReads=0,changeReads=0,catalogSearches=0,titleReads=0;
- let marketReads=0,marketSource=null;
+ let marketReads=0,marketSource=null,marketEvents=[];
+ const testPhoto='https://img.example/market.png';
  let referenceRevision=null;
  let pricingRules={household_bp:4500,shop_bp:7000,household_target:5280000,shop_target:21120000};
  const repriceId='e'.repeat(32);
@@ -30,7 +31,10 @@ const fixtures={
  let inboxMessages=[],inboxRevision='initial',inboxOfferReads=0,dashboardDismissals=[];
  page.on('pageerror',e=>errors.push(e.message));
  await page.route('**/*',async route=>{
-  const req=route.request();if(req.url().includes('/admin-ajax.php')){
+  const req=route.request();
+  if(req.url()===testPhoto) return route.fulfill({contentType:'image/png',
+    body:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jf2QAAAAASUVORK5CYII=','base64')});
+  if(req.url().includes('/admin-ajax.php')){
    const f=new URLSearchParams(req.postData());const path=f.get('path');
    if(f.get('method')==='POST'||f.get('action')!=='molavi_owner_workflow_proxy'){
     writes.push({action:f.get('action'),path,payload:f.get('payload')});
@@ -94,9 +98,22 @@ const fixtures={
     if(path==='/reference/item-reviews'&&JSON.parse(f.get('payload')||'{}').action==='add_market_price_url'){
       const payload=JSON.parse(f.get('payload'));
       assert.equal(payload.offer_id,'offer-4');assert.equal(payload.url,'https://retailer.example/biscuit');
-      const quote={title:'بیسکویت شکلاتی',merchant:'retailer.example',url:payload.url,unit_price:150000};
+      const quote={title:'بیسکویت فروشگاه',merchant:'retailer.example',url:payload.url,unit_price:145000,regular_unit_price:150000,
+        image_url:testPhoto,thumbnail_url:testPhoto};
       marketSource={state:'ready',checked_at:Date.now()/1000,next_at:Date.now()/1000+86400,
-        suggested_price:quote,candidates:[quote],selected_url:quote.url};
+        suggested_price:quote,candidates:[quote],product:{title:'بیسکویت کارت',image_url:testPhoto}};
+      return route.fulfill({json:{ok:true,...marketSource}});
+    }
+    if(path==='/reference/item-reviews'&&JSON.parse(f.get('payload')||'{}').action==='select_market_price_source'){
+      const {url}=JSON.parse(f.get('payload'));
+      assert.equal(url,'https://retailer.example/biscuit');
+      marketSource={...marketSource,selected_url:url,tracking:{regular_price:150000,next_at:marketSource.next_at}};
+      return route.fulfill({json:{ok:true,...marketSource}});
+    }
+    if(path==='/reference/item-reviews'&&JSON.parse(f.get('payload')||'{}').action==='use_market_product_image'){
+      const {url}=JSON.parse(f.get('payload'));
+      assert.equal(url,'https://retailer.example/biscuit');
+      marketSource={...marketSource,product:{...marketSource.product,selected_photo:true,selected_photo_url:testPhoto}};
       return route.fulfill({json:{ok:true,...marketSource}});
     }
     if(path==='/reference/item-reviews'&&JSON.parse(f.get('payload')||'{}').action==='assign_ai_reference'){
@@ -151,7 +168,7 @@ const fixtures={
     }
     if(failPrices&&path==='/pipeline/supplier-price-evidence')return await route.fulfill({status:503,json:{ok:false,error:'upstream_unavailable'}});
     if (path==='/pipeline/dashboard-activity') {
-     return await route.fulfill({json:{ok:true,inbox_revision:inboxRevision,reference_revision:referenceRevision,
+     return await route.fulfill({json:{ok:true,inbox_revision:inboxRevision,reference_revision:referenceRevision,market_events:marketEvents,
       watched:{...(marketWatch?{[lookupKey]:{state:marketWatch}}:{}),...(repricing?{[repriceId]:repricing}:{})},groups:[
       {kind:'reextract',state:'running',total:8,completed:3},
       {kind:'reference_index',state:'quota_wait',model:'gemini-embedding-001',total:50,completed:20,
@@ -451,10 +468,26 @@ const fixtures={
  await marketCard.getByRole('tab',{name:'قیمت عادی',exact:true}).click();
  await market.getByText('۱۶۰٬۰۰۰ تومان',{exact:true}).waitFor();
  await market.getByText(/بستهٔ ۱۲ عددی/).waitFor();
- assert.equal(await market.getByRole('button',{name:'ثبت مرجع قیمت',exact:true}).count(),1);
+ assert.equal(await market.getByRole('button',{name:'انتخاب پیوند',exact:true}).count(),1);
  await market.getByText('ثبت پیوند فروشگاه',{exact:true}).click();
  await market.getByRole('textbox',{name:'پیوند صفحهٔ کالا در فروشگاه'}).fill('https://retailer.example/biscuit');
- await market.getByRole('button',{name:'بررسی و ثبت',exact:true}).click();
+ await market.getByRole('button',{name:'بررسی پیوند',exact:true}).click();
+ await market.getByText('بیسکویت فروشگاه',{exact:true}).waitFor();
+ assert.equal(await market.getByText('مرجع انتخاب‌شده',{exact:true}).count(),0,'verifying a link does not select it');
+ await market.getByRole('button',{name:'بزرگ‌نمایی تصویر آگهی'}).click();
+ await page.getByRole('dialog',{name:'بیسکویت فروشگاه'}).waitFor();
+ await page.getByRole('dialog').getByRole('button',{name:'بستن'}).click();
+ await market.getByRole('button',{name:'مقایسه',exact:true}).click();
+ const photoComparison=page.getByRole('dialog',{name:'مقایسهٔ کالاها'});
+ await photoComparison.getByText('بیسکویت کارت',{exact:true}).waitFor();
+ await photoComparison.getByText('بیسکویت فروشگاه',{exact:true}).waitFor();
+ assert.equal(await photoComparison.locator('figure').count(),2);
+ await page.waitForFunction(()=>[...document.querySelectorAll('.molavi-market-comparison img')].filter(img=>img.naturalWidth>0).length===2);
+ await photoComparison.getByRole('button',{name:'بستن'}).click();
+ await market.getByRole('button',{name:'استفاده به‌عنوان تصویر اصلی'}).click();
+ await market.getByText('تصویر اصلی انتخاب شده است.',{exact:true}).waitFor();
+ assert.equal(await market.getByText('مرجع انتخاب‌شده',{exact:true}).count(),0,'choosing an image does not change the price source');
+ await market.getByRole('button',{name:'انتخاب پیوند',exact:true}).click();
  await market.getByText('مرجع انتخاب‌شده',{exact:true}).waitFor();
  await market.getByText('۱۵۰٬۰۰۰ تومان',{exact:true}).waitFor();
  await market.getByText(/نوبت بعد/).waitFor();
@@ -645,7 +678,10 @@ const fixtures={
  await mount('&offer_id=offer-focus',true,true);
  await page.locator('.md-product-card').getByRole('heading',{name:'پیشنهاد خارج از صفحه'}).waitFor();
  assert.equal(await page.locator('.md-offer-history').count(),0,'an active offer outside the summary limit opens for review');
- await page.getByRole('button',{name:'تنظیمات تخفیف',exact:true}).click();
+ const discountGear=page.getByRole('button',{name:'تنظیمات تخفیف',exact:true});
+ assert.equal(await discountGear.innerText(),'');
+ await discountGear.locator('.dashicons-admin-generic').waitFor();
+ await discountGear.click();
  const pricing=page.locator('.md-pricing-form');
  await pricing.waitFor();
  assert.equal(await pricing.locator('[name=household_bp]').inputValue(),'45');
@@ -705,6 +741,19 @@ const fixtures={
  await dialog.waitFor({state:'hidden'});
  const lastDismiss=writes.filter(write=>write.action==='molavi_owner_workbench_dismissals'&&write.operation==='dismiss').at(-1);
  assert.deepEqual(lastDismiss.records.map(item=>item.product_id).sort(),['1','10']);
+ marketEvents=[
+    {id:'market-fail',offer_id:'offer-4',title:extraction.product_name,kind:'failed',code:'listing_unavailable'},
+    {id:'market-change',offer_id:'offer-4',title:extraction.product_name,kind:'changed',old_price:150000,regular_price:160000}
+ ];
+ await mount('',true,true,'fixture-owner:1');
+ const marketSuccess=bar.locator('.md-activity-action').filter({hasText:'قیمت عادی به‌روز شد'});
+ const marketFailure=bar.locator('.md-activity-action').filter({hasText:'بررسی قیمت عادی ناموفق بود'});
+ await marketSuccess.getByText(/۱۵۰٬۰۰۰.*۱۶۰٬۰۰۰/).waitFor();
+ await marketFailure.getByText(/مشخصاتش تغییر کرده/).waitFor();
+ await marketFailure.getByRole('button',{name:'بستن اعلان'}).click();
+ await mount('',true,true,'fixture-owner:1');
+ await marketSuccess.getByText(/۱۶۰٬۰۰۰/).waitFor();
+ assert.equal(await marketFailure.count(),0,'a dismissed automatic notice stays dismissed');
  assert.deepEqual(errors,[]);
  console.log(JSON.stringify({passed:true,errors,writes:writes.length,captures:['/tmp/molavi-dashboard-desktop.png','/tmp/molavi-dashboard-mobile.png']}));
  await browser.close();

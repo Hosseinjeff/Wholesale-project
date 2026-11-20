@@ -274,6 +274,7 @@
             package_count_required: 'برای قیمت بسته، تعداد داخل بسته را مشخص کنید.',
             invalid_market_price_link: 'پیوند مستقیم و امن صفحهٔ کالا را وارد کنید.',
             market_price_source_not_verified: 'قیمت این کالا و تعداد در بسته از این منبع تأیید نشد.',
+            market_image_unavailable: 'ذخیرهٔ این تصویر ممکن نبود. تصویر آگهی را بررسی کنید.',
             market_price_sources_unavailable: 'صفحهٔ فروشگاه در دسترس نیست. پیوند دیگری را بررسی کنید.',
             stale_market_price_source: 'قیمت این منبع تازه نیست. پس از بررسی دوباره آن را انتخاب کنید.',
             unknown_reference: 'نام دقیق یا شناسه کالای مرجع پیدا نشد؛ یکی از پیشنهادها را انتخاب کنید.',
@@ -350,8 +351,8 @@
     let workflowReadQueue = Promise.resolve();
 
     const actionNames = {
-        request_market_prices:'یافتن قیمت بازار',add_market_price_url:'بررسی و ثبت پیوند فروشگاه',
-        select_market_price_source:'ثبت مرجع قیمت',suggest_reference:'درخواست پیشنهاد مرجع',
+        request_market_prices:'یافتن قیمت بازار',add_market_price_url:'بررسی پیوند فروشگاه',
+        select_market_price_source:'انتخاب منبع قیمت عادی',use_market_product_image:'تغییر تصویر اصلی کالا',suggest_reference:'درخواست پیشنهاد مرجع',
         assign_ai_reference:'انتخاب مرجع',proceed_without_reference:'ادامه بدون مرجع',
         start_offer_reextraction:'بازاستخراج پیام',start_reextraction:'بازاستخراج گروهی',
         start_open_case_reextraction:'بازاستخراج موارد باز',start_recent_policy_reextraction:'بازاستخراج با قواعد فعلی',
@@ -2168,10 +2169,10 @@
             marketPriceOffers:(product,key)=>{
                 const status=product.status;
                 if (product.ai.length&&(key==='ai'||!status?.latest_offer_id)) {
-                    return product.ai.filter(item=>item.offer_id&&!normalizedAiInteger(item.actual_price||item.consumer_price))
+                    return product.ai.filter(item=>item.offer_id&&(item.market_tracked||!normalizedAiInteger(item.actual_price||item.consumer_price)))
                         .map(item=>({offer_id:item.offer_id,case_id:item.case_id,name:item.product_name||product.name}));
                 }
-                return status?.regular_price_missing&&status.latest_offer_id
+                return (status?.regular_price_missing||status?.market_tracked)&&status.latest_offer_id
                     ? [{offer_id:status.latest_offer_id,name:product.name}] : [];
             },
             renderReferenceTools: productReferenceTools,
@@ -2903,6 +2904,7 @@
 
     function marketPriceReview(offerId, productName) {
         const section = node('details', null, 'molavi-market-price-review');
+        section.dataset.offerId=offerId;
         const heading = node('summary','قیمت عادی');
         heading.hidden=true;
         const body = node('div',null,'molavi-market-price-body');
@@ -2913,6 +2915,43 @@
         let timer = null, remaining = 0, busy = false;
         section.append(heading,body);
 
+        function photo(product,thumbnail=false) {
+            const fallback=product.image_file_id && /^[\w-]{8,300}$/.test(product.image_file_id)
+                ?new URL('/media/file/'+encodeURIComponent(product.image_file_id),config.apiUrl).href:'';
+            const url=thumbnail?(product.thumbnail_url||product.image_url||fallback):(product.image_url||fallback);
+            if (!url || !/^https:\/\//i.test(url)) return node('span','تصویر در دسترس نیست','molavi-market-photo-empty');
+            const image=node('img');
+            image.alt=product.title||productName;
+            image.loading='lazy';
+            image.decoding='async';
+            image.referrerPolicy='no-referrer';
+            image.addEventListener('error',()=>image.replaceWith(node('span','تصویر در دسترس نیست','molavi-market-photo-empty')),{once:true});
+            image.src=url;
+            return image;
+        }
+        function showPhotos(quote,current=null) {
+            const dialog=node('dialog',null,'md-dialog molavi-market-dialog');
+            const close=node('button','بستن','button');close.type='button';
+            close.addEventListener('click',()=>dialog.close());
+            const title=node('h2',current?'مقایسهٔ کالاها':quote.title);
+            title.id='molavi-market-dialog-title';
+            dialog.setAttribute('aria-labelledby',title.id);
+            const images=node('div',null,current?'molavi-market-comparison':'molavi-market-preview');
+            for (const [product,label] of current?[[current,'کالای کارت'],[quote,'آگهی فروشگاه']]:[[quote,'']]) {
+                const figure=node('figure');
+                figure.append(photo(product));
+                if (label) {
+                    const caption=node('figcaption');
+                    caption.append(node('small',label),node('strong',product.title||productName));
+                    figure.append(caption);
+                }
+                images.append(figure);
+            }
+            dialog.append(title,images,close);
+            root.append(dialog);
+            dialog.addEventListener('close',()=>dialog.remove(),{once:true});
+            dialog.showModal();
+        }
         function quoteRow(quote, result) {
             const row = node('section',null,'molavi-market-quote');
             const link = node('a',quote.merchant,'molavi-market-source');
@@ -2923,13 +2962,23 @@
             const selected = quote.url === result.selected_url;
             const regular = Number(quote.regular_unit_price);
             const pack = Number(quote.pack_count);
+            const heading=node('div',null,'molavi-market-quote-heading');
+            if (quote.image_url) {
+                const preview=node('button',null,'molavi-market-thumbnail');
+                preview.type='button';preview.setAttribute('aria-label','بزرگ‌نمایی تصویر آگهی');
+                preview.append(photo(quote,true));preview.addEventListener('click',()=>showPhotos(quote));
+                heading.append(preview);
+            }
+            const listing=node('div');
+            listing.append(node('strong',quote.title),link);
+            heading.append(listing);row.append(heading);
             const observed = node('div',null,'molavi-market-observed');
             observed.append(node('span',regular>0?'قیمت عادی هر واحد':'قیمت فروش مشاهده‌شده برای هر واحد'),
                 node('strong',amount(regular>0?regular:quote.unit_price)));
             row.append(observed);
             const notes = [];
             if (regular>0 && Number(quote.unit_price)!==regular) notes.push(`فروش هر واحد ${amount(quote.unit_price)}`);
-            if (pack>1) {
+            if (pack>1&&Number(quote.regular_price)>0) {
                 const count=new Intl.NumberFormat('fa-IR').format(pack);
                 notes.push(`بستهٔ ${count} عددی · قیمت عادی بسته ${amount(quote.regular_price)}`);
                 if (Number(quote.current_price)!==Number(quote.regular_price))
@@ -2937,12 +2986,20 @@
             }
             if (notes.length) row.append(node('small',notes.join(' · ')));
             const source = node('div',null,'molavi-market-source-line');
-            source.append(link);row.append(source);
+            row.append(source);
             if (selected) source.append(node('span','مرجع انتخاب‌شده'));
             if (!result.stale && !selected) {
-                const select = node('button','ثبت مرجع قیمت','button button-primary');select.type = 'button';
+                const select = node('button','انتخاب پیوند','button button-primary');select.type = 'button';
                 select.addEventListener('click',()=>load({action:'select_market_price_source',offer_id:offerId,url:quote.url}));
                 source.append(select);
+            }
+            const compare=node('button','مقایسه','button');compare.type='button';
+            compare.addEventListener('click',()=>showPhotos(quote,result.product||{title:productName}));
+            source.append(compare);
+            if (quote.image_url && quote.image_url!==result.product?.selected_photo_url && (!result.stale||selected)) {
+                const choose=node('button','استفاده به‌عنوان تصویر اصلی','button');choose.type='button';
+                choose.addEventListener('click',()=>load({action:'use_market_product_image',offer_id:offerId,url:quote.url}));
+                source.append(choose);
             }
             return row;
         }
@@ -2953,7 +3010,7 @@
             const input = document.createElement('input');
             input.type='url';input.required=true;input.dir='ltr';input.placeholder='https://…';
             input.setAttribute('aria-label','پیوند صفحهٔ کالا در فروشگاه');
-            const save = node('button','بررسی و ثبت','button');save.type='submit';
+            const save = node('button','بررسی پیوند','button');save.type='submit';
             form.append(input,save);
             form.addEventListener('submit',event=>{
                 event.preventDefault();
@@ -2976,7 +3033,13 @@
                 provider_auth:'اتصال سرویس جست‌وجوی وب نیاز به بررسی دارد.',
                 quota:'سهمیهٔ جست‌وجو پر شده است. بررسی در نوبت بعد ادامه می‌یابد.'
             };
-            if (messages[result.state]) {
+            const tracking=result.tracking;
+            if (tracking) {
+                const status=node('p',tracking.failure
+                    ? 'بررسی منبع ناموفق بود. '+(tracking.regular_price?'آخرین قیمت تأییدشده '+amount(tracking.regular_price):'قیمت عادی در دسترس نیست.')
+                    : 'بررسی روزانه فعال است'+(tracking.regular_price?' · '+amount(tracking.regular_price):''));status.setAttribute('role','status');
+                body.append(status);
+            } else if (messages[result.state]) {
                 const status=node('p',messages[result.state]);status.setAttribute('role','status');body.append(status);
             }
             const quote = result.suggested_price;
@@ -2993,11 +3056,16 @@
             if (result.selected_url && !result.candidates?.some(row=>row.url===result.selected_url))
                 body.append(node('p','قیمت منبع انتخاب‌شده در آخرین بررسی تأیید نشد.'));
             const times = [];
-            if (result.checked_at) times.push(`آخرین بررسی ${formatSourceTimestamp(Math.floor(result.checked_at))}`);
-            if (result.next_at && result.next_at*1000>Date.now()) times.push(`نوبت بعد ${formatSourceTimestamp(Math.floor(result.next_at))}`);
+            const last=tracking?.checked_at||result.checked_at;
+            const next=tracking?.next_at||result.next_at;
+            if (last) times.push(`آخرین بررسی ${formatSourceTimestamp(Math.floor(last))}`);
+            if (next && next*1000>Date.now()) times.push(`نوبت بعد ${formatSourceTimestamp(Math.floor(next))}`);
             if (times.length) body.append(node('small',times.join(' · ')));
-            if (['idle','cancelled'].includes(result.state)||(result.state==='queued'&&!result.prioritized)) {
-                const search = node('button',result.state==='queued'?'بررسی این کالا زودتر':'یافتن قیمت بازار',
+            if (result.product?.selected_photo) body.append(node('small','تصویر اصلی انتخاب شده است.'));
+            const due=result.next_at&&result.next_at*1000<=Date.now();
+            if (['idle','cancelled'].includes(result.state)||(result.state==='queued'&&!result.prioritized)
+                ||(['ready','no_match','retry'].includes(result.state)&&due)) {
+                const search = node('button',result.state==='queued'?'بررسی این کالا زودتر':due?'جست‌وجوی دوبارهٔ قیمت بازار':'یافتن قیمت بازار',
                     'button button-primary');search.type = 'button';
                 search.addEventListener('click',()=>{
                     remaining=6;load({action:'request_market_prices',offer_id:offerId});
@@ -3017,8 +3085,8 @@
             busy=true;clearTimeout(timer);
             const buttons=payload?[...body.querySelectorAll('button:not(:disabled)')]:[];
             buttons.forEach(button=>button.disabled=true);
-            const progress=node('p',payload?.action==='add_market_price_url'
-                ? 'در حال بررسی صفحهٔ فروشگاه…' : 'در حال دریافت قیمت‌های بررسی‌شده…');
+            const progress=node('p',payload?.action==='add_market_price_url'?'در حال بررسی صفحهٔ فروشگاه…'
+                :payload?.action==='use_market_product_image'?'در حال ذخیرهٔ تصویر…':'در حال دریافت قیمت‌های بررسی‌شده…');
             progress.setAttribute('role','status');
             if (payload||!body.childNodes.length) body.prepend(progress);
             try {render(await request(payload?'POST':'GET',payload,(payload?endpoint:readUrl).href,'reference_items',{ttl:remaining===6?10000:0}));}

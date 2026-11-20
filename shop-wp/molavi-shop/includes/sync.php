@@ -173,7 +173,8 @@ function molavi_apply_catalog(array $payload): array
         } else {
             $unchanged++;
         }
-        if ($clean['image'] !== '' && (string) get_post_meta($productId, '_molavi_image_id', true) !== $clean['image']) {
+        if (!(int) get_post_meta($productId, '_molavi_owner_market_image_id', true)
+            && $clean['image'] !== '' && (string) get_post_meta($productId, '_molavi_image_id', true) !== $clean['image']) {
             $queue[] = ['product' => $productId, 'file' => $clean['image']];
         }
     }
@@ -281,6 +282,7 @@ function molavi_clean_product(array $row): ?array
     if (!preg_match('/^[A-Za-z0-9_-]{8,300}$/', $image)) {
         $image = '';
     }
+    $marketImage = max(0, (int) ($row['market_image_id'] ?? 0));
     $key = trim((string) ($row['key'] ?? ''));
     if ($key === '') {
         $key = molavi_name_key($name);
@@ -311,6 +313,7 @@ function molavi_clean_product(array $row): ?array
             ? gmdate('c', strtotime($row['reference_price_checked_at'])) : '',
         'reference_review_reason' => mb_substr(trim(wp_strip_all_tags((string) ($row['reference_review_reason'] ?? ''))), 0, 500),
         'image' => $image,
+        'market_image_id' => $marketImage && wp_attachment_is_image($marketImage) ? $marketImage : null,
         'status' => $status,
         'supplier_availability' => in_array(($row['supplier_availability'] ?? ''), ['instock', 'outofstock'], true) ? $row['supplier_availability'] : 'unknown',
         'source_record_id' => $sourceRecordId,
@@ -407,6 +410,8 @@ function molavi_catalog_product_matches(WC_Product $product, array $clean, int $
         || (string) $product->get_regular_price('edit') !== $regularPrice
         || (string) $product->get_sale_price('edit') !== $salePrice
         || (string) $product->get_short_description('edit') !== ''
+        || ($clean['market_image_id'] && ((int) $product->get_meta('_molavi_owner_market_image_id', true) !== $clean['market_image_id']
+            || (int) $product->get_image_id('edit') !== $clean['market_image_id']))
         || (string) $product->get_stock_status('edit') !== $stockStatus
         || (string) $product->get_sku('edit') === '') {
         return false;
@@ -472,6 +477,11 @@ function molavi_upsert_product(int $productId, array $clean, ?bool &$changed = n
     // in private metadata so the Store API and product feeds never expose cost.
     $product->set_regular_price($shelf > 0 ? (string) $shelf : '');
     $product->set_sale_price(!empty($curve['discountable']) ? (string) $curve['ceiling'] : '');
+    if ($clean['market_image_id']) {
+        $product->set_image_id($clean['market_image_id']);
+        $product->update_meta_data('_molavi_owner_market_image_id', $clean['market_image_id']);
+        $product->delete_meta_data('_molavi_image_id');
+    }
     $product->update_meta_data('_molavi_market_shelf_toman', $shelf);
     $product->update_meta_data('_molavi_supplier_cost_toman', $supplierCost);
     $product->update_meta_data('_molavi_supplier_availability', $clean['supplier_availability']);
@@ -546,6 +556,12 @@ add_filter('woocommerce_is_purchasable','molavi_supplier_offer_is_purchasable',1
 function molavi_mark_product_held(int $productId, array $clean): bool
 {
     $changed = (bool) update_post_meta($productId, '_molavi_catalog_state', 'hold');
+    if ($clean['market_image_id'] && (int) get_post_thumbnail_id($productId) !== $clean['market_image_id']
+        && set_post_thumbnail($productId, $clean['market_image_id'])) {
+        update_post_meta($productId, '_molavi_owner_market_image_id', $clean['market_image_id']);
+        delete_post_meta($productId, '_molavi_image_id');
+        $changed = true;
+    }
     $changed = (bool) update_post_meta($productId, '_molavi_supplier_availability', $clean['supplier_availability']) || $changed;
     if ($clean['source_record_id'] !== '') {
         $changed = (bool) update_post_meta($productId, '_molavi_supplier_offer_id', $clean['source_record_id']) || $changed;
@@ -670,6 +686,9 @@ function molavi_store_image(int $productId, string $fileId, string $data, string
 {
     if ($productId <= 0 || !preg_match('/^[A-Za-z0-9_-]{8,300}$/', $fileId)) {
         return false;
+    }
+    if ((int) get_post_meta($productId, '_molavi_owner_market_image_id', true) > 0) {
+        return true;
     }
     if ((string) get_post_meta($productId, '_molavi_image_id', true) === $fileId && (int) get_post_thumbnail_id($productId) > 0) {
         return true;

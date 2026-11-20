@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
-define('ABSPATH','/synthetic/');
 define('MOLAVI_STATE_ROOT',sys_get_temp_dir().'/molavi-market-test-'.bin2hex(random_bytes(5)));
+define('ABSPATH',MOLAVI_STATE_ROOT.'/wp/');
 function add_action(...$args){}
 function add_filter(...$args){}
 function get_transient($key){return $GLOBALS['cache'][$key]??false;}
@@ -11,6 +11,14 @@ function update_option($key,$value,$autoload=false){$GLOBALS['options'][$key]=$v
 function wp_http_validate_url($url){return $url;}
 function wp_remote_retrieve_response_code($response){return $response['status'];}
 function wp_remote_retrieve_body($response){return $response['body'];}
+function wp_tempnam($name){return tempnam(sys_get_temp_dir(),$name);}
+function is_wp_error($value){return false;}
+function media_handle_sideload($image,$post,$title){
+    if (!is_file($image['tmp_name'])||$post!==0) throw new RuntimeException('invalid image attachment');
+    unlink($image['tmp_name']);return 88;
+}
+function wp_get_attachment_image_url($id,$size){return 'https://staging.molavisale.ir/wp-content/uploads/photo-'.$id.'-'.$size.'.png';}
+function wp_attachment_is_image($id){return $id===88;}
 function molavi_domain_sheets($names,$fresh=false){$GLOBALS['reads']++;return $GLOBALS['sheets'];}
 function molavi_domain_ai_review_cases(...$args){return [['offer_id'=>'pending-offer']];}
 function molavi_domain_http($method,$url,$args){
@@ -27,11 +35,12 @@ function molavi_domain_http($method,$url,$args){
 function molavi_domain_http_exact($method,$url,$args){return ['status'=>200,'body'=>$GLOBALS['pages'][$url]];}
 $root=__DIR__.'/../shop-wp/molavi-shop/runtime-host/';
 foreach (['state-host','domain-core','domain-schemas','domain-reference-parser','domain-reference-scheduler',
-          'domain-publisher','domain-products','domain-market-basalam','domain-market-prices'] as $module) require $root.'molavi-'.$module.'.php';
+          'domain-publisher','domain-products','domain-market-basalam','domain-market-prices','domain-market-sources'] as $module) require $root.'molavi-'.$module.'.php';
 function check_market($condition,string $label): void {if(!$condition)throw new RuntimeException($label);echo 'PASS '.$label."\n";}
-function market_page(string $name,string $price='780000',string $currency='IRR',string $availability='InStock'): string {
-    $product=['@type'=>'Product','name'=>$name,'offers'=>['@type'=>'Offer','price'=>$price,'priceCurrency'=>$currency,
+function market_page(string $name,string $price='780000',string $currency='IRR',string $availability='InStock',?string $regular=null): string {
+    $product=['@type'=>'Product','name'=>$name,'image'=>['contentUrl'=>'https://img.example/tea.png'],'offers'=>['@type'=>'Offer','price'=>$price,'priceCurrency'=>$currency,
         'availability'=>'https://schema.org/'.$availability]];
+    if ($regular!==null) $product['offers']['priceSpecification']=['priceType'=>'https://schema.org/StrikethroughPrice','price'=>$regular,'priceCurrency'=>$currency];
     return '<script type="application/ld+json">'.json_encode(['@graph'=>[$product]],JSON_UNESCAPED_UNICODE).'</script>';
 }
 $now=time()-5;
@@ -47,11 +56,13 @@ check_market(!molavi_domain_market_from_page(market_page('چای ارل گری �
 check_market(!molavi_domain_market_from_page(market_page('چای ارل گری بهاران ۵۰۰ گرم','780000','IRR','OutOfStock'),$first,$identity),'out-of-stock offer is excluded');
 check_market(!molavi_domain_market_from_page(market_page('چای ارل گری بهاران ۵۰۰ گرم').market_page('چای ارل گری بهاران ۵۰۰ گرم','900000'),$first,$identity),'conflicting prices on one page are excluded');
 check_market(!molavi_domain_market_url('https://staging.molavisale.ir/quote')&&!molavi_domain_market_url('https://127.0.0.1/quote'),'internal hosts are excluded');
-$GLOBALS['sheets']=['Products'=>[array_merge(array_keys($record),['Latest Offer ID','Consumer Price']),
-    array_merge(array_values($record),['published-offer','']),array_merge(array_values($record),['already-priced',80000])],
+$GLOBALS['sheets']=['Products'=>[array_merge(array_keys($record),['Latest Offer ID','Consumer Price','Product ID']),
+    array_merge(array_values($record),['published-offer','','tea-a']),array_merge(array_values($record),['already-priced',80000,'tea-b'])],
     'Offers'=>[array_merge(array_keys($record),['Offer ID']),array_merge(array_values($record),['pending-offer'])]];
 $GLOBALS['reads']=0;$GLOBALS['requests']=[];
-$db=new SQLite3(molavi_state_root().'/reference.sqlite3');$db->close();
+foreach (['reference','pipeline'] as $store) {$db=new SQLite3(molavi_state_root().'/'.$store.'.sqlite3');$db->close();}
+mkdir(ABSPATH.'wp-admin/includes/',0755,true);
+foreach (['file','image','media'] as $stub) touch(ABSPATH.'wp-admin/includes/'.$stub.'.php');
 putenv('MOLAVI_TAVILY_API_KEY');
 check_market(molavi_domain_market_price_api('GET',['offer_id'=>'published-offer'],'wp:7')['state']==='idle'
     &&!$GLOBALS['requests'],'Basalam is available without a key and reads avoid provider calls');
@@ -62,7 +73,8 @@ molavi_domain_market_seed($eligible,$now);
 check_market(molavi_domain_market_price_api('GET',['offer_id'=>'published-offer'],'wp:7')['state']==='queued'&&!$GLOBALS['requests'],'dashboard reads never run a search');
 $reads=$GLOBALS['reads'];molavi_domain_market_price_api('GET',['offer_id'=>'published-offer'],'wp:7');
 check_market($GLOBALS['reads']===$reads,'polling reuses the source identity');
-$GLOBALS['pages']=[$first=>market_page('چای ارل گری بهاران ۵۰۰ گرم'),$second=>market_page('چای ارل گری بهاران ۵۰۰ گرم','82000','IRT')];
+$GLOBALS['pages']=[$first=>market_page('چای ارل گری بهاران ۵۰۰ گرم','780000','IRR','InStock','950000'),
+    $second=>market_page('چای ارل گری بهاران ۵۰۰ گرم','82000','IRT','InStock','99000')];
 molavi_domain_market_run($now);molavi_domain_market_run($now+1);
 check_market(count($GLOBALS['requests'])===2,'shared product identity consumes one Basalam search and one optional fallback');
 check_market($GLOBALS['requests'][1][1]==='https://api.tavily.com/search'&&str_contains($GLOBALS['requests'][1][2]['query'],'500 گرم'),'optional web search receives Persian product identity');
@@ -73,28 +85,42 @@ try {
     throw new RuntimeException('unexpected acceptance');
 } catch (MolaviWorkflowError $e) {check_market($e->getMessage()==='stale_market_price_source','selection requires a current verified source');}
 $saved=molavi_domain_market_price_api('POST',['offer_id'=>'published-offer','action'=>'select_market_price_source','url'=>$first],'wp:7');
-check_market($saved['selected_url']===$first&&$saved['suggested_price']['unit_price']===78000,'owner can select a source for later refresh');
-molavi_domain_market_run($now+MOLAVI_REFERENCE_REFRESH_SECONDS-1);
+check_market($saved['selected_url']===$first&&$saved['tracking']['regular_price']===95000,'explicit selection applies the tagged regular price');
+check_market(!molavi_domain_market_price_api('GET',['offer_id'=>'pending-offer'],'wp:7')['selected_url'],
+    'a shared search does not share the owner selection');
+molavi_domain_market_refresh_source($saved['tracking']['next_at']-1);
 check_market(count($GLOBALS['requests'])===2,'the existing reference interval is respected');
-$GLOBALS['pages'][$first]=market_page('چای ارل گری بهاران ۵۰۰ گرم','810000');
-molavi_domain_market_run($now+MOLAVI_REFERENCE_REFRESH_SECONDS);
-$result=molavi_domain_market_price_api('GET',['offer_id'=>'pending-offer'],'wp:7');
-check_market($result['selected_url']===$first&&$result['suggested_price']['unit_price']===81000,'scheduled check refreshes the selected source price');
-check_market($GLOBALS['sheets']['Products'][1][count($GLOBALS['sheets']['Products'][1])-1]==='','web evidence does not overwrite stored consumer price');
+$GLOBALS['pages'][$first]=market_page('چای ارل گری بهاران ۵۰۰ گرم','810000','IRR','InStock','1010000');
+molavi_domain_market_tick($saved['tracking']['next_at']);
+$result=molavi_domain_market_price_api('GET',['offer_id'=>'published-offer'],'wp:7');
+check_market($result['selected_url']===$first&&$result['tracking']['regular_price']===101000,'daily check updates the selected regular price');
+$events=molavi_domain_read('reference',static fn($db)=>molavi_domain_rows($db,'SELECT * FROM market_source_events WHERE kind=?',['changed']));
+check_market(count($events)===1&&$events[0]['old_price']===95000&&$events[0]['regular_price']===101000&&$events[0]['publish_pending']===0,
+    'a changed price creates one notification and dispatches a durable publication job');
+$projection=array_column(molavi_domain_site_products($GLOBALS['sheets'],[],[]),null,'source_record_id');
+check_market($projection['tea-a']['shelf']===101000&&$projection['tea-b']['shelf']===80000,
+    'the storefront uses the selected regular price on the exact product only');
+$GLOBALS['pages']['https://img.example/tea.png']=base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jf2QAAAAASUVORK5CYII=');
+$photo=molavi_domain_market_price_api('POST',['offer_id'=>'published-offer','action'=>'use_market_product_image','url'=>$first],'wp:7');
+check_market($photo['product']['selected_photo']&&str_contains($photo['product']['image_url'],'photo-88')
+    &&array_column(molavi_domain_site_products($GLOBALS['sheets'],[],[]),null,'source_record_id')['tea-a']['market_image_id']===88,
+    'an explicitly chosen image becomes a local attachment in the catalog payload');
 putenv('MOLAVI_TAVILY_API_KEY');
 $requestCount=count($GLOBALS['requests']);
 $manual=molavi_domain_market_price_api('POST',['offer_id'=>'published-offer','action'=>'add_market_price_url','url'=>$second],'wp:7');
-check_market($manual['selected_url']===$second&&$manual['suggested_price']['unit_price']===82000,'a verified retailer link can be saved without search credentials');
-$GLOBALS['pages'][$second]=market_page('چای ارل گری بهاران ۵۰۰ گرم','83500','IRT');
-molavi_domain_tx('reference',static fn(SQLite3 $db)=>molavi_domain_sql($db,'INSERT OR REPLACE INTO market_price_budget VALUES(?,25)',[gmdate('Y-m-d',$manual['next_at'])]));
-molavi_domain_market_tick($manual['next_at']);
+check_market($manual['selected_url']===$first&&count($manual['candidates'])===2,'checking a retailer link leaves the chosen source in place');
+$manual=molavi_domain_market_price_api('POST',['offer_id'=>'published-offer','action'=>'select_market_price_source','url'=>$second],'wp:7');
+$GLOBALS['pages'][$second]=market_page('چای ارل گری بهاران ۵۰۰ گرم','83500','IRT','InStock','104000');
+molavi_domain_tx('reference',static fn(SQLite3 $db)=>molavi_domain_sql($db,'INSERT OR REPLACE INTO market_price_budget VALUES(?,25)',[gmdate('Y-m-d',$manual['tracking']['next_at'])]));
+molavi_domain_market_tick($manual['tracking']['next_at']);
 $manual=molavi_domain_market_price_api('GET',['offer_id'=>'published-offer'],'wp:7');
-check_market($manual['suggested_price']['unit_price']===83500&&count($GLOBALS['requests'])===$requestCount,'pinned refresh is independent of the discovery credential and budget');
+check_market($manual['tracking']['regular_price']===104000&&count($GLOBALS['requests'])===$requestCount,'pinned refresh is independent of the discovery credential and budget');
 
 $rani=['Product Name'=>'آبمیوه رانی هلو ۲۴۰ میل','Brand'=>'رانی','Variation Type'=>'هلو','Package Count'=>24];
 $raniIdentity=molavi_domain_market_identity($rani);
 $carton=['id'=>62769014,'title'=>'رانی هلو 240 میل باکس 24 عددی','description'=>'تعداد ۲۴ عدد',
     'category'=>['title'=>'آبمیوه و شربت'],'primary_price'=>26260000,'price'=>21220000,'inventory'=>9,
+    'photo'=>['lg'=>'https://img.example/rani.jpg','xs'=>'https://img.example/rani-xs.jpg'],
     'status'=>['value'=>2976],'variants'=>null,'vendor'=>['id'=>2,'title'=>'فروشگاه نمونه']];
 $single=array_replace($carton,['id'=>3,'title'=>'رانی هلو ۲۴۰ میل','description'=>'تکی',
     'primary_price'=>1265000,'price'=>1265000,'vendor'=>['id'=>3]]);
@@ -108,6 +134,8 @@ check_market(array_column($quotes,'listing_id')===[62769014,3],
 check_market($quotes[0]['regular_price']===2626000&&$quotes[0]['current_price']===2122000
     &&$quotes[0]['regular_unit_price']===109417&&$quotes[0]['unit_price']===88417,
     'the Basalam carton keeps the regular and sale totals separate from unit prices');
+check_market($quotes[0]['image_url']==='https://img.example/rani.jpg'&&$quotes[0]['thumbnail_url']==='https://img.example/rani-xs.jpg',
+    'the Basalam quote carries the listing preview and thumbnail');
 check_market(molavi_domain_basalam_quote(4,$raniIdentity)['pack_count']===24
     &&!molavi_domain_basalam_quote(4,molavi_domain_market_identity(array_replace($rani,['Package Count'=>1]))),
     'explicit pack evidence in the description prevents a false single-unit quote');
@@ -117,7 +145,7 @@ check_market(!molavi_domain_basalam_quote(4,$raniIdentity),'conflicting package 
 $GLOBALS['basalam_products'][3]['inventory']=0;
 check_market(!molavi_domain_basalam_quote(3,$raniIdentity),'unavailable Basalam listings are excluded');
 
-$GLOBALS['sheets']['Products'][]=array_map(static fn($field)=>array_merge($rani,['Latest Offer ID'=>'rani','Consumer Price'=>''])[$field]??'',
+$GLOBALS['sheets']['Products'][]=array_map(static fn($field)=>array_merge($rani,['Latest Offer ID'=>'rani','Consumer Price'=>'','Product ID'=>'rani-1'])[$field]??'',
     $GLOBALS['sheets']['Products'][0]);
 $GLOBALS['sheets']['Products'][0][]='Package Count';
 $GLOBALS['sheets']['Products'][array_key_last($GLOBALS['sheets']['Products'])][]=24;
@@ -129,29 +157,35 @@ molavi_domain_tx('reference',static function(SQLite3 $db)use($legacy,$second): v
         candidates_json,selected_url) VALUES(?,?,'ready',?,?,?,?)",
         [molavi_domain_hash($legacy),molavi_domain_json($legacy),time()+60,time(),molavi_domain_json([$quote]),$second]);
 });
-check_market(molavi_domain_market_price_api('GET',['offer_id'=>'rani'],'wp:7')['selected_url']===$second,
-    'adding package identity preserves an existing saved unit-price reference');
+check_market(molavi_domain_market_price_api('GET',['offer_id'=>'rani'],'wp:7')['suggested_price']['url']===$second,
+    'adding package identity preserves previous saved evidence');
 molavi_domain_market_seed([$raniIdentity],time());
-check_market(molavi_domain_market_price_api('GET',['offer_id'=>'rani'],'wp:7')['selected_url']===$second,
-    'reconciling the queue keeps the existing reference under the new package identity');
+check_market(molavi_domain_market_price_api('GET',['offer_id'=>'rani'],'wp:7')['tracking']===null,
+    'a legacy evidence-only selection does not grant automatic pricing authority');
 $linked=molavi_domain_market_price_api('POST',['offer_id'=>'rani','action'=>'add_market_price_url',
     'url'=>'https://basalam.com/shop/product/62769014'],'wp:7');
-check_market($linked['selected_url']==='https://basalam.com/p/62769014','a Basalam link saves its stable listing ID');
+check_market(in_array('https://basalam.com/p/62769014',array_column($linked['candidates'],'url'),true),'a verified Basalam link uses its stable listing ID');
+$linked=molavi_domain_market_price_api('POST',['offer_id'=>'rani','action'=>'select_market_price_source','url'=>'https://basalam.com/p/62769014'],'wp:7');
 $GLOBALS['basalam_products'][62769014]['primary_price']=28800000;
-molavi_domain_market_run($linked['next_at']);
+molavi_domain_market_tick($linked['tracking']['next_at']);
 $updated=molavi_domain_market_price_api('GET',['offer_id'=>'rani'],'wp:7');
 check_market($updated['suggested_price']['regular_unit_price']===120000,'scheduled refresh reads the saved listing directly');
 unset($GLOBALS['basalam_products'][62769014]);
-molavi_domain_market_run($updated['next_at']);
+molavi_domain_market_tick($updated['tracking']['next_at']);
 $removed=molavi_domain_market_price_api('GET',['offer_id'=>'rani'],'wp:7');
-check_market($removed['state']==='queued'&&!$removed['selected_url'],'a removed listing returns to the discovery queue');
+check_market($removed['tracking']['failure']==='listing_unavailable'&&$removed['selected_url']==='https://basalam.com/p/62769014'
+    &&$removed['tracking']['regular_price']===120000,'a removed listing keeps the chosen link and last verified price');
+check_market((bool)molavi_domain_read('reference',static fn($db)=>molavi_domain_row($db,
+    "SELECT id FROM market_source_events WHERE kind='failed' AND product_id='rani-1'")),'a failed daily check stores its own dashboard event');
 $today=gmdate('Y-m-d');
-molavi_domain_tx('reference',static function(SQLite3 $db)use($today,$raniIdentity): void {
+molavi_domain_tx('reference',static function(SQLite3 $db)use($today,$identity): void {
     molavi_domain_sql($db,'INSERT OR REPLACE INTO market_price_budget VALUES(?,?)',[$today,MOLAVI_MARKET_DAILY_LOOKUPS]);
-    molavi_domain_sql($db,'UPDATE market_price_lookups SET next_at=? WHERE lookup_key=?',[time(),molavi_domain_hash($raniIdentity)]);
+    molavi_domain_sql($db,"UPDATE market_price_lookups SET state='queued',next_at=? WHERE lookup_key=?",[time(),molavi_domain_hash($identity)]);
 });
-$budgetWait=molavi_domain_market_price_api('GET',['offer_id'=>'rani'],'wp:7');
+$budgetWait=molavi_domain_market_price_api('GET',['offer_id'=>'pending-offer'],'wp:7');
 check_market($budgetWait['state']==='quota'&&$budgetWait['next_at']===strtotime($today.' +1 day UTC'),
     'the card reports the daily discovery limit and when its deferred search can run');
+foreach(glob(ABSPATH.'wp-admin/includes/*.php') as $file) unlink($file);
+rmdir(ABSPATH.'wp-admin/includes');rmdir(ABSPATH.'wp-admin');rmdir(ABSPATH);
 foreach(glob(MOLAVI_STATE_ROOT.'/*') as $file) unlink($file);
 rmdir(MOLAVI_STATE_ROOT);

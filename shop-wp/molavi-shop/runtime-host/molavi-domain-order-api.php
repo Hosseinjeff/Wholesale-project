@@ -11,7 +11,7 @@ function molavi_domain_paid_orders_api(string $method,array $body,string $actor,
     if($method==='GET'){
         $plans=molavi_domain_read('pipeline',static fn(SQLite3 $db)=>molavi_domain_rows($db,"SELECT order_id,result,source_order FROM paid_order_plans WHERE result IS NOT NULL AND state IN ('needs_owner_review','procurement_proposed','reserved','released') ORDER BY updated_at,order_id"));
         if(!$plans)return ['ok'=>true,'orders'=>[]];$lots=molavi_domain_lots($today);$products=[];
-        try{$products=molavi_domain_order_catalog(molavi_domain_sheets(['Products','Shop'],true));}catch(Throwable $e){}
+        try{$products=molavi_domain_order_catalog(molavi_domain_sheets(['Products','Shop','Offers'],true));}catch(Throwable $e){}
         $orders=[];foreach($plans as $row){$plan=molavi_domain_decode($row['result']);$source=molavi_domain_decode($row['source_order']);$id=(string)molavi_domain_py_value($plan['order_id']??'');
             $workflow=($plan['state']??null)!=='released'?molavi_domain_order_workflow_ensure($id,$plan,$today):molavi_domain_order_workflow($id);
             $excluded=[];foreach($source['lines']??[] as $line)$excluded[]=(string)molavi_domain_py_value($line['sku']??'');$suggestions=[];
@@ -49,7 +49,7 @@ function molavi_domain_paid_orders_api(string $method,array $body,string $actor,
                     foreach($source['lines']??[] as $line){$excluded[]=(string)molavi_domain_py_value($line['sku']??'');if(($line['sku']??null)===$sku)$target=$line;}
                     $workflow=molavi_domain_order_workflow($body['order_id'])??[];foreach($workflow['resolutions']??[] as $row)$excluded[]=(string)molavi_domain_py_value($row['replacement_sku']??'');
                     $candidates=molavi_domain_owned_substitutes($target,(int)(molavi_domain_order_line($plan,$sku)['shortfall_units']??0),
-                        molavi_domain_order_catalog(molavi_domain_sheets(['Products','Shop'],true)),molavi_domain_lots($today),$excluded);$candidate=null;
+                        molavi_domain_order_catalog(molavi_domain_sheets(['Products','Shop','Offers'],true)),molavi_domain_lots($today),$excluded);$candidate=null;
                     foreach($candidates as $row)if($row['sku']===$replacement){$candidate=$row;break;}
                     if(!$candidate||($details['replacement_units']??null)!==$candidate['required_units'])molavi_domain_fail('candidate_unavailable');
                     $total=$details['proposed_line_total_toman']??null;$floor=$candidate['price_floor_toman']*$candidate['required_units'];$ceiling=$candidate['price_ceiling_toman']*$candidate['required_units'];

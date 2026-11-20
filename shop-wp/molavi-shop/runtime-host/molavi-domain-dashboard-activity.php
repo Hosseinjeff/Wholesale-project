@@ -205,12 +205,16 @@ function molavi_domain_dashboard_activity(?float $clock=null,array $watching=[])
         return [
         'watched'=>$watched,
         'refresh'=>molavi_domain_reference_refresh_view($db,$now),
+        'market_events'=>molavi_domain_rows($db,
+            "SELECT id,product_id,offer_id,title,kind,old_price,regular_price,code,occurred_at FROM market_source_events
+             WHERE kind IN ('changed','failed','restored') AND occurred_at>=? ORDER BY occurred_at DESC,rowid DESC LIMIT 30",[(int)$now-1209600]),
         'pricing'=>molavi_domain_row($db,
             "SELECT 1 FROM market_price_lookups WHERE active=1 AND state='searching' AND attempted_at>? LIMIT 1",[$now-60]),
         ];
     });
     $activity['watched']=(object)($activity['watched']+$reference['watched']);
     $activity['reference_revision']=$reference['refresh']['revision']??null;
+    if ($reference['market_events']) $activity['market_events']=$reference['market_events'];
     if ($reference['refresh']['in_progress']??false) $activity['groups'][]=['kind'=>'reference_refresh','state'=>'running'];
     if ($reference['pricing']) $activity['groups'][]=['kind'=>'market_prices','state'=>'running'];
     return ['ok'=>true,'observed_at'=>$now]+$activity;

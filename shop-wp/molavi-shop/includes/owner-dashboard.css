@@ -32,6 +32,8 @@
 #molavi-owner-workflow .md-activity-list .dashicons {font-size:16px;width:16px;height:16px;}
 #molavi-owner-workflow .md-activity-history summary {cursor:pointer;padding-block:.3rem;font-weight:600;}
 #molavi-owner-workflow .md-header-actions {display:flex;flex-wrap:wrap;gap:6px;}
+#molavi-owner-workflow .md-header-gear {min-width:44px;min-height:44px;}
+#molavi-owner-workflow .md-header-gear .dashicons {display:block;width:20px;height:20px;}
 #molavi-owner-workflow .md-pricing-form {display:grid;justify-items:start;gap:14px;margin-top:14px;max-width:760px;}
 #molavi-owner-workflow .md-pricing-fields {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,235px),1fr));gap:12px;width:100%;}
 #molavi-owner-workflow .md-pricing-fields fieldset {min-width:0;margin:0;padding:12px;border:1px solid var(--md-line);border-radius:8px;background:var(--md-paper);}

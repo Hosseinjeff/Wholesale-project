@@ -52,6 +52,11 @@
         let watchOffset=0;
         const activityKey=hooks.actionStore && 'molavi.activity.'+hooks.actionStore;
         const actions=new Map();
+        const readDismissedMarket=()=>{
+            try {return JSON.parse(localStorage.getItem(activityKey+'.dismissed-market')||'[]');}
+            catch (_) {return [];}
+        };
+        const dismissedMarket=new Set(activityKey?readDismissedMarket():[]);
         let activityHistoryOpen=false;
         if (activityKey) {
             try {
@@ -70,7 +75,11 @@
         brand.append(el('span','مولوی‌سل','md-wordmark'),el('span','مدیریت فروشگاه','md-subtitle'));
         const refresh = button('تازه‌سازی',()=> (hooks.manualRefresh||hooks.refresh)(),'md-button md-button-quiet');
         const headerActions=el('div',null,'md-header-actions');
-        if(hooks.renderPricing) headerActions.append(button('تنظیمات تخفیف',()=>navigate('pricing'),'md-button md-button-quiet'));
+        if(hooks.renderPricing) {
+            const gear=activityButton('تنظیمات تخفیف','admin-generic',()=>navigate('pricing'));
+            gear.classList.add('md-header-gear');
+            headerActions.append(gear);
+        }
         headerActions.append(refresh);
         head.append(brand,headerActions);
         const nav = el('nav',null,'md-navigation');
@@ -274,7 +283,16 @@
             const text=[item.label,item.origin.product,activityStates[item.state],item.detail].filter(Boolean).join(' · ');
             row.append(activityButton('رفتن به مبدأ','arrow-left-alt',()=>openOrigin(item.origin),text));
             if (!activeAction(item)) {
-                row.append(activityButton('بستن اعلان','no-alt',()=>{actions.delete(item.id);saveActions();}));
+                row.append(activityButton('بستن اعلان','no-alt',()=>{
+                    actions.delete(item.id);
+                    if (item.automaticMarket) {
+                        dismissedMarket.add(item.id);
+                        if (activityKey) try {
+                            localStorage.setItem(activityKey+'.dismissed-market',JSON.stringify([...dismissedMarket].slice(-100)));
+                        } catch (_) {}
+                    }
+                    saveActions();
+                }));
                 return row;
             }
             const canCancel=item.controller || (item.watch && ['reextract','reference_suggest','market_prices'].includes(item.watch.kind)
@@ -364,7 +382,27 @@
                         : result.code==='no_suggestion'?'مرجع قابل پیشنهاد پیدا نشد.'
                         : result.total?`${fa(result.completed)} از ${fa(result.total)}${result.failed?' · '+fa(result.failed)+' ناموفق':''}`:'';
                 }
-                if (watching.length) saveActions();
+                let received=false;
+                for (const event of [...(report.market_events||[])].reverse()) {
+                    const id='market:'+event.id;
+                    if (actions.has(id)||dismissedMarket.has(id)) continue;
+                    const failed=event.kind==='failed';
+                    const prices=[event.old_price,event.regular_price].filter(price=>price>0).map(price=>fa(price));
+                    const failure={listing_unavailable:'آگهی در دسترس نیست یا مشخصاتش تغییر کرده است.',
+                        regular_price_unverified:'قیمت عادی قابل تأیید نبود.',market_price_quota:'سهمیهٔ منبع پر شده است.'};
+                    actions.set(id,{id,automaticMarket:true,state:failed?'failed':'completed',
+                        label:failed?'بررسی قیمت عادی ناموفق بود':event.kind==='restored'?'منبع قیمت دوباره در دسترس است':'قیمت عادی به‌روز شد',
+                        detail:failed?(failure[event.code]||'منبع قیمت پاسخ معتبر نداد.'):prices.join(' ← ')+' تومان',
+                        origin:{view:'products',key:event.product_id?'product:'+event.product_id:'offer:'+event.offer_id,
+                            offer:event.offer_id,product:event.title,section:'market_prices',market:true}});
+                    for (const panel of main.querySelectorAll('.molavi-market-price-review[open]')) {
+                        if (panel.dataset.offerId===event.offer_id
+                            ||panel.closest('.md-product-card')?.dataset.productKey==='product:'+event.product_id)
+                            panel.dispatchEvent(new Event('molavi-market-activity'));
+                    }
+                    received=true;
+                }
+                if (watching.length||received) saveActions();
                 const inboxChanged=report.inbox_revision && report.inbox_revision!==activityReport?.inbox_revision;
                 activityReport=report;
                 activityReadAt=Date.now();

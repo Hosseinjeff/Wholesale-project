@@ -7,12 +7,16 @@ defined('ABSPATH') || exit;
 function molavi_domain_order_catalog(array $tables): array {
     if(!function_exists('molavi_band')||(new ReflectionFunction('molavi_band'))->getNumberOfParameters()<3)molavi_domain_fail('native_pricing_core_unavailable',503);
     $settings=molavi_domain_site_settings($tables['Shop']??[]);$products=[];
-    foreach(molavi_domain_records($tables['Products']??[]) as $record){
+    $records=molavi_domain_records($tables['Products']??[]);
+    $market=function_exists('molavi_domain_market_catalog_sources')
+        ?molavi_domain_market_catalog_sources($records,molavi_domain_records($tables['Offers']??[])):[];
+    foreach($records as $record){
         $status=strtolower(trim((string)($record['Status']??'')));if(in_array($status,['skipped','needs_review','not_product'],true))continue;
         $stock=preg_replace('/[\s_-]+/u',' ',strtolower(trim((string)($record['Stock Status']??''))));
         if(in_array($stock,['out of stock','outofstock','unavailable','sold out','ناموجود','اتمام موجودی'],true))continue;
         $name=trim((string)($record['Product Name']??''));$id=(string)molavi_domain_py_value($record['Product ID']??'');
         $cost=molavi_domain_positive_price($record['Sale Price']??null);$regular=molavi_domain_positive_price($record['Consumer Price']??null)?:molavi_domain_positive_price($record['Actual Price']??null);
+        $regular=$market[$id]['price']['regular_price']??$regular;
         if($id===''||$name===''||$cost<=0||$regular<=$cost)continue;$band=molavi_band($cost,$regular,$settings);$discountable=$band['discountable'];
         $products[]=['product_id'=>$id,'name'=>$name,'channel'=>molavi_domain_py_value($record['Channel Username']??''),'category'=>molavi_domain_py_value($record['Category']??''),
             'regular'=>$regular,'floor'=>$band['floor'],'ceiling'=>$band['ceiling'],'opening_rate'=>$discountable?(float)(($regular-$band['ceiling'])/$regular):0.0,

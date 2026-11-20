@@ -38,6 +38,7 @@ function molavi_domain_stock_status($value): string {
 function molavi_domain_site_products(array $tables,?array $freshness=null,?array $conflicts=null): ?array {
     if(empty($tables['Products']))return null;
     $records=molavi_domain_records($tables['Products']);$offers=molavi_domain_records($tables['Offers']??[]);
+    $market=function_exists('molavi_domain_market_catalog_sources')?molavi_domain_market_catalog_sources($records,$offers):[];
     $issues=[];foreach(molavi_domain_source_issues($records,$offers) as $issue){
         if(in_array('duplicate_product_id',$issue['codes'],true))return null;$issues[$issue['row_number']-2]=$issue;}
     if($freshness===null){$freshness=[];foreach(molavi_domain_freshness($records) as $row)$freshness[$row['product_id']]=$row;}
@@ -50,6 +51,7 @@ function molavi_domain_site_products(array $tables,?array $freshness=null,?array
         if($name===''&&$id==='')continue;if($sale<=0&&!$held&&$id==='')continue;
         $issue=$issues[$index]??null;$channel=trim((string)($record['Channel Username']??''));$evidence=$freshness[$id]??[];
         $freshnessState=$evidence['state']??'needs_review';$shelf=molavi_domain_positive_price($record['Consumer Price']??null)?:molavi_domain_positive_price($record['Actual Price']??null);
+        $shelf=$market[$id]['price']['regular_price']??$shelf;
         $stock=molavi_domain_stock_status($record['Stock Status']??null);$availability=['Out of Stock'=>'outofstock','Available'=>'instock'][$stock]??'unknown';
         $held=$held||$name===''||$sale<=0||$shelf<=$sale||!in_array($freshnessState,['current','warning'],true)||in_array($id,$conflicts,true)||$availability==='outofstock'||$issue!==null;
         $minimum=molavi_domain_positive_price($record['Min Qty']??null);
@@ -68,7 +70,8 @@ function molavi_domain_site_products(array $tables,?array $freshness=null,?array
             'reference_price_checked_at'=>trim((string)($record['Reference Price Checked At']??'')),'reference_review_reason'=>trim((string)($record['Reference Review Reason']??'')),
             'image_file_id'=>$image,'status'=>$held?'hold':'sell','supplier_availability'=>$availability,
             'source_integrity_state'=>$issue?'blocked':'verified','source_integrity_issues'=>$issue['codes']??[],
-            'source_record_id'=>$id,'supplier_price_state'=>$freshnessState,'supplier_price_verified_at'=>($evidence['verified_at']??'')?:''];
+            'source_record_id'=>$id,'supplier_price_state'=>$freshnessState,'supplier_price_verified_at'=>($evidence['verified_at']??'')?:'']
+            + (isset($market[$id]['photo'])?['market_image_id'=>(int)$market[$id]['photo']['attachment_id']]:[]);
     }
     usort($products,static fn($a,$b)=>strcmp($a['name'],$b['name']));return $products;
 }

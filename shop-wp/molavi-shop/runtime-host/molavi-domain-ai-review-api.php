@@ -86,6 +86,12 @@ function molavi_domain_ai_reviews_get(array $tables,?float $clock=null,bool $can
     $snapshot=null;try{$candidate=molavi_domain_reference_active();$state=molavi_domain_reference_use();if($candidate&&$state['allow_automatic']&&$candidate['snapshot_id']===$state['snapshot_id'])$snapshot=$candidate;}catch(Throwable $e){}
     [$cases,$recent]=molavi_domain_ai_review_cases($tables,$snapshot,true,200,$clock,$candidates,$focused);if($snapshot)$cases=molavi_domain_reference_receipts($cases,'ai',$snapshot['snapshot_id']);$scope=molavi_domain_ai_hold_scope();
     $cases=array_merge(molavi_domain_published_review_cases($tables,$focused,$clock),$cases);
+    if (function_exists('molavi_domain_market_source_rows') && ($market=molavi_domain_market_source_rows())) {
+        foreach ($cases as &$case) {
+            if (isset($market['offer:'.$case['offer_id']])||isset($market['product:'.($case['product_id']??'')])) $case['market_tracked']=true;
+        }
+        unset($case);
+    }
     foreach($cases as &$case)$case['publication_held']=molavi_domain_ai_held($scope,$case);unset($case);foreach($recent as &$case)$case['publication_held']=molavi_domain_ai_held($scope,$case);unset($case);
     $snapshotId=$snapshot['snapshot_id']??'';
     $waivers=molavi_domain_read('reference',static fn(SQLite3 $db)=>molavi_domain_rows($db,
