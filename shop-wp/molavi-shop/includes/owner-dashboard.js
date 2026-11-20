@@ -94,10 +94,11 @@
         function button(text, onClick, name='md-button') {
             const item=el('button',text,name);item.type='button';item.addEventListener('click',onClick);return item;
         }
-        function activityButton(label, icon, onClick) {
-            const control=button(null,onClick,'md-activity-icon');
-            control.setAttribute('aria-label',label);
+        function activityButton(label, icon, onClick, text='') {
+            const control=button(null,onClick,text?'md-activity-source':'md-activity-icon');
+            control.setAttribute('aria-label',text?`${text} · ${label}`:label);
             control.title=label;
+            if(text) control.append(el('span',text));
             const glyph=el('span',null,'dashicons dashicons-'+icon);
             glyph.setAttribute('aria-hidden','true');
             control.append(glyph);
@@ -259,39 +260,36 @@
         function actionRow(item) {
             const row=el('li',null,'md-activity-action');
             const text=[item.label,item.origin.product,activityStates[item.state],item.detail].filter(Boolean).join(' · ');
-            const controls=el('div',null,'md-activity-controls');
-            controls.append(activityButton('رفتن به مبدأ','arrow-left-alt',()=>openOrigin(item.origin)));
-            if (activeAction(item)) {
-                const canCancel=item.controller || (item.watch && ['reextract','reference_suggest','market_prices'].includes(item.watch.kind)
-                    && (item.state!=='running'||item.watch.kind==='reextract'));
-                const control=activityButton('لغو','dismiss',async()=>{
-                    if(item.controller) {item.controller.abort();return;}
-                    const previous=item.state;
-                    item.state='cancelling';
-                    saveActions();
-                    try {
-                        const result=await hooks.cancelAction(item.watch);
-                        item.state=result.state || 'cancelled';
-                        item.detail=result.running?'لغو پیام‌های در انتظار ثبت شد.':'';
-                        if (item.watch.kind==='market_prices') refreshMarket(item.watch.key,item.state);
-                        refreshActivity();
-                    } catch (_) {
-                        item.state=previous;
-                        item.detail='لغو این کار تأیید نشد.';
-                    }
-                    saveActions();
-                });
-                control.disabled=!canCancel || item.state==='cancelling';
-                if(control.disabled) control.title=item.state==='cancelling'
-                    ? 'در حال لغو…' : 'این مرحله پس از ارسال قابل لغو نیست.';
-                controls.append(control);
-            } else controls.append(activityButton('بستن اعلان','no-alt',()=>{actions.delete(item.id);saveActions();}));
-            row.append(el('span',text),controls);
+            row.append(activityButton('رفتن به مبدأ','arrow-left-alt',()=>openOrigin(item.origin),text));
+            if (!activeAction(item)) {
+                row.append(activityButton('بستن اعلان','no-alt',()=>{actions.delete(item.id);saveActions();}));
+                return row;
+            }
+            const canCancel=item.controller || (item.watch && ['reextract','reference_suggest','market_prices'].includes(item.watch.kind)
+                && (item.state!=='running'||item.watch.kind==='reextract'));
+            if (!canCancel || item.state==='cancelling') return row;
+            row.append(activityButton('لغو','dismiss',async()=>{
+                if(item.controller) {item.controller.abort();return;}
+                const previous=item.state;
+                item.state='cancelling';
+                saveActions();
+                try {
+                    const result=await hooks.cancelAction(item.watch);
+                    item.state=result.state || 'cancelled';
+                    item.detail=result.running?'لغو پیام‌های در انتظار ثبت شد.':'';
+                    if (item.watch.kind==='market_prices') refreshMarket(item.watch.key,item.state);
+                    refreshActivity();
+                } catch (_) {
+                    item.state=previous;
+                    item.detail='لغو این کار تأیید نشد.';
+                }
+                saveActions();
+            }));
             return row;
         }
         function groupRow(entry,quota) {
             const row=el('li');
-            row.append(el('span',activityDescription(entry,quota)),activityButton('جزئیات','info-outline',()=>openActivity(entry.kind)));
+            row.append(activityButton('جزئیات','info-outline',()=>openActivity(entry.kind),activityDescription(entry,quota)));
             return row;
         }
         function paintActivity() {
@@ -304,7 +302,6 @@
             activitySignature=signature;
             const watched=new Set(receipts.filter(activeAction).map(item=>item.watch?.kind));
             const automatic=groups.filter(entry=>!watched.has(entry.kind));
-            const strip=el('div',null,'md-activity-strip');
             const top=el('ul',null,'md-activity-list');
             const all=el('ul',null,'md-activity-list');
             const otherRepricing=automatic.find(entry=>entry.kind==='repricing');
@@ -312,26 +309,20 @@
                 ...receipts.map(actionRow),...automatic.filter(entry=>entry!==otherRepricing).map(entry=>groupRow(entry,quota))];
             const focused=activityBar.contains(document.activeElement);
             const focusIndex=focused?[...activityBar.querySelectorAll('button')].indexOf(document.activeElement):-1;
-            if (rows.length) top.append(rows[0]);
-            const announcement=rows[0]?.firstChild.textContent || '';
+            const visible=rows.slice(0,2);
+            top.append(...visible);
+            const announcement=visible.map(row=>row.firstChild.textContent).join(' | ');
             if (activityLive.textContent!==announcement) activityLive.textContent=announcement;
-            strip.append(top);
-            activityBar.replaceChildren(strip);
+            activityBar.replaceChildren(top);
             activityBar.hidden=!rows.length;
-            if (rows.length>1) {
-                const other=el('ul',null,'md-activity-list md-activity-history');
-                other.id='md-activity-history';
-                other.hidden=!activityHistoryOpen;
-                other.append(...rows.slice(1));
-                const toggle=button(activityHistoryOpen?'کمتر':`بیشتر (${fa(rows.length-1)})`,()=>{
-                    activityHistoryOpen=!activityHistoryOpen;
-                    activitySignature='';
-                    paintActivity();
-                },'md-button md-activity-toggle');
-                toggle.setAttribute('aria-expanded',String(activityHistoryOpen));
-                toggle.setAttribute('aria-controls',other.id);
-                strip.append(toggle);
-                activityBar.append(other);
+            if (rows.length>2) {
+                const history=el('details',null,'md-activity-history');
+                history.open=activityHistoryOpen;
+                history.addEventListener('toggle',()=>{if(history.isConnected) activityHistoryOpen=history.open;});
+                const list=el('ul',null,'md-activity-list');
+                list.append(...rows.slice(2));
+                history.append(el('summary',`فعالیت‌های دیگر (${fa(rows.length-2)})`),list);
+                activityBar.append(history);
             }
             if (focusIndex>=0) activityBar.querySelectorAll('button')[focusIndex]?.focus({preventScroll:true});
             if (activityStale && groups.length) activityBar.appendChild(el('small','آخرین وضعیت دریافت‌شده'));

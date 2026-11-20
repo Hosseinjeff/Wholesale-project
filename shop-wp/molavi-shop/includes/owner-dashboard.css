@@ -22,22 +22,21 @@
 #molavi-owner-workflow .md-nav-item[aria-current="page"] {color:var(--md-green);border-bottom-color:var(--md-green);font-weight:700;}
 #molavi-owner-workflow .md-activity {padding:8px 28px;background:var(--md-soft);border-bottom:1px solid var(--md-line);}
 #molavi-owner-workflow .md-activity-list {list-style:none;margin:0;padding:0;}
-#molavi-owner-workflow .md-activity-list li {display:flex;align-items:center;justify-content:space-between;gap:12px;padding:4px 0;}
-#molavi-owner-workflow .md-activity-list li > span {overflow-wrap:anywhere;min-width:0;}
-#molavi-owner-workflow .md-activity-controls {display:flex;flex:none;gap:6px;}
-#molavi-owner-workflow .md-activity-icon {display:grid;place-items:center;width:36px;height:36px;padding:0;border:1px solid #cad5cc;border-radius:7px;background:var(--md-paper);color:var(--md-green);cursor:pointer;}
-#molavi-owner-workflow .md-activity-icon:hover:not(:disabled) {border-color:var(--md-green);background:var(--md-soft);}
-#molavi-owner-workflow .md-activity-icon:disabled {cursor:default;}
-#molavi-owner-workflow .md-activity-strip {display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px;}
-#molavi-owner-workflow .md-activity-toggle {white-space:nowrap;}
-#molavi-owner-workflow .md-activity-history {border-top:1px solid var(--md-line);margin-top:4px;}
+#molavi-owner-workflow .md-activity-list li {display:flex;align-items:center;gap:6px;padding:4px 0;}
+#molavi-owner-workflow :is(.md-activity-source,.md-activity-icon) {border:0;background:transparent;padding:0;color:inherit;cursor:pointer;}
+#molavi-owner-workflow .md-activity-source {flex:1;min-width:0;min-height:36px;text-align:start;overflow-wrap:anywhere;font:inherit;}
+#molavi-owner-workflow .md-activity-source:hover {color:var(--md-green);}
+#molavi-owner-workflow .md-activity-source .dashicons {margin-inline-start:6px;vertical-align:-2px;}
+#molavi-owner-workflow .md-activity-icon {display:grid;place-items:center;flex:none;width:34px;height:34px;border-radius:6px;color:var(--md-muted);}
+#molavi-owner-workflow .md-activity-icon:hover {background:var(--md-line);color:var(--md-green);}
+#molavi-owner-workflow .md-activity-list .dashicons {font-size:16px;width:16px;height:16px;}
+#molavi-owner-workflow .md-activity-history summary {cursor:pointer;padding-block:.3rem;font-weight:600;}
 #molavi-owner-workflow .md-header-actions {display:flex;flex-wrap:wrap;gap:6px;}
 #molavi-owner-workflow .md-pricing-form {display:grid;justify-items:start;gap:14px;margin-top:14px;max-width:760px;}
 #molavi-owner-workflow .md-pricing-fields {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,235px),1fr));gap:12px;width:100%;}
 #molavi-owner-workflow .md-pricing-fields fieldset {min-width:0;margin:0;padding:12px;border:1px solid var(--md-line);border-radius:8px;background:var(--md-paper);}
 #molavi-owner-workflow .md-pricing-fields legend {font-weight:700;padding-inline:5px;}
 #molavi-owner-workflow .md-pricing-fields label {display:grid;gap:4px;margin-bottom:9px;}
-#molavi-owner-workflow .md-activity-list button {flex-shrink:0;}
 #molavi-owner-workflow .md-system-activity {margin:12px 0;padding:12px 15px;background:var(--md-paper);border:1px solid var(--md-line);border-radius:9px;}
 #molavi-owner-workflow .md-system-activity small {color:var(--md-muted);}
 #molavi-owner-workflow .md-quota details {margin-top:8px;}
@@ -123,6 +122,7 @@
     #molavi-owner-workflow .md-subtitle {display:none;}
     #molavi-owner-workflow .md-navigation {gap:20px;padding:0 17px;}
     #molavi-owner-workflow .md-activity {padding-inline:12px;font-size:12px;}
+    #molavi-owner-workflow .md-activity-source {min-height:44px;}
     #molavi-owner-workflow .md-activity-icon {width:44px;height:44px;}
     #molavi-owner-workflow .md-nav-item {font-size:12px;}
     #molavi-owner-workflow .md-main {padding:18px 12px;}
