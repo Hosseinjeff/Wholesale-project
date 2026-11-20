@@ -35,7 +35,7 @@
             scope:params.get('scope') || 'ready',action:params.get('workbench_action') || '',
             focus:['product_id','offer_id','case_id','conflict_id','hold_id','reference_id'].map(key=>params.get(key)).find(Boolean) || '',
             search:params.get('q') || '',channel:params.get('channel') || '',limit:24,
-            active:'',section:'',panels:new Map(),pageCache:new Map()
+            active:'',section:'',panels:new Map(),pageCache:new Map(),selecting:false,selected:new Set()
         };
         if (state.scope === 'attention') state.scope = 'ready';
         if (!Object.hasOwn(actionLabels,state.action)) state.action = '';
@@ -190,16 +190,22 @@
         }
         function actionOrigin(payload) {
             const card=document.activeElement?.closest('.md-product-card');
+            const batch=payload?.action==='reopen_products' || payload?.action==='dismiss' && payload.records?.length>1;
+            const itemId=payload?.action==='reopen_products'&&payload.items?.length===1 ? payload.items[0].product_id : '';
             const product=state.view==='products' && model?.products.find(row=>
-                (card && row.key===card.dataset.productKey) || (payload?.offer_id && identities(row).includes(payload.offer_id))
-                || (!card && !payload?.offer_id && row.key===state.active));
+                itemId ? row.product_id===itemId : !batch && (
+                    (card && row.key===card.dataset.productKey) || (payload?.offer_id && identities(row).includes(payload.offer_id))
+                    || (!card && !payload?.offer_id && row.key===state.active)));
             const market=Boolean(payload?.action?.includes('market_price') || document.activeElement?.closest('.molavi-market-price-review'));
-            return {view:state.view,key:product?.key||'',section:state.section,product:product?.name||'',
+            const filter=batch ? {scope:state.scope,action:state.action,search:state.search,channel:state.channel,focus:state.focus,focusType:state.focusType} : null;
+            return {view:state.view,key:product?.key||'',section:payload?.action==='reopen_products'?'ai':state.section,product:product?.name||'',filter,
                 offer:payload?.offer_id||product?.status?.latest_offer_id||(product?sourceFor(product).offer_id:'')||'',
                 hold:payload?.hold_id||'',market};
         }
         function openOrigin(origin) {
             if(origin.hold && origin.view==='system') return reviewHold('molavi-batch-'+encodeURIComponent(origin.hold));
+            clearSelection(true);
+            if(origin.filter&&!origin.key) Object.assign(state,origin.filter,{limit:24});
             if(origin.view!=='products'||!origin.key||!model) return navigate(origin.view);
             const product=model.products.find(row=>row.key===origin.key || (origin.offer && identities(row).includes(origin.offer)));
             if (!product) return origin.offer ? reviewInboxItem('offer_id',origin.offer) : navigate('products');
@@ -225,7 +231,13 @@
             return {
                 finish(result) {
                     item.controller=null;
-                    if(payload?.action==='save_discount_policy' && ['queued','running'].includes(result.state) && result.run?.id) {
+                    if(payload?.action==='reopen_products') {
+                        const {opened,already_open:already,unavailable}=result;
+                        item.state=unavailable?(opened||already?'partial':'failed'):'completed';
+                        item.detail=[opened?`${fa(opened)} بازگشایی شد`:'',
+                            already?`${fa(already)} از قبل در صف بود`:'',
+                            unavailable?`${fa(unavailable)} قابل بازگشایی نبود`:''].filter(Boolean).join(' · ');
+                    } else if(payload?.action==='save_discount_policy' && ['queued','running'].includes(result.state) && result.run?.id) {
                         item.watch={kind:'repricing',key:result.run.id};
                         item.state=result.state;
                         item.detail=`${fa(result.run.completed)} از ${fa(result.run.total)}`;
@@ -403,6 +415,7 @@
             url.hash=''; history.replaceState({},'',url);
         }
         function navigate(view, product=null) {
+            if(view!==state.view) clearSelection(true);
             if(view==='sources'&&product){state.sourceContext=product;state.pageCache.delete('sources');}
             state.view=view;saveURL();paint();main.scrollIntoView({block:'start',behavior:'smooth'});
             if(view==='products') for(const item of actions.values()) {
@@ -453,6 +466,21 @@
         }
         function next(product) { return model.primaryAction(product); }
         function ready(product) { return model.readyAction(product); }
+        function published(product) { return Boolean(product.status?.published); }
+        function reopenable(product) {
+            return !model.errors.product_status&&!model.errors.ai_confirmations&&
+                published(product)&&product.product_id&&product.status.latest_offer_id&&
+                !product.status.source_integrity_issues?.length&&
+                !product.ai.some(item=>item.reopened);
+        }
+        function dismissal(product) {
+            const key=next(product);
+            return key&&!['next','deferred'].includes(key) ? model.dismissalTask(product,key) : null;
+        }
+        function clearSelection(exit=false) {
+            state.selected.clear();
+            if(exit) state.selecting=false;
+        }
         function waiting(product) {
             const action=next(product);
             return action!=='next'&&action!=='deferred'&&!ready(product);
@@ -462,6 +490,7 @@
             if(ready(product))return ['آمادهٔ بررسی','attention'];
             if(next(product)==='deferred')return ['کنارگذاشته‌شده','neutral'];
             if(waiting(product))return ['در انتظار پیگیری','unknown'];
+            if(published(product))return ['منتشرشده','good'];
             const woo=model.wooState(product);
             if(woo==='purchasable')return ['قابل خرید','good'];
             if(!product.status)return ['در انتظار تکمیل','unknown'];
@@ -481,6 +510,7 @@
                 };
                 if(!(groups[state.focusType]||[]).filter(Boolean).map(String).includes(state.focus))return false;
             }
+            if(state.scope==='published'&&!published(product))return false;
             if(state.action&&!state.focus&&next(product)!==state.action)return false;
             if(state.action||state.focus)return true;
             if(state.scope==='ready')return Boolean(ready(product));
@@ -539,10 +569,11 @@
             const scopeBar=el('div',null,'md-scopes');scopeBar.setAttribute('aria-label','فهرست محصولات');
             [['ready','آمادهٔ بررسی',model.products.filter(ready).length],
                 ['waiting','در انتظار پیگیری',model.products.filter(waiting).length],
+                ['published','منتشرشده',model.products.filter(published).length],
                 ['all','همهٔ محصولات',model.products.length]].forEach(([key,label,count])=>{
                 const item=button(`${label}  ${fa(count)}`,()=>{
-                    state.scope=key;state.action='';state.focus='';state.limit=24;saveURL();paint();
-                },'md-scope');item.setAttribute('aria-pressed',String(!state.action&&state.scope===key));scopeBar.append(item);
+                    clearSelection();state.scope=key;state.action='';state.focus='';state.limit=24;saveURL();paint();
+                },'md-scope');item.setAttribute('aria-pressed',String(state.scope===key&&(!state.action||key==='published')));scopeBar.append(item);
             });view.append(scopeBar);
             const filters=el('div',null,'md-filters');
             const search=el('input');search.type='search';search.value=state.search;search.placeholder='نام کالا، شناسه یا تأمین‌کننده…';
@@ -557,16 +588,52 @@
             channel.value=state.channel;
             filters.append(search,action,channel);view.append(filters);
             const focus=el('div',null,'md-active-filter');focus.hidden=!state.focus;
-            if(state.focus)focus.append(el('span',`شناسه: ${state.focus}`),button('نمایش همه',()=>{state.focus='';saveURL();paint();},'md-link'));
+            if(state.focus)focus.append(el('span',`شناسه: ${state.focus}`),button('نمایش همه',()=>{clearSelection();state.focus='';saveURL();paint();},'md-link'));
             view.append(focus);
             const count=el('p',null,'md-result-count');count.setAttribute('role','status');
+            const controls=el('div',null,'md-result-controls');
+            const toggle=button('انتخاب کالاها',()=>{state.selecting=!state.selecting;clearSelection();paintList();});
+            controls.append(count,toggle);
+            const selection=el('div',null,'md-bulk-actions');
+            const selectedCount=el('span');selectedCount.setAttribute('role','status');
+            let eligible=[];
+            const selectAll=button('انتخاب همهٔ نتایج',()=>{
+                if(state.selected.size===eligible.length) clearSelection();
+                else state.selected=new Set(eligible.map(product=>product.key));
+                list.querySelectorAll('.md-select-product').forEach(input=>{input.checked=state.selected.has(input.value);});
+                paintSelection();
+            },'md-link');
+            const selectedProducts=()=>eligible.filter(product=>state.selected.has(product.key));
+            const reopen=button('بازگشایی بررسی',()=>reopenReview(selectedProducts().filter(reopenable)));
+            const dismiss=button('کنارگذاشتن کار',()=>dismissTask(selectedProducts().map(dismissal).filter(task=>task?.task_key)));
+            selection.append(selectedCount,selectAll,reopen,dismiss);
+            function paintSelection() {
+                const products=selectedProducts();
+                const reopenCount=products.filter(reopenable).length;
+                const dismissCount=products.filter(product=>dismissal(product)?.task_key).length;
+                toggle.hidden=!eligible.length&&!state.selecting;
+                toggle.textContent=state.selecting?'پایان انتخاب':'انتخاب کالاها';
+                toggle.setAttribute('aria-pressed',String(state.selecting));
+                selection.hidden=!state.selecting||!eligible.length;
+                selectedCount.textContent=`${fa(products.length)} انتخاب‌شده`;
+                selectAll.textContent=products.length===eligible.length?'لغو انتخاب همه':`انتخاب همهٔ نتایج قابل اقدام (${fa(eligible.length)})`;
+                reopen.hidden=!reopenCount;
+                reopen.textContent=`بازگشایی بررسی (${fa(reopenCount)})`;
+                dismiss.hidden=!dismissCount;
+                dismiss.textContent=`کنارگذاشتن کار (${fa(dismissCount)})`;
+            }
             const list=el('div',null,'md-product-list');
             const more=button('نمایش بیشتر',()=>{state.limit+=24;paintList();},'md-button md-more');
             const paintList=()=>{
                 const rows=model.products.filter(matches).sort((a,b)=>model.actionRank(next(a))-model.actionRank(next(b))||a.name.localeCompare(b.name,'fa'));
+                eligible=rows.filter(product=>reopenable(product)||dismissal(product)?.task_key);
+                const eligibleKeys=new Set(eligible.map(product=>product.key));
+                state.selected=new Set([...state.selected].filter(key=>eligibleKeys.has(key)));
                 count.textContent=`${fa(rows.length)} کالا`;
                 list.replaceChildren();
-                rows.slice(0,state.limit).forEach(product=>list.append(productCard(product)));
+                rows.slice(0,state.limit).forEach(product=>list.append(productCard(
+                    product,state.selecting&&eligibleKeys.has(product.key)?paintSelection:null)));
+                paintSelection();
                 if(!rows.length&&state.focusType==='offer_id'&&state.focus&&hooks.readOfferHistory) {
                     showOfferHistory(list,state.focus);
                 } else if(!rows.length) {
@@ -579,14 +646,16 @@
             };
             let searchTimer;
             search.addEventListener('input',()=>{
+                clearSelection();paintSelection();list.querySelectorAll('.md-select-product').forEach(input=>{input.checked=false;input.disabled=true;});
+                selectAll.disabled=true;
                 state.search=search.value;state.limit=24;clearTimeout(searchTimer);
-                searchTimer=setTimeout(()=>{saveURL();paintList();},160);
+                searchTimer=setTimeout(()=>{selectAll.disabled=false;saveURL();paintList();},160);
             });
-            action.addEventListener('change',()=>{state.action=action.value;state.limit=24;saveURL();paintList();});
-            channel.addEventListener('change',()=>{state.channel=channel.value;state.limit=24;saveURL();paintList();});
-            view.append(count,list,more);paintList();return view;
+            action.addEventListener('change',()=>{clearSelection();state.action=action.value;state.limit=24;saveURL();paintList();});
+            channel.addEventListener('change',()=>{clearSelection();state.channel=channel.value;state.limit=24;saveURL();paintList();});
+            view.append(controls,selection,list,more);paintList();return view;
         }
-        function productCard(product) {
+        function productCard(product,selectionChanged=null) {
             const record=product.status||{};
             const source=sourceFor(product);
             const preferred=next(product);
@@ -595,7 +664,20 @@
             const header=el('header',null,'md-card-header');
             const icon=el('span',(product.name||'ک').slice(0,1),'md-product-mark');icon.setAttribute('aria-hidden','true');
             const identity=el('div',null,'md-product-identity');identity.append(el('h2',product.name),el('p',product.channel||'تأمین‌کننده ثبت نشده'));
+            if(selectionChanged) {
+                const checkbox=el('input',null,'md-select-product');checkbox.type='checkbox';checkbox.value=product.key;
+                checkbox.setAttribute('aria-label',`انتخاب ${product.name}`);
+                checkbox.checked=state.selected.has(product.key);
+                checkbox.addEventListener('change',()=>{
+                    if(checkbox.checked) state.selected.add(product.key);
+                    else state.selected.delete(product.key);
+                    selectionChanged();
+                });
+                header.append(checkbox);
+            }
             header.append(icon,identity,el('span',label,`md-badge md-${tone}`));card.append(header);
+            if(state.scope==='published'&&!state.selecting&&reopenable(product))
+                card.append(button('بازگشایی بررسی',()=>reopenReview([product]),'md-link md-card-action'));
             const nextLine=el('div',null,'md-next-action');
             if(preferred==='deferred'){
                 nextLine.append(el('p',model.nextStep(product,preferred)),button('کارهای کنارگذاشته‌شده',()=>navigate('system'),'md-link'));
@@ -777,10 +859,39 @@
                 if(state.view==='sources') refreshInbox(activityReport?.inbox_revision);
             }
         }
-        async function dismissTask(task) {
-            if(!task?.task_key)return;
+        function reopenReview(products) {
+            if(!products.length)return;
             const dialog=el('dialog',null,'md-dialog');
-            const form=el('form');form.method='dialog';form.append(el('h2','کنارگذاشتن کار'),el('p','این کار فقط از فهرست این حساب پنهان می‌شود و قابل بازگرداندن است.'));
+            const form=el('form');form.method='dialog';
+            form.append(el('h2',products.length===1?products[0].name:`بازگشایی بررسی ${fa(products.length)} کالا`),
+                el('p','مشخصات کالا به صف بررسی برمی‌گردد. تصمیم تازه را پس از بررسی هر کارت ثبت کنید.'));
+            const feedback=el('p');feedback.setAttribute('role','status');
+            const cancel=button('انصراف',()=>dialog.close());
+            const submit=el('button','بازگشایی بررسی','md-button md-primary');submit.type='submit';
+            form.append(feedback,cancel,submit);dialog.append(form);root.append(dialog);
+            dialog.addEventListener('close',()=>dialog.remove());
+            dialog.addEventListener('cancel',event=>{if(submit.disabled)event.preventDefault();});
+            form.addEventListener('submit',async event=>{
+                event.preventDefault();submit.disabled=true;cancel.disabled=true;
+                const items=products.map(product=>({product_id:product.product_id,offer_id:product.status.latest_offer_id}));
+                try{
+                    const result=await hooks.reopen(items);
+                    clearSelection(true);
+                    dialog.close();
+                    if(products.length===1&&(result.opened||result.already_open)) {
+                        reviewInboxItem('case_id',result.items[0].case_id,products[0].product_id);
+                    } else paint();
+                } catch(error){feedback.textContent=error.message;submit.disabled=false;cancel.disabled=false;}
+            });
+            dialog.showModal();
+        }
+        function dismissTask(task) {
+            const tasks=Array.isArray(task)?task:task?.task_key?[task]:[];
+            if(!tasks.length)return;
+            const dialog=el('dialog',null,'md-dialog');
+            const form=el('form');form.method='dialog';
+            form.append(el('h2',tasks.length===1?'کنارگذاشتن کار':`کنارگذاشتن ${fa(tasks.length)} کار`),
+                el('p','کارهای انتخاب‌شده از فهرست این حساب کنار می‌روند. می‌توانید آن‌ها را از «وضعیت سیستم» بازگردانید.'));
             const reason=el('select');reason.required=true;reason.setAttribute('aria-label','علت کنارگذاری');
             const placeholder=el('option','دلیل را انتخاب کنید');placeholder.value='';reason.append(placeholder);
             Object.entries(hooks.dismissReasons).forEach(([key,label])=>{const o=el('option',label);o.value=key;reason.append(o);});
@@ -792,7 +903,7 @@
             dialog.addEventListener('close',()=>dialog.remove());
             form.addEventListener('submit',async event=>{
                 event.preventDefault();submit.disabled=true;
-                try{await hooks.dismiss([task],reason.value,note.value.trim());dialog.close();}
+                try{await hooks.dismiss(tasks,reason.value,note.value.trim());clearSelection(true);dialog.close();paint();}
                 catch(error){feedback.textContent=error.message;submit.disabled=false;}
             });dialog.showModal();
         }
@@ -858,11 +969,13 @@
             batch.focus({preventScroll:true});
         }
         function showReviewResults() {
+            clearSelection(true);
             state.scope='ready';state.action='';state.focus='';state.search='';state.channel='';
             navigate('products');
             hooks.refresh();
         }
         async function reviewInboxItem(kind,id,fallbackProduct='') {
+            clearSelection(true);
             state.scope='all';state.action='';state.search='';state.channel='';
             state.focusType=kind;state.focus=id;
             const product=model.products.find(matches);

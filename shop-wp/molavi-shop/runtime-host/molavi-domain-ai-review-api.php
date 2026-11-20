@@ -10,7 +10,7 @@ function molavi_domain_ai_reviews_api(string $method, array $query, ?array $body
         if ($view==='workbench-offer') {
             $id=$query['offer_id']??'';
             if(!is_string($id)||$id===''||strlen($id)>300)molavi_domain_fail('invalid_query',400);
-            $tables=molavi_domain_sheets(['Offers']);
+            $tables=molavi_domain_sheets(['Offers','Products']);
             $data=molavi_domain_ai_reviews_get($tables,null,false,$id);
             if($data['cases'])return $data;
             return $data+molavi_domain_reference_extracted_offers(molavi_domain_records($tables['Offers']),$id,true);
@@ -41,11 +41,12 @@ function molavi_domain_ai_reviews_api(string $method, array $query, ?array $body
             $tables=($query['summary']??'')==='1'?null:molavi_domain_sheets(['Offers'],true);
             return molavi_domain_ai_run_report($query,$tables);
         }
-        return molavi_domain_ai_reviews_get(molavi_domain_sheets(['Offers'],true),null,$view!=='workbench-summary');
+        return molavi_domain_ai_reviews_get(molavi_domain_sheets(['Offers','Products'],true),null,$view!=='workbench-summary');
     }
     return match ($body['action'] ?? '') {
         'start_reextraction','start_open_case_reextraction','start_recent_policy_reextraction','start_offer_reextraction','start_media_reextraction' => molavi_domain_ai_start($body,$actor),
         'dismiss_cases' => molavi_domain_ai_dismiss_cases($body,$actor),
+        'reopen_products' => molavi_domain_published_review_reopen($body,$actor),
         'dismiss_pending_messages','dismiss_recent_policy_messages','dismiss_media_message' => molavi_domain_ai_dismiss_messages($body,$actor),
         'cancel_reextraction' => molavi_domain_ai_cancel($body,$actor),
         default => molavi_domain_ai_reviews_decide($body,$actor),
@@ -84,6 +85,7 @@ function molavi_domain_ai_decide(array $payload,?float $clock=null): array {
 function molavi_domain_ai_reviews_get(array $tables,?float $clock=null,bool $candidates=true,string $focused=''): array {
     $snapshot=null;try{$candidate=molavi_domain_reference_active();$state=molavi_domain_reference_use();if($candidate&&$state['allow_automatic']&&$candidate['snapshot_id']===$state['snapshot_id'])$snapshot=$candidate;}catch(Throwable $e){}
     [$cases,$recent]=molavi_domain_ai_review_cases($tables,$snapshot,true,200,$clock,$candidates,$focused);if($snapshot)$cases=molavi_domain_reference_receipts($cases,'ai',$snapshot['snapshot_id']);$scope=molavi_domain_ai_hold_scope();
+    $cases=array_merge(molavi_domain_published_review_cases($tables,$focused,$clock),$cases);
     foreach($cases as &$case)$case['publication_held']=molavi_domain_ai_held($scope,$case);unset($case);foreach($recent as &$case)$case['publication_held']=molavi_domain_ai_held($scope,$case);unset($case);
     $snapshotId=$snapshot['snapshot_id']??'';
     $waivers=molavi_domain_read('reference',static fn(SQLite3 $db)=>molavi_domain_rows($db,
@@ -91,7 +93,7 @@ function molavi_domain_ai_reviews_get(array $tables,?float $clock=null,bool $can
          AND NOT EXISTS (SELECT 1 FROM reference_item_decisions m WHERE m.offer_id=w.offer_id
              AND m.snapshot_id=? AND m.choice='match' AND m.sequence>w.sequence) ORDER BY w.sequence",[$snapshotId]));
     $waived=array_column($waivers,'decision_id','offer_id');
-    foreach($cases as &$case) if(isset($waived[$case['offer_id']])) $case['reference_waived']=$waived[$case['offer_id']];
+    foreach($cases as &$case) if(empty($case['reopened'])&&isset($waived[$case['offer_id']])) $case['reference_waived']=$waived[$case['offer_id']];
     unset($case);
     $policy=null;
     try {$policy=molavi_domain_bot_capabilities()['extraction_policy_version'];} catch(MolaviWorkflowError $e) {}
@@ -100,6 +102,9 @@ function molavi_domain_ai_reviews_get(array $tables,?float $clock=null,bool $can
 }
 function molavi_domain_ai_reviews_decide(?array $body,string $actor,?string $clock=null): array {
     molavi_domain_ai_validate_choice($body);return molavi_domain_lock('publication',static function()use($body,$actor,$clock):array {
+        $review=molavi_domain_read('pipeline',static fn(SQLite3 $db)=>molavi_domain_row($db,
+            'SELECT * FROM published_product_reviews WHERE case_id=?',[$body['case_id']]));
+        if ($review) return molavi_domain_published_review_resolve($review,$body,$actor,$clock);
         $offers=molavi_domain_records(molavi_domain_sheets(['Offers'],true)['Offers']);$case=molavi_domain_ai_find_case($offers,$body['case_id'],$body['offer_id'],$clock===null?null:molavi_domain_timestamp($clock));
         if(!$case||$case['signature']!==$body['signature'])molavi_domain_fail('stale_case');if(molavi_domain_ai_held(molavi_domain_ai_hold_scope(),$case))molavi_domain_fail('publication_held_for_review');
         if($body['choice']==='confirm'&&$case['historical_reextract']&&($body['source_current_verified']??null)!==true)molavi_domain_fail('reextraction_price_not_verified',400);

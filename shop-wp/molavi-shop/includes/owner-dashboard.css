@@ -55,6 +55,10 @@
 }
 #molavi-owner-workflow .md-filters :is(input,select) {width:100%;}
 #molavi-owner-workflow .md-result-count {margin:14px 0!important;color:var(--md-muted);font-size:12px;}
+#molavi-owner-workflow .md-result-controls {display:flex;align-items:center;justify-content:space-between;gap:8px;margin-block:4px;}
+#molavi-owner-workflow .md-bulk-actions:not([hidden]) {display:flex;align-items:center;flex-wrap:wrap;gap:6px 12px;margin-bottom:12px;padding:8px 10px;background:var(--md-soft);border-radius:8px;}
+#molavi-owner-workflow .md-select-product {flex:none;min-width:16px;min-height:16px;margin:0;cursor:pointer;}
+#molavi-owner-workflow .md-card-action {margin-inline:21px;margin-bottom:8px;}
 #molavi-owner-workflow .md-product-list {display:grid;grid-template-columns:minmax(0,1fr);gap:13px;}
 #molavi-owner-workflow .md-product-card {background:var(--md-paper);border:1px solid var(--md-line);border-radius:11px;min-width:0;overflow:clip;}
 #molavi-owner-workflow .md-product-card.md-selected {border-color:#94b5a0;}

@@ -116,8 +116,23 @@ const fixtures={
     }
     if(f.get('action')==='molavi_owner_workbench_dismissals'){
       const records=JSON.parse(f.get('records')||'[]');
+      Object.assign(writes.at(-1),{operation:f.get('operation'),records});
       if(f.get('operation')==='dismiss'){assert.equal(records[0].reason,'later');assert.equal(records[0].scope,'selected');}
       return route.fulfill({json:{success:true,data:{items:f.get('operation')==='restore'?[]:records}}});
+    }
+    if(path==='/pipeline/ai-confirmations'){
+      const payload=JSON.parse(f.get('payload')||'{}');
+      if(payload.action==='reopen_products'){
+        const items=payload.items.map(({product_id,offer_id})=>{
+          const product=fixtures['/pipeline/product-status-snapshots'].products.find(row=>row.product_id===product_id);
+          assert.ok(product.published&&product.latest_offer_id===offer_id);
+          const case_id='reopened-'+product_id;
+          fixtures[path].cases.push({...product,offer_id,case_id,reopened:true,source_current_check_required:true,
+            sale_price:110000,actual_price:170000,price_type:'unit',signature:'f'.repeat(64),reason:'owner_reopened'});
+          return {product_id,offer_id,case_id,state:'opened'};
+        });
+        return route.fulfill({json:{ok:true,opened:items.length,already_open:0,unavailable:0,items}});
+      }
     }
     if(path==='/pipeline/supplier-price-evidence'&&acceptPrice){
       const payload=JSON.parse(f.get('payload'));
@@ -640,6 +655,43 @@ const fixtures={
  await pricing.waitFor();
  repricing={...repricing,state:'completed',completed:24};
  await discountReceipt.getByText(/کامل شد.*۲۴ از ۲۴/).waitFor({timeout:16000});
+ const products=fixtures['/pipeline/product-status-snapshots'].products;
+ products[0].published=true;products[1].published=true;
+ await mount('',true,true);
+ await page.getByRole('button',{name:/^منتشرشده/}).click();
+ const cards=page.locator('.md-product-list .md-product-card');
+ assert.equal(await cards.count(),2,'Published lists source-linked storefront products');
+ const noodle=cards.filter({hasText:products[0].product_name});
+ await noodle.getByRole('button',{name:'بازگشایی بررسی',exact:true}).click();
+ await page.getByRole('dialog').getByRole('button',{name:'انصراف'}).click();
+ await page.getByRole('button',{name:'انتخاب کالاها'}).click();
+ await noodle.getByRole('checkbox').check();
+ const bulk=page.locator('.md-bulk-actions');
+ await bulk.getByRole('button',{name:/بازگشایی بررسی/}).waitFor();
+ const publishedSearch=page.getByRole('searchbox',{name:'جست‌وجوی محصولات'});
+ await publishedSearch.fill('سس کچاپ');
+ await page.waitForFunction(()=>document.querySelectorAll('.md-product-list .md-product-card').length===1);
+ assert.equal(await bulk.getByRole('button',{name:/بازگشایی بررسی/}).count(),0,'filtering clears selection');
+ await publishedSearch.fill('');
+ await page.waitForFunction(()=>document.querySelectorAll('.md-product-list .md-product-card').length===2);
+ await bulk.getByRole('button',{name:/انتخاب همهٔ نتایج قابل اقدام/}).click();
+ await bulk.getByRole('button',{name:/بازگشایی بررسی.*۲/}).click();
+ await page.getByRole('dialog').getByRole('button',{name:'بازگشایی بررسی'}).click();
+ const reopenReceipt=bar.locator('.md-activity-action').filter({hasText:'بازگشایی شد'});
+ await reopenReceipt.getByText(/۲ بازگشایی شد/).waitFor();
+ await page.getByRole('dialog').waitFor({state:'hidden'});
+ const reopened=JSON.parse(writes.find(write=>JSON.parse(write.payload||'{}').action==='reopen_products').payload);
+ assert.deepEqual(reopened.items.map(item=>item.product_id).sort(),['1','10']);
+ await page.getByRole('button',{name:'انتخاب کالاها'}).click();
+ await bulk.getByRole('button',{name:/انتخاب همهٔ نتایج قابل اقدام/}).click();
+ assert.equal(await bulk.getByRole('button',{name:/بازگشایی بررسی/}).count(),0,'already reopened cards cannot be reopened again');
+ await bulk.getByRole('button',{name:/کنارگذاشتن کار.*۲/}).click();
+ const dialog=page.getByRole('dialog');
+ await dialog.getByRole('combobox',{name:'علت کنارگذاری'}).selectOption('later');
+ await dialog.getByRole('button',{name:'کنارگذاشتن',exact:true}).click();
+ await dialog.waitFor({state:'hidden'});
+ const lastDismiss=writes.filter(write=>write.action==='molavi_owner_workbench_dismissals'&&write.operation==='dismiss').at(-1);
+ assert.deepEqual(lastDismiss.records.map(item=>item.product_id).sort(),['1','10']);
  assert.deepEqual(errors,[]);
  console.log(JSON.stringify({passed:true,errors,writes:writes.length,captures:['/tmp/molavi-dashboard-desktop.png','/tmp/molavi-dashboard-mobile.png']}));
  await browser.close();

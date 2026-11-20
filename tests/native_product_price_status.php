@@ -5,7 +5,7 @@ define('MOLAVI_STATE_ROOT',sys_get_temp_dir().'/molavi-product-price-'.bin2hex(r
 
 function add_action(...$args){}
 function add_filter(...$args){}
-foreach(['state-host','domain-core','domain-schemas','domain-orders','domain-reference-parser','domain-products'] as $part) {
+foreach(['state-host','domain-core','domain-schemas','domain-orders','domain-reference-parser','domain-products','domain-ai-published-reviews'] as $part) {
     require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-'.$part.'.php';
 }
 function price_status_check(bool $result,string $message): void {

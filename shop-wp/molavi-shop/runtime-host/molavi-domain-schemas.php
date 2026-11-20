@@ -178,6 +178,20 @@ CREATE TABLE IF NOT EXISTS product_status_snapshots (
                 CREATE INDEX IF NOT EXISTS product_status_captured_idx
                 ON product_status_snapshots(captured_at DESC);
 MOLAVI_SCHEMA_PIPELINE_15,
+        <<<'SQL'
+CREATE TABLE IF NOT EXISTS published_product_reviews (
+    case_id TEXT PRIMARY KEY,
+    product_id TEXT NOT NULL,
+    offer_id TEXT NOT NULL,
+    signature TEXT NOT NULL,
+    opened_by TEXT NOT NULL,
+    opened_at REAL NOT NULL,
+    resolved_decision_id TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS active_published_product_review
+    ON published_product_reviews(product_id,offer_id,signature)
+    WHERE resolved_decision_id IS NULL
+SQL,
     ];
     case 'reference': return [
         // reference_import/decisions.py

@@ -214,5 +214,10 @@ function molavi_domain_status_api(string $method,array $query,?array $body,strin
     if(!$latest||$latest['schema_version']<2||(molavi_domain_timestamp($latest['captured_at'])??0)<=microtime(true)-86400)
         molavi_domain_status_capture(molavi_domain_sheets(['Products','Offers'],true),'daily_status_checkpoint');
     $history=molavi_domain_status_history($selected?:null,$selected===''&&function_exists('molavi_domain_market_missing_price'),$selected==='');if($selected!==''&&$history['selected_snapshot_id']!==$selected)molavi_domain_fail('snapshot_not_found',404);
+    if ($selected==='') {
+        $published=molavi_domain_published_review_ids();
+        foreach ($history['products'] as &$product) $product['published']=isset($published[$product['product_id']]);
+        unset($product);
+    }
     return array_merge(['ok'=>true],$history);
 }

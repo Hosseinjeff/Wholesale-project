@@ -9,6 +9,7 @@
     }
 
     function aiSourceCurrentCheckMessage(item) {
+        if (item?.reopened) return 'پیش از ثبت تصمیم تازه، قیمت و موجودی را با منبع فعلی تأمین‌کننده بررسی کنید.';
         const basis = String(item && item.source_timestamp_basis || '').trim();
         const trusted = ['supplier_channel_update','supplier_channel_forward'].includes(basis);
         const sourceTime = String(item && (item.source_updated_at || item.source_update_at
@@ -188,6 +189,7 @@
     function aiReviewReason(value) {
         const raw = String(value || '').trim();
         const key = raw.toLowerCase();
+        if (key==='owner_reopened') return 'مالک بررسی کالای منتشرشده را بازگشایی کرد.';
         if (/historical price|current supplier verification|stale price/.test(key)) {
             return 'قیمت از پیام قدیمی آمده؛ پیش از ثبت نهایی آن را از منبع فعلی تأیید کنید.';
         }
@@ -357,6 +359,7 @@
         refresh:'تازه‌سازی فهرست مرجع',review:'ثبت بررسی فهرست',activate:'فعال‌سازی مرجع',
         pause_review:'توقف تطبیق',use_last_snapshot:'ادامه با فهرست ذخیره‌شده',capture:'ثبت وضعیت محصولات',
         confirm:'تأیید مشخصات',not_product:'رد پیشنهاد',save_discount_policy:'به‌روزرسانی تخفیف‌ها',
+        reopen_products:'بازگشایی بررسی',
     };
     const routeNames = {supplier_prices:'تأیید قیمت تأمین‌کننده',sheet_conflicts:'رفع تعارض',
         publication_holds:'ثبت تصمیم انتشار',telegram_operators:'ثبت تصمیم حساب ربات',
@@ -472,7 +475,7 @@
     }
 
     function workbenchDismissalRequest(operation,payload={}) {
-        return runAction(operation==='restore'?'بازگرداندن کار':'کنارگذاشتن کار',null,
+        return runAction(operation==='restore'?'بازگرداندن کار':'کنارگذاشتن کار',{action:operation,...payload},
             ()=>writeWorkbenchDismissal(operation,payload));
     }
     async function writeWorkbenchDismissal(operation, payload) {
@@ -895,6 +898,9 @@
     function workbenchIsDismissed(product, queue) {
         if (queue==='ai' && product.ai.some(item=>!item.publication_held)
             && product.ai.filter(item=>!item.publication_held).every(workbenchAiCaseIsDismissed)) return true;
+        if (queue==='ai' && product.ai.some(item=>item.reopened)) {
+            return workbenchDismissalIndex.has(workbenchCurrentDismissalKey(product,queue));
+        }
         const key = workbenchDismissalKey(product, queue);
         return Boolean(key && (workbenchDismissalIndex.has(key) || workbenchDismissalIndex.has(workbenchCurrentDismissalKey(product,queue))));
     }
@@ -994,7 +1000,7 @@
         if (!source || workbenchErrors[source] || !config.reviewStoreUrl || !config.reviewStoreNonce) return '';
         if (key==='holds' && !product.holds.some(hold => hold.context?.messages?.length)) return '';
         if (key==='ai' && !product.ai.some(item => !item.publication_held && !workbenchAiCaseIsDismissed(item)
-            && (safeSourceLink(aiSourcePostUrl(item)) || (!item.source_current_check_required && !item.historical_reextract && item.original_message))
+            && (item.reopened || safeSourceLink(aiSourcePostUrl(item)) || (!item.source_current_check_required && !item.historical_reextract && item.original_message))
             && normalizedAiInteger(item.sale_price || item.detected_price || item.package_price))) return '';
         if (key==='supplier_prices' && !product.supplierPrices.some(offer =>
             !offer.acknowledged && offer.source_revision && workbenchSupplierSource(product,offer))) return '';
@@ -1046,6 +1052,7 @@
         if (key === 'ai') {
             const cases = product.ai.filter(item=>!workbenchAiCaseIsDismissed(item));
             if (cases.some(item => item.publication_held)) return 'جزئیات و اقدام دستهٔ متوقف‌شده را باز کنید؛ تصمیم این استخراج تا رفع همان توقف قفل است.';
+            if (cases.some(item => item.reopened)) return 'قیمت، تعداد و موجودی کالا را بررسی و تصمیم تازه را ثبت کنید.';
             if (cases.some(item => !normalizedAiInteger(item.sale_price || item.detected_price || item.package_price))) {
                 return 'قیمت فروش در پیام ثبت نشده؛ مبلغ را حدس نزنید و این مورد را تا رسیدن قیمت باز بگذارید.';
             }
@@ -1226,11 +1233,18 @@
                         return workflowRequest('GET',undefined,url.href,'');
                     }
                     : null,
+                reopen: async items => {
+                    const result=await request('POST',{action:'reopen_products',items},undefined,'ai_confirmations');
+                    await dashboard('', 'info', ['ai_confirmations','product_status']);
+                    return result;
+                },
                 dismiss: async (records, reason, note) => {
-                    await workbenchDismissalRequest('dismiss', {records:records.map(item => ({
-                        ...item, reason:reason, scope:'selected', note:note || ''
-                    }))});
-                    await dashboard('کار از فهرست این حساب کنار گذاشته شد؛ دادهٔ محصول تغییر نکرد.', 'success', []);
+                    for (let offset=0;offset<records.length;offset+=1000) {
+                        await workbenchDismissalRequest('dismiss', {records:records.slice(offset,offset+1000).map(item => ({
+                            ...item, reason:reason, scope:'selected', note:note || ''
+                        }))});
+                    }
+                    await dashboard('', 'info', []);
                 },
                 restore: async keys => {
                     await workbenchDismissalRequest('restore', {keys});
@@ -1351,7 +1365,7 @@
         ];
         allAiCases.forEach(item => {
             const key = aiSourceMessageKey(item);
-            if (!key) return;
+            if (!key||item.reopened) return;
             if (!aiCasesBySource.has(key)) aiCasesBySource.set(key, new Map());
             const identifier = String(item.offer_id || item.case_id || '');
             if (identifier) aiCasesBySource.get(key).set(identifier, item);
@@ -1533,7 +1547,7 @@
                     holdTarget:'',
                     parentName:product.name, parentChannel:product.channel
                 });
-                const title = node('h3', 'استخراج از پیام تأمین‌کننده');
+                const title = node('h3', item.reopened?'بازبینی کالای منتشرشده':'استخراج از پیام تأمین‌کننده');
                 if (!data.ai_confirmations?.candidates_deferred || !relatedItems.some(row=>row.reference_snapshot_id
                     && !row.reference_match_id && row.reference_assignment?.choice!=='match')) {
                     const ai=renderCase();
@@ -2547,7 +2561,7 @@
             const canGroup = hasSupplierPrice && (item.variation_type || attributes.variationType);
             const localKey = canGroup && source.every(Boolean) && aiVariantBaseName(item, attributes)
                 ? JSON.stringify([source, aiVariantBaseName(item, attributes), aiCaseGroupTerms(item)]) : '';
-            const key = hasSupplierPrice && item.variant_group_id ? `variant:${item.variant_group_id}`
+            const key = item.reopened ? `single:${item.case_id}` : hasSupplierPrice && item.variant_group_id ? `variant:${item.variant_group_id}`
                 : localKey ? `local:${localKey}` : `single:${item.case_id}`;
             if (!buckets.has(key)) buckets.set(key, []);
             buckets.get(key).push(item);
@@ -3208,7 +3222,7 @@
         const duplicateParentName = Boolean(options.embedded && options.parentName
             && aiDisplayKey(options.parentName) === aiDisplayKey(cardName));
         const header = reviewCardHeader(duplicateParentName ? '' : cardName || 'کالای بدون نام', relatedItems.length > 1
-            ? `گروه ${new Intl.NumberFormat('fa-IR').format(relatedItems.length)} نوع هم‌قیمت` : 'استخراج');
+            ? `گروه ${new Intl.NumberFormat('fa-IR').format(relatedItems.length)} نوع هم‌قیمت` : item.reopened?'بازگشایی':'استخراج');
         if (typeof onSelect === 'function') {
             const selection = node('label', null, 'molavi-ai-case-select');
             const checkbox = document.createElement('input');
@@ -3269,7 +3283,7 @@
         const regularPrice = normalizedAiInteger(item.actual_price || item.consumer_price);
         const regularPackagePrice = normalizedAiInteger(item.double_pack_consumer_price
             || item.consumer_package_price || item.regular_package_price);
-        const priceBasisNeedsReview = packageCount > 1 && regularPrice > 0 && visibleSupplierPrice > regularPrice
+        const priceBasisNeedsReview = !item.reopened && packageCount > 1 && regularPrice > 0 && visibleSupplierPrice > regularPrice
             && aiSourceSalePrices(item.original_message).get(String(visibleSupplierPrice)) === true;
         const cartonUnitPrice = priceBasisNeedsReview ? visibleSupplierPrice / packageCount : 0;
         const plausibleCartonPrice = Math.round(cartonUnitPrice) > 0 && cartonUnitPrice <= regularPrice
@@ -3278,7 +3292,7 @@
         const priceFacts = [
             ['قیمت فروش تأمین‌کننده', visibleSupplierPrice ? amount(visibleSupplierPrice) : 'در پیام پیدا نشد'],
             priceBasisNeedsReview ? ['مبنای قیمت', 'در پیام مشخص نشده؛ نیاز به تأیید']
-                : ['مبنای قیمت در استخراج', roleLabel]
+                : [item.reopened?'مبنای قیمت ثبت‌شده':'مبنای قیمت در استخراج', roleLabel]
         ];
         if (preferredPriceRole) {
             const count = new Intl.NumberFormat('fa-IR').format(packageCount);
@@ -3345,13 +3359,22 @@
             card.appendChild(reviewNextStep('ابتدا توقف همین دسته را بررسی کنید.',link));
             return card;
         }
-        if (!held && item.offer_id) card.appendChild(offerReextraction(item.offer_id));
+        if (!held && item.offer_id && !item.reopened) card.appendChild(offerReextraction(item.offer_id));
         if (item.original_message || sourceDates.length) {
             const evidence = node('details');
             evidence.appendChild(node('summary',item.original_message?'متن و تاریخ پیام مبدأ':'تاریخ پیام مبدأ'));
             if (sourceDates.length) evidence.appendChild(reviewFacts(sourceDates,'molavi-review-facts molavi-ai-source-date-facts'));
             if (item.original_message) evidence.appendChild(node('pre',item.original_message));
             card.appendChild(evidence);
+        }
+        if (item.reopened && item.decision) {
+            card.appendChild(notice('تصمیم ثبت شد. برای تکمیل به‌روزرسانی دوباره تلاش کنید.', 'warning'));
+            const retry = node('button','تکمیل ثبت تصمیم','button button-primary');
+            retry.type='button';
+            retry.disabled=!contextStored||!decisionsEnabled;
+            retry.addEventListener('click',()=>submitAiCaseDecisions([item],item.decision.choice,item.decision.fields,card,[retry],true,options));
+            card.appendChild(retry);
+            return card;
         }
         if (item.decision) {
             const choiceLabels = {confirm:'تأیید کالا',not_product:'کالا نیست'};
@@ -3377,11 +3400,13 @@
         }
         const reject = node('details');
         const notProduct = node('button', relatedItems.length > 1
-            ? `ردّ هر ${relatedItems.length} نوع؛ کالا نیست` : 'این مورد کالا نیست', 'button');
+            ? `ردّ هر ${relatedItems.length} نوع؛ کالا نیست` : item.reopened?'ثبت رد پیشنهاد':'این مورد کالا نیست', 'button');
         notProduct.type='button';
         notProduct.disabled=!contextStored || !decisionsEnabled;
         notProduct.addEventListener('click',()=>submitAiCaseDecisions(relatedItems,'not_product',{},card,[notProduct],false,options));
-        reject.append(node('summary','این پیام پیشنهاد کالا نیست'),notProduct);
+        reject.append(node('summary',item.reopened?'رد پیشنهاد منتشرشده':'این پیام پیشنهاد کالا نیست'));
+        if (item.reopened) reject.appendChild(node('p','این تصمیم فروش کالا را متوقف می‌کند.'));
+        reject.appendChild(notProduct);
         card.appendChild(reject);
 
         if (blockedBySourceGap) {
@@ -3433,7 +3458,7 @@
             && (row.historical_reextract || row.source_current_check_required || sourceStockNeedsReview));
         if (sourceVerificationRequired) {
             card.appendChild(node('h4','قیمت و موجودی امروز'));
-            if (item.historical_reextract) {
+            if (item.historical_reextract && !item.reopened) {
                 const recentSupplierPosts = safeSourceLink(aiSourceChannelUrl(item), 'دیدن پست‌های جدیدتر تأمین‌کننده');
                 if (recentSupplierPosts) card.appendChild(recentSupplierPosts);
                 card.appendChild(notice(`آخرین زمان مؤثر منبع ${sourceAgeText(item.source_updated_at || item.source_update_at || item.message_timestamp || item.source_created_at)} است؛ پست قدیمی به‌تنهایی قیمت امروز را ثابت نمی‌کند. پیش از ثبت نهایی، قیمت را از منبع فعلی بررسی کنید.`, 'warning'));
@@ -3544,8 +3569,8 @@
         }));
         const edit = document.createElement('details');
         edit.className = 'molavi-ai-manual-edit';
-        edit.appendChild(node('summary', 'اصلاح دستی؛ فقط اگر داده استخراج‌شده اشتباه است'));
-        const confirmLabel = item.decision && item.decision.choice === 'not_product'
+        edit.appendChild(node('summary', item.reopened?'اصلاح مشخصات ثبت‌شده':'اصلاح دستی؛ فقط اگر داده استخراج‌شده اشتباه است'));
+        const confirmLabel = item.reopened?'ثبت تصمیم تازه':item.decision && item.decision.choice === 'not_product'
             ? 'بازگردانی به کالا و تأیید مشخصات'
             : item.decision ? 'ثبت اصلاح و تأیید دوباره' : 'تأیید مشخصات استخراج‌شده';
         const confirm = node('button', confirmLabel, 'button button-primary');
