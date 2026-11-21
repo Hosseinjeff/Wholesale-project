@@ -2,6 +2,20 @@
 
 Updated: 2026-11-21, Asia/Tehran
 
+## 2026-11-21 Pack counts from bot messages
+
+The native WordPress and legacy Python publishers use the bot's `Package Count`
+or an explicit pack count in message-derived text. The import keeps that count
+separate from the order minimum. If older catalog data only supplies a minimum,
+the product continues to use the shared cart discount until a pack count is known.
+
+The shop changes through `0f3d2f9` and native publisher `78e6d40` were deployed
+to Staging. The native publisher was uploaded with `--target staging --component
+runtime` and verified by read-back. An unsaved WooCommerce check verified 6-,
+12-, 18-, and 36-unit packs at one and two packs, an off-multiple, and an unknown
+pack count. It also verified that the minimum and pack count can both be six.
+The storefront returned HTTP 200, and the temporary check was deleted.
+
 ## 2026-11-21 Maximum discounts for full packs
 
 An exact multiple of the catalog pack size now receives the maximum discount for
