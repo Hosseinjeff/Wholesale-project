@@ -778,6 +778,8 @@
             const record=product.status||{};
             const source=sourceFor(product);
             const preferred=next(product);
+            const sourceImage=preferred==='ai'||!record.latest_offer_id ? source.image_file_id
+                : record.image_file_id||(source.offer_id===record.latest_offer_id?source.image_file_id:null);
             const priceOffers=model.marketPriceOffers(product,preferred);
             const [label,tone]=stateLabel(product);
             const card=el('article',null,'md-product-card');card.dataset.productKey=product.key;
@@ -795,7 +797,7 @@
                 });
                 header.append(checkbox);
             }
-            header.append(icon,identity,el('span',label,`md-badge md-${tone}`));card.append(header);
+            header.append(model.renderSourceImage(sourceImage,icon),identity,el('span',label,`md-badge md-${tone}`));card.append(header);
             if(state.scope==='published'&&!state.selecting&&reopenable(product))
                 card.append(button('بازگشایی بررسی',()=>reopenReview([product]),'md-link md-card-action'));
             const nextLine=el('div',null,'md-next-action');
@@ -852,7 +854,7 @@
                             const offer=preferred==='ai'?(source.offer_id||record.latest_offer_id):(record.latest_offer_id||source.offer_id);
                             panel.append(model.renderSupplierMessage(offer,{
                                 url:source.source_post_url||source.source_url||record.source_post_url,
-                                text:source.original_message,timestamp:source.source_timestamp||source.message_timestamp,image_file_id:source.image_file_id
+                                text:source.original_message,timestamp:source.source_timestamp||source.message_timestamp
                             }));
                             if (offer&&!record.source_integrity_issues?.length) panel.append(model.renderOfferReextraction(String(offer)));
                             else panel.append(button('یافتن پیام تأمین‌کننده',()=>navigate('sources',product)));

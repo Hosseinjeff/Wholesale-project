@@ -28,28 +28,33 @@
         return item;
     }
 
-    function aiSourceImageDetails(fileId) {
-        const details = node('details', null, 'molavi-review-media-details');
-        details.appendChild(node('summary', 'دیدن تصویر پیام مبدأ'));
-        let image = null;
-        let unavailable = null;
-        details.addEventListener('toggle', () => {
-            if (!details.open || image) return;
-            if (unavailable) unavailable.remove();
-            image = node('img', null, 'molavi-ai-source-image');
-            image.alt = 'تصویر پیام تأمین‌کننده';
-            image.decoding = 'async';
-            image.referrerPolicy = 'no-referrer';
-            image.onerror = () => {
-                image.remove();
-                image = null;
-                unavailable = notice('تصویر از تلگرام در دسترس نیست. پیام اصلی را بررسی کنید.', 'warning');
-                details.appendChild(unavailable);
-            };
-            details.appendChild(image);
-            image.src = new URL('/media/file/' + encodeURIComponent(String(fileId)), config.apiUrl).toString();
+    function sourceImageThumbnail(fileId, fallback = null) {
+        if (typeof fileId!=='string'||!/^[-\w]{8,300}$/.test(fileId)) return fallback;
+        const url=new URL('/media/file/'+encodeURIComponent(fileId),config.apiUrl).href;
+        const thumbnail=node('button',null,'molavi-source-thumbnail');
+        thumbnail.type='button';
+        thumbnail.setAttribute('aria-label','بزرگ‌نمایی تصویر پیام تأمین‌کننده');
+        thumbnail.setAttribute('aria-haspopup','dialog');
+        const image=node('img');
+        image.alt='';image.loading='lazy';image.decoding='async';image.fetchPriority='low';image.referrerPolicy='no-referrer';
+        image.addEventListener('error',()=>{
+            if (fallback) thumbnail.replaceWith(fallback);else thumbnail.remove();
+        },{once:true});
+        thumbnail.append(image);
+        image.src=url;
+        thumbnail.addEventListener('click',()=>{
+            const dialog=node('dialog',null,'md-dialog molavi-source-photo-dialog');
+            dialog.setAttribute('aria-label','تصویر پیام تأمین‌کننده');
+            const full=node('img');
+            full.alt='تصویر پیام تأمین‌کننده';full.decoding='async';full.referrerPolicy='no-referrer';
+            full.addEventListener('error',()=>full.replaceWith(node('p','تصویر در دسترس نیست. پیام اصلی را بررسی کنید.')),{once:true});
+            full.src=url;
+            const close=node('button','بستن','button');close.type='button';
+            close.addEventListener('click',()=>dialog.close());
+            dialog.addEventListener('close',()=>dialog.remove(),{once:true});
+            dialog.append(full,close);root.append(dialog);dialog.showModal();
         });
-        return details;
+        return thumbnail;
     }
 
     function notice(text, kind = 'info') {
@@ -1225,8 +1230,7 @@
             if (timestamp) panel.append(reviewFacts([['تاریخ پیام',timestamp]]));
             if (link) panel.append(link);
             if (message.text) panel.append(node('pre',message.text));
-            if (message.image_file_id) panel.append(aiSourceImageDetails(message.image_file_id));
-            if (!link&&!message.text&&!message.image_file_id) panel.append(node('p','متن یا پیوند پیام ذخیره نشده است.'));
+            if (!link&&!message.text) panel.append(node('p','متن یا پیوند پیام ذخیره نشده است.'));
         };
         const load=async()=>{
             panel.textContent='در حال دریافت پیام تأمین‌کننده…';
@@ -1592,7 +1596,7 @@
                     embedded:true, apiKey:'ai_confirmations', refresh:refreshInPlace,
                     sourcePriceGap, sourceVariantGap, sourceStockGap,
                     holdTarget:'',
-                    parentName:product.name, parentChannel:product.channel
+                    parentName:product.name, parentChannel:product.channel, parentImageId:product.ai[0]?.image_file_id
                 });
                 const title = node('h3', item.message_review?'بررسی پیام انتخاب‌شده':item.publication_review?'بازبینی برای انتشار'
                     :item.reopened?'بازبینی کالای منتشرشده':'استخراج از پیام تأمین‌کننده');
@@ -2213,6 +2217,7 @@
             renderAction,renderBatch,renderSystem,
             renderOfferReextraction: offerReextraction,
             renderSupplierMessage: supplierMessagePanel,
+            renderSourceImage: sourceImageThumbnail,
             renderProductSearch: onlineProductSearch,
             renderMarketPrice: marketPriceReview,
             marketPriceOffers:(product,key)=>{
@@ -3407,6 +3412,10 @@
             && aiDisplayKey(options.parentName) === aiDisplayKey(cardName));
         const header = reviewCardHeader(duplicateParentName ? '' : cardName || 'کالای بدون نام', relatedItems.length > 1
             ? `گروه ${new Intl.NumberFormat('fa-IR').format(relatedItems.length)} نوع هم‌قیمت` : item.reopened?'بازگشایی':'استخراج');
+        if (item.image_file_id!==options.parentImageId) {
+            const photo=sourceImageThumbnail(item.image_file_id);
+            if (photo) header.prepend(photo);
+        }
         if (typeof onSelect === 'function') {
             const selection = node('label', null, 'molavi-ai-case-select');
             const checkbox = document.createElement('input');
@@ -3511,7 +3520,6 @@
         const sourcePriceUnclear = Boolean(options.sourcePriceGap?.unverified);
         const sourceVariantNeedsReview = Boolean(options.sourceVariantGap);
         const sourceStockNeedsReview = Boolean(options.sourceStockGap);
-        if (item.image_file_id) card.appendChild(aiSourceImageDetails(item.image_file_id));
         if (options.sourcePriceGap) {
             if (options.sourcePriceGap.unverified) {
                 card.appendChild(notice('برچسب مبلغ فروش روشن نیست. پیام و قیمت فعلی تأمین‌کننده را بررسی کنید.', 'warning'));

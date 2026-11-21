@@ -5,10 +5,10 @@ const base=path.resolve(__dirname,'../shop-wp/molavi-shop/includes')+'/';
 const now=new Date().toISOString();
 const fixtures={
  '/pipeline/product-status-snapshots':{products:[
-  {product_id:'1',product_name:'نودل سبزیجات بسته ۱۲ عددی',channel:'@supplier',latest_offer_id:'offer-1',status:'imported',supplier_price_state:'blocked',reference_match_id:'REF-1',reference_approval_state:'approved',source_post_url:'https://t.me/supplier/18'},
+  {product_id:'1',product_name:'نودل سبزیجات بسته ۱۲ عددی',channel:'@supplier',latest_offer_id:'offer-1',status:'imported',supplier_price_state:'blocked',reference_match_id:'REF-1',reference_approval_state:'approved',source_post_url:'https://t.me/supplier/18',image_file_id:'product-photo'},
   {product_id:'10',product_name:'سس کچاپ',channel:'@supplier',latest_offer_id:'offer-10',status:'imported',reference_match_id:'REF-10',reference_approval_state:'approved'},
   {product_id:'3',product_name:'نوشیدنی پرتقالی',channel:'@other',status:'held',source_integrity_issues:['missing_latest_offer'],source_post_url:'https://t.me/other/8'}],generated_at:now},
- '/pipeline/ai-confirmations':{extraction_policy_version:'gemini-1111111111111111',cases:[{case_id:'ai-4',offer_id:'offer-4',product_name:'بیسکویت شکلاتی',channel:'@supplier',sale_price:120000,detected_price:120000,package_count:12,signature:'sig-4',message_id:'25',batch_id:'batch-4',source_post_url:'https://t.me/supplier/25',original_message:'بیسکویت شکلاتی ۱۲ عدد\nقیمت فروش: ۱۲۰۰۰۰',reference_candidates:[],reference_snapshot_id:''}],recent_decisions:[]},
+ '/pipeline/ai-confirmations':{extraction_policy_version:'gemini-1111111111111111',cases:[{case_id:'ai-4',offer_id:'offer-4',product_name:'بیسکویت شکلاتی',channel:'@supplier',sale_price:120000,detected_price:120000,package_count:12,signature:'sig-4',message_id:'25',batch_id:'batch-4',source_post_url:'https://t.me/supplier/25',original_message:'بیسکویت شکلاتی ۱۲ عدد\nقیمت فروش: ۱۲۰۰۰۰',image_file_id:'extraction-photo',reference_candidates:[],reference_snapshot_id:''}],recent_decisions:[]},
  '/reference/item-reviews':{cases:[],recent_decisions:[],reference_state:{allow_automatic:true}},
  '/pipeline/supplier-price-evidence':{offers:[{product_id:'1',offer_id:'offer-1',name:'نودل سبزیجات بسته ۱۲ عددی',channel:'@supplier',sale_price:120000,state:'blocked',source_revision:'revision-1',source_timestamp:now,source_timestamp_trusted:true,source_post_url:'https://t.me/supplier/18'}]},
  '/pipeline/sheet-conflicts':{conflicts:[]}, '/pipeline/publication-holds':{holds:[]},'/reference/decisions':{events:[]},
@@ -37,7 +37,7 @@ const fixtures={
   if(new URL(req.url()).searchParams.get('action')==='molavi_owner_market_photo')
     return route.fulfill({contentType:'image/png',
       body:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jf2QAAAAASUVORK5CYII=','base64')});
-  if(req.url()===testPhoto) return route.fulfill({contentType:'image/png',
+  if(req.url()===testPhoto||/^https:\/\/api\.test\/media\/file\/(?:product|extraction)-photo$/.test(req.url())) return route.fulfill({contentType:'image/png',
     body:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jf2QAAAAASUVORK5CYII=','base64')});
   if(req.url().includes('/admin-ajax.php')){
    const f=new URLSearchParams(req.postData());const path=f.get('path');
@@ -292,12 +292,21 @@ const fixtures={
  await mount();
  assert.equal(await page.locator('.md-product-card').count(),2,'ready work includes extraction with no active reference');
  assert.match(await page.locator('.md-product-card').first().innerText(),/بیسکویت شکلاتی/);
+ const sourceThumbnail=page.locator('.md-card-header').filter({hasText:'بیسکویت شکلاتی'}).getByRole('button',{name:'بزرگ‌نمایی تصویر پیام تأمین‌کننده'});
+ await sourceThumbnail.locator('img').evaluate(img=>img.decode());
+ assert.equal(await sourceThumbnail.locator('img').getAttribute('loading'),'lazy');
+ await sourceThumbnail.click();
+ const sourcePhoto=page.getByRole('dialog',{name:'تصویر پیام تأمین‌کننده'});
+ await sourcePhoto.locator('img').evaluate(img=>img.decode());
+ await page.keyboard.press('Escape');
+ await sourcePhoto.waitFor({state:'detached'});
  await page.getByRole('button',{name:/^در انتظار پیگیری/}).click();
  assert.equal(await page.locator('.md-product-card').count(),1,'source repair remains available');
  await page.getByRole('button',{name:/^آمادهٔ بررسی/}).click();assert.equal(writes.length,0);assert.deepEqual(errors,[]);
  assert.equal(maxActiveReads,1,'owner reads leave WordPress workers free for state callbacks');
  assert.equal(statusReads,2,'one temporary read failure gets one bounded retry');
  const first=page.locator('.md-product-card').filter({hasText:'نودل سبزیجات'});
+ await first.locator('.md-card-header .molavi-source-thumbnail img').evaluate(img=>img.decode());
  await first.getByRole('button',{name:'تأیید قیمت',exact:true}).click();
  await first.getByRole('button',{name:'منبع فعلی را دیدم؛ قیمت تأیید است'}).waitFor({state:'visible'});
  assert.equal(await page.locator('.md-card-panel:not([hidden])').count(),1);
@@ -317,6 +326,7 @@ const fixtures={
  await mount('&workbench_action=ai');
  assert.equal(await page.locator('.md-product-card').count(),1,'extraction without catalog product remains visible');
  await page.locator('.md-product-card').getByRole('button',{name:'بررسی مشخصات',exact:true}).click();
+ assert.equal(await page.locator('.md-card-panel .molavi-source-thumbnail').count(),0,'the source image lives beside the card title');
  await page.getByText('اصلاح دستی؛ فقط اگر داده استخراج‌شده اشتباه است',{exact:true}).click();
  await page.locator('input[name="sale_price"]').fill('130000');
  assert.equal(await page.getByRole('tab',{name:'مرجع',exact:true}).count(),0,'later tabs are hidden during extraction');
@@ -389,7 +399,7 @@ const fixtures={
  assert.equal(await saveManual.isEnabled(),false,'a manual catalog hit still needs a price basis');
  await page.getByRole('combobox',{name:'مبنای قیمت مرجع'}).selectOption('unit');
  await saveManual.click();
- await page.getByText('گام فعلی · تأیید مشخصات',{exact:true}).waitFor();
+ await page.getByText(/مرجع «ref-manual» ذخیره شد/).first().waitFor();
  assert.equal(JSON.parse(writes.findLast(row=>JSON.parse(row.payload||'{}').action==='assign_ai_reference').payload).reference_id,'ref-manual');
  delete fixtures['/pipeline/ai-confirmations'].cases[0].reference_assignment;
  assert.deepEqual(errors,[]);

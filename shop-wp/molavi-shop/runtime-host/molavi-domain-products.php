@@ -239,6 +239,11 @@ function molavi_domain_status_api(string $method,array $query,?array $body,strin
             $id=$product['product_id'];
             $product['published']=isset($published[$id]);
             if ($id!==''&&isset($registeredByProduct[$id])) $product+=$queueStatus($registeredByProduct[$id]);
+            $offerId=$productsById[$id]['Latest Offer ID']??'';
+            if ($offerId!==''&&$offerId===$product['latest_offer_id']&&empty($product['source_integrity_issues'])) {
+                $image=$offersById[$offerId]['Image File ID']??'';
+                if (is_string($image)&&$image!=='') $product['image_file_id']=$image;
+            }
             if (isset($market[$id])) {
                 $product['market_tracked']=true;
                 if (isset($market[$id]['price']['regular_price'])) $product['regular_price_missing']=false;
