@@ -21,6 +21,25 @@ function molavi_domain_ai_reviews_api(string $method, array $query, ?array $body
                     'timestamp'=>(string)(($source['Source Post Updated At']??'')?:($source['Message Timestamp']??'')),
                     'image_file_id'=>(string)($source['Image File ID']??''),
                 ];
+                $products=molavi_domain_records($tables['Products']);
+                $children=[];
+                foreach ($offers as $offer) {
+                    if (!empty($offer['Derived From Offer ID'])&&!empty($offer['Offer ID']))
+                        $children[$offer['Derived From Offer ID']][]=$offer['Offer ID'];
+                }
+                $successors=[$id=>true];$lineage=[$id];
+                for ($index=0;$index<count($lineage);$index++) {
+                    foreach ($children[$lineage[$index]]??[] as $derived) {
+                        if (isset($successors[$derived])) continue;
+                        $successors[$derived]=true;$lineage[]=$derived;
+                    }
+                }
+                $related=array_values(array_filter($products,static fn($product)=>
+                    isset($successors[$product['Latest Offer ID']??''])&&!empty($product['Product ID'])));
+                if (!$related&&!empty($source['Product ID'])) {
+                    $related=array_values(array_filter($products,static fn($product)=>($product['Product ID']??'')===$source['Product ID']));
+                }
+                if (count($related)===1) $data['current_product_id']=(string)$related[0]['Product ID'];
             }
             return $data['cases']?$data:$data+molavi_domain_reference_extracted_offers($offers,$id,true);
         }

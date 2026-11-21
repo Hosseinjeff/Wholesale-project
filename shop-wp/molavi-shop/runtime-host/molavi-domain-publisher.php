@@ -100,6 +100,29 @@ function molavi_domain_site_settings(array $rows): array {
         $settings[$field]=in_array($field,['min_profit','unlock_target'],true)?(int)round($number,0,PHP_ROUND_HALF_EVEN):(float)$number;
     }return $settings;
 }
+
+function molavi_domain_request_product_publication(array $body): array {
+    molavi_domain_body_keys($body,['action','product_id','offer_id']);
+    $id=$body['product_id'];$offer=$body['offer_id'];
+    if (!is_string($id)||$id===''||strlen($id)>200||!is_string($offer)||$offer===''||strlen($offer)>300)
+        molavi_domain_fail('invalid_fields',400);
+    return molavi_domain_lock('publication',static function()use($id,$offer): array {
+        $tables=molavi_domain_sheets(['Products','Offers','Shop'],true);
+        $records=array_values(array_filter(molavi_domain_records($tables['Products']),static fn($record)=>($record['Product ID']??'')===$id));
+        if (count($records)!==1||($records[0]['Latest Offer ID']??'')!==$offer) molavi_domain_fail('offer_changed');
+        $projected=array_column(molavi_domain_site_products($tables)??[],null,'source_record_id');
+        if (($projected[$id]['status']??'')!=='sell'||!empty($projected[$id]['keep_registered']))
+            molavi_domain_fail('product_publication_prerequisite');
+        $published=array_column(molavi_domain_published_review_catalog(),'purchasable','source_record_id');
+        if (!empty($published[$id])) return ['ok'=>true,'product_id'=>$id,'publish_job'=>null,'state'=>'published'];
+        $job=molavi_domain_read('pipeline',static fn(SQLite3 $db)=>molavi_domain_row($db,
+            "SELECT id FROM jobs WHERE kind='publish' AND state IN ('queued','running','waiting_publication')
+             AND COALESCE(json_extract(payload,'$.images_only'),0)=0 ORDER BY created_at LIMIT 1"));
+        $publish=$job['id']??molavi_domain_queue('publish','owner-catalog:'.bin2hex(random_bytes(8)),[]);
+        return ['ok'=>true,'product_id'=>$id,'publish_job'=>$publish,'state'=>'queued'];
+    });
+}
+
 function molavi_domain_publish_shop(array $tables,bool $imagesOnly=false,int $maxRounds=8): array {
     return molavi_domain_lock('publication',static function()use($tables,$imagesOnly,$maxRounds):array {
         $held=molavi_domain_read('pipeline',static fn(SQLite3 $db)=>molavi_domain_row($db,'SELECT 1 FROM publication_holds LIMIT 1'));

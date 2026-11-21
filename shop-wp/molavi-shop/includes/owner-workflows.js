@@ -320,6 +320,7 @@
             backlog_changed: 'صف هنگام اجرا تغییر کرد؛ صفحه را تازه کنید و وضعیت جدید را بررسی کنید.',
             catalog_projection_changed: 'شیت هنگام همگام‌سازی تغییر کرد؛ همگام‌سازی تازه در صف قرار گرفت و خطاها باز ماندند.',
             catalog_sync_incomplete: 'همگام‌سازی کامل نشد؛ تلاش‌های قبلی باز ماندند تا دوباره بررسی شوند.',
+            product_publication_prerequisite: 'شرایط انتشار تغییر کرده است. کارت را تازه کنید و گام فعلی را بررسی کنید.',
             backlog_reconcile_unavailable: 'تطبیق خطاهای قدیمی موقتاً انجام نشد؛ صف را تازه کنید و دوباره بررسی کنید.',
             reextraction_active: 'یک بازاستخراج دیگر هنوز در صف یا در حال اجراست؛ ابتدا وضعیت همان اجرا را پیگیری کنید.',
             reextraction_preview_changed: 'فهرست پیام‌ها تغییر کرده است؛ تعداد تازه را بررسی و دوباره شروع کنید.',
@@ -368,7 +369,7 @@
         refresh:'تازه‌سازی فهرست مرجع',review:'ثبت بررسی فهرست',activate:'فعال‌سازی مرجع',
         pause_review:'توقف تطبیق',use_last_snapshot:'ادامه با فهرست ذخیره‌شده',capture:'ثبت وضعیت محصولات',
         confirm:'تأیید مشخصات',not_product:'رد پیشنهاد',save_discount_policy:'به‌روزرسانی تخفیف‌ها',
-        reopen_products:'بازگشایی بررسی',review_publication:'بازبینی برای انتشار',choose_product_message:'رسیدگی به پیام کالا',
+        reopen_products:'بازگشایی بررسی',review_publication:'بازبینی برای انتشار',request_publication:'درخواست انتشار',choose_product_message:'رسیدگی به پیام کالا',
     };
     const routeNames = {supplier_prices:'تأیید قیمت تأمین‌کننده',sheet_conflicts:'رفع تعارض',
         publication_holds:'ثبت تصمیم انتشار',telegram_operators:'ثبت تصمیم حساب ربات',
@@ -992,7 +993,7 @@
         return labels[String(state || '')] || 'وضعیت فروشگاه ثبت نشده';
     }
 
-    const workbenchActionOrder = ['holds','product_messages','source_integrity','ai','references','conflicts',
+    const workbenchActionOrder = ['holds','product_messages','source_integrity','ai','references','conflicts','stock',
         'supplier_prices','market_prices','status','storefront','deferred','next'];
     const workbenchActionSections = {
         holds:'publication_holds',ai:'ai_confirmations',references:'reference_items',
@@ -1018,12 +1019,22 @@
         return key;
     }
 
-    function workbenchActionKey(product) {
+    function workbenchPendingAction(product) {
         if (!product.holds.length&&product.ai.some(item=>item.message_review&&!item.publication_held&&!workbenchAiCaseIsDismissed(item)))
-            return workbenchIsDismissed(product,'ai')?'deferred':'ai';
-        const current=workbenchActionOrder.find(key => workbenchQueueMatches(product,key,true));
-        if (!current) return 'next';
-        return workbenchIsDismissed(product,current) ? 'deferred' : current;
+            return 'ai';
+        return workbenchActionOrder.find(key=>workbenchQueueMatches(product,key,true))||'next';
+    }
+
+    function workbenchActionKey(product) {
+        const current=workbenchPendingAction(product);
+        return current!=='next'&&workbenchIsDismissed(product,current)?'deferred':current;
+    }
+
+    function workbenchRestoreKeys(product) {
+        const key=workbenchPendingAction(product);
+        const candidates=[workbenchDismissalKey(product,key),workbenchCurrentDismissalKey(product,key)];
+        if (key==='ai') candidates.push(...product.ai.filter(caseRow=>!caseRow.publication_held).map(caseRow=>`ai|case:${caseRow.case_id}`));
+        return [...new Set(candidates)].filter(taskKey=>workbenchDismissalIndex.has(taskKey));
     }
 
     const workbenchStageModel = [
@@ -1044,12 +1055,13 @@
         if (key === 'product_messages') matched = Boolean(product.status?.message_count&&!product.ai.some(item=>item.message_review));
         if (key === 'references') matched = product.references.length > 0;
         if (key === 'conflicts') matched = product.conflicts.length > 0;
+        if (key === 'stock') matched = Boolean(product.status?.supplier_out_of_stock);
         if (key === 'supplier_prices') matched = product.status?.sale_offer_blocker==='supplier_price'
             ||(!product.status?.sale_offer_blocker&&workbenchPendingSupplierPrices(product)>0);
         if (key === 'market_prices') matched = product.status?.sale_offer_blocker==='regular_price';
         if (key === 'holds') matched = product.holds.length > 0;
         if (key === 'status') matched = Boolean(product.status && product.status.status!=='not_product'
-            && (product.status.update_needed||product.status.regular_price_missing||product.status.sale_offer_blocker==='no_spread'));
+            && (product.status.update_needed||product.status.publication_needed||product.status.regular_price_missing||product.status.sale_offer_blocker==='no_spread'));
         if (key === 'storefront') matched = ['not_visible','held_but_purchasable','ambiguous_product_id',
             'no_catalog_projection','not_checked','not_checked_catalog_truncated','sku_mismatch','not_purchasable'].includes(workbenchWooState(product));
         return matched && (includeDeferred || !workbenchIsDismissed(product, key));
@@ -1066,7 +1078,7 @@
     function workbenchNextStep(product, queue = workbenchQueue) {
         const key = workbenchActionForQueue(product, queue);
         if (key==='product_messages') return 'پیام‌های رسیده برای این کالا را مقایسه کنید و یک پیام را برای بررسی انتخاب کنید.';
-        if (key === 'source_integrity') return 'انتشار متوقف است؛ پیام منبع را پیدا کنید. ترمیم پیوند پیشنهاد به بررسی فنی نیاز دارد.';
+        if (key === 'source_integrity') return 'انتشار متوقف است؛ پیام اصلی یا پیشنهاد تازهٔ همین کالا را به ربات بفرستید.';
         if (key === 'ai') {
             const cases = product.ai.filter(item=>!workbenchAiCaseIsDismissed(item));
             if (cases.some(item => item.publication_held)) return 'جزئیات و اقدام دستهٔ متوقف‌شده را باز کنید؛ تصمیم این استخراج تا رفع همان توقف قفل است.';
@@ -1079,6 +1091,7 @@
         }
         if (key === 'references') return 'مرجع درست و مبنای قیمت را انتخاب کنید.';
         if (key === 'conflicts') return 'مقدار سرور را نگه دارید؛ فقط اگر خودتان شیت را دستی تغییر داده‌اید، اصلاح شیت را به فروشگاه بفرستید.';
+        if (key === 'stock') return 'پس از اعلام موجودی، پیام تازهٔ تأمین‌کننده را به ربات بفرستید.';
         if (key === 'supplier_prices') return workbenchReadyAction(product) === key
             ? 'قیمت تأمین‌کننده را با پیشنهاد فعلی بررسی و تأیید کنید.'
             : 'برای تأیید، پیام فعلی تأمین‌کننده و نسخهٔ معتبر قیمت لازم است.';
@@ -1088,6 +1101,7 @@
         if (key === 'holds') return 'جزئیات پیام‌های همان دسته را باز کنید و یک‌بار اقدام بازیابی را اجرا کنید.';
         if (key === 'deferred') return 'گام فعلی کنار گذاشته شده است؛ برای ادامه آن را در وضعیت سیستم بازگردانید.';
         if (key === 'status'&&product.status?.sale_offer_blocker==='no_spread') return 'برای عرضه، قیمت عادی باید از قیمت تأمین‌کننده بیشتر باشد.';
+        if (key === 'status'&&product.status?.publication_needed) return 'قیمت‌ها و مشخصات تأیید شده‌اند. انتشار را به صف بفرستید.';
         if (key === 'status'&&(!product.product_id||!product.status?.latest_offer_id)) return 'برای ادامه، پیام اصلی یا پیام تازهٔ همین کالا را پیدا کنید.';
         if (key === 'status') return product.status?.review_reason
             ? aiReviewReason(product.status.review_reason)
@@ -1573,7 +1587,11 @@
             const dependency = workbenchActionSections[primaryKey]
                 || (['source_integrity','status'].includes(primaryKey) ? 'product_status' : '');
             if (dependency && workbenchErrors[dependency]) {
-                return notice('دادهٔ این بخش تازه دریافت نشده است. پیش از ثبت تصمیم، اطلاعات را تازه‌سازی کنید.', 'warning');
+                const section=node('section');
+                const retry=node('button','دریافت دوبارهٔ این مرحله','button');retry.type='button';
+                retry.addEventListener('click',()=>dashboard('','info',[dependency]));
+                section.append(notice('دادهٔ این بخش تازه دریافت نشده است.','warning'),retry);
+                return section;
             }
             const card = node('div',null,'molavi-action-content');
             const status = product.status || {};
@@ -1857,8 +1875,8 @@
                     || 'پیوند منبع نیازمند بررسی فنی است').join(' · ')));
                 const source = safeSourceLink(status.source_post_url);
                 if (source) section.appendChild(source);
-                section.appendChild(notice('این کالا تا بازیابی پیوند منبع در فروشگاه منتشر نمی‌شود. جزئیات و پست اصلی را بررسی کنید؛ دادهٔ Offer حدس زده یا بازسازی خودکار نمی‌شود.', 'warning'));
-                const recoveryTools = node('button', 'رفتن به ابزار بازبینی منبع', 'button button-secondary');
+                section.appendChild(node('p','پیام اصلی یا یک پیشنهاد تازه برای همین کالا را به ربات بفرستید. وقتی استخراج آماده شد، پیشنهاد را از پیام‌های ربات برای همین کالا بررسی کنید.'));
+                const recoveryTools = node('button', 'دیدن پیام‌های ربات', 'button button-primary');
                 recoveryTools.type = 'button';
                 recoveryTools.addEventListener('click', () => openSourceReviewTool(product));
                 section.appendChild(recoveryTools);
@@ -2231,6 +2249,14 @@
             },
             renderReferenceTools: productReferenceTools,
             reconcile:reconcileStorefront,
+            restoreKeys:workbenchRestoreKeys,
+            requestPublication:async product=>{
+                const response=await request('POST',{action:'request_publication',product_id:product.product_id,
+                    offer_id:product.status.latest_offer_id},undefined,'product_status');
+                if (response.product_id!==product.product_id||!['queued','published'].includes(response.state)) throw new Error('invalid_receipt');
+                await dashboard(response.state==='queued'?'انتشار در صف است. نتیجه را در اعلان بالای صفحه ببینید.':'کالا در فروشگاه قابل خرید است.',
+                    'success',['product_status','operations']);
+            },
             dismissalTask:(product,key)=>({task_key:workbenchCurrentDismissalKey(product,key),queue:key,
                 stage:workbenchDismissalStage(key),label:workbenchTaskMeta(product,key).label,
                 product_name:product.name,product_id:product.product_id,channel:product.channel}),
@@ -4224,7 +4250,7 @@
             try {
                 const {pending,history}=await request('GET',undefined,endpoint.href,'reconciliation',{ttl:15000});
                 panel.replaceChildren();
-                if (!pending?.length) panel.append(node('p','پیام استخراج‌شده‌ای منتظر انتخاب نیست.'));
+                if (!pending?.length) panel.append(node('p','پیام تازهٔ این کالا را به ربات بفرستید. وقتی استخراج آماده شد، همین بخش را باز کنید و پیام را برای بررسی انتخاب کنید.'));
                 else panel.append(...pending.map(messageRow));
                 if (history?.length) {
                     const archived=node('details');
@@ -4248,7 +4274,7 @@
         root.append(dialog);dialog.showModal();
     }
 
-    function recentBotMessages() {
+    function recentBotMessages(product=null) {
         const inbox=node('section',null,'molavi-inbox');
         const header=node('div',null,'molavi-inbox-header');
         const refresh=node('button','تازه‌کردن پیام‌ها','button');refresh.type='button';
@@ -4258,6 +4284,12 @@
         inbox.append(header,status,contents);
         let rows=new Map();
         let refreshPending=false;
+        const woo=product?.listing?.woo_product_id||product?.status?.woo_product_id;
+        const sourceUrl=product?.status?.source_post_url;
+        const name=workbenchNameKey(product?.name);
+        const related=item=>Boolean((sourceUrl&&sourceUrl===item.source_url)
+            ||(woo&&item.related_products?.some(row=>row.woo_product_id===woo))
+            ||(name&&workbenchNameKey(item.excerpt).includes(name)));
         function inboxRow(item) {
             const state=item.hold_id?'پردازش متوقف شده': item.retry_at ? 'منتظر سهمیه' : item.extraction_state==='error' ? 'خطا در استخراج'
                 : ({done:'پردازش پایان یافت',queued:item.batch_id?'در صف استخراج':'دریافت شد',running:'در حال استخراج'}[item.state]||displayBatchState(item.state));
@@ -4293,7 +4325,8 @@
                 url.searchParams.set('view','inbox');
                 const {messages}=await request('GET',undefined,url.toString(),'reconciliation',manual?{label:'تازه‌سازی پیام‌های منبع'}:{});
                 const nextRows=new Map();
-                for (const item of messages || []) {
+                const visible=(messages||[]).filter(item=>!product||related(item));
+                for (const item of visible) {
                     const key=item.receipt_id || JSON.stringify([item.received_at,item.channel,item.source_id]);
                     const signature=JSON.stringify(item);
                     const previous=rows.get(key);
@@ -4305,7 +4338,9 @@
                 if (elements.length!==rows.size || elements.some((row,index)=>row!==contents.children[index]))
                     contents.replaceChildren(...elements);
                 rows=nextRows;status.hidden=rows.size>0;
-                status.textContent=rows.size?'':'هنوز پیامی دریافت نشده است.';
+                status.textContent=rows.size?'':product
+                    ? 'در پیام‌های اخیر، پیامی برای این کالا پیدا نشد. پیام تازه را به ربات بفرستید و دوباره بررسی کنید.'
+                    : 'هنوز پیامی دریافت نشده است.';
             } catch (error) {
                 status.hidden=false;status.textContent=errorText(error.message);
             } finally {
@@ -4324,7 +4359,13 @@
     async function sourceReextractionWorkspace(panel, product) {
         if (product) {
             const offer=String(product.status?.latest_offer_id || product.ai[0]?.offer_id || product.references[0]?.offer_id || '');
-            if (offer) panel.appendChild(offerReextraction(offer));
+            if (offer&&!product.status?.source_integrity_issues?.length) panel.appendChild(offerReextraction(offer));
+            const woo=product.listing?.woo_product_id||product.status?.woo_product_id;
+            if (woo) {
+                const messages=node('button','پیام‌های آمادهٔ انتخاب','button button-primary');messages.type='button';
+                messages.addEventListener('click',()=>openProductMessages({woo_product_id:woo,name:product.name}));
+                panel.appendChild(messages);
+            }
         }
         const filters=node('details',null,'molavi-advanced-reextract');
         filters.appendChild(node('summary','انتخاب بر اساس کانال و تاریخ'));
@@ -4335,7 +4376,9 @@
             reextractionPanel(filtered,{initialChannel:product?.channel || ''});
         });
         if (product) {
-            panel.appendChild(filters);
+            const {inbox,readInbox}=recentBotMessages(product);
+            panel.append(inbox,filters);
+            await readInbox();
             return;
         }
         const recent=node('section',null,'card molavi-reextract-panel');

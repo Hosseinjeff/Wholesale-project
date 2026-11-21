@@ -236,6 +236,19 @@ check_market(molavi_supplier_offer_is_purchasable(true,new WC_Product($published
     &&molavi_supplier_offer_is_purchasable(true,new WC_Product($published+['_molavi_sale_offer_expires_at'=>time()]))===false
     &&molavi_supplier_offer_is_purchasable(true,new WC_Product($published+['_molavi_sale_offer_expires_at'=>time()+600]))===true,
     'Woo checkout blocks missing and expired eligibility, and accepts the same listing before expiry');
+require $root.'molavi-domain-gateway.php';
+require $root.'molavi-domain-ai-published-reviews.php';
+$GLOBALS['sheets']=$tables;
+molavi_domain_tx('pipeline',static fn(SQLite3 $db)=>molavi_domain_sql($db,"UPDATE jobs SET state='done' WHERE kind='publish'"));
+$request=['action'=>'request_publication','product_id'=>'rani-1','offer_id'=>'rani'];
+$receipt=molavi_domain_status_api('POST',[],$request,'wp:7');
+check_market($receipt['state']==='queued'&&str_starts_with($receipt['publish_job'],'publish:owner-catalog:')
+    &&molavi_domain_status_api('POST',[],$request,'wp:7')['publish_job']===$receipt['publish_job'],
+    'a verified card can request publication and repeated requests reuse the active job');
+$GLOBALS['sheets']['Products'][1][array_search('Sale Price',$tables['Products'][0],true)]=200000;
+try {molavi_domain_status_api('POST',[],$request,'wp:7');$blocked=false;}
+catch (MolaviWorkflowError $e) {$blocked=$e->getMessage()==='product_publication_prerequisite';}
+check_market($blocked,'the publication action rechecks current prices and refuses a changed supplier quote');
 foreach(glob(ABSPATH.'wp-admin/includes/*.php') as $file) unlink($file);
 rmdir(ABSPATH.'wp-admin/includes');rmdir(ABSPATH.'wp-admin');rmdir(ABSPATH);
 foreach(glob(MOLAVI_STATE_ROOT.'/*') as $file) unlink($file);

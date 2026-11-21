@@ -140,7 +140,7 @@ const fixtures={
     }
     if(f.get('action')==='molavi_owner_workbench_dismissals'){
       const records=JSON.parse(f.get('records')||'[]');
-      Object.assign(writes.at(-1),{operation:f.get('operation'),records});
+      Object.assign(writes.at(-1),{operation:f.get('operation'),records,keys:JSON.parse(f.get('keys')||'[]')});
       if(f.get('operation')==='dismiss'){assert.equal(records[0].reason,'later');assert.equal(records[0].scope,'selected');}
       return route.fulfill({json:{success:true,data:{items:f.get('operation')==='restore'?[]:records}}});
     }
@@ -169,6 +169,11 @@ const fixtures={
       assert.equal(payload.expected_revision,'revision-1');assert.equal(payload.command_id,'cmd-1');
       fixtures[path].offers=[];fixtures['/pipeline/product-status-snapshots'].products[0].supplier_price_state='current';
       return route.fulfill({json:{ok:true,product_id:'1',source_revision:'revision-1',command_id:'cmd-1',verified_at:now,publish_job:'publish-1'}});
+    }
+    if(path==='/pipeline/product-status-snapshots'&&JSON.parse(f.get('payload')||'{}').action==='request_publication') {
+      const {product_id,offer_id}=JSON.parse(f.get('payload'));
+      assert.equal(offer_id,'verified-offer');
+      return route.fulfill({json:{ok:true,product_id,state:'queued',publish_job:'publish:fixture'}});
     }
     return route.fulfill({status:403,json:{ok:false,error:'write_blocked'}});
    }
@@ -246,7 +251,7 @@ const fixtures={
       return route.fulfill({json:{ok:true,cases:[],reviewed_offer:{title:'استخراج پیشین بیسکویت',
         fields:{consumer_price:'150000',currency:'IRT'}},recent_decisions:[{offer_id:'offer-old',
           decision:{choice:'confirm',fields:{price_role:'package',sale_price:120000,actual_price:140000,package_count:12}}}],
-        titles:[{offer_id:'offer-4',title:'بیسکویت شکلاتی'}]}});
+        current_product_id:'10',titles:[{offer_id:'offer-4',title:'بیسکویت شکلاتی'}]}});
      }
      if(query.get('view')==='workbench-candidates'){
       lazyCandidates++;
@@ -719,6 +724,10 @@ const fixtures={
  assert.equal(await old.getByText('۱۵۰٬۰۰۰ تومان',{exact:true}).isVisible(),false,'saved approval takes precedence over the extracted price');
  await old.getByText('مشخصات استخراج اولیه',{exact:true}).click();
  await old.getByText('۱۵۰٬۰۰۰ تومان',{exact:true}).waitFor();
+ await old.getByRole('button',{name:'ادامه در کارت فعلی کالا'}).click();
+ await page.locator('.md-product-card').getByRole('heading',{name:'سس کچاپ'}).waitFor();
+ assert.equal(new URL(page.url()).searchParams.get('product_id'),'10');
+ await mount('&offer_id=offer-old',true,true);
  await old.getByRole('button',{name:'بررسی بیسکویت شکلاتی'}).click();
  await page.locator('.md-product-card').getByRole('heading',{name:'بیسکویت شکلاتی'}).waitFor();
  assert.equal(new URL(page.url()).searchParams.get('offer_id'),'offer-4','historical link navigates to the current extraction');
@@ -830,6 +839,30 @@ const fixtures={
  await page.getByRole('checkbox',{name:/قیمت امروز|قیمت و موجودی امروز/}).check();
  await page.getByText('گام فعلی · تأیید مشخصات',{exact:true}).waitFor();
  assert.equal(await page.getByRole('dialog').count(),0,'publication recovery opens the current form directly');
+ dashboardDismissals.push({task_key:'ai|case:ai-4',queue:'ai',stage:'extract',label:'استخراج محصول'});
+ await mount('&offer_id=offer-4',true);
+ await page.getByRole('button',{name:'بازگرداندن همین بررسی',exact:true}).click();
+ await page.getByRole('button',{name:'بررسی مشخصات',exact:true}).waitFor();
+ assert.deepEqual(writes.at(-1).keys,['ai|case:ai-4']);
+ dashboardDismissals=[];
+ fixtures['/pipeline/product-status-snapshots'].published_unlinked=[
+   {woo_product_id:61,name:'کالای بدون پیام',message_count:0,sale_offer_blocker:'supplier_price'},
+   {woo_product_id:62,name:'کالای دارای پیام',message_count:1,sale_offer_blocker:'supplier_price'}
+ ];
+ inboxMessages.push({...received,receipt_id:703,source_id:'703',excerpt:'رسید کالای بدون پیام از تأمین‌کننده'});
+ await mount('&scope=waiting',true);
+ await page.locator('.md-product-card').filter({hasText:'کالای بدون پیام'}).getByRole('button',{name:'پیگیری پیام ربات'}).click();
+ const scopedInbox=page.locator('.molavi-inbox');
+ await scopedInbox.locator('summary').first().waitFor();
+ assert.equal(await scopedInbox.locator('summary').count(),1,'supplier recovery opens the corresponding bot receipt');
+ await page.getByRole('button',{name:'محصولات',exact:true}).click();
+ await page.getByRole('button',{name:/^آمادهٔ بررسی/}).click();
+ await page.locator('.md-product-card').filter({hasText:'کالای دارای پیام'}).getByText(/انتخاب پیام کالا/).waitFor();
+ products.push({product_id:'verified',product_name:'کالای تأییدشده در انتظار انتشار',channel:'@supplier',
+   latest_offer_id:'verified-offer',status:'imported',publication_needed:true});
+ await mount('&product_id=verified',true,true);
+ await page.getByRole('button',{name:'درخواست انتشار',exact:true}).click();
+ await page.getByText('انتشار در صف است. نتیجه را در اعلان بالای صفحه ببینید.',{exact:true}).waitFor();
  assert.deepEqual(errors,[]);
  console.log(JSON.stringify({passed:true,errors,writes:writes.length,captures:['/tmp/molavi-dashboard-desktop.png','/tmp/molavi-dashboard-mobile.png']}));
  await browser.close();

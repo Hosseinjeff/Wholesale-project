@@ -207,6 +207,7 @@ function molavi_domain_status_history(?string $selected=null,bool $marketEligibi
 function molavi_domain_status_api(string $method,array $query,?array $body,string $actor): array {
     if($method==='GET'&&($query['view']??null)==='current')return array_merge(['ok'=>true],molavi_domain_current_products());
     if($method==='POST'){
+        if (($body['action']??'')==='request_publication') return molavi_domain_request_product_publication($body);
         if($body!==['action'=>'capture'])molavi_domain_fail('invalid_body',400);
         $capture=molavi_domain_status_capture(molavi_domain_sheets(['Products','Offers'],true),'owner_capture:'.$actor);
         return array_merge(['ok'=>true,'capture'=>$capture],molavi_domain_status_history());
@@ -219,6 +220,7 @@ function molavi_domain_status_api(string $method,array $query,?array $body,strin
     if ($selected==='') {
         $catalog=molavi_domain_published_review_catalog();
         $published=molavi_domain_published_review_ids($catalog);
+        $purchasable=array_column($catalog,'purchasable','source_record_id');
         $checkPrices=function_exists('molavi_domain_sale_offer_evidence');$now=time();
         $registered=function_exists('molavi_domain_registered_products')?molavi_domain_registered_products():[];
         $tables=$checkPrices||$registered||function_exists('molavi_domain_market_catalog_sources')?molavi_domain_sheets(['Products','Offers']):[];
@@ -228,8 +230,7 @@ function molavi_domain_status_api(string $method,array $query,?array $body,strin
         $queues=$registered?molavi_domain_product_message_queue($offers,$registered):[];
         $registeredByProduct=array_column($registered,'woo_product_id','source_record_id');
         $queueStatus=static function(int $woo)use($queues): array {
-            if (!isset($queues[$woo])) return [];
-            $pending=array_filter($queues[$woo],static fn($offer)=>in_array($offer['state'],['pending','review'],true));
+            $pending=array_filter($queues[$woo]??[],static fn($offer)=>in_array($offer['state'],['pending','review'],true));
             return ['woo_product_id'=>$woo,'message_count'=>count($pending)];
         };
         $market=[];
@@ -255,6 +256,10 @@ function molavi_domain_status_api(string $method,array $query,?array $body,strin
                 $product=array_replace($product,$price);
                 $product['regular_price_due']=$price['regular_price_state']!=='current';
                 $product['regular_price_missing']=$price['regular_price_state']==='missing';
+                $product['supplier_out_of_stock']=molavi_domain_stock_status($record['Stock Status']??null)==='Out of Stock';
+                $product['publication_needed']=($record['Status']??'')==='imported'&&empty($purchasable[$id])
+                    &&$price['sale_offer_blocker']===''&&!$product['supplier_out_of_stock']
+                    &&empty($product['source_integrity_issues'])&&$offerId!==''&&$offerId===$product['latest_offer_id'];
             }
             if ($product['published']) $linked[$id]=true;
         }
