@@ -1,6 +1,22 @@
 # Site changes and preservation workflow
 
-Updated: 2026-11-17, Asia/Tehran
+Updated: 2026-11-21, Asia/Tehran
+
+## 2026-11-21 Maximum discounts for full packs
+
+An exact multiple of the catalog pack size now receives the maximum discount for
+that product and buyer type. Sizes below two are treated as single or unknown
+packs. Full-pack lines are priced separately and excluded from the reference value
+that drives shared discount progress. Their savings still count in the total cart
+savings. When a quantity is no longer a full-pack multiple, it returns to the
+shared calculation. The product card explains the number and size of the packs,
+and the progress bar displays how much the qualifying lines save.
+
+Staging revision `3426be9` was deployed and read back. The focused PHP test checked
+pricing and WooCommerce totals for 20, 24, 28, and 48 units, split cart rows, and
+both buyer types. A Chromium guest session verified the live add button, keyboard
+access to the explanation, progress and savings, the native WooCommerce price,
+and layout at 320, 390, 760, and 1440px. The test cart was emptied.
 
 ## 2026-11-17 Explicit saved-list creation, editing and transfers
 
