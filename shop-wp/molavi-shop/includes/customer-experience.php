@@ -213,7 +213,7 @@ function molavi_render_shopping_help(): void {
     $delivery=molavi_delivery_preview(0);
     echo '<dialog id="molavi-shopping-help" class="molavi-info-dialog"><h2>روش خرید</h2>';
     echo '<p>برای خرید خانه «خانوار» و برای خرید مغازه «مغازه‌دار» را انتخاب کنید. قیمت و حداقل تعداد، متناسب با این انتخاب نمایش داده می‌شود.</p>';
-    echo '<p>قیمت فعلی شامل تخفیف است. سقف تخفیف هر کالا جداست و با افزایش ارزش کالاهای مشمول در سبد فعال می‌شود. کم‌کردن سبد می‌تواند قیمت فعلی کالاهای مشمول را تغییر دهد.</p>';
+    echo '<p>قیمت فعلی شامل تخفیف است. خرید یک یا چند بستهٔ کامل، سقف تخفیف همان کالا را فعال می‌کند. ارزش این کالاها جدا از پیشرفت تخفیف سایر کالاهای سبد محاسبه می‌شود.</p>';
     echo '<h3>ارسال تهران</h3><p>بر مبنای شرایط فعلی، ارسال برای جمع کالای پس از تخفیف از '
         . esc_html(molavi_toman((int)$delivery['threshold'])) . ' رایگان است؛ کمتر از آن '
         . esc_html(molavi_toman((int)$delivery['fee'])) . ' برآورد می‌شود. نشانی مشمول و هزینهٔ قطعی در تسویه‌حساب مشخص می‌شود.</p>';
@@ -224,6 +224,14 @@ add_action('wp_footer',static function (): void {
     if(!molavi_is_customer_request())return;
     if(!molavi_is_storefront_request()&&function_exists('Molavi\\Elementor\\molavi_render_floating_cart'))\Molavi\Elementor\molavi_render_floating_cart(molavi_quote(),true);
     molavi_render_shopping_help();
+    ?>
+    <dialog id="molavi-full-pack-help" class="molavi-library-prompt" aria-labelledby="molavi-full-pack-title">
+        <h2 id="molavi-full-pack-title">چرا این کالا حداکثر تخفیف دارد؟</h2>
+        <p data-molavi-full-pack-copy></p>
+        <p>تخفیف این کالا در صرفه‌جویی کل سبد لحاظ می‌شود. ارزش آن در نوار پیشرفت تخفیف سایر کالاها حساب نمی‌شود.</p>
+        <form method="dialog" class="molavi-prompt-actions"><button type="submit" autofocus>متوجه شدم</button></form>
+    </dialog>
+    <?php
     \Molavi\Elementor\molavi_render_favorites_library();
 },15);
 

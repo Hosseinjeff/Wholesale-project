@@ -204,13 +204,35 @@ function molavi_is_tuna_threshold_candidate(string $name): bool
     return !preg_match('/(?:طعم|نودل|سوپ|رشته|پاستا|چیپس|اسنک|noodles?|flavou?r)/iu', $name);
 }
 
-function molavi_eligible_reference_total(array $map, array $qtys): int
+function molavi_full_pack_size(array $row, int $quantity, string $buyerType): int
+{
+    $packSize = (int) ($row['pack_size'] ?? 0);
+    if ($packSize < 2 || $quantity < $packSize || $quantity % $packSize !== 0 || empty($row['discountable'])) {
+        return 0;
+    }
+    $curve = molavi_profile_curve($row, $row, $buyerType);
+    return (int) $curve['shelf'] > (int) $curve['floor'] ? $packSize : 0;
+}
+
+function molavi_full_pack_sizes(array $map, array $qtys, string $buyerType): array
+{
+    $sizes = [];
+    foreach ($qtys as $id => $quantity) {
+        $size = molavi_full_pack_size($map[$id] ?? [], (int) $quantity, $buyerType);
+        if ($size > 0) {
+            $sizes[$id] = $size;
+        }
+    }
+    return $sizes;
+}
+
+function molavi_eligible_reference_total(array $map, array $qtys, array $fullPackSizes = []): int
 {
     $total = 0;
     foreach ($qtys as $id => $quantity) {
         $row = $map[(string) $id] ?? null;
         $qty = max(0, (int) $quantity);
-        if ($row && $qty > 0 && !empty($row['discountable'])) {
+        if ($row && $qty > 0 && !empty($row['discountable']) && !isset($fullPackSizes[$id])) {
             $total += max(0, (int) ($row['shelf'] ?? 0)) * $qty;
         }
     }
@@ -225,6 +247,9 @@ function molavi_catalog_product_price(array $row, int $quantity, string $buyerTy
     $progress = $cartProgress === null
         ? min(1.0, max(0, $quantity) / ($unit * $thresholdUnits))
         : min(1.0, max(0.0, $cartProgress));
+    if (molavi_full_pack_size($row, $quantity, $buyerType) > 0) {
+        $progress = 1.0;
+    }
     return [
         'price' => molavi_unit_price($profiled, $progress),
         'progress' => $progress,
@@ -456,21 +481,27 @@ function molavi_price_for_product(WC_Product $product, ?int $quantity = null, ?s
         $type, molavi_cart_progress($type));
 }
 
+function molavi_cart_quantities(WC_Cart $cart): array
+{
+    $qtys = [];
+    foreach ($cart->get_cart() as $item) {
+        $id = (string) $item['product_id'];
+        $qtys[$id] = ($qtys[$id] ?? 0) + (int) $item['quantity'];
+    }
+    return $qtys;
+}
+
 function molavi_cart_progress(?string $buyerType = null): float
 {
     if (!function_exists('WC') || !WC()->cart) {
         return 0.0;
     }
     $map = molavi_catalog_map();
-    $qtys = [];
-    foreach (WC()->cart->get_cart() as $item) {
-        $id = (string) $item['product_id'];
-        $qtys[$id] = ($qtys[$id] ?? 0) + (int) $item['quantity'];
-    }
+    $qtys = molavi_cart_quantities(WC()->cart);
     $buyer = $buyerType ?: molavi_buyer_type();
     $targets = molavi_unlock_targets($map);
     $target = max(1, (int) $targets[$buyer]);
-    return min(1.0, molavi_eligible_reference_total($map, $qtys) / $target);
+    return min(1.0, molavi_eligible_reference_total($map, $qtys, molavi_full_pack_sizes($map, $qtys, $buyer)) / $target);
 }
 
 function molavi_cart_qty(int $productId): int
@@ -534,16 +565,11 @@ function molavi_quote(): array
 {
     $buyer = molavi_buyer_type();
     $units = [];
-    $qtys = [];
     $map = molavi_catalog_map();
-    if (function_exists('WC') && WC()->cart) {
-        foreach (WC()->cart->get_cart() as $item) {
-            $id = (string) $item['product_id'];
-            $qtys[$id] = ($qtys[$id] ?? 0) + (int) $item['quantity'];
-        }
-    }
+    $qtys = function_exists('WC') && WC()->cart ? molavi_cart_quantities(WC()->cart) : [];
     $targets = molavi_unlock_targets($map);
-    $eligibleReference = molavi_eligible_reference_total($map, $qtys);
+    $fullPackSizes = molavi_full_pack_sizes($map, $qtys, $buyer);
+    $eligibleReference = molavi_eligible_reference_total($map, $qtys, $fullPackSizes);
     $target = max(1, (int) $targets[$buyer]);
     $cartProgress = min(1.0, $eligibleReference / $target);
     foreach ($map as $id => $row) {
@@ -553,6 +579,7 @@ function molavi_quote(): array
     $reference = 0;
     $subtotal = 0;
     $savings = 0;
+    $fullPackSavings = 0;
     if (function_exists('WC') && WC()->cart) {
         foreach (WC()->cart->get_cart() as $item) {
             $id = (string) $item['product_id'];
@@ -567,7 +594,11 @@ function molavi_quote(): array
                 $subtotal += $unit * $qty;
                 if ($shelf > 0) {
                     $reference += $shelf * $qty;
-                    $savings += max(0, $shelf - $unit) * $qty;
+                    $lineSavings = max(0, $shelf - $unit) * $qty;
+                    $savings += $lineSavings;
+                    if (isset($fullPackSizes[$id])) {
+                        $fullPackSavings += $lineSavings;
+                    }
                 }
             }
         }
@@ -589,6 +620,8 @@ function molavi_quote(): array
                     'shop_max_discount' => $row['shop_max_discount']];
         }, $map),
         'eligible_reference' => $eligibleReference,
+        'full_pack_sizes' => (object) $fullPackSizes,
+        'full_pack_savings' => $fullPackSavings,
         'household_unlock' => (int) $targets['household'],
         'shop_unlock' => (int) $targets['shop'],
         'tuna_shell_units' => (int) $targets['shell_units'],
@@ -724,7 +757,10 @@ add_action('woocommerce_before_calculate_totals', static function ($cart): void 
     }
     $map = molavi_catalog_map();
     $buyer = molavi_buyer_type();
-    $cartProgress = molavi_cart_progress($buyer);
+    $qtys = molavi_cart_quantities($cart);
+    $target = max(1, (int) molavi_unlock_targets($map)[$buyer]);
+    $fullPackSizes = molavi_full_pack_sizes($map, $qtys, $buyer);
+    $cartProgress = min(1.0, molavi_eligible_reference_total($map, $qtys, $fullPackSizes) / $target);
     foreach ($cart->get_cart() as $item) {
         $product = $item['data'] ?? null;
         if (!$product instanceof WC_Product) {
@@ -734,7 +770,8 @@ add_action('woocommerce_before_calculate_totals', static function ($cart): void 
         if ($row === null) {
             continue;
         }
-        $calculated = molavi_catalog_product_price($row, (int) $item['quantity'], $buyer, $cartProgress);
+        $quantity = (int) ($qtys[(string) $product->get_id()] ?? $item['quantity']);
+        $calculated = molavi_catalog_product_price($row, $quantity, $buyer, $cartProgress);
         $product->set_price((string) $calculated['price']);
     }
 }, 20);

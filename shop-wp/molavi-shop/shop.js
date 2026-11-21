@@ -163,9 +163,11 @@
         });
         var householdTarget = Number(lastQuote.household_unlock) || 5000000;
         var shopTarget = Number(lastQuote.shop_unlock) || householdTarget * 4;
-        if (buyerType === "household" && eligibleReference > householdTarget) return { buyer_type: "shop", reason: "household_threshold_exceeded" };
+        if (buyerType === "household" && eligibleReference > householdTarget) {
+            return { buyer_type: "shop", reason: "household_threshold_exceeded", eligible_reference: eligibleReference };
+        }
         if (buyerType === "shop" && eligibleReference < shopTarget && householdValid) {
-            return { buyer_type: "household", reason: "household_order" };
+            return { buyer_type: "household", reason: "household_order", eligible_reference: eligibleReference };
         }
         return null;
     }
@@ -216,11 +218,10 @@
                 var shopSuggested=switchSuggestion.buyer_type==='shop';
                 var heading=document.createElement('strong');heading.className='molavi-suggestion-title';
                 heading.textContent=shopSuggested?'پیشنهاد برای این سبد: خرید فروشگاهی':'پیشنهاد برای این سبد: خرید خانوار';globalFeedback.appendChild(heading);
-                var reference=0;Object.keys(serverQtys).forEach(function(id){var row=rowOf(id);if(row&&Number(row.discountable)===1)reference+=Number(row.shelf||0)*Number(serverQtys[id]||0);});
-                if(quote.eligible_reference!=null)reference=Number(quote.eligible_reference)||0;
+                var reference = Number(switchSuggestion.eligible_reference) || 0;
                 var reason=document.createElement('p');
                 reason.textContent=shopSuggested
-                    ? 'ارزش مرجع کالاهای مشمول سبد شما '+toman(reference)+' است و از حد مسیر خانوار ('+toman(Number(quote.household_unlock)||5000000)+') بیشتر شده است. مسیر فروشگاه برای خرید با حجم و گام‌های بزرگ‌تر در نظر گرفته شده است.'
+                    ? 'ارزش مرجع همهٔ کالاهای تخفیف‌پذیر سبد شما '+toman(reference)+' است و از حد مسیر خانوار ('+toman(Number(quote.household_unlock)||5000000)+') بیشتر شده است. مسیر فروشگاه برای خرید با حجم و گام‌های بزرگ‌تر در نظر گرفته شده است.'
                     : 'تعدادهای فعلی با گام‌های خانوار سازگارند و ارزش مرجع سبد ('+toman(reference)+') هنوز کمتر از حد مسیر فروشگاه ('+toman(Number(quote.shop_unlock)||20000000)+') است. به همین دلیل بررسی مسیر خانوار پیشنهاد می‌شود.';
                 globalFeedback.appendChild(reason);
                 var effect=document.createElement('p');effect.textContent='با تغییر نوع خرید، قیمت و تخفیف دوباره محاسبه می‌شود؛ کالاها و تعداد فعلی خودکار عوض نمی‌شوند. اگر تعداد با گام جدید هماهنگ نباشد، مقدار پیشنهادی «اصلاح تعداد» را پیش از ادامه سفارش بررسی و تأیید کنید.';globalFeedback.appendChild(effect);
@@ -390,6 +391,11 @@
             if (card) {
                 card.setAttribute("data-price", String(unit));
                 card.setAttribute("data-has-discount", shelf > unit ? "1" : "0");
+                var fullPack = card.querySelector("[data-molavi-full-pack-info]");
+                if (fullPack) {
+                    var packSize = Number((quote.full_pack_sizes || {})[id]) || 0;
+                    fullPack.hidden = !packSize || Number(counts[id]) !== Number(serverQtys[id]);
+                }
             }
             var rate = shelf > unit ? (shelf - unit) / shelf : 0;
             var rateNode = node.querySelector(".molavi-rate");
@@ -560,7 +566,6 @@
         var saved = 0;
         var total = 0;
         var referenceTotal = 0;
-        var eligibleReference = 0;
         var kinds = 0;
         var html = "";
         Object.keys(counts).forEach(function (id) {
@@ -574,7 +579,6 @@
             total += unit * qty;
             if (shelf > 0) {
                 referenceTotal += shelf * qty;
-                if (Number(row.discountable) === 1) eligibleReference += shelf * qty;
             }
             kinds += 1;
             var invalidLine = Array.isArray(quote && quote.invalid_lines)
@@ -652,7 +656,17 @@
         if (progressFill) progressFill.style.width = progressPct + "%";
         var progressTitle = document.querySelector("[data-molavi-progress-title]");
         var remainingNode = document.querySelector("[data-molavi-remaining]");
-        if (progressTitle) progressTitle.textContent = progress >= 1 ? "سقف تخفیف تکمیل شده" : "پیشرفت تخفیف";
+        var packCount = Object.keys(quote.full_pack_sizes || {}).length;
+        var packNotice = document.querySelector("[data-molavi-full-pack-progress]");
+        if (packNotice) {
+            packNotice.hidden = packCount === 0;
+            packNotice.textContent = packCount
+                ? digits(packCount) + " کالا با تخفیف بستهٔ کامل، " + toman(Number(quote.full_pack_savings) || 0)
+                    + " از صرفه‌جویی کل سبد را تأمین می‌کنند. ارزش این کالاها جدا از نوار پیشرفت محاسبه می‌شود."
+                : "";
+        }
+        if (progressTitle) progressTitle.textContent = progress >= 1 ? "سقف تخفیف تکمیل شده"
+            : packCount ? "پیشرفت تخفیف سایر کالاها" : "پیشرفت تخفیف";
         if (remainingNode) remainingNode.textContent = progress >= 1
             ? "سقف تخفیف " + (buyerType === "shop" ? "مغازه‌دار" : "خانوار") + " فعال است."
             : "تا سقف " + (buyerType === "shop" ? "مغازه‌دار" : "خانوار") + ": " + toman(Number(quote && quote.remaining) || 0);
@@ -704,6 +718,21 @@
         document.addEventListener('click',function(event){
             var opener=event.target.closest('[data-molavi-open-help]'),dialog=document.getElementById('molavi-shopping-help');
             if(!opener||!dialog)return;event.preventDefault();dialog.showModal();
+        });
+        document.addEventListener("click", function (event) {
+            var opener = event.target.closest("[data-molavi-full-pack-info]");
+            var dialog = document.getElementById("molavi-full-pack-help");
+            if (!opener || !dialog || dialog.open) return;
+            var id = opener.closest("[data-molavi-card]").getAttribute("data-product");
+            var packSize = Number((lastQuote.full_pack_sizes || {})[id]);
+            var quantity = Number(serverQtys[id]);
+            if (!packSize || quantity !== Number(qtys[id])) return;
+            var name = opener.closest("[data-molavi-card]").getAttribute("data-name");
+            var profile = buyerType === "shop" ? "فروشگاه" : "خانوار";
+            dialog.querySelector("[data-molavi-full-pack-copy]").textContent = "تعداد «" + name + "» در سبد شما "
+                + digits(quantity) + " عدد است؛ یعنی " + digits(quantity / packSize) + " بستهٔ کاملِ "
+                + digits(packSize) + " عددی. به همین دلیل حداکثر تخفیف این کالا برای خرید " + profile + " فعال شده است.";
+            dialog.showModal();
         });
         document.addEventListener('input',function(event){if(event.target.matches('form.cart input.qty'))paintCustomerDetails(lastQuote);});
     }
