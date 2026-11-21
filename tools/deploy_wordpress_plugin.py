@@ -27,6 +27,7 @@ import ssl
 
 
 PLUGIN_PREFIX = Path("shop-wp/molavi-shop")
+RUNTIME_PREFIX = PLUGIN_PREFIX / "runtime-host"
 PRIVATE_CONFIG = "shop-wp/molavi-shop/includes/runtime-config.php"
 DEPLOYABLE_SUFFIXES = {".php", ".js", ".css"}
 
@@ -169,8 +170,8 @@ def matches_live_source(remote: str, source: str) -> tuple[bool, bool]:
     return False, False
 
 
-def remote_location(remote_root: str, tracked_name: str) -> tuple[str, str]:
-    relative = Path(tracked_name).relative_to(PLUGIN_PREFIX)
+def remote_location(remote_root: str, tracked_name: str, source_root: Path) -> tuple[str, str]:
+    relative = Path(tracked_name).relative_to(source_root)
     directory = remote_root if str(relative.parent) == "." else remote_root + "/" + str(relative.parent)
     return directory, relative.name
 
@@ -180,11 +181,18 @@ def main() -> int:
     parser.add_argument("--since", default="HEAD^", help="Git ref before the plugin changes to deploy (default: HEAD^)")
     parser.add_argument("--target", choices=("production", "staging"), default="production",
                         help="WordPress installation to update (default: production)")
+    parser.add_argument("--component", choices=("shop", "runtime"), default="shop",
+                        help="Deploy the shop plugin or its must-use WordPress runtime")
     args = parser.parse_args()
 
     try:
         root, revision = require_synced_git_tree()
         files = changed_plugin_files(root, args.since)
+        runtime = args.component == "runtime"
+        files = [name for name in files if name.startswith(f"{RUNTIME_PREFIX}/") == runtime]
+        if not files:
+            raise RuntimeError(f"No changed files for the {args.component} component")
+        source_root = RUNTIME_PREFIX if runtime else PLUGIN_PREFIX
         base_url = (os.environ.get("MOLAVISALE_CPANEL_URL") or "").strip()
         username = (os.environ.get("MOLAVISALE_CPANEL_USERNAME") or "").strip()
         password = os.environ.get("MOLAVISALE_CPANEL_PASSWORD") or ""
@@ -196,11 +204,11 @@ def main() -> int:
         document_root = f"/home/{username}/public_html"
         if args.target == "staging":
             document_root = staging_document_root(base_url, auth, username)
-        remote_dir = f"{document_root}/wp-content/plugins/molavi-shop"
+        remote_dir = f"{document_root}/wp-content/" + ("mu-plugins" if runtime else "plugins/molavi-shop")
 
         remote: dict[str, str | None] = {}
         for name in files:
-            directory, filename = remote_location(remote_dir, name)
+            directory, filename = remote_location(remote_dir, name, source_root)
             payload = uapi_request(base_url, auth, "get_file_content", {"dir": directory, "file": filename})
             remote[name] = None if payload.get("_missing") else extract_file_content(payload)
             if remote[name] is None and not payload.get("_missing"):
@@ -222,7 +230,7 @@ def main() -> int:
             if remote[name] == local:
                 unchanged.append(name)
                 continue
-            directory, filename = remote_location(remote_dir, name)
+            directory, filename = remote_location(remote_dir, name, source_root)
             uapi_request(
                 base_url,
                 auth,
