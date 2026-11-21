@@ -119,4 +119,15 @@ $match=molavi_domain_reference_decide(['case_id'=>molavi_domain_reference_case_i
     'reference_id'=>'REF-44','price_role'=>'unit','actor_id'=>'wp:7','note'=>'Later catalog match.'],null,$clock);
 $derived=molavi_domain_product_reference_review(['status'=>'needs_review'],$offer,'future-list',$clock);
 review_same([$derived['reference_match_id'],$derived['reference_decision_id']],['REF-44',$match['decision_id']],'later assignment replaces waiver');
+$snapshot=['snapshot_id'=>'manual-catalog','rows'=>$brandRows];
+molavi_domain_tx('reference',static function(SQLite3 $db)use($snapshot):void {
+    molavi_domain_sql($db,'INSERT INTO reference_snapshots(snapshot_id,payload) VALUES (?,?)',[$snapshot['snapshot_id'],molavi_domain_json($snapshot)]);
+    molavi_domain_sql($db,'INSERT INTO reference_active(singleton,snapshot_id) VALUES (1,?)',[$snapshot['snapshot_id']]);
+});
+$GLOBALS['review_eligibility']=['allow_automatic'=>true,'snapshot_id'=>'manual-catalog'];
+$search=molavi_domain_reference_reviews_api('GET',null,'wp:7',null,['view'=>'catalog-search','q'=>'peach','snapshot_id'=>'manual-catalog']);
+review_same(array_column($search['results'],'reference_id'),['peach'],'catalog search returns a selectable reference ID');
+$search=molavi_domain_reference_reviews_api('GET',null,'wp:7',null,['view'=>'catalog-search','q'=>'هلو برندنو','snapshot_id'=>'manual-catalog']);
+review_same(count($search['results']),2,'catalog search accepts multiple Persian terms in any order');
+review_same(count($GLOBALS['search_terms']),2,'approved catalog search makes no external calls');
 foreach(glob($root.'/*') as $file)unlink($file);rmdir($root);echo 'PASS native reference reviews '.$count." checks\n";

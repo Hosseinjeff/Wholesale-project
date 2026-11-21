@@ -70,7 +70,8 @@ function molavi_domain_market_subject(string $offer,array $tables): ?array {
     $offerRecord=array_column($offers,null,'Offer ID')[$offer]??[];
     $missing=molavi_domain_market_missing_price($record);
     if ($product!==''&&!$missing&&function_exists('molavi_domain_regular_price_evidence')) {
-        $missing=molavi_domain_regular_price_evidence($record,$offerRecord,null,time())['state']!=='current';
+        $price=molavi_domain_regular_price_evidence($record,$offerRecord,null,time());
+        $missing=$price['state']!=='current'||$price['amount']<=molavi_domain_positive_price($record['Sale Price']??null);
     }
     return ['identity'=>$identity,'product_id'=>$product,'offer_id'=>$offer,
         'target'=>$product!==''?'product:'.$product:'offer:'.$offer,

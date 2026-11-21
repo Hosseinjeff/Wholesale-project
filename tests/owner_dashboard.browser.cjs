@@ -152,10 +152,10 @@ const fixtures={
         message.state=payload.choice==='dismiss'?'dismissed':'pending';
         return route.fulfill({json:{ok:true,state:message.state}});
       }
-      if(payload.action==='reopen_products'){
+      if(['reopen_products','review_publication'].includes(payload.action)){
         const items=payload.items.map(({product_id,offer_id})=>{
           const product=fixtures['/pipeline/product-status-snapshots'].products.find(row=>row.product_id===product_id);
-          assert.ok(product.published&&product.latest_offer_id===offer_id);
+          assert.ok((product.published||payload.action==='review_publication')&&product.latest_offer_id===offer_id);
           const case_id='reopened-'+product_id;
           fixtures[path].cases.push({...product,offer_id,case_id,reopened:true,source_current_check_required:true,
             sale_price:110000,actual_price:170000,price_type:'unit',signature:'f'.repeat(64),reason:'owner_reopened'});
@@ -216,6 +216,11 @@ const fixtures={
      catalogSearches++;
      return await route.fulfill({json:{ok:true,results:[{title:'نمونه آنلاین',url:'https://rezvanpakhsh.com/product/example'}]}});
     }
+    if (path==='/reference/item-reviews'&&new URLSearchParams(f.get('query')).get('view')==='catalog-search') {
+      const query=new URLSearchParams(f.get('query'));
+      return route.fulfill({json:{ok:true,snapshot_id:query.get('snapshot_id'),results:[
+        {reference_id:'ref-manual',name:'بیسکویت جست‌وجوشده',unit_price:125000,package_count:12}]}});
+    }
     if(path==='/reference/item-reviews'&&new URLSearchParams(f.get('query')).get('view')==='market-prices'){
       marketReads++;
       const quote={title:'بیسکویت شکلاتی ۱۲ عددی',merchant:'باسلام',url:'https://basalam.com/p/100',
@@ -236,6 +241,8 @@ const fixtures={
      if(query.get('view')==='workbench-offer'){
       if(query.get('offer_id')==='offer-focus')return route.fulfill({json:{ok:true,
         cases:[{...fixtures[path].cases[0],offer_id:'offer-focus',product_name:'پیشنهاد خارج از صفحه'}]}});
+      if(query.get('offer_id')==='offer-1')return route.fulfill({json:{ok:true,cases:[],
+        source_message:{text:'متن واقعی پیام نودل',url:'https://t.me/supplier/18',timestamp:'2026-11-17T05:00:00Z'}}});
       return route.fulfill({json:{ok:true,cases:[],reviewed_offer:{title:'استخراج پیشین بیسکویت',
         fields:{consumer_price:'150000',currency:'IRT'}},recent_decisions:[{offer_id:'offer-old',
           decision:{choice:'confirm',fields:{price_role:'package',sale_price:120000,actual_price:140000,package_count:12}}}],
@@ -304,18 +311,16 @@ const fixtures={
  assert.equal(writes.length,0,'navigation and reads never mutate');
  await mount('&workbench_action=supplier_prices&product_id=1');
  assert.equal(await page.locator('.md-product-card').count(),1,'exact ID, excludes product 10');
- await first.getByRole('tab',{name:'منبع',exact:true}).click();
- await first.getByText('جست‌وجوی اینترنتی کالا',{exact:true}).click();
- assert.equal(await first.getByRole('searchbox',{name:'نام کالا برای جست‌وجوی اینترنتی'}).inputValue(),
-  'نودل سبزیجات بسته ۱۲ عددی','public search is available on the source tab of an already-matched product');
- assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'search controls fit on mobile');
+ await first.getByRole('tab',{name:'پیام تأمین‌کننده',exact:true}).click();
+ await first.getByText('متن واقعی پیام نودل',{exact:true}).waitFor();
+ assert.equal(await first.getByText('جست‌وجوی اینترنتی کالا',{exact:true}).count(),0,'supplier evidence stays in its own tab');
  await mount('&workbench_action=ai');
  assert.equal(await page.locator('.md-product-card').count(),1,'extraction without catalog product remains visible');
  await page.locator('.md-product-card').getByRole('button',{name:'بررسی مشخصات',exact:true}).click();
  await page.getByText('اصلاح دستی؛ فقط اگر داده استخراج‌شده اشتباه است',{exact:true}).click();
  await page.locator('input[name="sale_price"]').fill('130000');
  assert.equal(await page.getByRole('tab',{name:'مرجع',exact:true}).count(),0,'later tabs are hidden during extraction');
- await page.getByRole('tab',{name:'منبع',exact:true}).click();
+ await page.getByRole('tab',{name:'پیام تأمین‌کننده',exact:true}).click();
  await page.getByRole('tab',{name:'مشخصات؛ نیازمند اقدام',exact:true}).click();
  assert.equal(await page.locator('input[name="sale_price"]').inputValue(),'130000','draft survives section switch');
  assert.deepEqual(errors,[]);
@@ -371,11 +376,22 @@ const fixtures={
  await mount('&workbench_action=ai');
  await page.locator('.md-product-card').getByRole('button',{name:'بررسی مشخصات',exact:true}).click();
  const beforeSuggestion=writes.length;
- await page.getByText('پیشنهاد مرجع',{exact:true}).click();
+ await page.locator('.molavi-ai-review-card summary').filter({hasText:/^انتخاب مرجع$/}).click();
+ await page.getByText('پیشنهاد خودکار',{exact:true}).click();
  await page.getByRole('button',{name:'درخواست پیشنهاد مرجع',exact:true}).click();
  await page.getByText('درخواست ثبت شد؛ برای دیدن نتیجه صفحه را تازه کنید. تأیید مرجع همچنان با شماست.').waitFor();
  assert.equal(writes.length,beforeSuggestion+1,'requesting a suggestion never submits an approval');
  assert.equal(JSON.parse(writes.at(-1).payload).case_kind,'ai');
+ await page.getByRole('searchbox',{name:'جست‌وجو در فهرست مرجع'}).fill('بیسکویت');
+ await page.getByRole('button',{name:'جست‌وجوی فهرست',exact:true}).click();
+ await page.getByRole('button',{name:'بیسکویت جست‌وجوشده',exact:true}).click();
+ const saveManual=page.getByRole('button',{name:'ثبت مرجع این مورد',exact:true});
+ assert.equal(await saveManual.isEnabled(),false,'a manual catalog hit still needs a price basis');
+ await page.getByRole('combobox',{name:'مبنای قیمت مرجع'}).selectOption('unit');
+ await saveManual.click();
+ await page.getByText('گام فعلی · تأیید مشخصات',{exact:true}).waitFor();
+ assert.equal(JSON.parse(writes.findLast(row=>JSON.parse(row.payload||'{}').action==='assign_ai_reference').payload).reference_id,'ref-manual');
+ delete fixtures['/pipeline/ai-confirmations'].cases[0].reference_assignment;
  assert.deepEqual(errors,[]);
  fixtures['/pipeline/publication-holds'].holds=[{hold_id:'batch-4',reason:'batch_in_progress',
   context:{product_ids:['1'],messages:[{channel:'@supplier',content:'Source message'}],expected_messages:1}}];
@@ -472,7 +488,9 @@ const fixtures={
  await page.getByRole('button',{name:'ثبت مرجع این مورد',exact:true}).click();
  await page.getByText('قیمت و موجودی امروز',{exact:true}).waitFor();
  assert.equal(await page.locator('.molavi-ai-confirmation-step').isVisible(),false,'confirmation remains hidden before current source check');
- await page.locator('.molavi-reextract-current-check input').check();
+ const checkedPrice=page.locator('.molavi-reextract-current-check input');
+ assert.deepEqual(await checkedPrice.evaluate(input=>[input.offsetWidth,input.offsetHeight]),[18,18]);
+ await checkedPrice.check();
  await page.getByText('گام فعلی · تأیید مشخصات',{exact:true}).waitFor();
  delete extraction.reference_assignment;extraction.source_current_check_required=false;
  const beforeGrouped=groupedLoads;
@@ -511,7 +529,6 @@ const fixtures={
  await market.getByText('۱۵۰٬۰۰۰ تومان',{exact:true}).waitFor();
  await market.getByText(/نوبت بعد/).waitFor();
  assert.equal(await market.getByRole('link',{name:'retailer.example'}).getAttribute('href'),'https://retailer.example/biscuit');
- await marketCard.getByRole('tab',{name:'منبع',exact:true}).click();
  await page.getByText('جست‌وجوی اینترنتی کالا',{exact:true}).click();
  const productSearch=page.locator('.molavi-product-search[open]');
  const query=productSearch.getByRole('searchbox');
@@ -796,6 +813,13 @@ const fixtures={
  await noodle.getByRole('tab',{name:/پیام‌های کالا/}).click();
  await noodle.getByText('پیام‌های استفاده‌شده و کنارگذاشته‌شده',{exact:true}).click();
  await noodle.getByText(/پیام نخست محصول.*کنارگذاشته‌شده/).waitFor();
+ products.push({product_id:'publication-test',product_name:'کالای آمادهٔ بازبینی انتشار',channel:'@supplier',
+   latest_offer_id:'publication-offer',status:'needs_review',update_needed:true,review_reason:'manual review'});
+ await mount('&product_id=publication-test',true);
+ await page.getByRole('button',{name:'بازبینی مشخصات برای انتشار',exact:true}).click();
+ await page.getByRole('checkbox',{name:/قیمت امروز|قیمت و موجودی امروز/}).check();
+ await page.getByText('گام فعلی · تأیید مشخصات',{exact:true}).waitFor();
+ assert.equal(await page.getByRole('dialog').count(),0,'publication recovery opens the current form directly');
  assert.deepEqual(errors,[]);
  console.log(JSON.stringify({passed:true,errors,writes:writes.length,captures:['/tmp/molavi-dashboard-desktop.png','/tmp/molavi-dashboard-mobile.png']}));
  await browser.close();

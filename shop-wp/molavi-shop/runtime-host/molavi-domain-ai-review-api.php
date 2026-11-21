@@ -12,8 +12,17 @@ function molavi_domain_ai_reviews_api(string $method, array $query, ?array $body
             if(!is_string($id)||$id===''||strlen($id)>300)molavi_domain_fail('invalid_query',400);
             $tables=molavi_domain_sheets(['Offers','Products']);
             $data=molavi_domain_ai_reviews_get($tables,null,false,$id);
-            if($data['cases'])return $data;
-            return $data+molavi_domain_reference_extracted_offers(molavi_domain_records($tables['Offers']),$id,true);
+            $offers=molavi_domain_records($tables['Offers']);
+            $source=array_column($offers,null,'Offer ID')[$id]??[];
+            if ($source) {
+                $data['source_message']=[
+                    'text'=>(string)($source['Original Message']??''),
+                    'url'=>(string)($source['Source Post URL']??''),
+                    'timestamp'=>(string)(($source['Source Post Updated At']??'')?:($source['Message Timestamp']??'')),
+                    'image_file_id'=>(string)($source['Image File ID']??''),
+                ];
+            }
+            return $data['cases']?$data:$data+molavi_domain_reference_extracted_offers($offers,$id,true);
         }
         if ($view==='workbench-candidates') {
             $id=$query['offer_id']??'';

@@ -62,7 +62,20 @@
 #molavi-owner-workflow .md-result-count {margin:14px 0!important;color:var(--md-muted);font-size:12px;}
 #molavi-owner-workflow .md-result-controls {display:flex;align-items:center;justify-content:space-between;gap:8px;margin-block:4px;}
 #molavi-owner-workflow .md-bulk-actions:not([hidden]) {display:flex;align-items:center;flex-wrap:wrap;gap:6px 12px;margin-bottom:12px;padding:8px 10px;background:var(--md-soft);border-radius:8px;}
-#molavi-owner-workflow .md-select-product {flex:none;min-width:16px;min-height:16px;margin:0;cursor:pointer;}
+#molavi-owner-workflow.molavi-dashboard input[type="checkbox"] {
+    appearance:none;display:inline-grid;place-items:center;box-sizing:border-box;flex:0 0 18px;
+    width:18px;min-width:18px;max-width:18px;height:18px;min-height:18px;margin:0;padding:0;
+    border:1px solid #75877c;border-radius:4px;background:#fff;box-shadow:none;cursor:pointer;
+}
+#molavi-owner-workflow.molavi-dashboard input[type="checkbox"]:checked {background:var(--md-green);border-color:var(--md-green);}
+#molavi-owner-workflow.molavi-dashboard input[type="checkbox"]:checked::before {
+    content:"";float:none;width:5px;height:9px;margin:0 0 2px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg);
+}
+#molavi-owner-workflow.molavi-dashboard input[type="checkbox"]:disabled {opacity:.5;cursor:default;}
+@media(forced-colors:active) {
+    #molavi-owner-workflow.molavi-dashboard input[type="checkbox"]:checked {background:Highlight;border-color:Highlight;forced-color-adjust:none;}
+    #molavi-owner-workflow.molavi-dashboard input[type="checkbox"]:checked::before {border-color:HighlightText;}
+}
 #molavi-owner-workflow .md-card-action {margin-inline:21px;margin-bottom:8px;}
 #molavi-owner-workflow .md-product-list {display:grid;grid-template-columns:minmax(0,1fr);gap:13px;}
 #molavi-owner-workflow .md-product-card {background:var(--md-paper);border:1px solid var(--md-line);border-radius:11px;min-width:0;overflow:clip;}
