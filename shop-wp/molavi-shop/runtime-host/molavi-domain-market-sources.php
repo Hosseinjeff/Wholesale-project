@@ -67,10 +67,15 @@ function molavi_domain_market_subject(string $offer,array $tables): ?array {
     $identity=molavi_domain_market_identity($record);
     if (!$identity) return null;
     $parents=array_column($offers,'Derived From Offer ID','Offer ID');
+    $offerRecord=array_column($offers,null,'Offer ID')[$offer]??[];
+    $missing=molavi_domain_market_missing_price($record);
+    if ($product!==''&&!$missing&&function_exists('molavi_domain_regular_price_evidence')) {
+        $missing=molavi_domain_regular_price_evidence($record,$offerRecord,null,time())['state']!=='current';
+    }
     return ['identity'=>$identity,'product_id'=>$product,'offer_id'=>$offer,
         'target'=>$product!==''?'product:'.$product:'offer:'.$offer,
         'keys'=>molavi_domain_market_source_keys($product,$offer,$parents),
-        'title'=>(string)$record['Product Name'],'missing'=>molavi_domain_market_missing_price($record),
+        'title'=>(string)$record['Product Name'],'missing'=>$missing,
         'image_file_id'=>(string)($record['Image File ID']??''),
         'regular_price'=>molavi_domain_positive_price($record['Consumer Price']??null)?:molavi_domain_positive_price($record['Actual Price']??null)];
 }
@@ -98,9 +103,9 @@ function molavi_domain_market_flush_events(): void {
     }
 }
 
-function molavi_domain_market_choose_source(array $subject,array $quote,?array $current,int $now): ?string {
+function molavi_domain_market_choose_source(array $subject,array $quote,?array $current,int $now,int $checked): ?string {
     $price=molavi_domain_market_source_price($quote);
-    return molavi_domain_tx('reference',static function(SQLite3 $db)use($subject,$quote,$price,$current,$now): ?string {
+    return molavi_domain_tx('reference',static function(SQLite3 $db)use($subject,$quote,$price,$current,$now,$checked): ?string {
         $old=molavi_domain_row($db,'SELECT * FROM market_product_sources WHERE target=?',[$subject['target']]);
         if ($old && $old['url']===$quote['url'] && molavi_domain_market_source_matches($old['identity_json'],$subject['identity'])) return null;
         $sameProduct=$old && molavi_domain_market_source_matches($old['identity_json'],$subject['identity']);
@@ -108,13 +113,13 @@ function molavi_domain_market_choose_source(array $subject,array $quote,?array $
         $failure=$price===null?'regular_price_unverified':null;
         $effective=$price??$prior;
         molavi_domain_sql($db,'INSERT INTO market_product_sources
-            (target,product_id,offer_id,title,identity_json,url,quote_json,regular_price,next_at,checked_at,failure,changed_at)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(target) DO UPDATE SET offer_id=excluded.offer_id,title=excluded.title,
+            (target,product_id,offer_id,title,identity_json,url,quote_json,regular_price,next_at,checked_at,failure,changed_at,verified_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(target) DO UPDATE SET offer_id=excluded.offer_id,title=excluded.title,
             identity_json=excluded.identity_json,url=excluded.url,quote_json=excluded.quote_json,regular_price=excluded.regular_price,
-            next_at=excluded.next_at,checked_at=excluded.checked_at,lease=NULL,failure=excluded.failure,changed_at=excluded.changed_at',
+            next_at=excluded.next_at,checked_at=excluded.checked_at,lease=NULL,failure=excluded.failure,changed_at=excluded.changed_at,verified_at=excluded.verified_at',
             [$subject['target'],$subject['product_id'],$subject['offer_id'],$subject['title'],molavi_domain_json($subject['identity']),
-                $quote['url'],molavi_domain_json($quote),$effective,$now+MOLAVI_MARKET_SOURCE_CHECK_SECONDS,$now,$failure,$now]);
-        $publish=$subject['product_id']!=='' && $price!==null && $price!==$prior;
+                $quote['url'],molavi_domain_json($quote),$effective,$checked+MOLAVI_MARKET_SOURCE_CHECK_SECONDS,$checked,$failure,$now,$price===null?null:$checked]);
+        $publish=$subject['product_id']!=='';
         if (!$publish) return null;
         return molavi_domain_market_record_event($db,$subject,'selected',$prior??$subject['regular_price'],$price,$failure,$now,true);
     });
@@ -140,7 +145,7 @@ function molavi_domain_market_refresh_source(int $now,?callable $check=null): bo
         $failure='market_price_sources_unavailable';
     }
     $origin=$source;
-    if ($source['product_id']==='' && ($failure!==null||$source['regular_price']!==$price||$source['failure']!==null)) {
+    if ($source['product_id']==='') {
         try {
             $tables=molavi_domain_sheets(['Products','Offers']);
             $ids=array_keys(molavi_domain_market_catalog_sources(molavi_domain_records($tables['Products']),
@@ -152,16 +157,19 @@ function molavi_domain_market_refresh_source(int $now,?callable $check=null): bo
     }
     molavi_domain_tx('reference',static function(SQLite3 $db)use($source,$origin,$lease,$quote,$failure,$price,$now): void {
         $updated=molavi_domain_sql($db,'UPDATE market_product_sources SET lease=NULL,next_at=?,checked_at=?,failure=?,
-            quote_json=COALESCE(?,quote_json),regular_price=COALESCE(?,regular_price) WHERE target=? AND lease=?',
-            [$now+MOLAVI_MARKET_SOURCE_CHECK_SECONDS,$now,$failure,$failure===null?molavi_domain_json($quote):null,$price,$source['target'],$lease]);
+            quote_json=COALESCE(?,quote_json),regular_price=COALESCE(?,regular_price),verified_at=COALESCE(?,verified_at) WHERE target=? AND lease=?',
+            [$now+MOLAVI_MARKET_SOURCE_CHECK_SECONDS,$now,$failure,$failure===null?molavi_domain_json($quote):null,$price,
+                $failure===null?$now:null,$source['target'],$lease]);
         if ($updated['changes']!==1) return;
         $old=$source['regular_price'];
         if ($failure!==null) {
-            molavi_domain_market_record_event($db,$origin,'failed',$old,null,$failure,$now);
+            molavi_domain_market_record_event($db,$origin,'failed',$old,null,$failure,$now,$source['failure']===null&&$origin['product_id']!=='');
         } elseif ($old!==$price) {
             molavi_domain_market_record_event($db,$origin,'changed',$old,$price,null,$now,$origin['product_id']!=='');
         } elseif ($source['failure']!==null) {
-            molavi_domain_market_record_event($db,$origin,'restored',$old,$price,null,$now);
+            molavi_domain_market_record_event($db,$origin,'restored',$old,$price,null,$now,$origin['product_id']!=='');
+        } elseif ($origin['product_id']!=='') {
+            molavi_domain_market_record_event($db,$origin,'verified',$old,$price,null,$now,true);
         }
     });
     return true;

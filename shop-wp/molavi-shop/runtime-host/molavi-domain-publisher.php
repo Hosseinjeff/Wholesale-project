@@ -38,6 +38,7 @@ function molavi_domain_stock_status($value): string {
 function molavi_domain_site_products(array $tables,?array $freshness=null,?array $conflicts=null): ?array {
     if(empty($tables['Products']))return null;
     $records=molavi_domain_records($tables['Products']);$offers=molavi_domain_records($tables['Offers']??[]);
+    $offersById=array_column($offers,null,'Offer ID');$now=time();
     $market=function_exists('molavi_domain_market_catalog_sources')?molavi_domain_market_catalog_sources($records,$offers):[];
     $registered=function_exists('molavi_domain_product_message_catalog_rules')?molavi_domain_product_message_catalog_rules($records,$offers):[];
     $aliases=function_exists('molavi_domain_product_message_aliases')?molavi_domain_product_message_aliases($records,$offers):[];
@@ -55,6 +56,10 @@ function molavi_domain_site_products(array $tables,?array $freshness=null,?array
         $issue=$issues[$index]??null;$channel=trim((string)($record['Channel Username']??''));$evidence=$freshness[$id]??[];
         $freshnessState=$evidence['state']??'needs_review';$shelf=molavi_domain_positive_price($record['Consumer Price']??null)?:molavi_domain_positive_price($record['Actual Price']??null);
         $shelf=$market[$id]['price']['regular_price']??$shelf;
+        $eligibility=function_exists('molavi_domain_sale_offer_evidence')?molavi_domain_sale_offer_evidence($record,
+            $offersById[$record['Latest Offer ID']??'']??[],$evidence,$market[$id]['price']??null,$now):[];
+        $held=$held||!empty($eligibility['sale_offer_blocker']);
+        $shelf=$eligibility['regular_price']??$shelf;
         $stock=molavi_domain_stock_status($record['Stock Status']??null);$availability=['Out of Stock'=>'outofstock','Available'=>'instock'][$stock]??'unknown';
         $held=$held||$name===''||$sale<=0||$shelf<=$sale||!in_array($freshnessState,['current','warning'],true)||in_array($id,$conflicts,true)||$availability==='outofstock'||$issue!==null;
         $minimum=molavi_domain_positive_price($record['Min Qty']??null);
@@ -75,6 +80,7 @@ function molavi_domain_site_products(array $tables,?array $freshness=null,?array
             'source_integrity_state'=>$issue?'blocked':'verified','source_integrity_issues'=>$issue['codes']??[],
             'source_record_id'=>$id,'supplier_price_state'=>$freshnessState,'supplier_price_verified_at'=>($evidence['verified_at']??'')?:'']
             + (isset($market[$id]['photo'])?['market_image_id'=>(int)$market[$id]['photo']['attachment_id']]:[])
+            + $eligibility
             + ($registered[$id]??[])
             + (function_exists('molavi_domain_product_message_catalog_rules')&&function_exists('wc_get_products')
                 ?['active_offer_id'=>(string)($record['Latest Offer ID']??'')]:[]);

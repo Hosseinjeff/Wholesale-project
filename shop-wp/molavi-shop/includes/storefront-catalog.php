@@ -12,8 +12,12 @@ function molavi_storefront_search_key(string $value): string {
     return trim((string)preg_replace('/\s+/u',' ',$value));
 }
 function molavi_storefront_public_index(): array {
-    $cached=get_transient('molavi_public_catalog_v1');
-    if(is_array($cached))return $cached;
+    $strict=\molavi_sale_offer_policy_active();
+    $cached=get_transient('molavi_public_catalog_v2');
+    if(is_array($cached)) {
+        $now=time();
+        return $strict?array_filter($cached,static fn($row)=>$row['expires_at']>$now):$cached;
+    }
     $rows=[];
     foreach(wc_get_products(['status'=>'publish','limit'=>-1,'return'=>'objects']) as $product){
         if(!$product instanceof \WC_Product||!$product->is_purchasable()||!$product->is_in_stock())continue;
@@ -21,9 +25,10 @@ function molavi_storefront_public_index(): array {
         $date=$product->get_date_created();
         $rows[(string)$id]=['id'=>$id,'name'=>molavi_storefront_card_product_name($product),
             'search'=>molavi_storefront_search_key($product->get_name().' '.$category.' '.(string)$product->get_meta('_molavi_packaging')),
-            'category'=>$category,'created'=>$date?$date->getTimestamp():0];
+            'category'=>$category,'created'=>$date?$date->getTimestamp():0,
+            'expires_at'=>(int)$product->get_meta('_molavi_sale_offer_expires_at',true)];
     }
-    set_transient('molavi_public_catalog_v1',$rows,60);
+    set_transient('molavi_public_catalog_v2',$rows,60);
     return $rows;
 }
 function molavi_storefront_catalog_page(array $params=[]): array {
@@ -83,7 +88,7 @@ function molavi_storefront_catalog_ajax(): void {
 }
 add_action('wc_ajax_molavi_catalog',__NAMESPACE__.'\\molavi_storefront_catalog_ajax');
 add_action('wc_ajax_nopriv_molavi_catalog',__NAMESPACE__.'\\molavi_storefront_catalog_ajax');
-function molavi_invalidate_public_index(): void {delete_transient('molavi_public_catalog_v1');}
+function molavi_invalidate_public_index(): void {delete_transient('molavi_public_catalog_v2');}
 add_action('woocommerce_update_product',__NAMESPACE__.'\\molavi_invalidate_public_index');
 add_action('woocommerce_new_product',__NAMESPACE__.'\\molavi_invalidate_public_index');
 add_action('woocommerce_product_set_stock_status',__NAMESPACE__.'\\molavi_invalidate_public_index');

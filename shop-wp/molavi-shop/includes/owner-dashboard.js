@@ -13,10 +13,10 @@
         .replace(/[٠-٩]/g,c=>'٠١٢٣٤٥٦٧٨٩'.indexOf(c)).replace(/[\s\u200c]+/g,' ').trim();
     const sections = [
         ['source_integrity','منبع'],['ai','مشخصات'],['references','مرجع'],['product_messages','پیام‌های کالا'],
-        ['supplier_prices','قیمت'],['conflicts','همگام‌سازی'],['holds','انتشار'],['storefront','فروشگاه']
+        ['supplier_prices','قیمت تأمین‌کننده'],['market_prices','قیمت عادی'],['conflicts','همگام‌سازی'],['holds','انتشار'],['storefront','فروشگاه']
     ];
     const actionLabels = {source_integrity:'بررسی منبع',ai:'بررسی مشخصات',references:'انتخاب مرجع',product_messages:'پیام‌های کالا',
-        supplier_prices:'تأیید قیمت',conflicts:'رفع تعارض',holds:'بررسی توقف',status:'بررسی انتشار',storefront:'بررسی فروشگاه'};
+        supplier_prices:'تأیید قیمت',market_prices:'بررسی قیمت عادی',conflicts:'رفع تعارض',holds:'بررسی توقف',status:'بررسی انتشار',storefront:'بررسی فروشگاه'};
     const sourceFor = product => product.ai[0] || product.supplierPrices[0] || product.references[0] || {};
     function identities(product) {
         return [product.product_id,product.status?.latest_offer_id,product.status?.reference_match_id,
@@ -554,6 +554,7 @@
         function next(product) { return product.listing?'next':model.primaryAction(product); }
         function ready(product) { return model.readyAction(product); }
         function published(product) { return Boolean(product.status?.published); }
+        function priceBlocked(product) { return Boolean(product.status?.sale_offer_blocker); }
         function reopenable(product) {
             return !model.errors.product_status&&!model.errors.ai_confirmations&&
                 published(product)&&product.product_id&&product.status.latest_offer_id&&
@@ -562,7 +563,7 @@
         }
         function dismissal(product) {
             const key=next(product);
-            return key&&!['next','deferred','product_messages'].includes(key) ? model.dismissalTask(product,key) : null;
+            return key&&!['next','deferred','product_messages','market_prices'].includes(key) ? model.dismissalTask(product,key) : null;
         }
         function clearSelection(exit=false) {
             state.selected.clear();
@@ -574,6 +575,7 @@
         }
         function stateLabel(product) {
             if(product.holds.length)return ['انتشار متوقف','blocked'];
+            if(priceBlocked(product))return ['در انتظار قیمت','unknown'];
             if(ready(product))return ['آمادهٔ بررسی','attention'];
             if(next(product)==='deferred')return ['کنارگذاشته‌شده','neutral'];
             if(waiting(product))return ['در انتظار پیگیری','unknown'];
@@ -598,6 +600,7 @@
                 if(!(groups[state.focusType]||[]).filter(Boolean).map(String).includes(state.focus))return false;
             }
             if(state.scope==='published'&&!published(product))return false;
+            if(state.scope==='pricing'&&!priceBlocked(product))return false;
             if(state.action&&!state.focus&&next(product)!==state.action)return false;
             if(state.action||state.focus)return true;
             if(state.scope==='ready')return Boolean(ready(product));
@@ -655,11 +658,12 @@
             }
             const unlinked=(model.data.product_status?.published_unlinked||[]).map(listing=>({
                 key:`woo:${listing.woo_product_id}`,name:listing.name,channel:listing.supplier,listing,
-                status:{published:true},ai:[],references:[],conflicts:[],holds:[],supplierPrices:[]
+                status:{published:true,sale_offer_blocker:listing.sale_offer_blocker},ai:[],references:[],conflicts:[],holds:[],supplierPrices:[]
             }));
             const scopeBar=el('div',null,'md-scopes');scopeBar.setAttribute('aria-label','فهرست محصولات');
             [['ready','آمادهٔ بررسی',model.products.filter(ready).length],
                 ['waiting','در انتظار پیگیری',model.products.filter(waiting).length],
+                ['pricing','در انتظار قیمت',model.products.filter(priceBlocked).length+unlinked.filter(priceBlocked).length],
                 ['published','منتشرشده',model.products.filter(published).length+unlinked.length],
                 ['all','همهٔ محصولات',model.products.length]].forEach(([key,label,count])=>{
                 const item=button(`${label}  ${fa(count)}`,()=>{
@@ -675,7 +679,7 @@
             });action.value=state.action;
             const channel=el('select');channel.setAttribute('aria-label','تأمین‌کننده');
             const all=el('option','همهٔ تأمین‌کنندگان');all.value='';channel.append(all);
-            const candidates=state.scope==='published'?[...model.products,...unlinked]:model.products;
+            const candidates=['published','pricing'].includes(state.scope)?[...model.products,...unlinked]:model.products;
             [...new Set(candidates.map(p=>p.channel).filter(Boolean))].sort().forEach(value=>{const o=el('option',value);o.value=value;channel.append(o);});
             channel.value=state.channel;
             filters.append(search,action,channel);view.append(filters);
@@ -754,15 +758,16 @@
                 const header=el('header',null,'md-card-header md-unlinked-header');
                 const identity=el('div',null,'md-product-identity');identity.append(el('h2',product.name));
                 if(product.channel) identity.append(el('p',product.channel));
-                header.append(identity,el('span','بدون پیوند بررسی','md-badge md-neutral'));
+                header.append(identity,el('span',priceBlocked(product)?'قیمت تأییدنشده':'بدون پیوند بررسی','md-badge md-neutral'));
                 if(product.listing.edit_url) {
                     const link=el('a','ویرایش در ووکامرس','md-link');
                     link.href=product.listing.edit_url;header.append(link);
                 }
                 card.append(header);
-                if (product.listing.message_count!==undefined) {
+                if (priceBlocked(product)) card.append(el('p','برای عرضه، یک پیام معتبر تأمین‌کننده را به این کالا پیوند دهید و هر دو قیمت را بررسی کنید.','md-next-action'));
+                if (priceBlocked(product)||product.listing.message_count!==undefined) {
                     const messages=el('details',null,'md-card-action');
-                    messages.append(el('summary',`پیام‌های کالا · ${fa(product.listing.message_count)}`));
+                    messages.append(el('summary',`پیام‌های کالا · ${fa(product.listing.message_count||0)}`));
                     messages.addEventListener('toggle',()=>{
                         if (messages.open&&messages.childElementCount===1) messages.append(hooks.renderMessages(product.listing.woo_product_id));
                     });
@@ -816,7 +821,7 @@
                 ? (currentSection===sourceSection?[sourceSection]:[currentSection,sourceSection])
                 : preferred==='deferred'?[sourceSection]:[sourceSection,sections.at(-1)];
             if(record.woo_product_id&&preferred!=='product_messages') productSections.push(['product_messages','پیام‌های کالا']);
-            if(priceOffers.length) productSections.splice(currentSection?1:0,0,['market_prices','قیمت عادی']);
+            if(priceOffers.length&&preferred!=='market_prices') productSections.splice(currentSection?1:0,0,['market_prices','قیمت عادی']);
             function activate(key, scroll=true) {
                 state.active=product.key;state.section=key;
                 main.querySelectorAll('.md-card-panel').forEach(item=>{if(item!==panelHost)item.hidden=true;});
@@ -871,11 +876,13 @@
                             select.addEventListener('change',()=>showPrice(priceOffers.find(row=>row.offer_id===select.value)));
                             panel.append(select);
                         }
-                        showPrice(selected);
-                        panel.append(host);
+                        if (selected) {showPrice(selected);panel.append(host);}
+                        if (record.latest_offer_id&&product.product_id)
+                            panel.append(button('تأیید دستی قیمت عادی',()=>reopenReview([product],true),'md-link'));
+                        else if (!selected) panel.append(button('جست‌وجوی پیام منبع',()=>navigate('sources',product)));
                     }
                     if(key==='product_messages') panel.append(hooks.renderMessages(record.woo_product_id));
-                    if(hasAction&&key!=='storefront'&&key!=='product_messages'){
+                    if(hasAction&&!['storefront','product_messages','market_prices'].includes(key)){
                         const action=model.renderAction(product,key);
                         if (action) panel.append(action);
                         if (key==='status') {
@@ -883,6 +890,8 @@
                             if (record.latest_offer_id&&product.product_id)
                                 panel.append(button('بازبینی مشخصات برای انتشار',()=>reopenReview([product],true)));
                         }
+                        if (key==='supplier_prices'&&record.sale_offer_blocker==='supplier_price'&&record.latest_offer_id&&product.product_id)
+                            panel.append(button('بازبینی قیمت از پیام تأمین‌کننده',()=>reopenReview([product],true)));
                         panel.append(button('کنارگذاشتن این کار',()=>dismissTask(model.dismissalTask(product,key)),'md-link md-muted'));
                     }
                     if(key==='source_integrity')panel.append(model.renderProductSearch(product.name));

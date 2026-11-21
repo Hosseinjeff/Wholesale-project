@@ -346,11 +346,14 @@ function molavi_catalog_map(): array
 {
     $cacheKey = molavi_discount_catalog_key();
     $map = get_transient($cacheKey);
+    $strict = function_exists('molavi_sale_offer_policy_active') && molavi_sale_offer_policy_active();
     if (is_array($map)) {
-        return $map;
+        $now = time();
+        return $strict ? array_filter($map, static fn($row) => ($row['sale_offer_expires_at'] ?? 0) > $now) : $map;
     }
     $map = [];
     foreach (wc_get_products(['status' => 'publish', 'limit' => -1, 'return' => 'objects']) as $product) {
+        if ($strict && !molavi_sale_offer_woo_allowed($product)) continue;
         $curve = molavi_curve($product);
         $profile = molavi_product_profile($product);
         $householdCurve = molavi_profile_curve($curve, $profile, 'household');
@@ -375,6 +378,7 @@ function molavi_catalog_map(): array
             'ceiling' => $curve['ceiling'],
             'max' => $curve['max'],
             'discountable' => $curve['discountable'] ? 1 : 0,
+            'sale_offer_expires_at' => $strict ? (int) $product->get_meta('_molavi_sale_offer_expires_at', true) : 0,
         ];
     }
     set_transient($cacheKey, $map, DAY_IN_SECONDS);
@@ -383,7 +387,7 @@ function molavi_catalog_map(): array
 
 function molavi_discount_catalog_key(): string
 {
-    return 'molavi_catalog_v6_' . md5(serialize(molavi_discount_rules()));
+    return 'molavi_catalog_v7_' . md5(serialize(molavi_discount_rules()));
 }
 
 function molavi_forget_catalog(): void
@@ -784,6 +788,14 @@ add_action('woocommerce_before_cart', 'molavi_render_buyer_step_validation_notic
 
 add_action('woocommerce_check_cart_items', static function (): void {
     if (!function_exists('WC') || !WC()->cart) { return; }
+    if (function_exists('molavi_sale_offer_policy_active') && molavi_sale_offer_policy_active()) {
+        $expired = [];
+        foreach (WC()->cart->get_cart() as $item) {
+            $product = $item['data'] ?? null;
+            if ($product instanceof WC_Product && !molavi_sale_offer_woo_allowed($product)) $expired[] = $product->get_name();
+        }
+        if ($expired) wc_add_notice('اعتبار قیمت این کالاها پایان یافته است. برای ادامه از سبد حذفشان کنید: ' . implode('، ', $expired), 'error');
+    }
     $invalid = molavi_invalid_cart_lines(molavi_buyer_type(), molavi_catalog_map(), molavi_quote()['qtys']);
     if (!$invalid) { return; }
     $names = implode('، ', array_map(static fn($item): string =>

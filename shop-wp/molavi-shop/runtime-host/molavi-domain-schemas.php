@@ -302,7 +302,7 @@ CREATE TABLE IF NOT EXISTS market_product_sources (
     target TEXT PRIMARY KEY, product_id TEXT NOT NULL, offer_id TEXT NOT NULL,
     title TEXT NOT NULL, identity_json TEXT NOT NULL,
     url TEXT, quote_json TEXT, regular_price INTEGER,
-    next_at INTEGER, checked_at INTEGER, lease TEXT, failure TEXT,
+    next_at INTEGER, checked_at INTEGER, verified_at INTEGER, lease TEXT, failure TEXT,
     attachment_id INTEGER, image_identity_json TEXT, image_source_url TEXT,
     changed_at INTEGER NOT NULL
 );

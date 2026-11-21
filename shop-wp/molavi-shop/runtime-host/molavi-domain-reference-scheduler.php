@@ -150,6 +150,10 @@ function molavi_domain_reference_finish_refresh(array $outcome): array {
             $previous=!empty($active['previous_snapshot_id'])?molavi_domain_reference_snapshot($active['previous_snapshot_id']):null;
             $result=molavi_domain_reference_complete($active,$previous,(bool)($active['automatic_update']??false));
             molavi_domain_tx('reference',static fn(SQLite3 $db)=>molavi_domain_sql($db,'UPDATE reference_refresh_state SET state=? WHERE singleton=1 AND snapshot_id=?',[$state==='staged'?'updated':'unchanged',$activeId]));
+            if ($result['product_reconciliation_state']==='complete'&&!empty($active['last_checked_at'])
+                &&function_exists('molavi_domain_sale_offer_evidence')&&molavi_domain_job_host('publish')==='wordpress') {
+                molavi_domain_queue('publish','reference-prices:'.hash('sha256',$activeId.'|'.$active['last_checked_at']),[]);
+            }
             if($result['product_reconciliation_state']==='complete')molavi_domain_reference_wake();
         },'reference');
         if ($occurrence) molavi_domain_reference_progress($occurrence,$result['product_reconciliation_state']==='complete'?'complete':'waiting',

@@ -8,10 +8,13 @@ function molavi_domain_order_catalog(array $tables): array {
     if(!function_exists('molavi_band')||(new ReflectionFunction('molavi_band'))->getNumberOfParameters()<3)molavi_domain_fail('native_pricing_core_unavailable',503);
     $settings=molavi_domain_site_settings($tables['Shop']??[]);$products=[];
     $records=molavi_domain_records($tables['Products']??[]);
+    $offers=molavi_domain_records($tables['Offers']??[]);$offersById=array_column($offers,null,'Offer ID');$now=time();
+    $checkPrices=function_exists('molavi_domain_sale_offer_evidence');
+    $saved=$checkPrices?molavi_domain_read('pipeline','molavi_domain_price_evidence_by_product'):[];
     $market=function_exists('molavi_domain_market_catalog_sources')
-        ?molavi_domain_market_catalog_sources($records,molavi_domain_records($tables['Offers']??[])):[];
+        ?molavi_domain_market_catalog_sources($records,$offers):[];
     $aliases=function_exists('molavi_domain_product_message_aliases')
-        ?molavi_domain_product_message_aliases($records,molavi_domain_records($tables['Offers']??[])):[];
+        ?molavi_domain_product_message_aliases($records,$offers):[];
     foreach($records as $record){
         $status=strtolower(trim((string)($record['Status']??'')));if(in_array($status,['skipped','needs_review','not_product'],true))continue;
         $stock=preg_replace('/[\s_-]+/u',' ',strtolower(trim((string)($record['Stock Status']??''))));
@@ -20,6 +23,12 @@ function molavi_domain_order_catalog(array $tables): array {
         if (isset($aliases[$id])) continue;
         $cost=molavi_domain_positive_price($record['Sale Price']??null);$regular=molavi_domain_positive_price($record['Consumer Price']??null)?:molavi_domain_positive_price($record['Actual Price']??null);
         $regular=$market[$id]['price']['regular_price']??$regular;
+        if ($checkPrices) {
+            $eligibility=molavi_domain_sale_offer_evidence($record,$offersById[$record['Latest Offer ID']??'']??[],
+                molavi_domain_product_saved_price($record,$saved,$now),$market[$id]['price']??null,$now);
+            if ($eligibility['sale_offer_blocker']!=='') continue;
+            $regular=$eligibility['regular_price'];
+        }
         if($id===''||$name===''||$cost<=0||$regular<=$cost)continue;$band=molavi_band($cost,$regular,$settings);$discountable=$band['discountable'];
         $products[]=['product_id'=>$id,'name'=>$name,'channel'=>molavi_domain_py_value($record['Channel Username']??''),'category'=>molavi_domain_py_value($record['Category']??''),
             'regular'=>$regular,'floor'=>$band['floor'],'ceiling'=>$band['ceiling'],'opening_rate'=>$discountable?(float)(($regular-$band['ceiling'])/$regular):0.0,

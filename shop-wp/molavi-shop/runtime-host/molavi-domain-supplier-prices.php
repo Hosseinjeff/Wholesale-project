@@ -44,7 +44,8 @@ function molavi_domain_supplier_prices_api(string $method,?array $body,string $a
         if(!$offer||$offer['source_revision']!==$revision)molavi_domain_fail('offer_changed');
         $verification=molavi_domain_verify_price($id,$revision,$actor,$note,molavi_domain_now(),$command);
     }
-    $job=molavi_domain_queue('publish','supplier-verification:'.$id.':'.$revision,['product_id'=>$id,'source_revision'=>$revision]);
+    $receipt=hash('sha256',$revision.'|'.$verification['verified_at']);
+    $job=molavi_domain_queue('publish','supplier-verification:'.$id.':'.$receipt,['product_id'=>$id,'source_revision'=>$revision]);
     $result=['ok'=>true,'product_id'=>$id,'source_revision'=>$revision,'verified_at'=>$verification['verified_at'],
         'publish_job'=>$job,'idempotent'=>$verification['idempotent']];if($command!==null)$result['command_id']=$command;return $result;
 }

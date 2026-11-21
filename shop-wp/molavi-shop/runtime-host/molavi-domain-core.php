@@ -88,10 +88,14 @@ function molavi_domain_db(string $store='pipeline'):SQLite3 {
             ['supplier_price_evidence_history','note',"TEXT NOT NULL DEFAULT ''"],
             ['published_product_reviews','review_kind',"TEXT NOT NULL DEFAULT 'published'"],
             ['published_product_reviews','woo_product_id','INTEGER NOT NULL DEFAULT 0'],
-        ]:[['reference_refresh_state','change_summary','TEXT']];
+        ]:[['reference_refresh_state','change_summary','TEXT'],['market_product_sources','verified_at','INTEGER']];
         foreach($migrations as [$table,$column,$definition]){
             $columns=array_column(molavi_domain_rows($db,'PRAGMA table_info('.$table.')'),'name');
-            if(!in_array($column,$columns,true))$db->exec('ALTER TABLE '.$table.' ADD COLUMN '.$column.' '.$definition);
+            if(!in_array($column,$columns,true)){
+                $db->exec('ALTER TABLE '.$table.' ADD COLUMN '.$column.' '.$definition);
+                if ($table==='market_product_sources'&&$column==='verified_at')
+                    $db->exec('UPDATE market_product_sources SET verified_at=checked_at WHERE regular_price>0 AND failure IS NULL');
+            }
         }$ready[$store]=true;
     }return $db;
 }

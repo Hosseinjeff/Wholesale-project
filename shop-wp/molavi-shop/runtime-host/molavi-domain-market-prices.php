@@ -260,6 +260,8 @@ function molavi_domain_market_run(int $now,?callable $fetch=null): void {
     $update=['next'=>$now+MOLAVI_REFERENCE_REFRESH_SECONDS,'state'=>'retry','checked'=>$row['checked_at'],'quotes'=>$row['candidates_json']];
     try {
         $quotes=($fetch??'molavi_domain_market_fetch')(molavi_domain_decode($row['identity_json']),$pinned);
+        foreach ($quotes as &$quote) $quote['verified_at']=$now;
+        unset($quote);
         $update=['next'=>$update['next'],'state'=>$quotes?'ready':'no_match','checked'=>$now,'quotes'=>molavi_domain_json($quotes)];
         if (!$quotes&&$pinned&&molavi_domain_basalam_listing_id($pinned)) {
             // A confirmed missing or changed listing goes back through discovery under its daily budget.
@@ -295,7 +297,7 @@ function molavi_domain_market_price_api(string $method,array $input,string $acto
     $offer=$input['offer_id']??'';
     if (!is_string($offer)||$offer===''||strlen($offer)>300) molavi_domain_fail('invalid_query',400);
     $action=$method==='POST'?($input['action']??''):'';
-    $cache='molavi_market_subject_v1_'.hash('sha256',$offer);
+    $cache='molavi_market_subject_v2_'.hash('sha256',$offer);
     $cached=$method==='GET'?get_transient($cache):false;
     if (!is_array($cached)) {
         $subject=molavi_domain_market_subject($offer,molavi_domain_sheets(['Products','Offers'],$method==='POST'));
@@ -320,18 +322,20 @@ function molavi_domain_market_price_api(string $method,array $input,string $acto
         $candidate=molavi_domain_read('reference',static function(SQLite3 $db)use($key,$identity,$url,$now,$sources): ?array {
             if (!molavi_domain_market_url($url)) return null;
             $selected=molavi_domain_decode($sources['price']['quote_json']??null);
-            if (($selected['url']??null)===$url) return ['quote'=>$selected,'stale'=>false];
+            if (($selected['url']??null)===$url) return ['quote'=>$selected,'stale'=>false,'checked_at'=>$sources['price']['verified_at']??$now];
             $row=molavi_domain_row($db,'SELECT checked_at,candidates_json FROM market_price_lookups WHERE lookup_key=?',[$key])
                 ??molavi_domain_row($db,'SELECT checked_at,candidates_json FROM market_price_lookups WHERE lookup_key=? AND selected_url IS NOT NULL',
                     [molavi_domain_market_previous_key($identity)]);
             if (!$row) return null;
             $quote=array_column(molavi_domain_decode($row['candidates_json']),null,'url')[$url]??null;
-            return $quote?['quote'=>$quote,'stale'=>$now-(int)$row['checked_at']>=MOLAVI_REFERENCE_REFRESH_SECONDS]:null;
+            $checked=(int)($quote['verified_at']??$row['checked_at']);
+            return $quote?['quote'=>$quote,'stale'=>$now-$checked>=MOLAVI_MARKET_SOURCE_CHECK_SECONDS,'checked_at'=>$checked]:null;
         });
         if (!$candidate) molavi_domain_fail('stale_market_price_source',409);
         $quote=$candidate['stale']?molavi_domain_market_check_url($url,$identity):$candidate['quote'];
         if (!$quote) molavi_domain_fail('market_price_source_not_verified',422);
-        if ($action==='select_market_price_source') $event=molavi_domain_market_choose_source($subject,$quote,$sources['price']??null,$now);
+        if ($action==='select_market_price_source') $event=molavi_domain_market_choose_source($subject,$quote,$sources['price']??null,$now,
+            $candidate['stale']?$now:min($now,$candidate['checked_at']));
         else {
             if (empty($quote['image_url'])) $quote=molavi_domain_market_check_url($quote['url'],$identity)??$quote;
             $event=molavi_domain_market_adopt_photo($subject,$quote,$now);
@@ -342,6 +346,9 @@ function molavi_domain_market_price_api(string $method,array $input,string $acto
         if ($provided) {
             $row=molavi_domain_row($db,'SELECT checked_at,candidates_json FROM market_price_lookups WHERE lookup_key=?',[$key]);
             $quotes=$row && $now-(int)$row['checked_at']<86400?array_column(molavi_domain_decode($row['candidates_json']),null,'url'):[];
+            foreach ($quotes as &$quote) $quote['verified_at']??=(int)$row['checked_at'];
+            unset($quote);
+            $provided['verified_at']=$now;
             $quotes=[$provided['url']=>$provided]+$quotes;
             molavi_domain_sql($db,"INSERT INTO market_price_lookups(lookup_key,identity_json,state,next_at,checked_at,candidates_json)
                 VALUES(?,?,'ready',?,?,?) ON CONFLICT(lookup_key) DO UPDATE SET state='ready',next_at=excluded.next_at,
@@ -386,6 +393,6 @@ function molavi_domain_market_price_api(string $method,array $input,string $acto
         'stale'=>isset($row['checked_at'])&&$now-(int)$row['checked_at']>=MOLAVI_REFERENCE_REFRESH_SECONDS,
         'suggested_price'=>$recommended,'candidates'=>$quotes,'selected_url'=>$pinned,
         'product'=>molavi_domain_market_photo_meta($subject,$sources['photo']??null),
-        'tracking'=>$tracking?array_intersect_key($tracking,array_flip(['regular_price','next_at','checked_at','failure'])):null]
+        'tracking'=>$tracking?array_intersect_key($tracking,array_flip(['regular_price','next_at','checked_at','verified_at','failure'])):null]
         +($event?['publish_job'=>'publish:market-source:'.$event]:[]);
 }

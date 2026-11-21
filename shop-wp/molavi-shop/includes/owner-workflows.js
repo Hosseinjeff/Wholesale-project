@@ -988,10 +988,11 @@
     }
 
     const workbenchActionOrder = ['holds','product_messages','source_integrity','ai','references','conflicts',
-        'supplier_prices','status','storefront','deferred','next'];
+        'supplier_prices','market_prices','status','storefront','deferred','next'];
     const workbenchActionSections = {
         holds:'publication_holds',ai:'ai_confirmations',references:'reference_items',
-        conflicts:'sheet_conflicts',supplier_prices:'supplier_prices',product_messages:'ai_confirmations',status:'product_status'
+        conflicts:'sheet_conflicts',supplier_prices:'supplier_prices',product_messages:'ai_confirmations',
+        market_prices:'product_status',status:'product_status'
     };
 
     function workbenchSupplierSource(product, offer) {
@@ -1007,7 +1008,9 @@
             && (item.reopened || safeSourceLink(aiSourcePostUrl(item)) || (!item.source_current_check_required && !item.historical_reextract && item.original_message))
             && normalizedAiInteger(item.sale_price || item.detected_price || item.package_price))) return '';
         if (key==='supplier_prices' && !product.supplierPrices.some(offer =>
-            !offer.acknowledged && offer.source_revision && workbenchSupplierSource(product,offer))) return '';
+            !offer.acknowledged && offer.source_revision && workbenchSupplierSource(product,offer))
+            && !product.status?.latest_offer_id) return '';
+        if (key==='market_prices'&&!product.status?.latest_offer_id) return '';
         return key;
     }
 
@@ -1023,7 +1026,7 @@
         {key:'intake',label:'دریافت و صف',hint:'پیام ← رسید Railway ← کارگر',queues:[],view:'operations'},
         {key:'extract',label:'استخراج و تصمیم مالک',hint:'متن، چندتصویری، Offer و بازبینی',queues:['ai']},
         {key:'identity',label:'هویت و تطبیق',hint:'Offer منبع ← Product و مرجع',queues:['source_integrity','references']},
-        {key:'evidence',label:'قیمت و همگام‌سازی داده',hint:'تازگی قیمت، تعارض و موجودی',queues:['supplier_prices','conflicts']},
+        {key:'evidence',label:'قیمت و همگام‌سازی داده',hint:'تازگی قیمت، تعارض و موجودی',queues:['supplier_prices','market_prices','conflicts']},
         {key:'publish',label:'انتشار کاتالوگ',hint:'توقف‌ها، رسید انتشار و به‌روزرسانی',queues:['holds','status']},
         {key:'storefront',label:'قفسهٔ فروشگاه',hint:'قابل‌مشاهده و قابل‌خرید بودن در WooCommerce',queues:[],view:'storefront'}
     ];
@@ -1037,10 +1040,12 @@
         if (key === 'product_messages') matched = Boolean(product.status?.message_count&&!product.ai.some(item=>item.message_review));
         if (key === 'references') matched = product.references.length > 0;
         if (key === 'conflicts') matched = product.conflicts.length > 0;
-        if (key === 'supplier_prices') matched = workbenchPendingSupplierPrices(product) > 0;
+        if (key === 'supplier_prices') matched = product.status?.sale_offer_blocker==='supplier_price'
+            ||(!product.status?.sale_offer_blocker&&workbenchPendingSupplierPrices(product)>0);
+        if (key === 'market_prices') matched = product.status?.sale_offer_blocker==='regular_price';
         if (key === 'holds') matched = product.holds.length > 0;
         if (key === 'status') matched = Boolean(product.status && product.status.status!=='not_product'
-            && (product.status.update_needed||product.status.regular_price_missing));
+            && (product.status.update_needed||product.status.regular_price_missing||product.status.sale_offer_blocker==='no_spread'));
         if (key === 'storefront') matched = ['not_visible','held_but_purchasable','ambiguous_product_id',
             'no_catalog_projection','not_checked','not_checked_catalog_truncated','sku_mismatch','not_purchasable'].includes(workbenchWooState(product));
         return matched && (includeDeferred || !workbenchIsDismissed(product, key));
@@ -1071,10 +1076,14 @@
         if (key === 'references') return 'مرجع درست و مبنای قیمت را انتخاب کنید.';
         if (key === 'conflicts') return 'مقدار سرور را نگه دارید؛ فقط اگر خودتان شیت را دستی تغییر داده‌اید، اصلاح شیت را به فروشگاه بفرستید.';
         if (key === 'supplier_prices') return workbenchReadyAction(product) === key
-            ? 'قیمت را با پیام فعلی تأمین‌کننده بسنجید.'
+            ? 'قیمت تأمین‌کننده را با پیشنهاد فعلی بررسی و تأیید کنید.'
             : 'برای تأیید، پیام فعلی تأمین‌کننده و نسخهٔ معتبر قیمت لازم است.';
+        if (key === 'market_prices') return ({missing:'قیمت عادی را از یک منبع به‌روز پیدا و تأیید کنید.',
+            expired:'اعتبار قیمت عادی پایان یافته است. منبع قیمت را به‌روزرسانی کنید.',
+            unverified:'قیمت عادی ثبت‌شده به مدرک به‌روز نیاز دارد.'})[product.status?.regular_price_state]||'قیمت عادی را بررسی کنید.';
         if (key === 'holds') return 'جزئیات پیام‌های همان دسته را باز کنید و یک‌بار اقدام بازیابی را اجرا کنید.';
         if (key === 'deferred') return 'گام فعلی کنار گذاشته شده است؛ برای ادامه آن را در وضعیت سیستم بازگردانید.';
+        if (key === 'status'&&product.status?.sale_offer_blocker==='no_spread') return 'برای عرضه، قیمت عادی باید از قیمت تأمین‌کننده بیشتر باشد.';
         if (key === 'status') return product.status?.review_reason
             ? aiReviewReason(product.status.review_reason)
             : 'به‌روزرسانی لازم ثبت شده؛ دلیل یا اقدام مشخصی در دسترس نیست.';
@@ -1834,7 +1843,7 @@
                 section.appendChild(actions);
                 addWorkflowSection(section, 'storefront');
             }
-            if (primaryKey === 'status' && (status.update_needed || status.review_reason || status.source_post_url)) {
+            if (primaryKey === 'status' && (status.update_needed || status.review_reason || status.source_post_url || status.sale_offer_blocker==='no_spread')) {
                 const details = document.createElement('details');
                 details.open = primaryKey === 'status';
                 details.className = 'molavi-product-source-details';
@@ -2182,7 +2191,7 @@
                     return product.ai.filter(item=>item.offer_id&&(item.market_tracked||!normalizedAiInteger(item.actual_price||item.consumer_price)))
                         .map(item=>({offer_id:item.offer_id,case_id:item.case_id,name:item.product_name||product.name}));
                 }
-                return (status?.regular_price_missing||status?.market_tracked)&&status.latest_offer_id
+                return (status?.regular_price_missing||status?.regular_price_due||status?.market_tracked)&&status.latest_offer_id
                     ? [{offer_id:status.latest_offer_id,name:product.name}] : [];
             },
             renderReferenceTools: productReferenceTools,

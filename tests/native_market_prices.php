@@ -189,6 +189,53 @@ molavi_domain_tx('reference',static function(SQLite3 $db)use($today,$identity): 
 $budgetWait=molavi_domain_market_price_api('GET',['offer_id'=>'pending-offer'],'wp:7');
 check_market($budgetWait['state']==='quota'&&$budgetWait['next_at']===strtotime($today.' +1 day UTC'),
     'the card reports the daily discovery limit and when its deferred search can run');
+
+require $root.'molavi-domain-sale-offers.php';
+require __DIR__.'/../shop-wp/molavi-shop/includes/sync.php';
+class WC_Product {
+    public function __construct(private array $meta,private int $regular=120000) {}
+    public function get_meta(string $key,bool $single=true){return $this->meta[$key]??'';}
+    public function get_regular_price(string $context='view'): string {return (string)$this->regular;}
+}
+$record=['Product ID'=>'rani-1','Sale Price'=>68750,'Latest Offer ID'=>'rani'];
+$source=molavi_domain_market_source_rows()['product:rani-1'];
+$expiry=$source['verified_at']+MOLAVI_MARKET_SOURCE_CHECK_SECONDS;
+$supplier=['state'=>'current','verified_at'=>gmdate('c',$expiry-300)];
+check_market($source['checked_at']===$expiry&&$source['verified_at']!==$source['checked_at'],
+    'failed retailer checks preserve the successful verification deadline');
+check_market(molavi_domain_sale_offer_evidence($record,[],$supplier,$source,$expiry-1)['sale_offer_expires_at']===$expiry,
+    'an offer expires at the earlier verified price deadline');
+check_market(molavi_domain_sale_offer_evidence($record,[],$supplier,$source,$expiry)['sale_offer_blocker']==='regular_price'
+    &&molavi_domain_sale_offer_evidence($record,[],$supplier,null,$expiry)['regular_price_state']==='missing',
+    'expired and absent regular prices both block publication');
+$supplier['verified_at']=gmdate('c',$expiry-14*86400);
+$renewed=array_replace($source,['verified_at'=>$expiry-1]);
+check_market(molavi_domain_sale_offer_evidence($record,[],$supplier,$renewed,$expiry)['sale_offer_blocker']==='supplier_price',
+    'a fresh retailer quote cannot renew a stale supplier price');
+$supplier['verified_at']=gmdate('c',$expiry-90);
+check_market(molavi_domain_sale_offer_evidence(array_replace($record,['Sale Price'=>120000]),[],$supplier,$renewed,$expiry)['sale_offer_blocker']==='no_spread',
+    'equal supplier and regular prices cannot produce a dynamic sale offer');
+$manual=['Offer ID'=>'rani','Consumer Price'=>125000,'Owner Decision ID'=>'manual','Owner Decision At'=>gmdate('c',$expiry)];
+check_market(molavi_domain_sale_offer_evidence($record+['Consumer Price'=>125000],$manual,$supplier,$source,$expiry)['regular_price']===125000,
+    'newly confirmed exact manual evidence can replace an expired retailer price');
+
+require $root.'molavi-domain-order-catalog.php';
+require __DIR__.'/../shop-wp/molavi-shop/includes/pricing.php';
+$manual['Owner Decision At']=gmdate('c',time()-120);
+$record+=['Product Name'=>'Rani orange 240 ml','Consumer Price'=>125000];
+$tables=['Products'=>[array_keys($record),array_values($record)],'Offers'=>[array_keys($manual),array_values($manual)]];
+check_market(molavi_domain_order_catalog($tables)===[],'native order quotes require supplier verification');
+$revision=molavi_domain_source_revision($record);
+molavi_domain_tx('pipeline',static fn(SQLite3 $db)=>molavi_domain_sql($db,
+    'INSERT OR REPLACE INTO supplier_price_evidence VALUES (?,?,?,?,?)',['rani-1',$revision,gmdate('c',time()-180),'manual','wp:7']));
+check_market(molavi_domain_order_catalog($tables)[0]['regular']===125000,'native order quotes reuse valid regular and supplier evidence');
+
+$GLOBALS['options']['molavi_state_active']=true;
+$published=['_molavi_catalog_state'=>'sell','_molavi_market_shelf_toman'=>120000,'_molavi_supplier_cost_toman'=>68750];
+check_market(molavi_supplier_offer_is_purchasable(true,new WC_Product($published))===false
+    &&molavi_supplier_offer_is_purchasable(true,new WC_Product($published+['_molavi_sale_offer_expires_at'=>time()]))===false
+    &&molavi_supplier_offer_is_purchasable(true,new WC_Product($published+['_molavi_sale_offer_expires_at'=>time()+600]))===true,
+    'Woo checkout blocks missing and expired eligibility, and accepts the same listing before expiry');
 foreach(glob(ABSPATH.'wp-admin/includes/*.php') as $file) unlink($file);
 rmdir(ABSPATH.'wp-admin/includes');rmdir(ABSPATH.'wp-admin');rmdir(ABSPATH);
 foreach(glob(MOLAVI_STATE_ROOT.'/*') as $file) unlink($file);

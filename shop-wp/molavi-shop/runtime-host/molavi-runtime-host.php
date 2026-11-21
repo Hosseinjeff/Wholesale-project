@@ -85,6 +85,11 @@ function molavi_runtime_tick():void {
         }
         if(function_exists('molavi_domain_job_host')&&get_option('molavi_state_active',false)
             &&(molavi_domain_job_host('publish')==='wordpress'||molavi_domain_job_host('order')==='wordpress')){
+            if (molavi_domain_job_host('publish')==='wordpress'&&function_exists('molavi_domain_sale_offer_evidence')
+                &&!get_option('molavi_sale_offer_eligibility_queued',false)) {
+                molavi_domain_queue('publish','sale-offer-eligibility-v1',[]);
+                update_option('molavi_sale_offer_eligibility_queued',true,false);
+            }
             if(molavi_domain_job_host('publish')==='wordpress'&&(int)$state['sheet_at']<=$now){
                 try{
                     molavi_domain_observe_projection(molavi_domain_projection_digest(molavi_domain_sheets(['Products','Shop'],true)));
