@@ -71,17 +71,51 @@ function molavi_profile_value($product, string $metaKey, int $fallback, int $min
     return max($minimum, min($maximum, (int) $value));
 }
 
-function molavi_product_profile(WC_Product $product): array
+function molavi_message_pack_size(string $packaging, string $name): int
 {
-    $packSize = (int) $product->get_meta('_molavi_pack_size', true);
-    $legacyMin = (int) $product->get_meta('_molavi_min', true);
-    if ($packSize <= 0) {
-        $packText = $product->get_name() . ' ' . (string) $product->get_meta('_molavi_packaging', true);
-        if (preg_match('/(?<!\\d)(\\d{1,3})\\s*(?:عددی|تایی|عدد|ع)(?=$|[^\\p{L}\\p{N}])/u', $packText, $match)) {
-            $packSize = (int) $match[1];
+    $digits = array_combine(
+        preg_split('//u', '۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩', -1, PREG_SPLIT_NO_EMPTY),
+        str_split('01234567890123456789')
+    );
+    $sources = array_map(static function (string $text) use ($digits): string {
+        return trim((string) preg_replace('/[\x{200B}-\x{200D}\x{FEFF}]/u', '', strtr($text, $digits)));
+    }, [$packaging, $name]);
+    $patterns = [
+        '/(?:کارتون|کارتن|باکس|شیرینگ|shell|شل(?![\x{0600}-\x{06FF}]))\s*[:：]?\s*([0-9]{1,3})(?![0-9.\/٬٫])(?=\s*(?:(?:عددی|عدد|تایی|بسته|ع)(?![\p{L}\p{N}_])|$|[،,؛]))/iu',
+        '/(?<![0-9.\/٬٫])([0-9]{1,3})\s*(?:عددی|عدد|تایی|ع)(?![\p{L}\p{N}_])/u',
+    ];
+    foreach ($patterns as $pattern) {
+        foreach ($sources as $text) {
+            if (preg_match_all($pattern, $text, $matches)) {
+                return (int) end($matches[1]);
+            }
         }
     }
-    $packSize = max(1, min(999, $packSize > 0 ? $packSize : ($legacyMin > 0 ? $legacyMin : 1)));
+    return 0;
+}
+
+function molavi_resolve_pack_size(int $stored, int $minimum, string $packaging, string $name, bool $normalized): int
+{
+    $stored = $stored >= 1 && $stored <= 999 ? $stored : 0;
+    if ($normalized) {
+        return $stored;
+    }
+    // Older publishers sometimes copied the order minimum into the pack field.
+    $fromMessage = molavi_message_pack_size($packaging, $name);
+    return $fromMessage ?: ($stored !== $minimum ? $stored : 0);
+}
+
+function molavi_product_profile(WC_Product $product): array
+{
+    $legacyMin = (int) $product->get_meta('_molavi_min', true);
+    $sourcePackSize = molavi_resolve_pack_size(
+        (int) $product->get_meta('_molavi_pack_size', true),
+        $legacyMin,
+        (string) $product->get_meta('_molavi_packaging', true),
+        $product->get_name(),
+        (string) $product->get_meta('_molavi_pack_size_normalized', true) === '1'
+    );
+    $packSize = $sourcePackSize ?: max(1, min(999, $legacyMin));
     // Confirmed per-pack customer minimums/steps. The fallback keeps coverage for
     // pack sizes that do not have an explicit business-approved row yet.
     $orderUnitsByPack = [
@@ -122,7 +156,7 @@ function molavi_product_profile(WC_Product $product): array
         }
     }
     return [
-        'pack_size' => $packSize,
+        'pack_size' => $sourcePackSize,
         'household_unit' => $householdUnit,
         'shop_unit' => $shopUnit,
         'order_units_defaulted' => $orderUnitsDefaulted,
@@ -417,7 +451,7 @@ function molavi_unit_price(array $curve, float $progress): int
 
 function molavi_catalog_map(): array
 {
-    $map = get_transient('molavi_catalog_v5');
+    $map = get_transient('molavi_catalog_v6');
     if (is_array($map)) {
         return $map;
     }
@@ -451,7 +485,7 @@ function molavi_catalog_map(): array
             'discountable' => $curve['discountable'] ? 1 : 0,
         ];
     }
-    set_transient('molavi_catalog_v5', $map, DAY_IN_SECONDS);
+    set_transient('molavi_catalog_v6', $map, DAY_IN_SECONDS);
     return $map;
 }
 
@@ -462,6 +496,7 @@ function molavi_forget_catalog(): void
     delete_transient('molavi_catalog_v3');
     delete_transient('molavi_catalog_v4');
     delete_transient('molavi_catalog_v5');
+    delete_transient('molavi_catalog_v6');
 }
 
 add_action('woocommerce_update_product', 'molavi_forget_catalog');

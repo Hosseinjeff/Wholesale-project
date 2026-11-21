@@ -155,7 +155,7 @@ add_action('woocommerce_product_data_panels', static function (): void {
             <p class="form-field"><label><?php echo esc_html('واحد سفارش فعلی'); ?></label>
                 <span><?php echo esc_html('خانوار: ' . number_format_i18n($profile['household_unit'])
                     . ' · فروشگاه: ' . number_format_i18n($profile['shop_unit'])
-                    . ' · اندازه بسته استخراج‌شده: ' . number_format_i18n($profile['pack_size'])); ?></span></p>
+                    . ' · اندازه بسته استخراج‌شده: ' . ($profile['pack_size'] ? number_format_i18n($profile['pack_size']) : 'ثبت نشده')); ?></span></p>
             <p class="form-field"><label for="_molavi_tuna_threshold_anchor">
                 <input type="checkbox" id="_molavi_tuna_threshold_anchor" name="_molavi_tuna_threshold_anchor" value="1" <?php checked($profile['tuna_threshold_anchor']); ?> />
                 <?php echo esc_html('استفاده از قیمت همین قوطی تن‌ماهی برای محاسبه آستانه تخفیف'); ?></label>
