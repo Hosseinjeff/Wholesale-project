@@ -13,6 +13,19 @@ function molavi_domain_dashboard_job_state(array $row,string $kind): array {
         'retry_at'=>$state==='quota_wait'?(float)$row['retry_at']:null];
 }
 
+function molavi_domain_dashboard_current_job(SQLite3 $db,string $kind,?string $run=null): array {
+    $job=molavi_domain_row($db,"SELECT id,state,payload,available,created_at,updated_at,error FROM jobs
+        WHERE kind=? AND state IN ('running','queued','waiting_reference','waiting_publication')
+        AND (? IS NULL OR id LIKE ?) ORDER BY CASE state WHEN 'running' THEN 0 ELSE 1 END,available,rowid LIMIT 1",
+        [$kind,$run,$run?'reextract:'.$run.':%':null]);
+    if (!$job) return [];
+    $payload=molavi_domain_decode($job['payload']);
+    return ['phase'=>$job['error']==='google_free_quota_wait'?'quota_wait':$job['state'],
+        'started_at'=>$job['created_at'],'updated_at'=>$job['updated_at'],
+        'message_id'=>(string)($payload['message_id']??''),'channel'=>(string)($payload['channel_username']??''),
+        'retry_at'=>$job['state']==='queued'?(float)$job['available']:null,'error'=>$job['error']];
+}
+
 function molavi_domain_dashboard_job_groups(SQLite3 $db,float $now): array {
     $counts="SUM(CASE WHEN state='running' AND (expires IS NULL OR expires>?) THEN 1 ELSE 0 END) AS running,
         SUM(CASE WHEN state='queued' OR (state='running' AND expires<=?) THEN 1 ELSE 0 END) AS queued,
@@ -29,8 +42,10 @@ function molavi_domain_dashboard_job_groups(SQLite3 $db,float $now): array {
         // A run can finish between the two reads.
         if ($run && ($run['running']||$run['queued'])) {
             $groups[]=molavi_domain_dashboard_job_state($run,'reextract')+[
+                'run_id'=>$runId,
                 'total'=>(int)$run['total'],
                 'completed'=>(int)$run['total']-(int)$run['queued']-(int)$run['running'],
+                'current'=>molavi_domain_dashboard_current_job($db,'reextract',$runId),
             ];
         }
     }
@@ -38,8 +53,14 @@ function molavi_domain_dashboard_job_groups(SQLite3 $db,float $now): array {
         SUM(CASE WHEN state='waiting_reference' THEN 1 ELSE 0 END) AS needs_reference FROM jobs
         WHERE (kind='batch' AND state IN ('queued','running','waiting_reference'))
            OR (kind='reference_suggest' AND state IN ('queued','running'))
+           OR (kind='publish' AND state IN ('queued','running','waiting_publication'))
         GROUP BY kind",$args);
-    foreach($other as $row) $groups[]=molavi_domain_dashboard_job_state($row,$row['kind']);
+    foreach($other as $row) {
+        $group=molavi_domain_dashboard_job_state($row,$row['kind']);
+        $current=molavi_domain_dashboard_current_job($db,$row['kind']);
+        if ($row['kind']==='publish'&&($current['phase']??'')==='waiting_publication') $group['state']='waiting_publication';
+        $groups[]=$group+['current'=>$current];
+    }
     $unbatched=molavi_domain_row($db,'SELECT COUNT(*) AS total FROM inbox WHERE batch_id IS NULL');
     if ($unbatched['total']) $groups[]=['kind'=>'intake','state'=>'queued','queued'=>(int)$unbatched['total']];
     $index=molavi_domain_row($db,"SELECT payload,state,error,available,expires FROM jobs
@@ -128,12 +149,14 @@ function molavi_domain_dashboard_watched_pipeline(SQLite3 $db,array $watch,float
             !empty($counts['cancelled'])=>empty($counts['done'])?'cancelled':'partial',
             default=>'completed',
         };
-        return ['state'=>$state,'completed'=>$complete,'total'=>$total];
+        return ['state'=>$state,'completed'=>$complete,'total'=>$total,'failed'=>($counts['failed']??0)+($counts['needs_review']??0),
+            'cancelled'=>$counts['cancelled']??0,'current'=>molavi_domain_dashboard_current_job($db,'reextract',$key)];
     }
-    $job=molavi_domain_row($db,'SELECT state,error,available,result FROM jobs WHERE id=?',[$key]);
+    $job=molavi_domain_row($db,'SELECT state,error,available,result,created_at,updated_at FROM jobs WHERE id=?',[$key]);
     $state=match($job['state']??null){
         'queued'=>($job['error']==='google_free_quota_wait'&&$job['available']>$now)?'quota_wait':'queued',
         'running'=>'running','done'=>'completed','cancelled'=>'cancelled','needs_review'=>'partial','failed'=>'failed',
+        'waiting_publication'=>'waiting_publication','waiting_reference'=>'needs_reference',
         default=>'unknown',
     };
     $code=null;
@@ -141,7 +164,8 @@ function molavi_domain_dashboard_watched_pipeline(SQLite3 $db,array $watch,float
         $result=molavi_domain_decode($job['result']??null);
         if(in_array($result['state']??'',['no_match','no_suggestion','low_confidence'],true))$code='no_suggestion';
     }
-    return ['state'=>$state,'code'=>$code];
+    return ['state'=>$state,'code'=>$code,'current'=>$job?['phase'=>$job['state'],'started_at'=>$job['created_at'],
+        'updated_at'=>$job['updated_at'],'retry_at'=>$state==='quota_wait'?(float)$job['available']:null,'error'=>$job['error']]:[]];
 }
 function molavi_domain_dashboard_watched_market(SQLite3 $db,array $watch,float $now): array {
     $row=molavi_domain_row($db,'SELECT state,selected_url FROM market_price_lookups WHERE lookup_key=?',[$watch['key']]);
@@ -215,7 +239,15 @@ function molavi_domain_dashboard_activity(?float $clock=null,array $watching=[])
     $activity['watched']=(object)($activity['watched']+$reference['watched']);
     $activity['reference_revision']=$reference['refresh']['revision']??null;
     if ($reference['market_events']) $activity['market_events']=$reference['market_events'];
-    if ($reference['refresh']['in_progress']??false) $activity['groups'][]=['kind'=>'reference_refresh','state'=>'running'];
+    if ($reference['refresh']) {
+        $refresh=$reference['refresh'];
+        $progress=['kind'=>'reference_refresh','state'=>$refresh['in_progress']?'running':match($refresh['state']){
+            'failed'=>'failed','staged'=>'partial','updated','unchanged'=>'completed',default=>'unknown'},
+            'current'=>($refresh['progress']??['phase'=>'connecting'])+['started_at'=>molavi_domain_timestamp($refresh['last_attempt_at'])],
+            'total'=>$refresh['progress']['total']??0,'completed'=>$refresh['progress']['completed']??0,'unit'=>'pages'];
+        $activity['reference_progress']=$progress;
+        if ($refresh['in_progress']) $activity['groups'][]=$progress;
+    }
     if ($reference['pricing']) $activity['groups'][]=['kind'=>'market_prices','state'=>'running'];
     return ['ok'=>true,'observed_at'=>$now]+$activity;
 }

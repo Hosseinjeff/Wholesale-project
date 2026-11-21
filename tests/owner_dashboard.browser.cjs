@@ -20,8 +20,9 @@ const fixtures={
  const browser=await chromium.launch({executablePath:'/usr/bin/chromium',headless:true,args:['--no-sandbox']});
  const page=await browser.newPage({viewport:{width:1365,height:1000}});const errors=[];const writes=[];let failPrices=false;let acceptPrice=false;let offerPreviews=0;let latestRun='';let runComplete=false;let groupedLoads=0;
  let activeReads=0,maxActiveReads=0,transientStatusOnce=true,statusReads=0,changeReads=0,catalogSearches=0,titleReads=0;
- let marketReads=0,marketSource=null,marketEvents=[];
+ let marketReads=0,marketSource=null,marketEvents=[],referenceProgress=null,productMessages=[];
  const testPhoto='https://img.example/market.png';
+ const blockedPhoto='https://img.example/hotlink.png';
  let referenceRevision=null;
  let pricingRules={household_bp:4500,shop_bp:7000,household_target:5280000,shop_target:21120000};
  const repriceId='e'.repeat(32);
@@ -32,6 +33,10 @@ const fixtures={
  page.on('pageerror',e=>errors.push(e.message));
  await page.route('**/*',async route=>{
   const req=route.request();
+  if(req.url()===blockedPhoto) return route.fulfill({status:403,body:'hotlink blocked'});
+  if(new URL(req.url()).searchParams.get('action')==='molavi_owner_market_photo')
+    return route.fulfill({contentType:'image/png',
+      body:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jf2QAAAAASUVORK5CYII=','base64')});
   if(req.url()===testPhoto) return route.fulfill({contentType:'image/png',
     body:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jf2QAAAAASUVORK5CYII=','base64')});
   if(req.url().includes('/admin-ajax.php')){
@@ -99,21 +104,23 @@ const fixtures={
       const payload=JSON.parse(f.get('payload'));
       assert.equal(payload.offer_id,'offer-4');assert.equal(payload.url,'https://retailer.example/biscuit');
       const quote={title:'بیسکویت فروشگاه',merchant:'retailer.example',url:payload.url,unit_price:145000,regular_unit_price:150000,
-        image_url:testPhoto,thumbnail_url:testPhoto};
+        image_url:blockedPhoto,thumbnail_url:blockedPhoto};
+      const preferred={title:'بیسکویت ۱۲ عددی از باسلام',merchant:'باسلام',url:'https://basalam.com/p/100',regular_unit_price:160000,unit_price:150000};
       marketSource={state:'ready',checked_at:Date.now()/1000,next_at:Date.now()/1000+86400,
-        suggested_price:quote,candidates:[quote],product:{title:'بیسکویت کارت',image_url:testPhoto}};
+        suggested_price:preferred,candidates:[preferred,quote],product:{title:'بیسکویت کارت',image_url:testPhoto}};
       return route.fulfill({json:{ok:true,...marketSource}});
     }
     if(path==='/reference/item-reviews'&&JSON.parse(f.get('payload')||'{}').action==='select_market_price_source'){
       const {url}=JSON.parse(f.get('payload'));
       assert.equal(url,'https://retailer.example/biscuit');
-      marketSource={...marketSource,selected_url:url,tracking:{regular_price:150000,next_at:marketSource.next_at}};
+      marketSource={...marketSource,selected_url:url,suggested_price:marketSource.candidates.find(quote=>quote.url===url),
+        tracking:{regular_price:150000,next_at:marketSource.next_at}};
       return route.fulfill({json:{ok:true,...marketSource}});
     }
     if(path==='/reference/item-reviews'&&JSON.parse(f.get('payload')||'{}').action==='use_market_product_image'){
       const {url}=JSON.parse(f.get('payload'));
       assert.equal(url,'https://retailer.example/biscuit');
-      marketSource={...marketSource,product:{...marketSource.product,selected_photo:true,selected_photo_url:testPhoto}};
+      marketSource={...marketSource,product:{...marketSource.product,selected_photo:true,selected_photo_url:blockedPhoto}};
       return route.fulfill({json:{ok:true,...marketSource}});
     }
     if(path==='/reference/item-reviews'&&JSON.parse(f.get('payload')||'{}').action==='assign_ai_reference'){
@@ -139,6 +146,12 @@ const fixtures={
     }
     if(path==='/pipeline/ai-confirmations'){
       const payload=JSON.parse(f.get('payload')||'{}');
+      if(payload.action==='choose_product_message'){
+        assert.equal(payload.woo_product_id,51);
+        const message=productMessages.find(item=>item.offer_id===payload.offer_id);
+        message.state=payload.choice==='dismiss'?'dismissed':'pending';
+        return route.fulfill({json:{ok:true,state:message.state}});
+      }
       if(payload.action==='reopen_products'){
         const items=payload.items.map(({product_id,offer_id})=>{
           const product=fixtures['/pipeline/product-status-snapshots'].products.find(row=>row.product_id===product_id);
@@ -170,6 +183,7 @@ const fixtures={
     if (path==='/pipeline/dashboard-activity') {
      return await route.fulfill({json:{ok:true,inbox_revision:inboxRevision,reference_revision:referenceRevision,market_events:marketEvents,
       watched:{...(marketWatch?{[lookupKey]:{state:marketWatch}}:{}),...(repricing?{[repriceId]:repricing}:{})},groups:[
+      ...(referenceProgress?[referenceProgress]:[]),
       {kind:'reextract',state:'running',total:8,completed:3},
       {kind:'reference_index',state:'quota_wait',model:'gemini-embedding-001',total:50,completed:20,
        retry_at:Date.now()/1000+3600},
@@ -189,6 +203,8 @@ const fixtures={
     }
     if(path==='/pipeline/reconciliation'){
      const query=new URLSearchParams(f.get('query'));
+     if(query.get('view')==='product-messages') return route.fulfill({json:{ok:true,
+      pending:productMessages.filter(row=>row.state!=='dismissed'),history:productMessages.filter(row=>row.state==='dismissed')}});
      if(query.get('view')==='inbox')return await route.fulfill({json:{ok:true,messages:inboxMessages}});
      if(query.get('view')==='inbox-offers'){
       inboxOfferReads++;
@@ -474,19 +490,22 @@ const fixtures={
  await market.getByRole('button',{name:'بررسی پیوند',exact:true}).click();
  await market.getByText('بیسکویت فروشگاه',{exact:true}).waitFor();
  assert.equal(await market.getByText('مرجع انتخاب‌شده',{exact:true}).count(),0,'verifying a link does not select it');
- await market.getByRole('button',{name:'بزرگ‌نمایی تصویر آگهی'}).click();
+ const alternate=market.locator('.molavi-market-quote').filter({hasText:'بیسکویت فروشگاه'});
+ await alternate.getByRole('button',{name:'بزرگ‌نمایی تصویر آگهی'}).click();
  await page.getByRole('dialog',{name:'بیسکویت فروشگاه'}).waitFor();
  await page.getByRole('dialog').getByRole('button',{name:'بستن'}).click();
- await market.getByRole('button',{name:'مقایسه',exact:true}).click();
+ await alternate.getByRole('button',{name:'مقایسه',exact:true}).click();
  const photoComparison=page.getByRole('dialog',{name:'مقایسهٔ کالاها'});
  await photoComparison.getByText('بیسکویت کارت',{exact:true}).waitFor();
  await photoComparison.getByText('بیسکویت فروشگاه',{exact:true}).waitFor();
  assert.equal(await photoComparison.locator('figure').count(),2);
  await page.waitForFunction(()=>[...document.querySelectorAll('.molavi-market-comparison img')].filter(img=>img.naturalWidth>0).length===2);
  await photoComparison.getByRole('button',{name:'بستن'}).click();
- await market.getByRole('button',{name:'استفاده به‌عنوان تصویر اصلی'}).click();
+ await alternate.getByRole('button',{name:'استفاده به‌عنوان تصویر اصلی'}).click();
  await market.getByText('تصویر اصلی انتخاب شده است.',{exact:true}).waitFor();
  assert.equal(await market.getByText('مرجع انتخاب‌شده',{exact:true}).count(),0,'choosing an image does not change the price source');
+ assert.equal(await market.getByRole('radio').count(),2,'every quote is visibly selectable');
+ await market.getByRole('radio',{name:/بیسکویت فروشگاه/}).check();
  await market.getByRole('button',{name:'انتخاب پیوند',exact:true}).click();
  await market.getByText('مرجع انتخاب‌شده',{exact:true}).waitFor();
  await market.getByText('۱۵۰٬۰۰۰ تومان',{exact:true}).waitFor();
@@ -509,7 +528,7 @@ const fixtures={
  assert.equal(catalogSearches,0,'public search skips the Rezvan catalog');
  await google.close();
  await query.fill(extraction.product_name);
- await productSearch.getByRole('button',{name:'جست‌وجو در رزوان'}).click();
+ await productSearch.getByRole('button',{name:'جست‌وجو در رضوان پخش'}).click();
  await page.getByRole('link',{name:'نمونه آنلاین'}).waitFor();
  assert.equal(catalogSearches,1,'Rezvan uses its separate catalog lookup');
  await marketCard.getByRole('button',{name:'بررسی مشخصات',exact:true}).click();
@@ -562,6 +581,7 @@ const fixtures={
  await page.getByText('سهمیهٔ هر مدل',{exact:true}).click();
  await page.locator('.md-quota').getByText('gemini-fixture',{exact:true}).waitFor();
  await bar.getByRole('button',{name:/جزئیات/}).first().click();
+ await page.getByRole('dialog').getByRole('button',{name:'باز کردن کار',exact:true}).click();
  await page.getByRole('heading',{name:'پیام‌های منبع',exact:true}).waitFor();
  await page.locator('.molavi-inbox').getByText('هنوز پیامی دریافت نشده است.').waitFor();
  const received={received_at:now,batch_id:'recent-batch',channel:'@supplier',state:'queued'};
@@ -596,7 +616,7 @@ const fixtures={
  await list.getByRole('heading',{name:'دریافت فهرست کامل نشد'}).waitFor();
  assert.equal(await list.locator('.molavi-reference-summary').count(),1);
  assert.equal(await list.getByText('دریافت مرجع نیاز به پیگیری دارد',{exact:true}).count(),0);
- await list.getByRole('button',{name:'دریافت دوباره از رزوان',exact:true}).waitFor();
+ await list.getByRole('button',{name:'دریافت دوباره از رضوان پخش',exact:true}).waitFor();
  assert.equal(await list.getByRole('button').count(),1,'retry is the only visible button before an owner opens alternatives');
  await list.getByText('تصمیم دربارهٔ فهرست ذخیره‌شده',{exact:true}).click();
  await list.getByRole('button',{name:'توقف تطبیق تا دریافت فهرست تازه',exact:true}).waitFor();
@@ -607,7 +627,7 @@ const fixtures={
  await list.getByText('داده‌ها و سابقه',{exact:true}).click();
  await list.getByText('آبمیوه پرتقال',{exact:true}).waitFor();
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'an open reference preview fits mobile');
- await list.getByRole('button',{name:'تازه‌سازی دستی از رزوان',exact:true}).waitFor();
+ await list.getByRole('button',{name:'تازه‌سازی دستی از رضوان پخش',exact:true}).waitFor();
 
  const catalog=fixtures['/reference/snapshots'];
  catalog.refresh_state={state:'running',in_progress:true,last_attempt_at:now,revision:'running'};
@@ -694,7 +714,9 @@ const fixtures={
  await discountReceipt.getByText(/۹ از ۲۴/).waitFor({timeout:15000});
  assert.equal(await discountReceipt.locator('.md-activity-icon').count(),0,'active repricing presents the source link by itself');
  await page.getByRole('button',{name:'محصولات',exact:true}).click();
- await discountReceipt.getByRole('button',{name:/رفتن به مبدأ/}).click();
+ await discountReceipt.getByRole('button',{name:/جزئیات پیشرفت/}).click();
+ await page.getByRole('dialog').getByRole('progressbar',{name:'پیشرفت ثبت‌شده'}).waitFor();
+ await page.getByRole('dialog').getByRole('button',{name:'باز کردن کار',exact:true}).click();
  await pricing.waitFor();
  repricing={...repricing,state:'completed',completed:24};
  await discountReceipt.getByText(/کامل شد.*۲۴ از ۲۴/).waitFor({timeout:16000});
@@ -754,6 +776,26 @@ const fixtures={
  await mount('',true,true,'fixture-owner:1');
  await marketSuccess.getByText(/۱۶۰٬۰۰۰/).waitFor();
  assert.equal(await marketFailure.count(),0,'a dismissed automatic notice stays dismissed');
+ productMessages=[
+    {offer_id:'msg-one',title:'پیام نخست محصول',category:'خوراکی',sale_price:90000,state:'pending'},
+    {offer_id:'msg-two',title:'پیام دوم محصول',sale_price:100000,state:'pending'}
+ ];
+ products[0].woo_product_id=51;products[0].message_count=2;
+ referenceProgress={kind:'reference_refresh',state:'running',total:8,completed:3,unit:'pages',
+   current:{phase:'fetching',records:270,total_records:712,updated_at:Date.now()/1000}};
+ await mount('',true,true,'progress-fixture:1');
+ await bar.getByRole('button',{name:/به‌روزرسانی فهرست مرجع.*۳ از ۸ صفحه/}).click();
+ const progressDetail=page.getByRole('dialog');
+ await progressDetail.getByText('دریافت صفحه‌های فهرست',{exact:true}).waitFor();
+ assert.equal(await progressDetail.getByRole('progressbar').getAttribute('value'),'3');
+ await progressDetail.getByRole('button',{name:'بستن',exact:true}).click();
+ await page.getByRole('button',{name:/^منتشرشده/}).click();
+ await noodle.getByRole('tab',{name:/پیام‌های کالا/}).click();
+ await noodle.getByText(/پیام نخست محصول/).click();
+ await noodle.getByRole('button',{name:'کنارگذاشتن پیام',exact:true}).click();
+ await noodle.getByRole('tab',{name:/پیام‌های کالا/}).click();
+ await noodle.getByText('پیام‌های استفاده‌شده و کنارگذاشته‌شده',{exact:true}).click();
+ await noodle.getByText(/پیام نخست محصول.*کنارگذاشته‌شده/).waitFor();
  assert.deepEqual(errors,[]);
  console.log(JSON.stringify({passed:true,errors,writes:writes.length,captures:['/tmp/molavi-dashboard-desktop.png','/tmp/molavi-dashboard-mobile.png']}));
  await browser.close();

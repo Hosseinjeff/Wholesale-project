@@ -10,11 +10,14 @@ function molavi_domain_order_catalog(array $tables): array {
     $records=molavi_domain_records($tables['Products']??[]);
     $market=function_exists('molavi_domain_market_catalog_sources')
         ?molavi_domain_market_catalog_sources($records,molavi_domain_records($tables['Offers']??[])):[];
+    $aliases=function_exists('molavi_domain_product_message_aliases')
+        ?molavi_domain_product_message_aliases($records,molavi_domain_records($tables['Offers']??[])):[];
     foreach($records as $record){
         $status=strtolower(trim((string)($record['Status']??'')));if(in_array($status,['skipped','needs_review','not_product'],true))continue;
         $stock=preg_replace('/[\s_-]+/u',' ',strtolower(trim((string)($record['Stock Status']??''))));
         if(in_array($stock,['out of stock','outofstock','unavailable','sold out','ناموجود','اتمام موجودی'],true))continue;
         $name=trim((string)($record['Product Name']??''));$id=(string)molavi_domain_py_value($record['Product ID']??'');
+        if (isset($aliases[$id])) continue;
         $cost=molavi_domain_positive_price($record['Sale Price']??null);$regular=molavi_domain_positive_price($record['Consumer Price']??null)?:molavi_domain_positive_price($record['Actual Price']??null);
         $regular=$market[$id]['price']['regular_price']??$regular;
         if($id===''||$name===''||$cost<=0||$regular<=$cost)continue;$band=molavi_band($cost,$regular,$settings);$discountable=$band['discountable'];

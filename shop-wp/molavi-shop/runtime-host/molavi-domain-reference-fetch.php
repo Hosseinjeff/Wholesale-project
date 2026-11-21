@@ -33,9 +33,10 @@ function molavi_domain_reference_retryable(string $code): bool {
         ||in_array($code,['woocommerce_http_429','woocommerce_http_500','woocommerce_http_502','woocommerce_http_503','woocommerce_http_504'],true);
 }
 /** Eight bounded requests shorten the window for source changes between pages. */
-function molavi_domain_reference_fetch_attempt(int $size=100): array {
+function molavi_domain_reference_fetch_attempt(int $size=100,?callable $progress=null): array {
     if($size<1||$size>100)molavi_domain_fail('woocommerce_pagination_invalid',400);
     [$first,$total,$pages]=molavi_domain_reference_fetch_page(1,$size);$products=$first;
+    if ($progress) $progress('fetching',1,$pages,count($products),$total);
     for($start=2;$start<=$pages;$start+=8){
         $end=min($pages,$start+7);
         if(class_exists('WpOrg\Requests\Requests')){
@@ -51,7 +52,9 @@ function molavi_domain_reference_fetch_attempt(int $size=100): array {
                 array_push($products,...$rows);
             }
         }else for($page=$start;$page<=$end;$page++){[$rows]=molavi_domain_reference_fetch_page($page,$size,$total,$pages);array_push($products,...$rows);}
+        if ($progress) $progress('fetching',$end,$pages,count($products),$total);
     }
+    if ($progress) $progress('validating',$pages,$pages,count($products),$total);
     if(count($products)!==$total)molavi_domain_fail('woocommerce_product_coverage_incomplete',503);
     $ids=[];$skus=[];$currency=null;
     foreach($products as $product){if(!is_array($product))molavi_domain_fail('woocommerce_product_invalid',503);
@@ -63,14 +66,18 @@ function molavi_domain_reference_fetch_attempt(int $size=100): array {
     }
     return molavi_domain_reference_candidate($products,$pages,(string)$currency,molavi_domain_now());
 }
-function molavi_domain_reference_fetch_products(int $size=100): array {
+function molavi_domain_reference_fetch_products(int $size=100,?callable $progress=null): array {
     for($generation=0;$generation<2;$generation++){
-        try{return molavi_domain_reference_fetch_attempt($size);}
+        try{return molavi_domain_reference_fetch_attempt($size,$progress);}
         catch(MolaviWorkflowError $e){$code=$e->getMessage();
             // Discard the entire incomplete generation, then start once from page 1.
-            if($generation===0&&($code==='woocommerce_pagination_changed'||str_starts_with($code,'woocommerce_page_incomplete_')))continue;
+            if($generation===0&&($code==='woocommerce_pagination_changed'||str_starts_with($code,'woocommerce_page_incomplete_'))){
+                if ($progress) $progress('retrying',0,0,0,0);
+                continue;
+            }
             if($size<=50||!molavi_domain_reference_retryable($code))throw $e;
-            return molavi_domain_reference_fetch_attempt(intdiv($size,2));
+            if ($progress) $progress('retrying',0,0,0,0);
+            return molavi_domain_reference_fetch_attempt(intdiv($size,2),$progress);
         }
     }
     molavi_domain_fail('woocommerce_source_unstable',503);

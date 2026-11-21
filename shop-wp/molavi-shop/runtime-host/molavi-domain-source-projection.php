@@ -32,6 +32,7 @@ function molavi_domain_confirmed_offer(array $source,array $decision,string $now
         'stock_status'=>$get('Stock Status','Unknown'),'description'=>$get('Description'),'confidence'=>1.0,'extraction_confidence'=>$get('Extraction Confidence Score',$get('Confidence',1.0)),
         'brand'=>$get('Brand'),'weight'=>$get('Weight'),'package_count'=>$get('Package Count'),'min_qty'=>$get('Min Qty'),'status'=>'not_product','price_type'=>$get('Price Type')];$reason='';
     if($decision['choice']==='confirm'){$fields=$decision['fields'];$count=$fields['package_count'];$price=$fields['sale_price'];
+        if (isset($fields['category'])) $product['category']=trim($fields['category']);
         if($fields['price_role']==='package'){$unit=intdiv($price+intdiv($count,2),$count);$package=$price;$product['min_qty']=max((int)molavi_domain_py_value($fields['min_qty'],0),$count);}
         else{$unit=$price;$package=molavi_domain_positive_price($source['Package Price']??null)?:'';$product['min_qty']=(int)molavi_domain_py_value($fields['min_qty'],molavi_domain_positive_price($source['Min Qty']??null)?:1);}
         $product=array_replace($product,['sale_price'=>$unit,'price'=>$unit,'actual_price'=>molavi_domain_py_value($fields['actual_price']),'consumer_price'=>molavi_domain_py_value($fields['actual_price']),

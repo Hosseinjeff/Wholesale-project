@@ -61,9 +61,9 @@ function molavi_sync_reply(array $body, int $status = 200): void
 }
 
 /** Return private identifiers for an authenticated reconciliation check. */
-function molavi_catalog_identity_snapshot(bool $publishedOnly = false): array
+function molavi_catalog_identity_snapshot(bool $publishedOnly = false, bool $includeRegistered = false): array
 {
-    $ids = $publishedOnly ? wc_get_products(['status' => 'publish', 'limit' => -1, 'return' => 'ids'])
+    $ids = $publishedOnly || $includeRegistered ? wc_get_products(['status' => $publishedOnly ? 'publish' : ['publish','draft','pending','private'], 'limit' => -1, 'return' => 'ids'])
         : molavi_product_index()['managed'];
     $products = [];
     foreach ($ids as $productId) {
@@ -81,15 +81,22 @@ function molavi_catalog_identity_snapshot(bool $publishedOnly = false): array
             'published' => $product->get_status() === 'publish',
             'purchasable' => (bool) $product->is_purchasable(),
         ];
-        if ($publishedOnly) {
+        if ($publishedOnly || $includeRegistered) {
             $identity['woo_product_id'] = (int) $productId;
+        }
+        if ($includeRegistered) {
+            $identity['active_offer_id'] = (string) $product->get_meta('_molavi_active_offer_id', true);
+            $identity['source_post_url'] = (string) $product->get_meta('_molavi_source_post_url', true);
+            $identity['category'] = (string) $product->get_meta('_molavi_category', true);
+            $identity['regular_price'] = (int) $product->get_regular_price('edit');
+            $identity['registered_at'] = $product->get_date_created()?->getTimestamp() ?? 0;
         }
         $products[] = $identity;
     }
     return $products;
 }
 
-function molavi_apply_catalog(array $payload): array
+function molavi_apply_catalog(array $payload, bool $native = false): array
 {
     $rows = $payload['products'] ?? null;
     if (!is_array($rows)) {
@@ -122,6 +129,11 @@ function molavi_apply_catalog(array $payload): array
             }
             $seenRecordIds[$clean['source_record_id']] = true;
         }
+        if ($native) {
+            $clean['keep_registered'] = array_map('intval',(array)($row['keep_registered']??[]));
+            $clean['registered_woo_id'] = (int)($row['registered_woo_id']??0);
+            $clean['active_offer_id'] = (string)($row['active_offer_id']??'');
+        }
         $cleanRows[] = $clean;
     }
 
@@ -135,7 +147,12 @@ function molavi_apply_catalog(array $payload): array
     $queue = [];
     $present = [];
     foreach ($cleanRows as $rowIndex => $clean) {
-        $productId = molavi_match_product($clean, $index);
+        if (!empty($clean['keep_registered'])) {
+            foreach ($clean['keep_registered'] as $registeredId) $present[$registeredId] = true;
+            $unchanged++;
+            continue;
+        }
+        $productId = ($clean['registered_woo_id']??0) ?: molavi_match_product($clean, $index);
         if ($clean['status'] === 'hold') {
             if ($productId > 0) {
                 $present[$productId] = true;
@@ -444,6 +461,7 @@ function molavi_catalog_product_matches(WC_Product $product, array $clean, int $
         $expectedMeta['_molavi_supplier_price_state'] = $clean['supplier_price_state'];
         $expectedMeta['_molavi_supplier_price_verified_at'] = $clean['supplier_price_verified_at'];
     }
+    if (!empty($clean['active_offer_id'])) $expectedMeta['_molavi_active_offer_id'] = $clean['active_offer_id'];
     foreach ($expectedMeta as $key => $expected) {
         if ((string) get_post_meta($id, $key, true) !== (string) $expected) {
             return false;
@@ -471,6 +489,7 @@ function molavi_upsert_product(int $productId, array $clean, ?bool &$changed = n
         $product = new WC_Product_Simple();
     }
     $product->set_name($clean['name']);
+    if (!empty($clean['active_offer_id'])) $product->update_meta_data('_molavi_active_offer_id',$clean['active_offer_id']);
     $product->set_status('publish');
     $product->set_catalog_visibility('visible');
     // Woo's public prices are customer prices. Keep the supplier purchase price

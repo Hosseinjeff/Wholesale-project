@@ -82,8 +82,8 @@
             updated: 'مرجع با تغییرات تازه به‌روز شد',
             unchanged: 'تغییری پیدا نشد؛ مرجع فعلی معتبر است',
             staged: 'نسخه تازه آماده بررسی است',
-            failed: 'دریافت فهرست مرجع رزوان کامل نشد',
-            running: 'دریافت فهرست مرجع رزوان در حال انجام است'
+            failed: 'دریافت فهرست مرجع رضوان پخش کامل نشد',
+            running: 'دریافت فهرست مرجع رضوان پخش در حال انجام است'
         })[state] || 'وضعیت دریافت مشخص نیست';
     }
 
@@ -115,30 +115,30 @@
         }
         if (code === 'extraction_row_gap' || code === 'extraction_row_sequence_invalid'
             || code === 'extraction_too_few_rows') {
-            return 'تلاش قدیمی خواندن PDF کامل نبود؛ فهرست تازه از API رزوان دریافت می‌شود.';
+            return 'تلاش قدیمی خواندن PDF کامل نبود؛ فهرست تازه از API رضوان پخش دریافت می‌شود.';
         }
         if (code.startsWith('extraction_') || baseCode.startsWith('gemini_')) {
-            return 'تلاش قبلی PDF/Gemini کامل نشد؛ فهرست تازه از API رزوان دریافت می‌شود.';
+            return 'تلاش قبلی PDF/Gemini کامل نشد؛ فهرست تازه از API رضوان پخش دریافت می‌شود.';
         }
         const transport = code.match(/^woocommerce_transport_(read_timeout|connect_timeout|timeout|tls_failed|connection_failed)_page_(\d+)$/);
         if (transport) {
             const page = 'صفحه ' + transport[2];
-            if (transport[1] === 'read_timeout') return 'API رزوان صفحه ' + page + ' را کامل نفرستاد.';
-            if (transport[1] === 'connect_timeout') return 'اتصال به API رزوان برای ' + page + ' به‌موقع برقرار نشد.';
-            if (transport[1] === 'tls_failed') return 'ارتباط امن با API رزوان برای ' + page + ' برقرار نشد.';
-            return 'ارتباط با API رزوان برای ' + page + ' قطع شد.';
+            if (transport[1] === 'read_timeout') return 'API رضوان پخش صفحه ' + page + ' را کامل نفرستاد.';
+            if (transport[1] === 'connect_timeout') return 'اتصال به API رضوان پخش برای ' + page + ' به‌موقع برقرار نشد.';
+            if (transport[1] === 'tls_failed') return 'ارتباط امن با API رضوان پخش برای ' + page + ' برقرار نشد.';
+            return 'ارتباط با API رضوان پخش برای ' + page + ' قطع شد.';
         }
-        if (code === 'woocommerce_transport_failed') return 'ارتباط با API رزوان پایدار نبود.';
+        if (code === 'woocommerce_transport_failed') return 'ارتباط با API رضوان پخش پایدار نبود.';
         if (code === 'woocommerce_currency_unsupported' || code === 'woocommerce_currency_mismatch') {
             return 'واحد پول فهرست مرجع پشتیبانی نمی‌شود؛ نسخه تازه ساخته نشد.';
         }
         if (code === 'woocommerce_pagination_changed' || code === 'woocommerce_pagination_invalid'
             || code.startsWith('woocommerce_page_incomplete_')
             || code === 'woocommerce_product_coverage_incomplete') {
-            return 'همه صفحه‌های فهرست رزوان دریافت نشد.';
+            return 'همه صفحه‌های فهرست رضوان پخش دریافت نشد.';
         }
         if (/^woocommerce_http_\d+$/.test(code)) {
-            return 'API رزوان پاسخ نداد (' + code.replace('woocommerce_http_', 'HTTP ') + ').';
+            return 'API رضوان پخش پاسخ نداد (' + code.replace('woocommerce_http_', 'HTTP ') + ').';
         }
         return 'استخراج کامل نشد؛ پیش‌نویس تازه ساخته نشد. کد پیگیری: ' + (code || 'نامشخص');
     }
@@ -245,7 +245,7 @@
         }
         form.addEventListener('submit', async (event) => {
             event.preventDefault();
-            if (button.disabled || writing || !window.confirm('فهرست رزوان بررسی می‌شود و تغییرات تأییدشده در مرجع اعمال می‌شود. ادامه می‌دهید؟')) return;
+            if (button.disabled || writing || !window.confirm('فهرست رضوان پخش بررسی می‌شود و تغییرات تأییدشده در مرجع اعمال می‌شود. ادامه می‌دهید؟')) return;
             writing = true;
             button.disabled = true;
             button.textContent = 'در حال دریافت فهرست…';
@@ -455,7 +455,7 @@
         const initial = !usable && snapshots.find(item=>item.snapshot_id!==activeId && verified(item) && !item.automatic_update);
         const refresh = data.refresh_state || {};
         const review = data.reference_review || {};
-        const running = refresh.state==='running' && refresh.in_progress!==false;
+        const running = refresh.in_progress===true || refresh.state==='running' && refresh.in_progress!==false;
         const interrupted = refresh.state==='running' && !running;
         const failed = refresh.state==='failed' || interrupted;
         const updating = refresh.state==='staged'
@@ -465,9 +465,9 @@
         const usingSaved = usable && review.state==='using_saved';
 
         const current = element('section',undefined,'molavi-reference-summary');
-        current.setAttribute('aria-label','مرجع رزوان');
+        current.setAttribute('aria-label','مرجع رضوان پخش');
         const header = element('header');
-        header.append(element('span','رزوان پخش','molavi-reference-source'));
+        header.append(element('span','رضوان پخش','molavi-reference-source'));
         const status = element('h2',undefined,'molavi-reference-status');
         status.setAttribute('aria-live','polite');
         header.append(status);
@@ -477,6 +477,15 @@
         let manualRefresh = false;
         if (running || updating) {
             status.textContent = running ? 'دریافت فهرست در جریان است' : 'فهرست تازه در انتظار ثبت است';
+            const progress=refresh.progress||{};
+            const phases={connecting:'اتصال به رضوان پخش',fetching:'دریافت صفحه‌ها',validating:'اعتبارسنجی داده‌ها',
+                comparing:'مقایسه با نسخهٔ فعال',applying:'اعمال تغییرات روی کالاها',retrying:'تلاش دوباره برای دریافت'};
+            if (phases[progress.phase]) next.append(element('p',phases[progress.phase]));
+            if (progress.total>0) {
+                const meter=element('progress');
+                meter.max=progress.total;meter.value=progress.completed||0;meter.setAttribute('aria-label','پیشرفت دریافت فهرست');
+                next.append(meter,element('p',`${new Intl.NumberFormat('fa-IR').format(meter.value)} از ${new Intl.NumberFormat('fa-IR').format(meter.max)} صفحه`));
+            }
             if (!usable || awaiting || paused) description = 'تطبیق منتظر فهرست تازه است.';
             if (!config.liveActivity) addReloadButton(next,'بررسی وضعیت دریافت');
         } else if (initial) {
@@ -495,10 +504,10 @@
             status.textContent = !usable ? 'فهرست قابل استفاده آماده نیست'
                 : paused ? 'تطبیق متوقف است'
                 : failed ? 'دریافت فهرست کامل نشد' : 'فهرست به تازه‌سازی نیاز دارد';
-            if (!usable) description = 'برای شروع تطبیق، نخستین فهرست رزوان را دریافت و بررسی کنید.';
+            if (!usable) description = 'برای شروع تطبیق، نخستین فهرست رضوان پخش را دریافت و بررسی کنید.';
             else if (awaiting) description = 'تطبیق منتظر فهرست تازه است. در صورت نیاز می‌توانید از فهرست ذخیره‌شده استفاده کنید.';
             else if (paused || failed) description = 'دریافت موفق، فهرست را برای تطبیق آماده می‌کند.';
-            appendRefreshForm(next,refresh,failed ? 'دریافت دوباره از رزوان' : 'دریافت فهرست از رزوان');
+            appendRefreshForm(next,refresh,failed ? 'دریافت دوباره از رضوان پخش' : 'دریافت فهرست از رضوان پخش');
         } else {
             status.textContent = usingSaved ? 'تطبیق با فهرست ذخیره‌شده انجام می‌شود' : 'فهرست برای تطبیق آماده است';
             manualRefresh = true;
@@ -549,7 +558,7 @@
                 }
                 details.append(history);
             }
-            if (manualRefresh) appendRefreshForm(details,refresh,'تازه‌سازی دستی از رزوان',false);
+            if (manualRefresh) appendRefreshForm(details,refresh,'تازه‌سازی دستی از رضوان پخش',false);
             current.append(details);
         }
         root.append(current);

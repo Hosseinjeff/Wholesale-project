@@ -132,7 +132,8 @@ function molavi_domain_woo_catalog(?string $clock=null): array {
     }catch(Throwable $e){return ['state'=>'unavailable','products'=>[],'checked_at'=>''];}
 }
 function molavi_domain_inbox_recent(): array {
-    return molavi_domain_read('pipeline',static function(SQLite3 $db): array {
+    $catalog=function_exists('molavi_domain_registered_products')?molavi_domain_registered_products():[];
+    return molavi_domain_read('pipeline',static function(SQLite3 $db)use($catalog): array {
         $rows=molavi_domain_rows($db,"SELECT i.rowid AS receipt_id,i.payload,i.received_at,i.batch_id,j.state,j.result,j.updated_at,
             j.error,j.available,h.hold_id
             FROM inbox i LEFT JOIN jobs j ON j.id=i.batch_id
@@ -155,6 +156,7 @@ function molavi_domain_inbox_recent(): array {
                 'extraction_state'=>(string)($result['extraction_status']??''),
                 'hold_id'=>$row['hold_id']??null,
                 'retry_at'=>$row['state']==='queued'&&$row['error']==='google_free_quota_wait'?(float)$row['available']:null,
+                'related_products'=>$catalog?molavi_domain_product_message_text_matches((string)($source['content']??''),$catalog):[],
             ];
         }
         return ['ok'=>true,'messages'=>$messages];
@@ -229,6 +231,14 @@ function molavi_domain_inbox_offers(array $query): array {
     $tables=molavi_domain_sheets(['Products','Offers']);
     $offers=molavi_domain_inbox_offer_summary(molavi_domain_records($tables['Offers']),
         molavi_domain_records($tables['Products']),$batch,$message,$channel);
+    if ($offers&&function_exists('molavi_domain_registered_products')) {
+        $catalog=molavi_domain_registered_products();
+        $book=array_column(molavi_domain_records($tables['Offers']),null,'Offer ID');
+        foreach ($offers as &$offer) $offer['registered']=array_map(static fn($row)=>[
+            'woo_product_id'=>$row['woo_product_id'],'name'=>$row['name'],'product_id'=>$row['source_record_id']],
+            molavi_domain_product_message_matches($book[$offer['offer_id']]??[],$catalog));
+        unset($offer);
+    }
     $outcome=$offers?'offers':molavi_domain_inbox_message_outcome(
         molavi_domain_records(molavi_domain_sheets(['MessageData'])['MessageData']),$batch,$message,$channel);
     return ['ok'=>true,'offers'=>$offers,'outcome'=>$outcome];
@@ -237,6 +247,7 @@ function molavi_domain_inbox_offers(array $query): array {
 function molavi_domain_reconciliation_api(array $query): array {
     if(($query['view']??'')==='inbox') return molavi_domain_inbox_recent();
     if(($query['view']??'')==='inbox-offers') return molavi_domain_inbox_offers($query);
+    if(($query['view']??'')==='product-messages') return molavi_domain_product_message_api($query);
     $raw=trim((string)($query['limit']??'200'));$limit=preg_match('/^[+-]?\d+$/D',$raw)?(int)$raw:200;$limit=max(1,min($limit?:200,500));
     $data=molavi_domain_receipt_data($limit);$tables=molavi_domain_sheets(['MessageData','Offers','Products','Shop'],true);$products=molavi_domain_records($tables['Products']);$offers=molavi_domain_records($tables['Offers']);
     $issues=molavi_domain_source_issues($products,$offers);try{$projection=molavi_domain_site_products($tables);}catch(Throwable $e){$projection=null;}

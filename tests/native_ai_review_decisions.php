@@ -13,7 +13,7 @@ function molavi_domain_sheet_fields($name,$row,$headers,$values){
 function molavi_domain_sheet_append($name,$rows){foreach($rows as $row)$GLOBALS['ai_tables'][$name][]=$row;return [];}
 function wc_get_products(...$args){}
 function get_edit_post_link($id,$context){return '/wp-admin/post.php?post='.$id.'&action=edit';}
-function molavi_catalog_identity_snapshot(bool $publishedOnly=false): array {
+function molavi_catalog_identity_snapshot(bool $publishedOnly=false,bool $includeRegistered=false): array {
     return [
         ['source_record_id'=>'product-1','published'=>true,'woo_product_id'=>1,'name'=>'Sample juice','supplier'=>'supplier'],
         ['source_record_id'=>'','published'=>true,'woo_product_id'=>2,'name'=>'Manual listing','supplier'=>''],
@@ -88,5 +88,57 @@ ai_decision_same(molavi_domain_ai_reviews_decide($body,'wp:7',$clock),$receipt,'
 ai_decision_same(molavi_domain_published_review_cases($GLOBALS['ai_tables']),[],'resolved case leaves the review queue');
 $job=molavi_domain_read('pipeline',static fn($db)=>molavi_domain_row($db,'SELECT id FROM jobs'));
 ai_decision_same($job['id'],$receipt['publish_job'],'the explicit decision queues publication');
+
+require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-product-inbox.php';
+$listing=molavi_domain_registered_products();
+ai_decision_same(array_column(molavi_domain_product_message_text_matches("New stock: Sample juice today",$listing),'woo_product_id'),[1],
+    'an unprocessed message can point to an existing WooCommerce item');
+$incoming=array_replace($source,['Offer ID'=>'incoming-1','Message ID'=>'100','Batch ID'=>'batch-new',
+    'Import Timestamp'=>'2026-11-19T12:00:00+00:00','Source Post URL'=>'https://t.me/supplier/100','Status'=>'needs_review','Category'=>'']);
+$fromOther=array_replace($incoming,['Offer ID'=>'incoming-2','Product ID'=>'unpublished-source','Message ID'=>'101',
+    'Channel Username'=>'other','Channel'=>'54','Source Post URL'=>'https://t.me/other/101','Sale Price'=>120000]);
+$pendingProduct=array_replace($written,['Latest Offer ID'=>$incoming['Offer ID'],'Batch ID'=>$incoming['Batch ID'],
+    'Source Post URL'=>$incoming['Source Post URL'],'Status'=>'needs_review']);
+$stagedAlias=array_replace($pendingProduct,['Product ID'=>'unpublished-source','Latest Offer ID'=>'incoming-2',
+    'Channel Username'=>'other','Channel'=>'54','Source Post URL'=>$fromOther['Source Post URL']]);
+$GLOBALS['ai_tables']['Products']=molavi_domain_rows_from_records(molavi_domain_product_headers(),[$pendingProduct,$stagedAlias]);
+molavi_domain_sheet_append('Offers',array_slice(molavi_domain_rows_from_records(molavi_domain_offer_headers(),[$incoming,$fromOther]),1));
+$allOffers=molavi_domain_records($GLOBALS['ai_tables']['Offers']);
+$rules=molavi_domain_product_message_catalog_rules([$pendingProduct,$stagedAlias],$allOffers);
+ai_decision_same($rules['product-1']['keep_registered'],[1],'unreviewed incoming messages preserve the registered WooCommerce listing');
+ai_decision_same(array_column(molavi_domain_product_message_api(['woo_product_id'=>1])['pending'],'offer_id'),
+    ['incoming-2','incoming-1'],'existing item collects different incoming messages in one queue');
+$pick=['action'=>'choose_product_message','woo_product_id'=>1,'offer_id'=>'incoming-1','choice'=>'dismiss'];
+$beforeDismiss=$GLOBALS['ai_tables'];
+ai_decision_same(molavi_domain_ai_reviews_api('POST',[],$pick,'wp:7')['state'],'dismissed','dismiss a competing message');
+ai_decision_same($GLOBALS['ai_tables'],$beforeDismiss,'dismissal preserves the supplier and product records');
+$opened=molavi_domain_ai_reviews_api('POST',[],array_replace($pick,['offer_id'=>'incoming-2','choice'=>'review']),'wp:7');
+$case=array_column(molavi_domain_published_review_cases($GLOBALS['ai_tables']),null,'case_id')[$opened['case_id']];
+ai_decision_same([$case['message_review'],$case['sale_price']],[true,120000],'the selected message opens its own prices for review');
+$choice=array_replace($body,['case_id'=>$case['case_id'],'offer_id'=>$case['offer_id'],'signature'=>$case['signature'],'expected_decision_id'=>null]);
+$choice['fields']['sale_price']=120000;
+$choice['fields']['category']='Beverages';
+$selected=molavi_domain_ai_reviews_decide($choice,'wp:7',$clock);
+$rows=molavi_domain_records($GLOBALS['ai_tables']['Products']);
+$allOffers=molavi_domain_records($GLOBALS['ai_tables']['Offers']);
+ai_decision_same([$rows[0]['Product ID'],$rows[0]['Channel Username'],$rows[0]['Category'],$rows[0]['Sale Price']],
+    ['product-1','other','Beverages',120000],'chosen supplier message and corrected category project to the existing product');
+ai_decision_same(molavi_domain_source_issues($rows,$allOffers),[],'the imported alias leaves the active catalog without corrupting the selected source');
+ai_decision_same(molavi_domain_product_message_catalog_rules($rows,$allOffers)['product-1']['registered_woo_id'],1,
+    'the selected offer republishes into the same WooCommerce listing');
+ai_decision_same(molavi_domain_ai_reviews_decide($choice,'wp:7',$clock),$selected,'replaying the selected message is idempotent');
+
+$reviewSource=array_replace($source,['Offer ID'=>'publication-recovery','Product ID'=>'publication-1','Product Name'=>'Blocked tea','Status'=>'needs_review']);
+$recoveryProduct=array_replace($reviewSource,['Latest Offer ID'=>'publication-recovery']);
+molavi_domain_sheet_append('Products',array_slice(molavi_domain_rows_from_records(molavi_domain_product_headers(),[$recoveryProduct]),1));
+molavi_domain_sheet_append('Offers',array_slice(molavi_domain_rows_from_records(molavi_domain_offer_headers(),[$reviewSource]),1));
+$recovery=molavi_domain_ai_reviews_api('POST',[],['action'=>'review_publication','items'=>[
+    ['product_id'=>'publication-1','offer_id'=>'publication-recovery']]],'wp:7');
+ai_decision_same($recovery['opened'],1,'a publication-only card has a fresh review action');
+$case=array_column(molavi_domain_published_review_cases($GLOBALS['ai_tables']),null,'case_id')[$recovery['items'][0]['case_id']];
+$choice=array_replace($choice,['case_id'=>$case['case_id'],'offer_id'=>$case['offer_id'],'signature'=>$case['signature']]);
+molavi_domain_ai_reviews_decide($choice,'wp:7',$clock);
+ai_decision_same(array_column(molavi_domain_records($GLOBALS['ai_tables']['Products']),null,'Product ID')['publication-1']['Status'],
+    'imported','verified recovery leaves the obsolete review state and queues publication');
 
 foreach(glob($root.'/*') as $file)unlink($file);rmdir($root);echo 'PASS native AI review decisions '.$count." checks\n";

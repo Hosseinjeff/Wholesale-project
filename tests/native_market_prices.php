@@ -49,6 +49,10 @@ $record=['Product Name'=>'چای بهاران ارل گری ۵۰۰ گرم، ۲۴
 $identity=molavi_domain_market_identity($record);
 $actual=molavi_domain_market_from_page(market_page('چای ارل گری بهاران ۰٫۵ کیلوگرم'),$first,$identity);
 check_market($actual['unit_price']===78000&&$actual['source_currency']==='IRR','matched equivalent size and converted rial to toman');
+$og=preg_replace('/,"image":\{"contentUrl":"[^"]+"\}/','',market_page('چای ارل گری بهاران ۰٫۵ کیلوگرم'));
+$og='<meta content="/photos/tea.jpg" property="og:image">'.$og;
+check_market(molavi_domain_market_from_page($og,$first,$identity)['image_url']==='https://retailer-one.example/photos/tea.jpg',
+    'the verified listing can use a relative social preview image when structured product imagery is missing');
 check_market(!molavi_domain_market_from_page(market_page('چای ارل گری بهاران ۲۵۰ گرم'),$first,$identity),'different size is excluded');
 check_market(!molavi_domain_market_from_page(market_page('چای دارچین بهاران ۵۰۰ گرم'),$first,$identity),'different variant is excluded');
 check_market(!molavi_domain_market_from_page(market_page('چای ارل گری بهاران ۵۰۰ گرم ۱۲ عددی'),$first,$identity),'pack price is excluded');

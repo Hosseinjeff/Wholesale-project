@@ -47,6 +47,8 @@ function molavi_domain_ai_reviews_api(string $method, array $query, ?array $body
         'start_reextraction','start_open_case_reextraction','start_recent_policy_reextraction','start_offer_reextraction','start_media_reextraction' => molavi_domain_ai_start($body,$actor),
         'dismiss_cases' => molavi_domain_ai_dismiss_cases($body,$actor),
         'reopen_products' => molavi_domain_published_review_reopen($body,$actor),
+        'review_publication' => molavi_domain_published_review_reopen($body,$actor),
+        'choose_product_message' => molavi_domain_product_message_choose($body,$actor),
         'dismiss_pending_messages','dismiss_recent_policy_messages','dismiss_media_message' => molavi_domain_ai_dismiss_messages($body,$actor),
         'cancel_reextraction' => molavi_domain_ai_cancel($body,$actor),
         default => molavi_domain_ai_reviews_decide($body,$actor),
@@ -61,7 +63,9 @@ function molavi_domain_ai_validate_choice(?array $body): void {
     if(($body['choice']!=='not_product'&&trim($body['note'])==='')||strlen($body['signature'])!==64||($body['expected_decision_id']!==null&&(!is_string($body['expected_decision_id'])||strlen($body['expected_decision_id'])!==64)))molavi_domain_fail('invalid_fields',400);
     $fields=$body['fields'];if($body['choice']==='not_product'){if($fields!==[]&&!(is_object($fields)&&get_object_vars($fields)===[]))molavi_domain_fail('invalid_fields',400);return;}
     if($body['choice']!=='confirm'||!is_array($fields))molavi_domain_fail('invalid_fields',400);
-    $keys=array_keys($fields);sort($keys);if($keys!==['actual_price','min_qty','package_count','price_role','sale_price','stock_status'])molavi_domain_fail('invalid_fields',400);
+    $keys=array_keys(array_diff_key($fields,['category'=>true]));sort($keys);if($keys!==['actual_price','min_qty','package_count','price_role','sale_price','stock_status'])molavi_domain_fail('invalid_fields',400);
+    if (array_key_exists('category',$fields)&&(!is_string($fields['category'])||trim($fields['category'])===''||molavi_domain_strlen($fields['category'])>80))
+        molavi_domain_fail('invalid_fields',400);
     if(!in_array($fields['price_role'],['unit','package'],true))molavi_domain_fail('invalid_price_role',400);
     foreach(['sale_price','actual_price','package_count','min_qty'] as $key){$value=$fields[$key];if($key!=='sale_price'&&in_array($value,['',null],true))continue;
         if(!is_int($value)||$value<0)molavi_domain_fail('invalid_price',400);}
@@ -85,6 +89,10 @@ function molavi_domain_ai_decide(array $payload,?float $clock=null): array {
 function molavi_domain_ai_reviews_get(array $tables,?float $clock=null,bool $candidates=true,string $focused=''): array {
     $snapshot=null;try{$candidate=molavi_domain_reference_active();$state=molavi_domain_reference_use();if($candidate&&$state['allow_automatic']&&$candidate['snapshot_id']===$state['snapshot_id'])$snapshot=$candidate;}catch(Throwable $e){}
     [$cases,$recent]=molavi_domain_ai_review_cases($tables,$snapshot,true,200,$clock,$candidates,$focused);if($snapshot)$cases=molavi_domain_reference_receipts($cases,'ai',$snapshot['snapshot_id']);$scope=molavi_domain_ai_hold_scope();
+    if (function_exists('molavi_domain_product_message_review_ids')) {
+        $incoming=molavi_domain_product_message_review_ids(molavi_domain_records($tables['Offers']??[]));
+        $cases=array_values(array_filter($cases,static fn($case)=>!isset($incoming[$case['offer_id']])));
+    }
     $cases=array_merge(molavi_domain_published_review_cases($tables,$focused,$clock),$cases);
     if (function_exists('molavi_domain_market_source_rows') && ($market=molavi_domain_market_source_rows())) {
         foreach ($cases as &$case) {
@@ -112,6 +120,8 @@ function molavi_domain_ai_reviews_decide(?array $body,string $actor,?string $clo
             'SELECT * FROM published_product_reviews WHERE case_id=?',[$body['case_id']]));
         if ($review) return molavi_domain_published_review_resolve($review,$body,$actor,$clock);
         $offers=molavi_domain_records(molavi_domain_sheets(['Offers'],true)['Offers']);$case=molavi_domain_ai_find_case($offers,$body['case_id'],$body['offer_id'],$clock===null?null:molavi_domain_timestamp($clock));
+        if(function_exists('molavi_domain_product_message_review_ids')&&isset(molavi_domain_product_message_review_ids($offers)[$body['offer_id']]))
+            molavi_domain_fail('use_product_message_queue');
         if(!$case||$case['signature']!==$body['signature'])molavi_domain_fail('stale_case');if(molavi_domain_ai_held(molavi_domain_ai_hold_scope(),$case))molavi_domain_fail('publication_held_for_review');
         if($body['choice']==='confirm'&&$case['historical_reextract']&&($body['source_current_verified']??null)!==true)molavi_domain_fail('reextraction_price_not_verified',400);
         if($body['choice']==='confirm'&&$case['source_current_check_required']&&($body['source_current_verified']??null)!==true)molavi_domain_fail('source_current_verification_required',400);

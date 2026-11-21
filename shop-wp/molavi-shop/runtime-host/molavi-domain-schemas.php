@@ -192,6 +192,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS active_published_product_review
     ON published_product_reviews(product_id,offer_id,signature)
     WHERE resolved_decision_id IS NULL
 SQL,
+        <<<'SQL'
+CREATE TABLE IF NOT EXISTS product_message_choices (
+    woo_product_id INTEGER NOT NULL, offer_id TEXT NOT NULL, state TEXT NOT NULL,
+    case_id TEXT, actor TEXT NOT NULL, decided_at REAL NOT NULL, PRIMARY KEY(woo_product_id,offer_id)
+)
+SQL,
     ];
     case 'reference': return [
         // reference_import/decisions.py
@@ -280,6 +286,7 @@ CREATE TABLE IF NOT EXISTS reference_refresh_state (
                 state TEXT, occurrence_id TEXT, snapshot_id TEXT, error_code TEXT,
                 change_summary TEXT)
 MOLAVI_SCHEMA_REFERENCE_7,
+        'CREATE TABLE IF NOT EXISTS reference_refresh_progress (singleton INTEGER PRIMARY KEY CHECK(singleton=1), occurrence_id TEXT NOT NULL, detail_json TEXT NOT NULL)',
         <<<'SQL'
 CREATE TABLE IF NOT EXISTS market_price_lookups (
     lookup_key TEXT PRIMARY KEY, identity_json TEXT NOT NULL,

@@ -39,7 +39,21 @@ try {
     $r=molavi_domain_dashboard_activity($now);
     activity_check($r['groups'][0]['completed']===1 && $r['groups'][0]['total']===2,'batch progress includes completed messages');
     activity_check($r['groups'][0]['state']==='quota_wait' && $r['groups'][0]['retry_at']===$now+180.0,'quota waits show the scheduled retry');
+    activity_check($r['groups'][0]['current']['phase']==='quota_wait','progress identifies the current wait phase');
     activity_check($r['groups'][1]['kind']==='reference_suggest' && $r['groups'][1]['state']==='running','reference work appears separately');
+    molavi_domain_tx('reference',static function(SQLite3 $db)use($now): void {
+        molavi_domain_sql($db,"INSERT INTO reference_refresh_state (singleton,last_attempt_at,state,occurrence_id) VALUES (1,?,'running','progress-test')",
+            [gmdate('c',(int)$now)]);
+        molavi_domain_sql($db,"INSERT INTO molavi_state_locks VALUES ('refresh','test',?)",[(int)$now+60]);
+    });
+    molavi_domain_reference_progress('progress-test','fetching',['completed'=>3,'total'=>8,'records'=>240,'total_records'=>631]);
+    $progress=molavi_domain_dashboard_activity($now)['reference_progress'];
+    activity_check($progress['total']===8&&$progress['completed']===3&&$progress['current']['records']===240,
+        'reference progress reports real pages and records');
+    molavi_domain_tx('reference',static function(SQLite3 $db): void {
+        molavi_domain_sql($db,"DELETE FROM reference_refresh_state WHERE occurrence_id='progress-test'");
+        molavi_domain_sql($db,"DELETE FROM molavi_state_locks WHERE name='refresh' AND owner='test'");
+    });
     activity_check($r['quota']['total']===['limit'=>10,'used'=>1,'remaining'=>9],'aliases share one allocation and usage is scoped to the active project');
     activity_check($r['quota']['last_models']->extract['model']==='gemini-fixture','last actual model follows the task ledger');
     activity_check(strpos(json_encode($r),'project-fixture')===false,'project identifier stays private');

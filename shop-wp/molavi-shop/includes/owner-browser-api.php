@@ -299,6 +299,33 @@ function molavi_owner_workflow_proxy_ajax(): void {
 }
 add_action('wp_ajax_molavi_owner_workflow_proxy', 'molavi_owner_workflow_proxy_ajax');
 
+add_action('wp_ajax_molavi_owner_market_photo',static function(): void {
+    $nonce=is_string($_GET['nonce']??null)?wp_unslash($_GET['nonce']):'';
+    if (!current_user_can('manage_woocommerce')||!molavi_reference_owner()||!wp_verify_nonce($nonce,'molavi_owner_workflow_proxy')) {
+        status_header(403);
+        exit;
+    }
+    $offer=is_string($_GET['offer_id']??null)?wp_unslash($_GET['offer_id']):'';
+    $listing=is_string($_GET['listing']??null)?wp_unslash($_GET['listing']):'';
+    try {
+        $data=molavi_domain_market_price_api('GET',['offer_id'=>$offer],'wp:'.get_current_user_id());
+        $quote=array_column($data['candidates']??[],null,'url')[$listing]??null;
+        if (!$quote) molavi_domain_fail('market_image_unavailable',404);
+        if (empty($quote['image_url'])) {
+            $cached=get_transient('molavi_market_subject_v1_'.hash('sha256',$offer));
+            $identity=$cached['subject']['identity']??null;
+            if ($identity) $quote=molavi_domain_market_check_url($listing,$identity)??$quote;
+        }
+        if (empty($quote['image_url'])) molavi_domain_fail('market_image_unavailable',404);
+        [$image,$mime]=molavi_domain_market_download_photo($quote['image_url'],$listing);
+        header('Content-Type: '.$mime);
+        header('X-Content-Type-Options: nosniff');
+        header('Cache-Control: private, max-age=300');
+        echo $image;
+    } catch (Throwable $error) {status_header(404);}
+    exit;
+});
+
 function molavi_owner_workbench_dismissals_meta_key(): string {
     return 'molavi_owner_workbench_dismissals_v1';
 }

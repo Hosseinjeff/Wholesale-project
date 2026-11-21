@@ -163,6 +163,18 @@ function molavi_domain_market_from_page(string $html,string $url,array $identity
                 $img=$product['image']??null;
                 if (is_array($img)&&array_is_list($img)) $img=$img[0]??null;
                 if (is_array($img)) $img=$img['contentUrl']??$img['url']??null;
+                if (!is_string($img)||$img==='') {
+                    preg_match_all('~<meta\b[^>]{1,1200}>~i',$html,$meta);
+                    foreach (array_slice($meta[0],0,100) as $tag) {
+                        if (preg_match('~\b(?:property|name)\s*=\s*["\']og:image(?::secure_url)?["\']~i',$tag)
+                            && preg_match('~\bcontent\s*=\s*(["\'])(.*?)\1~i',$tag,$value)) {$img=$value[2];break;}
+                    }
+                }
+                if (is_string($img)) {
+                    $img=html_entity_decode($img,ENT_QUOTES|ENT_HTML5,'UTF-8');
+                    if (str_starts_with($img,'//')) $img='https:'.$img;
+                    elseif (str_starts_with($img,'/')) $img='https://'.parse_url($url,PHP_URL_HOST).$img;
+                }
                 $photo=molavi_domain_market_photo_url($img);
                 $quote=['title'=>$name,'url'=>$url,'merchant'=>strtolower((string)parse_url($url,PHP_URL_HOST)),
                     'unit_price'=>(int)round($toman/$pack),'current_price'=>$toman,'pack_count'=>$pack,
@@ -305,19 +317,25 @@ function molavi_domain_market_price_api(string $method,array $input,string $acto
     $event=null;
     if (in_array($action,['select_market_price_source','use_market_product_image'],true)) {
         $url=$input['url']??null;
-        $quote=molavi_domain_read('reference',static function(SQLite3 $db)use($key,$identity,$url,$now,$sources): ?array {
+        $candidate=molavi_domain_read('reference',static function(SQLite3 $db)use($key,$identity,$url,$now,$sources): ?array {
             if (!molavi_domain_market_url($url)) return null;
             $selected=molavi_domain_decode($sources['price']['quote_json']??null);
-            if (($selected['url']??null)===$url) return $selected;
+            if (($selected['url']??null)===$url) return ['quote'=>$selected,'stale'=>false];
             $row=molavi_domain_row($db,'SELECT checked_at,candidates_json FROM market_price_lookups WHERE lookup_key=?',[$key])
                 ??molavi_domain_row($db,'SELECT checked_at,candidates_json FROM market_price_lookups WHERE lookup_key=? AND selected_url IS NOT NULL',
                     [molavi_domain_market_previous_key($identity)]);
-            if (!$row||$now-(int)$row['checked_at']>=MOLAVI_REFERENCE_REFRESH_SECONDS) return null;
-            return array_column(molavi_domain_decode($row['candidates_json']),null,'url')[$url]??null;
+            if (!$row) return null;
+            $quote=array_column(molavi_domain_decode($row['candidates_json']),null,'url')[$url]??null;
+            return $quote?['quote'=>$quote,'stale'=>$now-(int)$row['checked_at']>=MOLAVI_REFERENCE_REFRESH_SECONDS]:null;
         });
-        if (!$quote) molavi_domain_fail('stale_market_price_source',409);
+        if (!$candidate) molavi_domain_fail('stale_market_price_source',409);
+        $quote=$candidate['stale']?molavi_domain_market_check_url($url,$identity):$candidate['quote'];
+        if (!$quote) molavi_domain_fail('market_price_source_not_verified',422);
         if ($action==='select_market_price_source') $event=molavi_domain_market_choose_source($subject,$quote,$sources['price']??null,$now);
-        else $event=molavi_domain_market_adopt_photo($subject,$quote,$now);
+        else {
+            if (empty($quote['image_url'])) $quote=molavi_domain_market_check_url($quote['url'],$identity)??$quote;
+            $event=molavi_domain_market_adopt_photo($subject,$quote,$now);
+        }
         $sources=molavi_domain_market_source_for($subject['keys'],molavi_domain_market_source_rows(),$identity);
         molavi_domain_market_flush_events();
     } elseif ($action!=='') molavi_domain_tx('reference',static function(SQLite3 $db)use($key,$identity,$now,$provided): void {

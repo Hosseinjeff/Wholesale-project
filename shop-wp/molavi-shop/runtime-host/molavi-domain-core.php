@@ -86,6 +86,8 @@ function molavi_domain_db(string $store='pipeline'):SQLite3 {
             ['paid_order_plans','supplier_terms',"TEXT NOT NULL DEFAULT '{}'"],
             ['product_status_snapshots','schema_version','INTEGER NOT NULL DEFAULT 0'],
             ['supplier_price_evidence_history','note',"TEXT NOT NULL DEFAULT ''"],
+            ['published_product_reviews','review_kind',"TEXT NOT NULL DEFAULT 'published'"],
+            ['published_product_reviews','woo_product_id','INTEGER NOT NULL DEFAULT 0'],
         ]:[['reference_refresh_state','change_summary','TEXT']];
         foreach($migrations as [$table,$column,$definition]){
             $columns=array_column(molavi_domain_rows($db,'PRAGMA table_info('.$table.')'),'name');

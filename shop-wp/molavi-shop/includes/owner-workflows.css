@@ -288,6 +288,11 @@
 #molavi-owner-workflow .molavi-market-quote { display:grid; gap:.45rem; padding:.7rem .8rem; background:#f6f8fa; border-radius:8px; overflow-wrap:anywhere; }
 #molavi-owner-workflow .molavi-market-quote-heading { display:flex; align-items:center; gap:.7rem; }
 #molavi-owner-workflow .molavi-market-quote-heading :is(strong,a) { display:block; }
+#molavi-owner-workflow .molavi-market-choice-form { display:grid; gap:8px; }
+#molavi-owner-workflow .molavi-market-choice-form fieldset { display:grid; gap:6px; min-width:0; }
+#molavi-owner-workflow .molavi-market-choice-form legend { margin-bottom:6px; font-weight:700; }
+#molavi-owner-workflow .molavi-market-choice { display:flex; align-items:baseline; gap:6px; cursor:pointer; }
+#molavi-owner-workflow .molavi-market-choice-form > button { justify-self:start; }
 #molavi-owner-workflow .molavi-market-thumbnail { flex:none; width:60px; height:60px; padding:2px; border:1px solid #ccd5cd; border-radius:7px; background:white; cursor:zoom-in; }
 #molavi-owner-workflow .molavi-market-thumbnail img { width:100%; height:100%; object-fit:contain; }
 #molavi-owner-workflow .molavi-market-photo-empty { display:block; color:#606c62; font-size:12px; }

@@ -58,6 +58,18 @@ function molavi_domain_reference_refresh_state(): ?array {
         $row['change_summary']=!empty($row['change_summary'])?molavi_domain_decode($row['change_summary']):null;return $row;
     });
 }
+function molavi_domain_reference_progress(string $occurrence,string $phase,?array $counts=null): void {
+    molavi_domain_tx('reference',static function(SQLite3 $db)use($occurrence,$phase,$counts): void {
+        if ((molavi_domain_row($db,'SELECT occurrence_id FROM reference_refresh_state WHERE singleton=1')['occurrence_id']??null)!==$occurrence) return;
+        $current=molavi_domain_row($db,'SELECT detail_json FROM reference_refresh_progress WHERE occurrence_id=?',[$occurrence]);
+        $previous=molavi_domain_decode($current['detail_json']??null);
+        $detail=['phase'=>$phase,'updated_at'=>microtime(true)]+($counts??[])+$previous;
+        molavi_domain_sql($db,'INSERT INTO reference_refresh_progress VALUES(1,?,?)
+            ON CONFLICT(singleton) DO UPDATE SET occurrence_id=excluded.occurrence_id,detail_json=excluded.detail_json',
+            [$occurrence,molavi_domain_json($detail)]);
+    });
+}
+
 function molavi_domain_reference_refresh_view(SQLite3 $db,float $now): ?array {
     $row=molavi_domain_row($db,"SELECT r.*, EXISTS(
         SELECT 1 FROM molavi_state_locks WHERE name='refresh' AND expires>=? AND r.state='running'
@@ -68,8 +80,13 @@ function molavi_domain_reference_refresh_view(SQLite3 $db,float $now): ?array {
         WHERE r.singleton=1",[(int)$now]);
     if(!$row)return null;
     $row['in_progress']=(bool)$row['in_progress'];
+    $progress=molavi_domain_row($db,'SELECT detail_json FROM reference_refresh_progress WHERE occurrence_id=?',[$row['occurrence_id']]);
+    if ($progress) {
+        $row['progress']=molavi_domain_decode($progress['detail_json']);
+        if ($row['progress']['phase']==='applying'&&$row['progress']['updated_at']+120>$now) $row['in_progress']=true;
+    }
     $row['revision']=molavi_domain_hash([
-        $row['occurrence_id'],$row['state'],$row['snapshot_id'],$row['in_progress'],$row['active_id'],$row['candidate_reviewed_at']
+        $row['occurrence_id'],$row['state'],$row['snapshot_id'],$row['in_progress'],$row['active_id'],$row['candidate_reviewed_at'],$row['progress']??null
     ]);
     unset($row['active_id'],$row['candidate_reviewed_at']);
     $last=molavi_domain_timestamp($row['last_attempt_at']);
@@ -92,16 +109,22 @@ function molavi_domain_reference_refresh(bool $force=false,?callable $fetch=null
             molavi_domain_sql($db,"UPDATE reference_refresh_state SET last_attempt_at=?,state='running',occurrence_id=?,snapshot_id=NULL,error_code=NULL,change_summary=NULL WHERE singleton=1",[$stamp,$occurrence]);
         });
         try{
-            $candidate=$fetch?$fetch():molavi_domain_reference_fetch_products();
+            molavi_domain_reference_progress($occurrence,'connecting');
+            $candidate=$fetch?$fetch():molavi_domain_reference_fetch_products(100,static function($phase,$pages,$totalPages,$rows,$totalRows)use($occurrence): void {
+                molavi_domain_reference_progress($occurrence,$phase,['completed'=>$pages,'total'=>$totalPages,'records'=>$rows,'total_records'=>$totalRows]);
+            });
+            molavi_domain_reference_progress($occurrence,'comparing');
             $staged=molavi_domain_lock('activation',static fn()=>molavi_domain_reference_stage($candidate),'reference');unset($candidate);
             $summary=array_intersect_key($staged['change_summary']??[],array_flip(['added_count','updated_count','removed_count','has_changes','metadata_upgrade','order_changed']));
             molavi_domain_tx('reference',static fn(SQLite3 $db)=>molavi_domain_sql($db,'UPDATE reference_refresh_state SET state=?,snapshot_id=?,error_code=NULL,change_summary=? WHERE singleton=1 AND occurrence_id=?',
                 [$staged['state'],$staged['snapshot_id'],molavi_domain_json($summary),$occurrence]));
+            molavi_domain_reference_progress($occurrence,'saved');
             return $staged+['occurrence_id'=>$occurrence];
         }catch(Throwable $e){
             molavi_domain_reference_failure($occurrence);$code=$e instanceof MolaviWorkflowError?$e->getMessage():get_class($e);
             if(!preg_match('/^[A-Za-z0-9_]+$/D',$code))$code='refresh_failed';$code=substr($code,0,80);
             molavi_domain_tx('reference',static fn(SQLite3 $db)=>molavi_domain_sql($db,"UPDATE reference_refresh_state SET state='failed',error_code=?,change_summary=NULL WHERE singleton=1 AND occurrence_id=?",[$code,$occurrence]));
+            molavi_domain_reference_progress($occurrence,'failed');
             return ['state'=>'failed','occurrence_id'=>$occurrence,'error_code'=>$code];
         }
     },'reference');
@@ -115,6 +138,8 @@ function molavi_domain_reference_finish_refresh(array $outcome): array {
             if(($saved['state']??null)==='staged'&&!empty($candidate['automatic_update'])){$state='staged';$outcome['automatic_update']=true;}
             elseif(in_array($saved['state']??null,['updated','unchanged'],true))$state='unchanged';}}
     if(($state==='staged'&&!empty($outcome['automatic_update']))||$state==='unchanged'){
+        $occurrence=$outcome['occurrence_id']??(molavi_domain_reference_refresh_state()['occurrence_id']??null);
+        if ($occurrence) molavi_domain_reference_progress($occurrence,'applying');
         molavi_domain_lock('activation',static function()use($outcome,$state,$id,&$result):void {
             if($state==='staged'){$candidate=molavi_domain_reference_snapshot($id);
                 if(!$candidate)molavi_domain_fail('snapshot_not_found',404);
@@ -127,6 +152,8 @@ function molavi_domain_reference_finish_refresh(array $outcome): array {
             molavi_domain_tx('reference',static fn(SQLite3 $db)=>molavi_domain_sql($db,'UPDATE reference_refresh_state SET state=? WHERE singleton=1 AND snapshot_id=?',[$state==='staged'?'updated':'unchanged',$activeId]));
             if($result['product_reconciliation_state']==='complete')molavi_domain_reference_wake();
         },'reference');
+        if ($occurrence) molavi_domain_reference_progress($occurrence,$result['product_reconciliation_state']==='complete'?'complete':'waiting',
+            ['products'=>$result['product_reference_updates']['checked']??0]);
     }return $result;
 }
 function molavi_domain_reference_api(array $body,string $actor): array {

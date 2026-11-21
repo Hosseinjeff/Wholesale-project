@@ -34,6 +34,9 @@
 #molavi-owner-workflow .md-header-actions {display:flex;flex-wrap:wrap;gap:6px;}
 #molavi-owner-workflow .md-header-gear {min-width:44px;min-height:44px;}
 #molavi-owner-workflow .md-header-gear .dashicons {display:block;width:20px;height:20px;}
+#molavi-owner-workflow .md-progress-report {display:grid;gap:8px;margin-bottom:12px;}
+#molavi-owner-workflow .md-progress-report progress {width:100%;accent-color:var(--md-green);}
+#molavi-owner-workflow .molavi-product-messages {display:grid;gap:8px;}
 #molavi-owner-workflow .md-pricing-form {display:grid;justify-items:start;gap:14px;margin-top:14px;max-width:760px;}
 #molavi-owner-workflow .md-pricing-fields {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,235px),1fr));gap:12px;width:100%;}
 #molavi-owner-workflow .md-pricing-fields fieldset {min-width:0;margin:0;padding:12px;border:1px solid var(--md-line);border-radius:8px;background:var(--md-paper);}

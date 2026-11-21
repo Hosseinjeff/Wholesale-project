@@ -28,20 +28,22 @@ function molavi_domain_published_review_reopen(array $body,string $actor): array
         $requested[$id]=$offer;
     }
 
-    return molavi_domain_lock('publication',static function()use($requested,$actor):array {
+    $recovery=($body['action']??null)==='review_publication';
+    return molavi_domain_lock('publication',static function()use($requested,$actor,$recovery):array {
         $tables=molavi_domain_sheets(['Products','Offers'],true);
         $products=molavi_domain_records($tables['Products']);$offers=molavi_domain_records($tables['Offers']);
         $sourceIssues=array_column(molavi_domain_source_issues($products,$offers),'codes','product_id');
         $offerCounts=array_count_values(array_column($offers,'Offer ID'));
         $products=array_column($products,null,'Product ID');$offers=array_column($offers,null,'Offer ID');
         $published=molavi_domain_published_review_ids(molavi_domain_published_review_catalog());
-        return molavi_domain_tx('pipeline',static function(SQLite3 $db)use($requested,$products,$offers,$published,$sourceIssues,$offerCounts,$actor):array{
+        return molavi_domain_tx('pipeline',static function(SQLite3 $db)use($requested,$products,$offers,$published,$sourceIssues,$offerCounts,$actor,$recovery):array{
             $results=[];$opened=0;$already=0;
             foreach($requested as $id=>$offer) {
                 $product=$products[$id]??[];
                 $source=$offers[$offer]??[];
                 $base=['product_id'=>(string)$id,'offer_id'=>$offer];
-                if (empty($published[$id])||($product['Latest Offer ID']??'')!==$offer
+                if ((!$recovery&&empty($published[$id]))||($product['Latest Offer ID']??'')!==$offer
+                    ||($recovery&&($product['Status']??'')==='not_product')
                     ||isset($sourceIssues[$id])||($offerCounts[$offer]??0)!==1) {
                     $results[]=$base+['state'=>'unavailable'];
                     continue;
@@ -59,8 +61,8 @@ function molavi_domain_published_review_reopen(array $body,string $actor): array
                 }
                 $case='ai:'.bin2hex(random_bytes(32));
                 molavi_domain_sql($db,'INSERT INTO published_product_reviews
-                    (case_id,product_id,offer_id,signature,opened_by,opened_at) VALUES (?,?,?,?,?,?)',
-                    [$case,$id,$offer,$signature,$actor,microtime(true)]);
+                    (case_id,product_id,offer_id,signature,opened_by,opened_at,review_kind) VALUES (?,?,?,?,?,?,?)',
+                    [$case,$id,$offer,$signature,$actor,microtime(true),$recovery?'publication':'published']);
                 $opened++;
                 $results[]=$base+['state'=>'opened','case_id'=>$case];
             }
@@ -82,10 +84,15 @@ function molavi_domain_published_review_signature(array $review,array $product):
 
 function molavi_domain_published_review_case(array $review,array $source,array $product,?array $decision=null,?float $clock=null): ?array {
     $offer=$review['offer_id'];
+    $incoming=($review['review_kind']??'')==='incoming';
     $projected=$decision?'owner-confirm:'.$decision['decision_id']:'';
-    if (!$source||!$product||molavi_domain_published_review_offer_signature($source)!==$review['signature']
-        ||!in_array((string)($product['Latest Offer ID']??''),array_filter([$offer,$projected]),true)) return null;
-    $case=molavi_domain_ai_case(array_replace($source,[
+    if (!$source||(!$incoming&&!$product)||molavi_domain_published_review_offer_signature($source)!==$review['signature']
+        ||(!$incoming&&!in_array((string)($product['Latest Offer ID']??''),array_filter([$offer,$projected]),true))) return null;
+    $priceFields=$incoming?[
+        'Status'=>'needs_review','Review Reason'=>'owner_incoming',
+        'Category'=>($source['Category']??'')?:($product['Category']??''),
+        'Actual Price'=>($source['Actual Price']??'')?:($source['Consumer Price']??'')?:($product['Consumer Price']??''),
+    ]:[
         'Status'=>'needs_review','Review Reason'=>'owner_reopened',
         'Sale Price'=>$product['Sale Price']??$source['Sale Price']??'',
         'Detected Price'=>$product['Sale Price']??$source['Sale Price']??'',
@@ -98,12 +105,15 @@ function molavi_domain_published_review_case(array $review,array $source,array $
         'Min Qty'=>$product['Min Qty']??'',
         'Stock Status'=>$product['Stock Status']??'Unknown',
         'Reference Match ID'=>$product['Reference Match ID']??'',
-    ]),$decision,$clock);
+    ];
+    $case=molavi_domain_ai_case(array_replace($source,$priceFields),$decision,$clock);
     return array_replace($case,[
-        'case_id'=>$review['case_id'],'signature'=>$decision['signature']??molavi_domain_published_review_signature($review,$product),
+        'case_id'=>$review['case_id'],'signature'=>$decision['signature']??($incoming?$review['signature']:molavi_domain_published_review_signature($review,$product)),
         'product_id'=>$review['product_id'],
         'reopened'=>true,'source_current_check_required'=>true,
         'decision'=>$decision,'reference_snapshot_id'=>'',
+        'message_review'=>$incoming,'publication_review'=>($review['review_kind']??'')==='publication',
+        'woo_product_id'=>(int)($review['woo_product_id']??0),
     ]);
 }
 
@@ -122,18 +132,24 @@ function molavi_domain_published_review_cases(array $tables,string $focused='',?
     $cases=[];
     foreach($reviews as $review) {
         $decision=$decisions[$review['case_id']]??null;
+        $product=$products[$review['product_id']]??[];
+        if (!$product&&($review['review_kind']??'')==='incoming') {
+            $listing=molavi_domain_registered_products()[$review['woo_product_id']]??[];
+            $product=['Category'=>$listing['category']??'','Consumer Price'=>$listing['regular_price']??''];
+        }
         $case=molavi_domain_published_review_case($review,$source[$review['offer_id']]??[],
-            $products[$review['product_id']]??[],$decision,$clock);
+            $product,$decision,$clock);
         if ($case) $cases[]=$case;
     }
     return $cases;
 }
 
-function molavi_domain_published_review_project(array $source,array $product,int $row,array $tables,array $decision): string {
+function molavi_domain_published_review_project(array $source,array $product,int $row,array $tables,array $decision,string $kind='published'): string {
     $derivedId='owner-confirm:'.$decision['decision_id'];
     if (($product['Latest Offer ID']??null)===$derivedId) return $derivedId;
     $at=(new DateTimeImmutable('@'.sprintf('%.6F',$decision['created_at'])))->format('Y-m-d\TH:i:s.uP');
-    $source['Package Price']=$product['Double Pack Price']??$source['Package Price']??'';
+    if ($kind!=='incoming') $source['Package Price']=$product['Double Pack Price']??$source['Package Price']??'';
+    $source['Category']=($source['Category']??'')?:($product['Category']??'');
     $derived=molavi_domain_confirmed_offer($source,$decision,$at,[$product]);
     $derived['Product ID']=$product['Product ID'];
     // Keep the original supplier timestamps and the current, separately approved reference.
@@ -142,15 +158,23 @@ function molavi_domain_published_review_project(array $source,array $product,int
         'Reference Price Change Percent','Reference Price Checked At'] as $key) $derived[$key]=$product[$key]??'';
     $derived['Reference Price Role Hint']=$product['Reference Price Role']??'';
     if ($decision['choice']==='confirm') {
-        $derived['Status']=$product['Status'];
-        $derived['Currency']=$product['Currency']?:$derived['Currency'];
-        $derived['Review Reason']=$source['Review Reason']??'';
+        $derived['Status']=$kind==='published'?$product['Status']:'imported';
+        $derived['Currency']=($product['Currency']??'')?:$derived['Currency'];
+        $derived['Review Reason']=$kind==='published'?($source['Review Reason']??''):'';
     }
     $header=array_map('strval',$tables['Products'][0]??[]);
     $values=['Latest Offer ID'=>$derivedId,'Last Updated'=>$at,'Offer Count'=>(int)($product['Offer Count']??0)+1];
     foreach(['Batch ID','Sale Price','Actual Price','Consumer Price','Price','Price Type',
         'Currency','Package Count','Min Qty','Stock Status','Status'] as $field) $values[$field]=$derived[$field]??'';
     $values['Double Pack Price']=$derived['Package Price']??'';
+    if (isset($decision['fields']['category'])) $values['Category']=$decision['fields']['category'];
+    if ($kind==='incoming') {
+        foreach (['Product Name','Channel','Channel Username','Source Timestamp Basis','Source Post URL','Message Timestamp',
+            'Source Post Created At','Source Post Updated At','Forwarded By','Original Message','Category','Brand','Variation Type','Volume','Weight',
+            'Packaging','Image File ID','Image File Unique ID','Description'] as $field) $values[$field]=$derived[$field]??'';
+        $values['Channel ID']=$derived['Channel Username']?:$derived['Channel'];
+        if ($row===0) $values+=['Product ID'=>$product['Product ID'],'Import Timestamp'=>$at];
+    }
     if ($decision['choice']==='not_product') {
         $values=array_intersect_key($values,array_flip(['Latest Offer ID','Last Updated','Offer Count','Batch ID','Status']));
     } else {
@@ -177,10 +201,15 @@ function molavi_domain_published_review_project(array $source,array $product,int
     foreach ($derived as $key=>$value) {
         if (!molavi_domain_cells_equal($key,$saved[$key]??'',$value)) molavi_domain_fail('offer_append_unconfirmed',503);
     }
-    $fresh=molavi_domain_records(molavi_domain_sheets(['Products'],true)['Products'])[$row-2]??[];
-    if ($fresh!==$product) molavi_domain_fail('stale_case');
-    molavi_domain_sheet_fields('Products',$row,$header,$values);
-    $checked=molavi_domain_records(molavi_domain_sheets(['Products'],true)['Products'])[$row-2]??[];
+    $freshRows=molavi_domain_records(molavi_domain_sheets(['Products'],true)['Products']);
+    if ($row) {
+        if (($freshRows[$row-2]??[])!==$product) molavi_domain_fail('stale_case');
+        molavi_domain_sheet_fields('Products',$row,$header,$values);
+    } else {
+        if (in_array($product['Product ID'],array_column($freshRows,'Product ID'),true)) molavi_domain_fail('stale_case');
+        molavi_domain_sheet_append('Products',[array_map(static fn($key)=>$values[$key]??'',$header)]);
+    }
+    $checked=array_column(molavi_domain_records(molavi_domain_sheets(['Products'],true)['Products']),null,'Product ID')[$product['Product ID']]??[];
     if (($checked['Product ID']??null)!==$product['Product ID']) molavi_domain_fail('product_projection_unconfirmed',503);
     foreach($values as $key=>$value) {
         if (!molavi_domain_cells_equal($key,$checked[$key]??'',$value)) molavi_domain_fail('product_projection_unconfirmed',503);
@@ -189,6 +218,8 @@ function molavi_domain_published_review_project(array $source,array $product,int
 }
 
 function molavi_domain_published_review_resolve(array $review,array $body,string $actor,?string $clock): array {
+    $kind=$review['review_kind']??'published';
+    if ($kind==='incoming'&&$body['choice']!=='confirm') molavi_domain_fail('invalid_fields',400);
     if ($review['offer_id']!==$body['offer_id']) molavi_domain_fail('stale_case');
     if ($body['choice']==='confirm'&&($body['source_current_verified']??false)!==true) molavi_domain_fail('source_current_verification_required',400);
     $decision=molavi_domain_ai_decision_history($review['case_id'],1)[0]??null;
@@ -198,7 +229,7 @@ function molavi_domain_published_review_resolve(array $review,array $body,string
     }
     if ($review['resolved_decision_id']!==null) {
         $job='publish:ai-confirmation:'.$review['resolved_decision_id'];
-        return ['ok'=>true,'case_id'=>$review['case_id'],'offer_id'=>$review['offer_id'],'signature'=>$review['signature'],
+        return ['ok'=>true,'case_id'=>$review['case_id'],'offer_id'=>$review['offer_id'],'signature'=>$decision['signature'],
             'choice'=>$decision['choice'],'decision_id'=>$decision['decision_id'],
             'projection_state'=>$decision['choice']==='confirm'?'imported':'not_product','publish_job'=>$job];
     }
@@ -208,11 +239,19 @@ function molavi_domain_published_review_resolve(array $review,array $body,string
     $matches=array_keys(array_filter($products,static fn($row)=>(string)($row['Product ID']??'')===$review['product_id']));
     $sources=array_values(array_filter(molavi_domain_records($tables['Offers']),
         static fn($row)=>(string)($row['Offer ID']??'')===$review['offer_id']));
-    if (count($matches)!==1||count($sources)!==1) molavi_domain_fail('stale_case');
-    $row=$matches[0];$product=$products[$row];$source=$sources[0];
+    if (count($matches)>1||($kind!=='incoming'&&count($matches)!==1)||count($sources)!==1) molavi_domain_fail('stale_case');
+    $row=$matches[0]??null;$product=$row===null?['Product ID'=>$review['product_id']]:$products[$row];$source=$sources[0];
+    if ($kind==='incoming') {
+        $catalog=molavi_domain_registered_products();
+        $target=$catalog[$review['woo_product_id']]??null;
+        if (!$target||!in_array($target['source_record_id'],['',$review['product_id']],true)
+            ||!in_array($review['woo_product_id'],array_column(molavi_domain_product_message_matches($source,$catalog),'woo_product_id'),true))
+            molavi_domain_fail('product_message_target_changed');
+        if ($row===null) $product['Category']=$target['category']??'';
+    }
     $case=molavi_domain_published_review_case($review,$source,$product,$decision);
     if (!$case||$case['signature']!==$body['signature']||
-        ($product['Latest Offer ID']===$review['offer_id']&&$case['signature']!==molavi_domain_published_review_signature($review,$product))) {
+        ($kind!=='incoming'&&($product['Latest Offer ID']??'')===$review['offer_id']&&$case['signature']!==molavi_domain_published_review_signature($review,$product))) {
         molavi_domain_fail('stale_case');
     }
     if (molavi_domain_ai_held(molavi_domain_ai_hold_scope(),$case)) molavi_domain_fail('publication_held_for_review');
@@ -225,9 +264,9 @@ function molavi_domain_published_review_resolve(array $review,array $body,string
             'note'=>$body['note'],'expected_decision_id'=>$body['expected_decision_id'],
         ],molavi_domain_timestamp($clock));
     }
-    $derived=molavi_domain_published_review_project($source,$product,$row+2,$tables,$decision);
+    $derived=molavi_domain_published_review_project($source,$product,$row===null?0:$row+2,$tables,$decision,$kind);
     $fresh=molavi_domain_sheets(['Products','Offers'],true);
-    $confirmed=molavi_domain_records($fresh['Products'])[$row]??[];
+    $confirmed=array_column(molavi_domain_records($fresh['Products']),null,'Product ID')[$review['product_id']]??[];
     if (($confirmed['Product ID']??null)!==$review['product_id']||($confirmed['Latest Offer ID']??null)!==$derived) {
         molavi_domain_fail('product_projection_unconfirmed',503);
     }
@@ -237,12 +276,15 @@ function molavi_domain_published_review_resolve(array $review,array $body,string
         molavi_domain_verify_price($review['product_id'],$revision,$decision['actor_id'],
             'Owner verified the supplier terms during reopened review.',molavi_domain_now(),$decision['decision_id']);
     }
-    molavi_domain_status_capture($fresh,'published_review:'.$decision['decision_id'],molavi_domain_timestamp($clock));
     $job=molavi_domain_queue('publish','ai-confirmation:'.$decision['decision_id'],['decision_id'=>$decision['decision_id']]);
-    molavi_domain_tx('pipeline',static fn(SQLite3 $db)=>molavi_domain_sql($db,
-        'UPDATE published_product_reviews SET resolved_decision_id=? WHERE case_id=?',
-        [$decision['decision_id'],$review['case_id']]));
-    return ['ok'=>true,'case_id'=>$review['case_id'],'offer_id'=>$review['offer_id'],'signature'=>$review['signature'],
+    molavi_domain_tx('pipeline',static function(SQLite3 $db)use($decision,$review,$kind): void {
+        molavi_domain_sql($db,'UPDATE published_product_reviews SET resolved_decision_id=? WHERE case_id=?',
+            [$decision['decision_id'],$review['case_id']]);
+        if ($kind==='incoming') molavi_domain_sql($db,'UPDATE product_message_choices SET state=? WHERE case_id=?',['used',$review['case_id']]);
+    });
+    try {molavi_domain_status_capture($fresh,'published_review:'.$decision['decision_id'],molavi_domain_timestamp($clock));}
+    catch (Throwable $error) {error_log('[molavi-native] review_snapshot_failed');}
+    return ['ok'=>true,'case_id'=>$review['case_id'],'offer_id'=>$review['offer_id'],'signature'=>$decision['signature'],
         'choice'=>$decision['choice'],'decision_id'=>$decision['decision_id'],
         'projection_state'=>$decision['choice']==='confirm'?'imported':'not_product','publish_job'=>$job];
 }

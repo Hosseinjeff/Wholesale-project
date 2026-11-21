@@ -12,10 +12,10 @@
         .replace(/[يى]/g,'ی').replace(/ك/g,'ک').replace(/[۰-۹]/g,c=>'۰۱۲۳۴۵۶۷۸۹'.indexOf(c))
         .replace(/[٠-٩]/g,c=>'٠١٢٣٤٥٦٧٨٩'.indexOf(c)).replace(/[\s\u200c]+/g,' ').trim();
     const sections = [
-        ['source_integrity','منبع'],['ai','مشخصات'],['references','مرجع'],
+        ['source_integrity','منبع'],['ai','مشخصات'],['references','مرجع'],['product_messages','پیام‌های کالا'],
         ['supplier_prices','قیمت'],['conflicts','همگام‌سازی'],['holds','انتشار'],['storefront','فروشگاه']
     ];
-    const actionLabels = {source_integrity:'بررسی منبع',ai:'بررسی مشخصات',references:'انتخاب مرجع',
+    const actionLabels = {source_integrity:'بررسی منبع',ai:'بررسی مشخصات',references:'انتخاب مرجع',product_messages:'پیام‌های کالا',
         supplier_prices:'تأیید قیمت',conflicts:'رفع تعارض',holds:'بررسی توقف',status:'بررسی انتشار',storefront:'بررسی فروشگاه'};
     const sourceFor = product => product.ai[0] || product.supplierPrices[0] || product.references[0] || {};
     function identities(product) {
@@ -58,6 +58,7 @@
         };
         const dismissedMarket=new Set(activityKey?readDismissedMarket():[]);
         let activityHistoryOpen=false;
+        let openProgress=null;
         if (activityKey) {
             try {
                 for (const item of JSON.parse(localStorage.getItem(activityKey) || '[]')) {
@@ -116,11 +117,12 @@
         const activityLabels={
             reextract:'بازاستخراج پیام',batch:'پردازش پیام‌های ربات',intake:'پیام ورودی',
             reference_suggest:'پیشنهاد مرجع',reference_index:'نمایه‌سازی مرجع',reference_refresh:'به‌روزرسانی فهرست مرجع',
-            market_prices:'بررسی قیمت بازار',repricing:'به‌روزرسانی تخفیف‌ها',
+            market_prices:'بررسی قیمت بازار',repricing:'به‌روزرسانی تخفیف‌ها',publish:'انتشار فروشگاه',
         };
         const activityStates={running:'در حال اجرا',queued:'در صف',quota_wait:'منتظر سهمیه',needs_reference:'منتظر تصمیم مرجع',
             submitting:'در حال ارسال',completed:'کامل شد',failed:'ناموفق',cancelled:'لغو شد',
-            partial:'با موارد نیازمند بررسی پایان یافت',unknown:'نتیجه تأیید نشد',cancelling:'در حال لغو'};
+            partial:'با موارد نیازمند بررسی پایان یافت',unknown:'نتیجه تأیید نشد',cancelling:'در حال لغو',
+            waiting_publication:'منتظر رفع توقف انتشار'};
         const taskLabels={extract:'استخراج',match:'تطبیق مرجع',embed:'نمایه‌سازی'};
         const localClock=new Intl.DateTimeFormat('fa-IR',{timeZone:'Asia/Tehran',hour:'2-digit',minute:'2-digit'});
         const localDateTime=new Intl.DateTimeFormat('fa-IR',{timeZone:'Asia/Tehran',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
@@ -128,7 +130,7 @@
             const label=entry.kind==='reextract'
                 ? (entry.total===1?'بازاستخراج یک پیام':'بازاستخراج گروهی') : activityLabels[entry.kind];
             const text=[label,activityStates[entry.state]];
-            if (entry.total) text.push(`${fa(entry.completed)} از ${fa(entry.total)}`);
+            if (entry.total) text.push(`${fa(entry.completed)} از ${fa(entry.total)}${entry.unit==='pages'?' صفحه':''}`);
             else if (entry.running || entry.queued || entry.needs_reference) {
                 text.push(...[entry.running&&`${fa(entry.running)} در اجرا`,entry.queued&&`${fa(entry.queued)} در صف`,
                     entry.needs_reference&&`${fa(entry.needs_reference)} منتظر مرجع`].filter(Boolean));
@@ -146,11 +148,47 @@
         }
         function openActivity(kind) {
             if(kind==='repricing')return navigate('pricing');
+            if(kind==='publish')return reviewHold();
             if (['reextract','batch','intake'].includes(kind)) {
                 state.sourceContext=null;
                 state.pageCache.delete('sources');
                 navigate('sources');
             } else navigate('references');
+        }
+        function progressDialog(resolve,go) {
+            const dialog=el('dialog',null,'md-dialog');
+            const content=el('div',null,'md-progress-report');
+            const actions=el('div',null,'md-header-actions');
+            actions.append(button('باز کردن کار',()=>{dialog.close();go();}),button('بستن',()=>dialog.close(),'md-link'));
+            dialog.append(content,actions);
+            const render=()=>{
+                const item=resolve()||{};
+                const current=item.current||{};
+                const phases={connecting:'اتصال به API رضوان پخش',fetching:'دریافت صفحه‌های فهرست',validating:'اعتبارسنجی شمارش و داده‌ها',
+                    comparing:'مقایسه با فهرست فعلی',applying:'اعمال فهرست و بازبینی کالاها',saved:'ثبت نسخهٔ دریافت‌شده',
+                    retrying:'تلاش دوباره برای دریافت فهرست',running:'پردازش در کارگر',queued:'منتظر کارگر',
+                    waiting_reference:'منتظر تصمیم دربارهٔ مرجع',waiting_publication:'منتظر رفع توقف انتشار',quota_wait:'منتظر سهمیهٔ سرویس'};
+                const date=value=>value>0?localDateTime.format(value*1000):'';
+                const done=Number(item.completed||0);
+                content.replaceChildren(el('h2',item.label||activityLabels[item.kind]||'وضعیت کار'),
+                    el('p',phases[current.phase]||activityStates[item.state]||'در انتظار گزارش کارگر'));
+                if (item.total>0) {
+                    const bar=el('progress');bar.max=item.total;bar.value=done;
+                    bar.setAttribute('aria-label','پیشرفت ثبت‌شده');
+                    content.append(bar,el('p',`${fa(done)} از ${fa(item.total)}${item.unit==='pages'?' صفحه':' مورد'} · ${fa(Math.round(done*100/item.total))}٪`));
+                }
+                content.append(facts([
+                    ['ردیف‌های دریافت‌شده',current.records?fa(current.records)+(current.total_records?` از ${fa(current.total_records)}`:''):''],
+                    ['پیام فعلی',[current.channel,current.message_id].filter(Boolean).join(' · ')],
+                    ['در حال اجرا',item.running?fa(item.running):''],['در صف',item.queued?fa(item.queued):''],
+                    ['ناموفق',item.failed?fa(item.failed):''],['لغوشده',item.cancelled?fa(item.cancelled):''],
+                    ['شروع',date(current.started_at)],['آخرین پیشرفت',date(current.updated_at)],
+                    ['نوبت بعد',date(item.retry_at||current.retry_at)],['مدل',item.model],['نتیجه',item.detail],
+                ]));
+            };
+            openProgress=render;
+            dialog.addEventListener('close',()=>{openProgress=null;dialog.remove();},{once:true});
+            root.append(dialog);render();dialog.showModal();refreshActivity();
         }
         function quotaView(quota) {
             const section=el('section',null,'md-quota');
@@ -188,7 +226,7 @@
             if (models.length) section.appendChild(el('small',`آخرین مدل‌های استفاده‌شده · ${models.join(' | ')}`));
             return section;
         }
-        const activeAction = item => ['queued','running','submitting','quota_wait','cancelling'].includes(item.state);
+        const activeAction = item => ['queued','running','submitting','quota_wait','waiting_publication','needs_reference','cancelling'].includes(item.state);
         function saveActions() {
             if (activityKey) {
                 try {
@@ -235,12 +273,13 @@
         function startAction(label,payload,controller) {
             const item={id:window.crypto?.randomUUID?.() || Math.random().toString(36),label,
                 origin:actionOrigin(payload),state:'submitting',controller};
+            if(payload?.action==='refresh'&&Object.hasOwn(payload,'expected_last_attempt_at')) item.progressKind='reference_refresh';
             actions.set(item.id,item);
             saveActions();
             return {
                 finish(result) {
                     item.controller=null;
-                    if(payload?.action==='reopen_products') {
+                    if(['reopen_products','review_publication'].includes(payload?.action)) {
                         const {opened,already_open:already,unavailable}=result;
                         item.state=unavailable?(opened||already?'partial':'failed'):'completed';
                         item.detail=[opened?`${fa(opened)} بازگشایی شد`:'',
@@ -281,7 +320,12 @@
         function actionRow(item) {
             const row=el('li',null,'md-activity-action');
             const text=[item.label,item.origin.product,activityStates[item.state],item.detail].filter(Boolean).join(' · ');
-            row.append(activityButton('رفتن به مبدأ','arrow-left-alt',()=>openOrigin(item.origin),text));
+            const detailed=item.progressKind||['reextract','job','reference_suggest','repricing'].includes(item.watch?.kind);
+            row.append(activityButton(detailed?'جزئیات پیشرفت':'رفتن به مبدأ',detailed?'info-outline':'arrow-left-alt',()=>{
+                if(detailed) progressDialog(()=>({...item,...item.progress,...(item.progressKind
+                    ?activityReport?.groups?.find(group=>group.kind===item.progressKind):null)}),()=>openOrigin(item.origin));
+                else openOrigin(item.origin);
+            },text));
             if (!activeAction(item)) {
                 row.append(activityButton('بستن اعلان','no-alt',()=>{
                     actions.delete(item.id);
@@ -319,10 +363,14 @@
         }
         function groupRow(entry,quota) {
             const row=el('li');
-            row.append(activityButton('جزئیات','info-outline',()=>openActivity(entry.kind),activityDescription(entry,quota)));
+            row.append(activityButton('جزئیات پیشرفت','info-outline',()=>progressDialog(
+                ()=>activityReport?.groups?.find(group=>group.kind===entry.kind)
+                    ||(entry.kind==='reference_refresh'?activityReport?.reference_progress:null)||{...entry,state:'unknown',current:{}},
+                ()=>openActivity(entry.kind)),activityDescription(entry,quota)));
             return row;
         }
         function paintActivity() {
+            if (openProgress) openProgress();
             const groups=[...(activityReport?.groups || [])];
             groups.sort((a,b)=>Number(b.state==='running')-Number(a.state==='running'));
             const receipts=[...actions.values()].reverse().sort((a,b)=>Number(activeAction(b))-Number(activeAction(a)));
@@ -334,9 +382,9 @@
             const automatic=groups.filter(entry=>!watched.has(entry.kind));
             const top=el('ul',null,'md-activity-list');
             const all=el('ul',null,'md-activity-list');
-            const otherRepricing=automatic.find(entry=>entry.kind==='repricing');
-            const rows=[...(otherRepricing?[groupRow(otherRepricing,quota)]:[]),
-                ...receipts.map(actionRow),...automatic.filter(entry=>entry!==otherRepricing).map(entry=>groupRow(entry,quota))];
+            const featured=automatic.filter(entry=>['repricing','reference_refresh'].includes(entry.kind)&&entry.state==='running');
+            const rows=[...featured.map(entry=>groupRow(entry,quota)),
+                ...receipts.map(actionRow),...automatic.filter(entry=>!featured.includes(entry)).map(entry=>groupRow(entry,quota))];
             const focused=activityBar.contains(document.activeElement);
             const focusIndex=focused?[...activityBar.querySelectorAll('button')].indexOf(document.activeElement):-1;
             const visible=rows.slice(0,2);
@@ -377,6 +425,7 @@
                     if (!result || item.state==='cancelling' || !activeAction(item)) continue;
                     if (item.watch.kind==='market_prices'&&item.state!==result.state) refreshMarket(item.watch.key,result.state);
                     item.state=result.state;
+                    item.progress=result;
                     item.detail=result.code==='no_match'?'قیمت قابل مقایسه پیدا نشد.'
                         : result.code==='unavailable'?'منبع قیمت در دسترس نبود.'
                         : result.code==='no_suggestion'?'مرجع قابل پیشنهاد پیدا نشد.'
@@ -513,7 +562,7 @@
         }
         function dismissal(product) {
             const key=next(product);
-            return key&&!['next','deferred'].includes(key) ? model.dismissalTask(product,key) : null;
+            return key&&!['next','deferred','product_messages'].includes(key) ? model.dismissalTask(product,key) : null;
         }
         function clearSelection(exit=false) {
             state.selected.clear();
@@ -711,6 +760,14 @@
                     link.href=product.listing.edit_url;header.append(link);
                 }
                 card.append(header);
+                if (product.listing.message_count!==undefined) {
+                    const messages=el('details',null,'md-card-action');
+                    messages.append(el('summary',`پیام‌های کالا · ${fa(product.listing.message_count)}`));
+                    messages.addEventListener('toggle',()=>{
+                        if (messages.open&&messages.childElementCount===1) messages.append(hooks.renderMessages(product.listing.woo_product_id));
+                    });
+                    card.append(messages);
+                }
                 return card;
             }
             const record=product.status||{};
@@ -758,6 +815,7 @@
             const productSections=currentSection
                 ? (currentSection===sourceSection?[sourceSection]:[currentSection,sourceSection])
                 : preferred==='deferred'?[sourceSection]:[sourceSection,sections.at(-1)];
+            if(record.woo_product_id&&preferred!=='product_messages') productSections.push(['product_messages','پیام‌های کالا']);
             if(priceOffers.length) productSections.splice(currentSection?1:0,0,['market_prices','قیمت عادی']);
             function activate(key, scroll=true) {
                 state.active=product.key;state.section=key;
@@ -816,9 +874,15 @@
                         showPrice(selected);
                         panel.append(host);
                     }
-                    if(hasAction&&key!=='storefront'){
+                    if(key==='product_messages') panel.append(hooks.renderMessages(record.woo_product_id));
+                    if(hasAction&&key!=='storefront'&&key!=='product_messages'){
                         const action=model.renderAction(product,key);
                         if (action) panel.append(action);
+                        if (key==='status') {
+                            if (priceOffers.length) panel.append(button('بررسی قیمت عادی',()=>activate('market_prices')));
+                            if (record.latest_offer_id&&product.product_id)
+                                panel.append(button('بازبینی مشخصات برای انتشار',()=>reopenReview([product],true)));
+                        }
                         panel.append(button('کنارگذاشتن این کار',()=>dismissTask(model.dismissalTask(product,key)),'md-link md-muted'));
                     }
                     if(key==='source_integrity')panel.append(model.renderProductSearch(product.name));
@@ -833,6 +897,7 @@
                     references:'تطبیق کالا و قیمت واحد یا بسته',supplier_prices:'اعتبار قیمت تأمین‌کننده',
                     conflicts:'اختلاف داده‌های ذخیره‌شده',holds:'توقف‌های انتشار',status:'دلیل وضعیت انتشار',
                     market_prices:'قیمت پیشنهادی، منبع و زمان بررسی',
+                    product_messages:'انتخاب پیام ورودی برای همین کالا',
                     storefront:'آنچه در ووکامرس دیده یا قابل‌خرید است'
                 }[key];
                 tab.id=`${panelHost.id}-${key}`;tab.setAttribute('role','tab');
@@ -933,7 +998,7 @@
                 if(state.view==='sources') refreshInbox(activityReport?.inbox_revision);
             }
         }
-        function reopenReview(products) {
+        function reopenReview(products,recovery=false) {
             if(!products.length)return;
             const dialog=el('dialog',null,'md-dialog');
             const form=el('form');form.method='dialog';
@@ -941,7 +1006,7 @@
                 el('p','مشخصات کالا به صف بررسی برمی‌گردد. تصمیم تازه را پس از بررسی هر کارت ثبت کنید.'));
             const feedback=el('p');feedback.setAttribute('role','status');
             const cancel=button('انصراف',()=>dialog.close());
-            const submit=el('button','بازگشایی بررسی','md-button md-primary');submit.type='submit';
+            const submit=el('button',recovery?'بازبینی برای انتشار':'بازگشایی بررسی','md-button md-primary');submit.type='submit';
             form.append(feedback,cancel,submit);dialog.append(form);root.append(dialog);
             dialog.addEventListener('close',()=>dialog.remove());
             dialog.addEventListener('cancel',event=>{if(submit.disabled)event.preventDefault();});
@@ -949,7 +1014,7 @@
                 event.preventDefault();submit.disabled=true;cancel.disabled=true;
                 const items=products.map(product=>({product_id:product.product_id,offer_id:product.status.latest_offer_id}));
                 try{
-                    const result=await hooks.reopen(items);
+                    const result=await hooks.reopen(items,recovery);
                     clearSelection(true);
                     dialog.close();
                     if(products.length===1&&(result.opened||result.already_open)) {

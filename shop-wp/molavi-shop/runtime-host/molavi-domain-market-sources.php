@@ -173,6 +173,28 @@ function molavi_domain_market_photo_url($value): ?string {
     return $url && wp_http_validate_url($url)?$url:null;
 }
 
+function molavi_domain_market_download_photo(string $url,string $listing=''): array {
+    $headers=['Accept'=>'image/avif,image/webp,image/png,image/jpeg,image/*'];
+    if ($listing!=='') $headers['Referer']='https://'.parse_url($listing,PHP_URL_HOST).'/';
+    for ($hop=0;$hop<3;$hop++) {
+        if (!molavi_domain_market_photo_url($url)) break;
+        $response=molavi_domain_http_exact('GET',$url,['timeout'=>6,'limit_response_size'=>4000001,'headers'=>$headers]);
+        $status=wp_remote_retrieve_response_code($response);
+        if (in_array($status,[301,302,303,307,308],true)&&function_exists('wp_remote_retrieve_header')) {
+            $location=(string)wp_remote_retrieve_header($response,'location');
+            $url=$location!==''&&class_exists('WP_Http')?WP_Http::make_absolute_url($location,$url):$location;
+            continue;
+        }
+        $raw=wp_remote_retrieve_body($response);
+        $image=$status===200&&strlen($raw)<=4000000?@getimagesizefromstring($raw):false;
+        $extensions=['image/jpeg'=>'jpg','image/png'=>'png','image/webp'=>'webp','image/avif'=>'avif'];
+        $extension=$extensions[$image['mime']??'']??null;
+        if ($extension && $image[0]*$image[1]<=25000000) return [$raw,$image['mime'],$extension];
+        break;
+    }
+    molavi_domain_fail('market_image_unavailable',422);
+}
+
 function molavi_domain_market_photo_meta(array $subject,?array $photo): array {
     $attachment=(int)($photo['attachment_id']??0);
     if (!$attachment && $subject['product_id']!=='' && function_exists('get_posts')) {
@@ -193,13 +215,7 @@ function molavi_domain_market_adopt_photo(array $subject,array $quote,int $now):
         'SELECT attachment_id,image_identity_json,image_source_url FROM market_product_sources WHERE target=?',[$subject['target']]));
     if (($existing['image_source_url']??null)===$url && molavi_domain_market_source_matches($existing['image_identity_json'],$subject['identity'])
         && wp_attachment_is_image((int)$existing['attachment_id'])) return null;
-    $response=molavi_domain_http_exact('GET',$url,['timeout'=>8,'limit_response_size'=>4000001]);
-    $raw=wp_remote_retrieve_body($response);
-    $image=strlen($raw)<=4000000?@getimagesizefromstring($raw):false;
-    $extensions=['image/jpeg'=>'jpg','image/png'=>'png','image/webp'=>'webp'];
-    $extension=$extensions[$image['mime']??'']??null;
-    if (wp_remote_retrieve_response_code($response)!==200 || !$extension || $image[0]*$image[1]>25000000)
-        molavi_domain_fail('market_image_unavailable',422);
+    [$raw,,$extension]=molavi_domain_market_download_photo($url,$quote['url']);
     require_once ABSPATH.'wp-admin/includes/file.php';
     require_once ABSPATH.'wp-admin/includes/media.php';
     require_once ABSPATH.'wp-admin/includes/image.php';

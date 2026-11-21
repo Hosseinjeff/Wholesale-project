@@ -39,6 +39,8 @@ function molavi_domain_site_products(array $tables,?array $freshness=null,?array
     if(empty($tables['Products']))return null;
     $records=molavi_domain_records($tables['Products']);$offers=molavi_domain_records($tables['Offers']??[]);
     $market=function_exists('molavi_domain_market_catalog_sources')?molavi_domain_market_catalog_sources($records,$offers):[];
+    $registered=function_exists('molavi_domain_product_message_catalog_rules')?molavi_domain_product_message_catalog_rules($records,$offers):[];
+    $aliases=function_exists('molavi_domain_product_message_aliases')?molavi_domain_product_message_aliases($records,$offers):[];
     $issues=[];foreach(molavi_domain_source_issues($records,$offers) as $issue){
         if(in_array('duplicate_product_id',$issue['codes'],true))return null;$issues[$issue['row_number']-2]=$issue;}
     if($freshness===null){$freshness=[];foreach(molavi_domain_freshness($records) as $row)$freshness[$row['product_id']]=$row;}
@@ -48,6 +50,7 @@ function molavi_domain_site_products(array $tables,?array $freshness=null,?array
         $status=strtolower(trim((string)($record['Status']??'')));$held=in_array($status,['skipped','needs_review','not_product'],true);
         $name=preg_replace('/^[ ،,]+|[ ،,]+$/u','',trim((string)($record['Product Name']??'')));
         $sale=molavi_domain_positive_price($record['Sale Price']??null);$id=trim((string)($record['Product ID']??''));
+        if (isset($aliases[$id])) continue;
         if($name===''&&$id==='')continue;if($sale<=0&&!$held&&$id==='')continue;
         $issue=$issues[$index]??null;$channel=trim((string)($record['Channel Username']??''));$evidence=$freshness[$id]??[];
         $freshnessState=$evidence['state']??'needs_review';$shelf=molavi_domain_positive_price($record['Consumer Price']??null)?:molavi_domain_positive_price($record['Actual Price']??null);
@@ -71,7 +74,10 @@ function molavi_domain_site_products(array $tables,?array $freshness=null,?array
             'image_file_id'=>$image,'status'=>$held?'hold':'sell','supplier_availability'=>$availability,
             'source_integrity_state'=>$issue?'blocked':'verified','source_integrity_issues'=>$issue['codes']??[],
             'source_record_id'=>$id,'supplier_price_state'=>$freshnessState,'supplier_price_verified_at'=>($evidence['verified_at']??'')?:'']
-            + (isset($market[$id]['photo'])?['market_image_id'=>(int)$market[$id]['photo']['attachment_id']]:[]);
+            + (isset($market[$id]['photo'])?['market_image_id'=>(int)$market[$id]['photo']['attachment_id']]:[])
+            + ($registered[$id]??[])
+            + (function_exists('molavi_domain_product_message_catalog_rules')&&function_exists('wc_get_products')
+                ?['active_offer_id'=>(string)($record['Latest Offer ID']??'')]:[]);
     }
     usort($products,static fn($a,$b)=>strcmp($a['name'],$b['name']));return $products;
 }
@@ -97,7 +103,7 @@ function molavi_domain_publish_shop(array $tables,bool $imagesOnly=false,int $ma
         else{
             $products=molavi_domain_site_products($tables);if($products===null)return ['ok'=>false,'pushed'=>false,'reason'=>'sheet unread'];
             $payload=['products'=>$products,'catalog_complete'=>true];if(!empty($tables['Shop']))$payload['settings']=molavi_domain_site_settings($tables['Shop']);
-            $result=molavi_apply_catalog($payload);
+            $result=molavi_apply_catalog($payload,true);
         }
         if(empty($result['ok'])){$result['pushed']=false;return $result;}
         $pending=is_array($result['pending']??null)?$result['pending']:[];$rounds=0;
