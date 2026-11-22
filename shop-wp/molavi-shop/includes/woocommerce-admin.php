@@ -155,7 +155,7 @@ add_action('woocommerce_product_data_panels', static function (): void {
             <p class="form-field"><label><?php echo esc_html('واحد سفارش فعلی'); ?></label>
                 <span><?php echo esc_html('خانوار: ' . number_format_i18n($profile['household_unit'])
                     . ' · فروشگاه: ' . number_format_i18n($profile['shop_unit'])
-                    . ' · اندازه بسته استخراج‌شده: ' . number_format_i18n($profile['pack_size'])); ?></span></p>
+                    . ' · اندازه بسته استخراج‌شده: ' . ($profile['pack_size'] ? number_format_i18n($profile['pack_size']) : 'ثبت نشده')); ?></span></p>
             <p class="form-field"><label for="_molavi_household_order_unit">حداقل و گام سفارش خانوار (عدد محصول، اختیاری)</label>
                 <input type="number" min="1" max="999" step="1" id="_molavi_household_order_unit" name="_molavi_household_order_unit" value="<?php echo esc_attr($profile['order_units_defaulted'] ? '' : (string) $product->get_meta('_molavi_household_order_unit', true)); ?>" placeholder="<?php echo esc_attr((string) $profile['household_unit']); ?>" />
                 <span class="description">پیش‌فرض: بسته‌های ۶/۱۲/۱۸/۲۴/۳۶/۴۸تایی به‌ترتیب ۱/۳/۴/۴/۸/۱۲ عدد؛ برای اندازه‌های دیگر نصف گام فروشگاه، رو به بالا، اعمال می‌شود.</span></p>

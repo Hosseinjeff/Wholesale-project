@@ -47,17 +47,6 @@ function molavi_price_settings(): array
     return $settings;
 }
 
-function molavi_discount_rules(): array
-{
-    $policy = get_option('molavi_discount_policy_v1', []);
-    return ($policy['rules'] ?? []) + [
-        'household_bp' => 4500,
-        'shop_bp' => 7000,
-        'household_target' => 5280000,
-        'shop_target' => 21120000,
-    ];
-}
-
 function molavi_buyer_type(): string
 {
     if (!function_exists('WC') || !WC()->session) { return 'household'; }
@@ -82,17 +71,51 @@ function molavi_profile_value($product, string $metaKey, int $fallback, int $min
     return max($minimum, min($maximum, (int) $value));
 }
 
-function molavi_product_profile(WC_Product $product): array
+function molavi_message_pack_size(string $packaging, string $name): int
 {
-    $packSize = (int) $product->get_meta('_molavi_pack_size', true);
-    $legacyMin = (int) $product->get_meta('_molavi_min', true);
-    if ($packSize <= 0) {
-        $packText = $product->get_name() . ' ' . (string) $product->get_meta('_molavi_packaging', true);
-        if (preg_match('/(?<!\\d)(\\d{1,3})\\s*(?:عددی|تایی|عدد|ع)(?=$|[^\\p{L}\\p{N}])/u', $packText, $match)) {
-            $packSize = (int) $match[1];
+    $digits = array_combine(
+        preg_split('//u', '۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩', -1, PREG_SPLIT_NO_EMPTY),
+        str_split('01234567890123456789')
+    );
+    $sources = array_map(static function (string $text) use ($digits): string {
+        return trim((string) preg_replace('/[\x{200B}-\x{200D}\x{FEFF}]/u', '', strtr($text, $digits)));
+    }, [$packaging, $name]);
+    $patterns = [
+        '/(?:کارتون|کارتن|باکس|شیرینگ|shell|شل(?![\x{0600}-\x{06FF}]))\s*[:：]?\s*([0-9]{1,3})(?![0-9.\/٬٫])(?=\s*(?:(?:عددی|عدد|تایی|بسته|ع)(?![\p{L}\p{N}_])|$|[،,؛]))/iu',
+        '/(?<![0-9.\/٬٫])([0-9]{1,3})\s*(?:عددی|عدد|تایی|ع)(?![\p{L}\p{N}_])/u',
+    ];
+    foreach ($patterns as $pattern) {
+        foreach ($sources as $text) {
+            if (preg_match_all($pattern, $text, $matches)) {
+                return (int) end($matches[1]);
+            }
         }
     }
-    $packSize = max(1, min(999, $packSize > 0 ? $packSize : ($legacyMin > 0 ? $legacyMin : 1)));
+    return 0;
+}
+
+function molavi_resolve_pack_size(int $stored, int $minimum, string $packaging, string $name, bool $normalized): int
+{
+    $stored = $stored >= 1 && $stored <= 999 ? $stored : 0;
+    if ($normalized) {
+        return $stored;
+    }
+    // Older publishers sometimes copied the order minimum into the pack field.
+    $fromMessage = molavi_message_pack_size($packaging, $name);
+    return $fromMessage ?: ($stored !== $minimum ? $stored : 0);
+}
+
+function molavi_product_profile(WC_Product $product): array
+{
+    $legacyMin = (int) $product->get_meta('_molavi_min', true);
+    $sourcePackSize = molavi_resolve_pack_size(
+        (int) $product->get_meta('_molavi_pack_size', true),
+        $legacyMin,
+        (string) $product->get_meta('_molavi_packaging', true),
+        $product->get_name(),
+        (string) $product->get_meta('_molavi_pack_size_normalized', true) === '1'
+    );
+    $packSize = $sourcePackSize ?: max(1, min(999, $legacyMin));
     // Confirmed per-pack customer minimums/steps. The fallback keeps coverage for
     // pack sizes that do not have an explicit business-approved row yet.
     $orderUnitsByPack = [
@@ -114,11 +137,26 @@ function molavi_product_profile(WC_Product $product): array
         $householdUnit = $defaultHouseholdUnit;
     }
     $settings = molavi_price_settings();
-    $rules = molavi_discount_rules();
+    $householdRatio = $product->get_meta('_molavi_household_discount_cap_ratio', true);
+    $shopRatio = $product->get_meta('_molavi_shop_discount_cap_ratio', true);
     $householdThreshold = $product->get_meta('_molavi_household_discount_threshold_units', true);
     $shopThreshold = $product->get_meta('_molavi_shop_discount_threshold_units', true);
+    $householdCap = is_numeric($householdRatio) && $householdRatio !== ''
+        ? max(0.0, min(1.0, (float) $householdRatio))
+        : max(0.0, min(1.0, (float) $settings['household_discount_cap_ratio']));
+    $shopCap = is_numeric($shopRatio) && $shopRatio !== ''
+        ? max(0.0, min(1.0, (float) $shopRatio))
+        : max(0.0, min(1.0, (float) $settings['shop_discount_cap_ratio']));
+    if ($shopCap <= $householdCap) {
+        if ($householdCap >= 1.0) {
+            $householdCap = 0.95;
+            $shopCap = 1.0;
+        } else {
+            $shopCap = min(1.0, $householdCap + 0.05);
+        }
+    }
     return [
-        'pack_size' => $packSize,
+        'pack_size' => $sourcePackSize,
         'household_unit' => $householdUnit,
         'shop_unit' => $shopUnit,
         'order_units_defaulted' => $orderUnitsDefaulted,
@@ -126,8 +164,9 @@ function molavi_product_profile(WC_Product $product): array
             ? max(1, min(100, (int) $householdThreshold)) : max(1, (int) $settings['household_discount_threshold_units']),
         'shop_threshold_units' => is_numeric($shopThreshold) && $shopThreshold !== ''
             ? max(1, min(100, (int) $shopThreshold)) : max(1, (int) $settings['shop_discount_threshold_units']),
-        'household_cap_ratio' => $rules['household_bp'] / 10000,
-        'shop_cap_ratio' => $rules['shop_bp'] / 10000,
+        'household_cap_ratio' => $householdCap,
+        'shop_cap_ratio' => $shopCap,
+        'tuna_threshold_anchor' => (string) $product->get_meta('_molavi_tuna_threshold_anchor', true) === '1',
     ];
 }
 
@@ -142,45 +181,92 @@ function molavi_profile_order_unit($product, ?string $buyerType = null): int
 function molavi_profile_curve(array $curve, array $profile, string $buyerType): array
 {
     if (empty($curve['discountable']) || (int) $curve['shelf'] <= 0) { return $curve; }
-    $ratio = max(0.0, min(1.0, (float) ($profile[$buyerType . '_cap_ratio'] ?? 0)));
+    $ratio = max(0.0, min(1.0, (float) ($profile[$buyerType . '_cap_ratio'] ?? 1.0)));
     $shelf = (int) $curve['shelf'];
-    $spread = max(0, $shelf - (int) $curve['sale']);
-    $discount = intdiv($spread * (int) round($ratio * 10000), 10000);
-    $curve['floor'] = $shelf - $discount;
+    $discountRoom = max(0, $shelf - (int) $curve['floor']);
+    $floor = molavi_round_up($shelf - $discountRoom * $ratio);
+    $curve['floor'] = max((int) $curve['floor'], min($shelf, $floor));
     $curve['ceiling'] = max($curve['floor'], min($shelf, (int) $curve['ceiling']));
-    $curve['max'] = $discount / $shelf;
-    $curve['discountable'] = $discount > 0;
+    $curve['max'] = max(0.0, ($shelf - $curve['floor']) / $shelf);
     return $curve;
 }
 
-function molavi_public_opening_curve(array $curve): array
+function molavi_unlock_targets(array $map): array
 {
-    return molavi_profile_curve($curve, ['household_cap_ratio' => molavi_discount_rules()['household_bp'] / 10000], 'household');
-}
-
-function molavi_unlock_targets(): array
-{
-    $rules = molavi_discount_rules();
+    $settings = molavi_price_settings();
+    $fallback = max(1, (int) $settings['household_unlock_fallback']);
+    $shellUnits = max(1, (int) $settings['tuna_shell_units']);
+    $multiplier = max(1, (int) $settings['shop_unlock_multiplier']);
+    $candidates = [];
+    foreach ($map as $id => $row) {
+        $preferred = !empty($row['tuna_threshold_anchor']);
+        if ((!$preferred && empty($row['tuna_threshold_candidate'])) || (int) ($row['shelf'] ?? 0) <= 0) { continue; }
+        $candidates[] = [
+            'id' => (string) $id,
+            'name' => (string) ($row['name'] ?? ''),
+            'unit_price' => (int) $row['shelf'],
+            'preferred' => $preferred,
+        ];
+    }
+    $preferred = array_values(array_filter($candidates, static fn(array $row): bool => $row['preferred']));
+    $pool = $preferred ?: $candidates;
+    usort($pool, static fn(array $a, array $b): int => ($a['unit_price'] <=> $b['unit_price']) ?: strcmp($a['id'], $b['id']));
+    $anchor = $pool ? $pool[(int) floor((count($pool) - 1) / 2)] : null;
+    $unitPrice = $anchor ? (int) $anchor['unit_price'] : 0;
+    $household = $unitPrice > 0 ? $unitPrice * $shellUnits : $fallback;
     return [
-        'household' => $rules['household_target'],
-        'shop' => $rules['shop_target'],
-        'shell_units' => 0,
-        'shop_multiplier' => $rules['shop_target'] / $rules['household_target'],
-        'anchor_unit_price' => 0,
-        'anchor_name' => '',
-        'anchor_product_id' => '',
-        'anchor_count' => 0,
-        'dynamic' => false,
+        'household' => $household,
+        'shop' => $household * $multiplier,
+        'shell_units' => $shellUnits,
+        'shop_multiplier' => $multiplier,
+        'anchor_unit_price' => $unitPrice,
+        'anchor_name' => $anchor ? $anchor['name'] : '',
+        'anchor_product_id' => $anchor ? $anchor['id'] : '',
+        'anchor_count' => count($pool),
+        'dynamic' => $unitPrice > 0,
     ];
 }
 
-function molavi_eligible_reference_total(array $map, array $qtys, string $buyerType): int
+function molavi_is_tuna_threshold_candidate(string $name): bool
+{
+    $normalized = strtolower(strtr($name, ['ي' => 'ی', 'ك' => 'ک']));
+    $normalized = (string) preg_replace('/[\x{200b}-\x{200f}\x{feff}\s]+/u', '', $normalized);
+    $normalized = (string) preg_replace('/[\x{064b}-\x{065f}\x{0670}]/u', '', $normalized);
+    if (!preg_match('/(?:تنماهی|ماهیتن|تونا|tuna)/iu', $normalized)) {
+        return false;
+    }
+    return !preg_match('/(?:طعم|نودل|سوپ|رشته|پاستا|چیپس|اسنک|noodles?|flavou?r)/iu', $name);
+}
+
+function molavi_full_pack_size(array $row, int $quantity, string $buyerType): int
+{
+    $packSize = (int) ($row['pack_size'] ?? 0);
+    if ($packSize < 2 || $quantity < $packSize || $quantity % $packSize !== 0 || empty($row['discountable'])) {
+        return 0;
+    }
+    $curve = molavi_profile_curve($row, $row, $buyerType);
+    return (int) $curve['shelf'] > (int) $curve['floor'] ? $packSize : 0;
+}
+
+function molavi_full_pack_sizes(array $map, array $qtys, string $buyerType): array
+{
+    $sizes = [];
+    foreach ($qtys as $id => $quantity) {
+        $size = molavi_full_pack_size($map[$id] ?? [], (int) $quantity, $buyerType);
+        if ($size > 0) {
+            $sizes[$id] = $size;
+        }
+    }
+    return $sizes;
+}
+
+function molavi_eligible_reference_total(array $map, array $qtys, array $fullPackSizes = []): int
 {
     $total = 0;
     foreach ($qtys as $id => $quantity) {
         $row = $map[(string) $id] ?? null;
         $qty = max(0, (int) $quantity);
-        if ($row && $qty > 0 && (float) ($row[$buyerType . '_max_discount'] ?? 0) > 0) {
+        if ($row && $qty > 0 && !empty($row['discountable']) && !isset($fullPackSizes[$id])) {
             $total += max(0, (int) ($row['shelf'] ?? 0)) * $qty;
         }
     }
@@ -195,6 +281,9 @@ function molavi_catalog_product_price(array $row, int $quantity, string $buyerTy
     $progress = $cartProgress === null
         ? min(1.0, max(0, $quantity) / ($unit * $thresholdUnits))
         : min(1.0, max(0.0, $cartProgress));
+    if (molavi_full_pack_size($row, $quantity, $buyerType) > 0) {
+        $progress = 1.0;
+    }
     return [
         'price' => molavi_unit_price($profiled, $progress),
         'progress' => $progress,
@@ -203,6 +292,16 @@ function molavi_catalog_product_price(array $row, int $quantity, string $buyerTy
         'threshold_quantity' => $unit * $thresholdUnits,
         'curve' => $profiled,
     ];
+}
+
+function molavi_round_up(float $value): int
+{
+    $nearest = round($value, 8);
+    $whole = (int) $nearest;
+    if ($nearest - $whole > 1e-8) {
+        return $whole + 1;
+    }
+    return $whole;
 }
 
 function molavi_round_down(float $value): int
@@ -220,7 +319,7 @@ function molavi_round_half_up(float $value): int
     return $whole;
 }
 
-function molavi_band(int $cost, int $shelf, ?array $settings = null): array
+function molavi_band(int $cost, int $shelf): array
 {
     $blank = [
         'floor' => $shelf > 0 ? $shelf : 0,
@@ -228,7 +327,7 @@ function molavi_band(int $cost, int $shelf, ?array $settings = null): array
         'max' => 0.0,
         'discountable' => false,
     ];
-    $settings = $settings ?? molavi_price_settings();
+    $settings = molavi_price_settings();
     if ($cost <= 0 || $shelf <= 0 || $shelf <= $cost) {
         return $blank;
     }
@@ -236,9 +335,17 @@ function molavi_band(int $cost, int $shelf, ?array $settings = null): array
     $spread = $gap / $shelf;
     $span = $settings['spread_high'] - $settings['spread_low'];
     $t = $span <= 0 ? 0.0 : max(0.0, min(1.0, ($spread - $settings['spread_low']) / $span));
+    $profitShare = $settings['profit_share_low'] + ($settings['profit_share_high'] - $settings['profit_share_low']) * $t;
     $openingShare = $settings['opening_share_low'] + ($settings['opening_share_high'] - $settings['opening_share_low']) * $t;
-    $floor = $cost;
-    $room = $gap;
+    $profit = max($profitShare * $gap, max($cost * $settings['min_margin'], (float) $settings['min_profit']));
+    if ($cost + $profit >= $shelf) {
+        return $blank;
+    }
+    $floor = molavi_round_up($cost + $profit);
+    if ($floor >= $shelf) {
+        return $blank;
+    }
+    $room = $shelf - $floor;
     $openingToman = min($openingShare * $gap, (float) $room);
     $ceiling = molavi_round_down($shelf - $openingToman);
     if ($ceiling < $floor) {
@@ -302,13 +409,13 @@ function molavi_store_curve(WC_Product $product): array
     update_post_meta($id, '_molavi_ceiling', $curve['ceiling']);
     update_post_meta($id, '_molavi_max', (string) $curve['max']);
     update_post_meta($id, '_molavi_discountable', $curve['discountable'] ? '1' : '0');
-    update_post_meta($id, '_molavi_curve', 'spread-v1');
+    update_post_meta($id, '_molavi_curve', '1');
     return $curve;
 }
 
 function molavi_curve(WC_Product $product): array
 {
-    if ((string) $product->get_meta('_molavi_curve') !== 'spread-v1') {
+    if ((string) $product->get_meta('_molavi_curve') !== '1') {
         return molavi_store_curve($product);
     }
     return [
@@ -344,22 +451,20 @@ function molavi_unit_price(array $curve, float $progress): int
 
 function molavi_catalog_map(): array
 {
-    $cacheKey = molavi_discount_catalog_key();
-    $map = get_transient($cacheKey);
-    $strict = function_exists('molavi_sale_offer_policy_active') && molavi_sale_offer_policy_active();
+    $map = get_transient('molavi_catalog_v6');
     if (is_array($map)) {
-        $now = time();
-        return $strict ? array_filter($map, static fn($row) => ($row['sale_offer_expires_at'] ?? 0) > $now) : $map;
+        return $map;
     }
     $map = [];
     foreach (wc_get_products(['status' => 'publish', 'limit' => -1, 'return' => 'objects']) as $product) {
-        if ($strict && !molavi_sale_offer_woo_allowed($product)) continue;
         $curve = molavi_curve($product);
         $profile = molavi_product_profile($product);
         $householdCurve = molavi_profile_curve($curve, $profile, 'household');
         $shopCurve = molavi_profile_curve($curve, $profile, 'shop');
         $map[(string) $product->get_id()] = [
             'name' => $product->get_name(),
+            'tuna_threshold_candidate' => molavi_is_tuna_threshold_candidate($product->get_name()),
+            'tuna_threshold_anchor' => $profile['tuna_threshold_anchor'],
             // Keep the cached legacy minimum independent of the visitor session.
             // Profile-specific quantities use household_unit/shop_unit below.
             'min' => $profile['shop_unit'],
@@ -378,16 +483,10 @@ function molavi_catalog_map(): array
             'ceiling' => $curve['ceiling'],
             'max' => $curve['max'],
             'discountable' => $curve['discountable'] ? 1 : 0,
-            'sale_offer_expires_at' => $strict ? (int) $product->get_meta('_molavi_sale_offer_expires_at', true) : 0,
         ];
     }
-    set_transient($cacheKey, $map, DAY_IN_SECONDS);
+    set_transient('molavi_catalog_v6', $map, DAY_IN_SECONDS);
     return $map;
-}
-
-function molavi_discount_catalog_key(): string
-{
-    return 'molavi_catalog_v7_' . md5(serialize(molavi_discount_rules()));
 }
 
 function molavi_forget_catalog(): void
@@ -397,7 +496,7 @@ function molavi_forget_catalog(): void
     delete_transient('molavi_catalog_v3');
     delete_transient('molavi_catalog_v4');
     delete_transient('molavi_catalog_v5');
-    delete_transient(molavi_discount_catalog_key());
+    delete_transient('molavi_catalog_v6');
 }
 
 add_action('woocommerce_update_product', 'molavi_forget_catalog');
@@ -417,21 +516,27 @@ function molavi_price_for_product(WC_Product $product, ?int $quantity = null, ?s
         $type, molavi_cart_progress($type));
 }
 
+function molavi_cart_quantities(WC_Cart $cart): array
+{
+    $qtys = [];
+    foreach ($cart->get_cart() as $item) {
+        $id = (string) $item['product_id'];
+        $qtys[$id] = ($qtys[$id] ?? 0) + (int) $item['quantity'];
+    }
+    return $qtys;
+}
+
 function molavi_cart_progress(?string $buyerType = null): float
 {
     if (!function_exists('WC') || !WC()->cart) {
         return 0.0;
     }
     $map = molavi_catalog_map();
-    $qtys = [];
-    foreach (WC()->cart->get_cart() as $item) {
-        $id = (string) $item['product_id'];
-        $qtys[$id] = ($qtys[$id] ?? 0) + (int) $item['quantity'];
-    }
+    $qtys = molavi_cart_quantities(WC()->cart);
     $buyer = $buyerType ?: molavi_buyer_type();
-    $targets = molavi_unlock_targets();
+    $targets = molavi_unlock_targets($map);
     $target = max(1, (int) $targets[$buyer]);
-    return min(1.0, molavi_eligible_reference_total($map, $qtys, $buyer) / $target);
+    return min(1.0, molavi_eligible_reference_total($map, $qtys, molavi_full_pack_sizes($map, $qtys, $buyer)) / $target);
 }
 
 function molavi_cart_qty(int $productId): int
@@ -479,7 +584,7 @@ function molavi_buyer_profile_suggestion(string $buyerType, array $map, array $q
         $houseUnit = max(1, (int) ($row['household_unit'] ?? 1));
         if ($qty < $houseUnit || $qty % $houseUnit !== 0) { $householdValid = false; }
     }
-    $eligible = molavi_eligible_reference_total($map, $qtys, $buyerType);
+    $eligible = molavi_eligible_reference_total($map, $qtys);
     if ($buyerType === 'household' && $eligible > (int) $targets['household']) {
         return ['buyer_type' => 'shop', 'reason' => 'cart_exceeds_household_threshold',
             'eligible_reference' => $eligible, 'target' => (int) $targets['shop']];
@@ -495,16 +600,11 @@ function molavi_quote(): array
 {
     $buyer = molavi_buyer_type();
     $units = [];
-    $qtys = [];
     $map = molavi_catalog_map();
-    if (function_exists('WC') && WC()->cart) {
-        foreach (WC()->cart->get_cart() as $item) {
-            $id = (string) $item['product_id'];
-            $qtys[$id] = ($qtys[$id] ?? 0) + (int) $item['quantity'];
-        }
-    }
-    $targets = molavi_unlock_targets();
-    $eligibleReference = molavi_eligible_reference_total($map, $qtys, $buyer);
+    $qtys = function_exists('WC') && WC()->cart ? molavi_cart_quantities(WC()->cart) : [];
+    $targets = molavi_unlock_targets($map);
+    $fullPackSizes = molavi_full_pack_sizes($map, $qtys, $buyer);
+    $eligibleReference = molavi_eligible_reference_total($map, $qtys, $fullPackSizes);
     $target = max(1, (int) $targets[$buyer]);
     $cartProgress = min(1.0, $eligibleReference / $target);
     foreach ($map as $id => $row) {
@@ -514,6 +614,7 @@ function molavi_quote(): array
     $reference = 0;
     $subtotal = 0;
     $savings = 0;
+    $fullPackSavings = 0;
     if (function_exists('WC') && WC()->cart) {
         foreach (WC()->cart->get_cart() as $item) {
             $id = (string) $item['product_id'];
@@ -528,7 +629,11 @@ function molavi_quote(): array
                 $subtotal += $unit * $qty;
                 if ($shelf > 0) {
                     $reference += $shelf * $qty;
-                    $savings += max(0, $shelf - $unit) * $qty;
+                    $lineSavings = max(0, $shelf - $unit) * $qty;
+                    $savings += $lineSavings;
+                    if (isset($fullPackSizes[$id])) {
+                        $fullPackSavings += $lineSavings;
+                    }
                 }
             }
         }
@@ -550,6 +655,8 @@ function molavi_quote(): array
                     'shop_max_discount' => $row['shop_max_discount']];
         }, $map),
         'eligible_reference' => $eligibleReference,
+        'full_pack_sizes' => (object) $fullPackSizes,
+        'full_pack_savings' => $fullPackSavings,
         'household_unlock' => (int) $targets['household'],
         'shop_unlock' => (int) $targets['shop'],
         'tuna_shell_units' => (int) $targets['shell_units'],
@@ -685,7 +792,10 @@ add_action('woocommerce_before_calculate_totals', static function ($cart): void 
     }
     $map = molavi_catalog_map();
     $buyer = molavi_buyer_type();
-    $cartProgress = molavi_cart_progress($buyer);
+    $qtys = molavi_cart_quantities($cart);
+    $target = max(1, (int) molavi_unlock_targets($map)[$buyer]);
+    $fullPackSizes = molavi_full_pack_sizes($map, $qtys, $buyer);
+    $cartProgress = min(1.0, molavi_eligible_reference_total($map, $qtys, $fullPackSizes) / $target);
     foreach ($cart->get_cart() as $item) {
         $product = $item['data'] ?? null;
         if (!$product instanceof WC_Product) {
@@ -695,7 +805,8 @@ add_action('woocommerce_before_calculate_totals', static function ($cart): void 
         if ($row === null) {
             continue;
         }
-        $calculated = molavi_catalog_product_price($row, (int) $item['quantity'], $buyer, $cartProgress);
+        $quantity = (int) ($qtys[(string) $product->get_id()] ?? $item['quantity']);
+        $calculated = molavi_catalog_product_price($row, $quantity, $buyer, $cartProgress);
         $product->set_price((string) $calculated['price']);
     }
 }, 20);
@@ -788,14 +899,6 @@ add_action('woocommerce_before_cart', 'molavi_render_buyer_step_validation_notic
 
 add_action('woocommerce_check_cart_items', static function (): void {
     if (!function_exists('WC') || !WC()->cart) { return; }
-    if (function_exists('molavi_sale_offer_policy_active') && molavi_sale_offer_policy_active()) {
-        $expired = [];
-        foreach (WC()->cart->get_cart() as $item) {
-            $product = $item['data'] ?? null;
-            if ($product instanceof WC_Product && !molavi_sale_offer_woo_allowed($product)) $expired[] = $product->get_name();
-        }
-        if ($expired) wc_add_notice('اعتبار قیمت این کالاها پایان یافته است. برای ادامه از سبد حذفشان کنید: ' . implode('، ', $expired), 'error');
-    }
     $invalid = molavi_invalid_cart_lines(molavi_buyer_type(), molavi_catalog_map(), molavi_quote()['qtys']);
     if (!$invalid) { return; }
     $names = implode('، ', array_map(static fn($item): string =>

@@ -273,6 +273,7 @@ function molavi_render_storefront_card(\WC_Product $product, array $quote): void
     $max = (float) $profileCurve['max'];
     $rate = $shelf > $unit ? ($shelf - $unit) / $shelf : 0.0;
     $qty = molavi_cart_qty($id);
+    $fullPackSize = (int) (((array) ($quote['full_pack_sizes'] ?? []))[$id] ?? 0);
     $min = molavi_product_min($product);
     $invalidStep = $qty > 0 && ($qty < $min || $qty % $min !== 0);
     $supplier = trim((string) $product->get_meta('_molavi_supplier'));
@@ -309,6 +310,10 @@ function molavi_render_storefront_card(\WC_Product $product, array $quote): void
                 <div class="molavi-price-meta">
                     <?php if ($shelf > 0): ?><span class="molavi-reference-label"><s class="molavi-was" title="<?php echo esc_attr(molavi_toman($shelf)); ?>"<?php echo $shelf > $unit ? '' : ' hidden'; ?>><?php echo esc_html(molavi_toman($shelf)); ?></s></span><?php endif; ?>
                 </div>
+                <button type="button" class="molavi-full-pack-label" data-molavi-full-pack-info aria-haspopup="dialog" aria-controls="molavi-full-pack-help"<?php echo $fullPackSize > 0 ? '' : ' hidden'; ?>>
+                    حداکثر تخفیف بستهٔ کامل
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/></svg>
+                </button>
             </div>
             <div class="molavi-card-bottom">
                 <div class="molavi-card-facts">
@@ -368,7 +373,7 @@ function molavi_render_favorites_library(): void
 {
     ?>
     <dialog id="molavi-favorites-dialog" class="molavi-favorites-dialog" data-molavi-lists aria-labelledby="molavi-favorites-title">
-        <header class="molavi-library-head">
+        <header class="molavi-library-head"><meta charset="utf-8">
             <h2 id="molavi-favorites-title">علاقه‌مندی‌ها</h2>
             <span class="screen-reader-text" data-molavi-account-status role="status" aria-live="polite"></span>
             <div class="molavi-library-head-actions">
@@ -418,6 +423,7 @@ function molavi_render_storefront_basket(array $quote): void
     $map = molavi_catalog_map();
     $qtys = is_array($quote['qtys'] ?? null) ? $quote['qtys'] : [];
     $units = is_array($quote['units'] ?? null) ? $quote['units'] : [];
+    $fullPackCount = count((array) ($quote['full_pack_sizes'] ?? []));
     $invalidById = [];
     foreach (($quote['invalid_lines'] ?? []) as $invalidLine) {
         if (is_array($invalidLine) && isset($invalidLine['product_id'])) {
@@ -493,16 +499,19 @@ function molavi_render_storefront_basket(array $quote): void
         <details class="molavi-progress-module" aria-label="پیشرفت تخفیف">
             <summary class="molavi-progress-summary">
                 <span class="molavi-progress-copy">
-                    <strong data-molavi-progress-title><?php echo !empty($quote['progress']) && $quote['progress'] >= 1 ? 'سقف تخفیف تکمیل شده' : 'پیشرفت تخفیف'; ?></strong>
+                    <strong data-molavi-progress-title><?php echo ($quote['progress'] ?? 0) >= 1 ? 'سقف تخفیف تکمیل شده' : ($fullPackCount ? 'پیشرفت تخفیف سایر کالاها' : 'پیشرفت تخفیف'); ?></strong>
                     <span data-molavi-remaining><?php echo !empty($quote['progress']) && $quote['progress'] >= 1 ? 'سقف تخفیف ' . (molavi_buyer_type() === 'shop' ? 'فروشگاه' : 'خانوار') . ' فعال است.' : 'تا سقف ' . (molavi_buyer_type() === 'shop' ? 'فروشگاه: ' : 'خانوار: ') . esc_html(molavi_toman((int) ($quote['remaining'] ?? 0))); ?></span>
                 </span>
                 <span class="molavi-progress-track" role="progressbar" aria-label="پیشرفت سبد برای تخفیف" aria-valuemin="0" aria-valuemax="100" aria-valuenow="<?php echo esc_attr((string) round((float) ($quote['progress'] ?? 0) * 100)); ?>" data-molavi-progressbar>
                     <span data-molavi-progress-fill style="width:<?php echo esc_attr((string) round((float) ($quote['progress'] ?? 0) * 100)); ?>%"></span>
                 </span>
+                <span class="molavi-full-pack-progress" data-molavi-full-pack-progress<?php echo $fullPackCount ? '' : ' hidden'; ?>>
+                    <?php if ($fullPackCount): ?><?php echo esc_html(molavi_digits((string) $fullPackCount) . ' کالا با تخفیف بستهٔ کامل، ' . molavi_toman((int) $quote['full_pack_savings']) . ' از صرفه‌جویی کل سبد را تأمین می‌کنند. ارزش این کالاها جدا از نوار پیشرفت محاسبه می‌شود.'); ?><?php endif; ?>
+                </span>
                 <span class="molavi-disclosure-action">جزئیات</span>
             </summary>
             <div class="molavi-progress-details">
-                <p>تخفیف بر اساس جمع قیمت مرجع کالاهای مشمول محاسبه می‌شود. آستانه خانوار <?php echo esc_html(molavi_toman((int) ($quote['household_unlock'] ?? 5000000))); ?> و آستانه فروشگاه <?php echo esc_html(molavi_toman((int) ($quote['shop_unlock'] ?? 20000000))); ?> است. هزینه ارسال جداگانه محاسبه می‌شود.</p>
+                <p>پیشرفت بر اساس جمع قیمت مرجع کالاهای تخفیف‌پذیر محاسبه می‌شود. کالاهایی که با خرید بستهٔ کامل به سقف تخفیف رسیده‌اند، در این جمع وارد نمی‌شوند. آستانه خانوار <?php echo esc_html(molavi_toman((int) ($quote['household_unlock'] ?? 5000000))); ?> و آستانه فروشگاه <?php echo esc_html(molavi_toman((int) ($quote['shop_unlock'] ?? 20000000))); ?> است. هزینه ارسال جداگانه محاسبه می‌شود.</p>
             </div>
         </details>
         <dl class="molavi-basket-summary">

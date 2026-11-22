@@ -503,3 +503,41 @@ body.molavi-site-page .molavi-list-thumb {display:grid;place-items:center;width:
 body.molavi-site-page .molavi-library-prompt {box-sizing:border-box;}
 body.molavi-site-page .molavi-library-toolbar .molavi-transfer-actions button {font-size:11px;padding:5px 8px;min-height:32px;}
 @media(max-width:360px){body.molavi-site-page .molavi-library-toolbar .molavi-transfer-actions button {font-size:10px;padding:5px 6px;}}
+
+body.molavi-site-page .molavi-full-pack-label {
+    display: inline-flex;
+    align-items: center;
+    align-self: flex-start;
+    gap: 4px;
+    max-width: 100%;
+    padding: 4px 7px;
+    border: 1px solid #c9dbca;
+    border-radius: 7px;
+    background: var(--molavi-violet-soft);
+    color: var(--molavi-orange-dark);
+    font-family: inherit;
+    font-weight: 600;
+    font-size: 11px;
+    line-height: 1.6;
+    text-align: start;
+    cursor: pointer;
+}
+.molavi-full-pack-label svg {
+    width: 15px;
+    height: 15px;
+    flex: none;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+}
+.molavi-full-pack-progress {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    padding: 5px 8px;
+    border-radius: 6px;
+    background: var(--molavi-violet-soft);
+    color: var(--molavi-orange-dark);
+    font-size: .72rem;
+    line-height: 1.7;
+}

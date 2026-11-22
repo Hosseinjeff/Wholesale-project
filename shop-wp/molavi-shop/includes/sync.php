@@ -304,17 +304,27 @@ function molavi_clean_product(array $row): ?array
     if ($key === '') {
         $key = molavi_name_key($name);
     }
+    $packaging = mb_substr(trim(wp_strip_all_tags((string) ($row['packaging'] ?? ''))), 0, 120);
+    $minimum = max(1, min(999, (int) ($row['min'] ?? 1)));
+    $packSource = $row['pack_size_source'] ?? '';
+    $packSize = molavi_resolve_pack_size(
+        $packSource === 'unknown' ? 0 : (int) ($row['pack_size'] ?? 0),
+        $minimum,
+        $packaging,
+        $name,
+        in_array($packSource, ['message', 'unknown'], true)
+    );
     return [
         'id' => $id,
         'name' => $name,
         'key' => mb_strtolower($key),
         'supplier' => trim(wp_strip_all_tags((string) ($row['supplier'] ?? ''))),
-        'packaging' => mb_substr(trim(wp_strip_all_tags((string) ($row['packaging'] ?? ''))), 0, 120),
+        'packaging' => $packaging,
         'category' => mb_substr(trim(wp_strip_all_tags((string) ($row['category'] ?? ''))), 0, 80),
         'sale' => $sale,
         'shelf' => max(0, min(100000000, (int) ($row['shelf'] ?? 0))),
-        'min' => max(1, min(999, (int) ($row['min'] ?? 1))),
-        'pack_size' => max(1, min(999, (int) ($row['pack_size'] ?? ($row['min'] ?? 1)))),
+        'min' => $minimum,
+        'pack_size' => $packSize,
         'source_post_url' => molavi_valid_source_post_url((string) ($row['source_post_url'] ?? '')),
         'reference_snapshot_id' => preg_match('/^[a-f0-9]{64}$/', (string) ($row['reference_snapshot_id'] ?? ''))
             ? (string) $row['reference_snapshot_id'] : '',
@@ -442,6 +452,7 @@ function molavi_catalog_product_matches(WC_Product $product, array $clean, int $
         '_molavi_supplier_availability' => $clean['supplier_availability'],
         '_molavi_catalog_state' => 'sell',
         '_molavi_pack_size' => $clean['pack_size'],
+        '_molavi_pack_size_normalized' => '1',
         '_molavi_source_post_url' => $clean['source_post_url'],
         '_molavi_reference_snapshot_id' => $clean['reference_snapshot_id'],
         '_molavi_reference_match_id' => $clean['reference_match_id'],
@@ -509,6 +520,7 @@ function molavi_upsert_product(int $productId, array $clean, ?bool &$changed = n
     $product->update_meta_data('_molavi_catalog_state', 'sell');
     if (isset($clean['sale_offer_expires_at'])) $product->update_meta_data('_molavi_sale_offer_expires_at', $clean['sale_offer_expires_at']);
     $product->update_meta_data('_molavi_pack_size', $clean['pack_size']);
+    $product->update_meta_data('_molavi_pack_size_normalized', '1');
     $product->update_meta_data('_molavi_source_post_url', $clean['source_post_url']);
     $product->update_meta_data('_molavi_reference_snapshot_id', $clean['reference_snapshot_id']);
     $product->update_meta_data('_molavi_reference_match_id', $clean['reference_match_id']);
@@ -548,7 +560,6 @@ function molavi_upsert_product(int $productId, array $clean, ?bool &$changed = n
     }
     update_post_meta($id, '_molavi_source_id', $clean['id']);
     update_post_meta($id, '_molavi_min', $clean['min']);
-    update_post_meta($id, '_molavi_pack_size', $clean['pack_size']);
     update_post_meta($id, '_molavi_source_post_url', $clean['source_post_url']);
     update_post_meta($id, '_molavi_supplier', $clean['supplier']);
     update_post_meta($id, '_molavi_packaging', $clean['packaging']);
