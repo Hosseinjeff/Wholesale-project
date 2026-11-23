@@ -41,6 +41,8 @@ function molavi_owner_workflow_proxy_paths(): array {
         '/pipeline/reconcile-publication-backlog',
         '/pipeline/migration-shadow',
         '/pipeline/telegram-operator-chats',
+        '/pipeline/autopilot',
+        '/pipeline/verdict',
         '/reference/snapshots',
     ])));
 }
@@ -142,6 +144,7 @@ function molavi_owner_dashboard_routes(): array {
         'publication_holds'=>'/pipeline/publication-holds',
         'reference_decisions'=>'/reference/decisions',
         'operations'=>'/pipeline/operations-dashboard',
+        'autopilot'=>'/pipeline/autopilot',
     ];
 }
 
@@ -356,6 +359,7 @@ function molavi_owner_workbench_dismissals_ajax(): void {
     $allowedQueues = [
         'operations'=>'intake', 'source_integrity'=>'identity', 'references'=>'identity', 'ai'=>'extract',
             'reextract'=>'extract', 'media_review'=>'extract', 'supplier_prices'=>'evidence', 'conflicts'=>'evidence',
+        'stock'=>'evidence',
         'holds'=>'publish', 'status'=>'publish', 'storefront'=>'storefront',
     ];
     $allowedReasons = ['duplicate','no_action','outside_scope','later','other'];
@@ -507,6 +511,7 @@ add_action('admin_enqueue_scripts', static function (): void {
             'reconciliation' => ['/pipeline/reconciliation?limit=200', 'owner:/pipeline/operations-dashboard'],
             'migration_shadow' => ['/pipeline/migration-shadow', 'owner:/pipeline/migration-shadow'],
             'telegram_operators' => ['/pipeline/telegram-operator-chats', 'owner:/pipeline/telegram-operator-chats'],
+            'autopilot' => ['/pipeline/autopilot', 'owner:/pipeline/autopilot'],
         ];
         $browserConfig['workflowApis'] = [];
         foreach ($workflowSources as $key=>$source) {

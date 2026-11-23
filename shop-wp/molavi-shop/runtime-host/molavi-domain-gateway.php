@@ -24,6 +24,7 @@ function molavi_domain_routes(): array {
         '/pipeline/stock-lot-actions'=>['GET','POST'],
         '/pipeline/clearance-proposals'=>['GET','POST'],
         '/pipeline/telegram-operator-chats'=>['POST'],
+        '/pipeline/autopilot'=>['GET','POST'],
     ];
 }
 function molavi_domain_route_enabled(string $method,string $path): bool {
@@ -150,6 +151,7 @@ function molavi_domain_dispatch(string $method,string $path,array $query,?array 
         elseif($path==='/reference/decisions')$result=$method==='POST'?molavi_domain_reference_decision_api($body,$actor):['ok'=>true,'events'=>molavi_domain_read('reference',static fn(SQLite3 $db)=>molavi_domain_rows($db,
             'SELECT * FROM reference_events e WHERE choice IS NULL AND NOT EXISTS (SELECT 1 FROM reference_retirements r WHERE r.event_id=e.event_id) ORDER BY created_at,event_id'))];
         elseif($path==='/pipeline/telegram-operator-chats')$result=molavi_domain_enrollment($body,$actor);
+        elseif($path==='/pipeline/autopilot')$result=molavi_domain_autopilot_api($method,$query,$body,$actor);
         else $result=molavi_domain_inventory_api($method,$path,$body??[],$actor);
         $status=$result['_http_status']??200;unset($result['_http_status']);return ['status'=>$status,'body'=>$result];
     }catch(MolaviWorkflowError $e){return ['status'=>$e->status,'body'=>array_merge(['ok'=>false,'error'=>$e->getMessage()],$e->details)];}

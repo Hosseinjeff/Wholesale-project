@@ -1294,6 +1294,48 @@ def publication_holds_route():
     return response
 
 
+@app.route("/pipeline/verdict", methods=["POST"])
+def verdict_route():
+    """One autopilot post-decision verdict via the routed Gemini generate path.
+
+    WordPress calls this because the staging host's egress IP is blocked by
+    Google; the model call stays on Railway, everything else (rules, holds,
+    verdict records) stays in WordPress. Model failures return HTTP 200 with
+    ok=false so the caller can tell a model failure from a transport failure.
+    """
+    token = os.getenv("REFERENCE_BRIDGE_TOKEN") or ""
+    owners = {x.strip() for x in (os.getenv("REFERENCE_OWNER_IDS") or "").split(",") if x.strip()}
+    if len(token) < 32 or not owners:
+        return jsonify({"ok": False, "error": "unconfigured"}), 503
+    actor, auth_error = _owner_api_actor('owner:/pipeline/verdict', token, owners)
+    if auth_error:
+        return jsonify({"ok": False, "error": "unauthorized" if auth_error == 401 else "owner_required"}), auth_error
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify({"ok": False, "error": "invalid_body"}), 400
+    prompt = body.get('prompt')
+    if (not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 8000
+            or set(body) - {'prompt', 'model'}):
+        return jsonify({"ok": False, "error": "invalid_body"}), 400
+    model = body.get('model')
+    if model is not None and (not isinstance(model, str) or not model
+                              or len(model) > 120 or not re.fullmatch(r'[A-Za-z0-9._-]+', model)):
+        return jsonify({"ok": False, "error": "invalid_body"}), 400
+    from catalog.gemini import GeminiError, verdict_generate
+    try:
+        result = verdict_generate(prompt, model=model)
+    except QuotaDeferred:
+        return jsonify({"ok": False, "error": "verdict_deferred"}), 200
+    except GeminiError:
+        return jsonify({"ok": False, "error": "verdict_failed"}), 200
+    except Exception:
+        logger.exception('Verdict generation failed')
+        return jsonify({"ok": False, "error": "verdict_unavailable"}), 503
+    response = jsonify({"ok": True, "verdict": result['verdict'], "reason": result['reason']})
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
 @app.route('/pipeline/runtime',methods=['GET','POST'])
 def runtime_host_route():
     token=os.getenv('REFERENCE_BRIDGE_TOKEN') or ''

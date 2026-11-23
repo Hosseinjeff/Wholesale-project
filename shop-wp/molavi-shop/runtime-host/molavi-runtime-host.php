@@ -127,6 +127,9 @@ function molavi_runtime_tick():void {
             &&molavi_domain_route_enabled('GET','/reference/item-reviews')){
             try{molavi_domain_market_tick($now);}catch(Throwable $e){error_log('[molavi-native] market_price_refresh_pending');}
         }
+        if(function_exists('molavi_domain_autopilot_tick')&&get_option('molavi_state_active',false)){
+            try{molavi_domain_autopilot_tick($now);}catch(Throwable $e){error_log('[molavi-native] autopilot_pending');}
+        }
         if((int)$state['housekeeping_at']<=$now){
             if(function_exists('molavi_state_housekeeping')&&get_option('molavi_state_active',false)
                 &&molavi_state_retention_days()!==null){
