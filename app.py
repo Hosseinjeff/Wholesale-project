@@ -255,8 +255,18 @@ def run_durable_handoff(queue, job_id=None, worker_id=None):
                 or str(chat_id or '').strip() not in _notice_chat_allowlists(queue)[channel]):
             logger.warning("Skipped operational notice for a non-allowlisted recipient")
             return False
-        queue.put("notice", key + ":" + str(chat_id) + ":" + channel,
-                  {"chat_id": chat_id, "text": text, "channel": channel, **({"reply_markup":reply_markup} if reply_markup else {})})
+        payload = {"chat_id": chat_id, "text": text, "channel": channel,
+                   **({"reply_markup": reply_markup} if reply_markup else {})}
+        # Receipt keys must encode the exact inputs: a failed attempt persists
+        # a failure-text notice, and a later successful attempt carries
+        # different text. Without the content digest the re-put raises
+        # JobConflict and aborts the batch finalize before the publication
+        # hold is resolved and the publish job is queued (Top Shop Rahimi
+        # batches 53/54, Nov 2026: the replay re-extracted fine but died
+        # here, so the hold parked every later claim).
+        digest = hashlib.sha256(json.dumps(
+            payload, ensure_ascii=False, sort_keys=True).encode()).hexdigest()[:16]
+        queue.put("notice", key + ":" + str(chat_id) + ":" + channel + ":" + digest, payload)
         return True
 
     def finalize(payload):
