@@ -1291,6 +1291,65 @@ def verdict_generate(prompt, *, session=None, api_key=None, model=None):
     return {'verdict': decoded['verdict'], 'reason': reason}
 
 
+def extract_generate(prompt, *, session=None, api_key=None, model=None):
+    """Run one extraction prompt through the routed generate path, raw JSON out.
+
+    Slice 2 model transport: WordPress builds the prompt (it is the full
+    `_MESSAGE_PROMPT` + supplier content, already JSON-quoted by the caller),
+    Railway only runs the model and returns the model's raw JSON text. No
+    prompt construction, no parsing, no state beyond the router's quota
+    ledger and its result cache. Same shape as `verdict_generate` but with
+    the extraction schema and 8192 output tokens. Raises GeminiError on any
+    model failure and QuotaDeferred when the router has no budget left.
+    Returns the raw model response text (a JSON array string).
+    """
+    pinned_model = model
+    key = (api_key or google_api_key()).strip()
+    model = model or gemini_model()
+    if not key:
+        raise GeminiError('GOOGLE_API_KEY is not configured')
+    if not isinstance(model, str) or not re.fullmatch(r'[A-Za-z0-9._-]+', model):
+        raise GeminiError('Invalid Gemini model')
+    if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 100000:
+        raise GeminiError('Extraction prompt is empty or too long')
+    if session is None:
+        import requests
+        session = requests.Session()
+    endpoint = (
+        'https://generativelanguage.googleapis.com/v1beta/models/'
+        f'{quote(model, safe="-._")}:generateContent'
+    )
+    try:
+        response = _generation_post(session, endpoint, key, {
+            'contents': [{'parts': [{'text': prompt}]}],
+            'generationConfig': {
+                'temperature': 0,
+                'candidateCount': 1,
+                'maxOutputTokens': 8192,
+                'responseMimeType': 'application/json',
+                'responseSchema': _MESSAGE_SCHEMA,
+            },
+        }, task='extract', pinned_model=pinned_model)
+    except QuotaDeferred:
+        raise
+    except Exception as exc:
+        raise GeminiError('Gemini request failed') from exc
+    if response.status_code != 200:
+        raise GeminiError(f'Gemini model {model} request failed (HTTP {response.status_code})')
+    try:
+        candidates = response.json()['candidates']
+        if len(candidates) != 1 or candidates[0].get('finishReason') != 'STOP':
+            raise GeminiError('Gemini extraction was incomplete or ambiguous')
+        parts = candidates[0]['content']['parts']
+        text = ''.join(
+            part['text'] for part in parts if part.get('text') and not part.get('thought'))
+    except (KeyError, TypeError, ValueError):
+        raise GeminiError('Gemini returned an invalid response') from None
+    if not text.strip():
+        raise GeminiError('Gemini extraction returned an empty response')
+    return text
+
+
 def extract_message_products(content, channel, *, session=None, api_key=None, model=None):
     pinned_model = model
     key = (api_key or google_api_key()).strip()

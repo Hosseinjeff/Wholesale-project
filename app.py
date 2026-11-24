@@ -1336,6 +1336,73 @@ def verdict_route():
     return response
 
 
+@app.route("/pipeline/extract", methods=["POST"])
+def extract_route():
+    """One extraction model call for WordPress orchestration (Slice 2 transport).
+
+    WordPress builds the prompt and parses the result; Railway only runs the
+    model. Prompt-in / raw-JSON-out: no prompt construction, no parsing, no
+    business state. Model failures return HTTP 200 with ok=false so the caller
+    can tell a model failure from a transport failure. Results are cached in
+    the router cache by prompt hash, so a rolled-back batch reuses a validated
+    model response instead of re-spending quota (same property as the
+    Railway-side 'batch-extraction:' cache in `_extract_supplier_products_for_batch`).
+    """
+    token = os.getenv("REFERENCE_BRIDGE_TOKEN") or ""
+    owners = {x.strip() for x in (os.getenv("REFERENCE_OWNER_IDS") or "").split(",") if x.strip()}
+    if len(token) < 32 or not owners:
+        return jsonify({"ok": False, "error": "unconfigured"}), 503
+    actor, auth_error = _owner_api_actor('owner:/pipeline/extract', token, owners)
+    if auth_error:
+        return jsonify({"ok": False, "error": "unauthorized" if auth_error == 401 else "owner_required"}), auth_error
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify({"ok": False, "error": "invalid_body"}), 400
+    prompt = body.get('prompt')
+    if (not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 100000
+            or set(body) - {'prompt', 'model'}):
+        return jsonify({"ok": False, "error": "invalid_body"}), 400
+    model = body.get('model')
+    if model is not None and (not isinstance(model, str) or not model
+                              or len(model) > 120 or not re.fullmatch(r'[A-Za-z0-9._-]+', model)):
+        return jsonify({"ok": False, "error": "invalid_body"}), 400
+    from catalog.gemini import GeminiError, extract_generate
+    from catalog.google_quota import configured_router
+    cache_key = 'wp-extract:' + hashlib.sha256(
+        (prompt + '|' + (model or '')).encode('utf-8')).hexdigest()
+    router = None
+    try:
+        router = configured_router()
+    except Exception:
+        router = None
+    if router is not None:
+        try:
+            cached = router.cached(cache_key)
+        except Exception:
+            cached = None
+        if isinstance(cached, dict) and isinstance(cached.get('text'), str) and cached['text'].strip():
+            response = jsonify({"ok": True, "text": cached['text'], "cached": True})
+            response.headers['Cache-Control'] = 'no-store'
+            return response
+    try:
+        text = extract_generate(prompt, model=model)
+    except QuotaDeferred as exc:
+        return jsonify({"ok": False, "error": "extract_deferred", "retry_at": exc.retry_at}), 200
+    except GeminiError:
+        return jsonify({"ok": False, "error": "extract_failed"}), 200
+    except Exception:
+        logger.exception('Extraction generation failed')
+        return jsonify({"ok": False, "error": "extract_unavailable"}), 503
+    if router is not None:
+        try:
+            router.cache(cache_key, {'text': text})
+        except Exception:
+            pass
+    response = jsonify({"ok": True, "text": text, "cached": False})
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
 @app.route('/pipeline/runtime',methods=['GET','POST'])
 def runtime_host_route():
     token=os.getenv('REFERENCE_BRIDGE_TOKEN') or ''
