@@ -8,6 +8,7 @@ import atexit
 import base64
 import hashlib
 import hmac
+import html
 import json
 import logging
 import requests
@@ -17,6 +18,7 @@ import time
 import threading
 import uuid
 from urllib.parse import urlparse
+from html.parser import HTMLParser
 from utils.logger import setup_logger
 
 from catalog.durable import (
@@ -255,8 +257,18 @@ def run_durable_handoff(queue, job_id=None, worker_id=None):
                 or str(chat_id or '').strip() not in _notice_chat_allowlists(queue)[channel]):
             logger.warning("Skipped operational notice for a non-allowlisted recipient")
             return False
-        queue.put("notice", key + ":" + str(chat_id) + ":" + channel,
-                  {"chat_id": chat_id, "text": text, "channel": channel, **({"reply_markup":reply_markup} if reply_markup else {})})
+        payload = {"chat_id": chat_id, "text": text, "channel": channel,
+                   **({"reply_markup": reply_markup} if reply_markup else {})}
+        # Receipt keys must encode the exact inputs: a failed attempt persists
+        # a failure-text notice, and a later successful attempt carries
+        # different text. Without the content digest the re-put raises
+        # JobConflict and aborts the batch finalize before the publication
+        # hold is resolved and the publish job is queued (Top Shop Rahimi
+        # batches 53/54, Nov 2026: the replay re-extracted fine but died
+        # here, so the hold parked every later claim).
+        digest = hashlib.sha256(json.dumps(
+            payload, ensure_ascii=False, sort_keys=True).encode()).hexdigest()[:16]
+        queue.put("notice", key + ":" + str(chat_id) + ":" + channel + ":" + digest, payload)
         return True
 
     def finalize(payload):
@@ -1290,6 +1302,252 @@ def publication_holds_route():
             return jsonify({"ok": False, "error": "conflict_or_invalid"}), 409
         result = {"ok": True, "hold_id": body['hold_id'], "batch_resumed": True}
     response = jsonify(result)
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
+@app.route("/pipeline/verdict", methods=["POST"])
+def verdict_route():
+    """One autopilot post-decision verdict via the routed Gemini generate path.
+
+    WordPress calls this because the staging host's egress IP is blocked by
+    Google; the model call stays on Railway, everything else (rules, holds,
+    verdict records) stays in WordPress. Model failures return HTTP 200 with
+    ok=false so the caller can tell a model failure from a transport failure.
+    """
+    token = os.getenv("REFERENCE_BRIDGE_TOKEN") or ""
+    owners = {x.strip() for x in (os.getenv("REFERENCE_OWNER_IDS") or "").split(",") if x.strip()}
+    if len(token) < 32 or not owners:
+        return jsonify({"ok": False, "error": "unconfigured"}), 503
+    actor, auth_error = _owner_api_actor('owner:/pipeline/verdict', token, owners)
+    if auth_error:
+        return jsonify({"ok": False, "error": "unauthorized" if auth_error == 401 else "owner_required"}), auth_error
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify({"ok": False, "error": "invalid_body"}), 400
+    prompt = body.get('prompt')
+    if (not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 8000
+            or set(body) - {'prompt', 'model'}):
+        return jsonify({"ok": False, "error": "invalid_body"}), 400
+    model = body.get('model')
+    if model is not None and (not isinstance(model, str) or not model
+                              or len(model) > 120 or not re.fullmatch(r'[A-Za-z0-9._-]+', model)):
+        return jsonify({"ok": False, "error": "invalid_body"}), 400
+    from catalog.gemini import GeminiError, verdict_generate
+    try:
+        result = verdict_generate(prompt, model=model)
+    except QuotaDeferred:
+        return jsonify({"ok": False, "error": "verdict_deferred"}), 200
+    except GeminiError:
+        return jsonify({"ok": False, "error": "verdict_failed"}), 200
+    except Exception:
+        logger.exception('Verdict generation failed')
+        return jsonify({"ok": False, "error": "verdict_unavailable"}), 503
+    response = jsonify({"ok": True, "verdict": result['verdict'], "reason": result['reason']})
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
+@app.route("/pipeline/extract", methods=["POST"])
+def extract_route():
+    """One extraction model call for WordPress orchestration (Slice 2 transport).
+
+    WordPress builds the prompt and parses the result; Railway only runs the
+    model. Prompt-in / raw-JSON-out: no prompt construction, no parsing, no
+    business state. Model failures return HTTP 200 with ok=false so the caller
+    can tell a model failure from a transport failure. Results are cached in
+    the router cache by prompt hash, so a rolled-back batch reuses a validated
+    model response instead of re-spending quota (same property as the
+    Railway-side 'batch-extraction:' cache in `_extract_supplier_products_for_batch`).
+    """
+    token = os.getenv("REFERENCE_BRIDGE_TOKEN") or ""
+    owners = {x.strip() for x in (os.getenv("REFERENCE_OWNER_IDS") or "").split(",") if x.strip()}
+    if len(token) < 32 or not owners:
+        return jsonify({"ok": False, "error": "unconfigured"}), 503
+    actor, auth_error = _owner_api_actor('owner:/pipeline/extract', token, owners)
+    if auth_error:
+        return jsonify({"ok": False, "error": "unauthorized" if auth_error == 401 else "owner_required"}), auth_error
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify({"ok": False, "error": "invalid_body"}), 400
+    prompt = body.get('prompt')
+    if (not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 100000
+            or set(body) - {'prompt', 'model'}):
+        return jsonify({"ok": False, "error": "invalid_body"}), 400
+    model = body.get('model')
+    if model is not None and (not isinstance(model, str) or not model
+                              or len(model) > 120 or not re.fullmatch(r'[A-Za-z0-9._-]+', model)):
+        return jsonify({"ok": False, "error": "invalid_body"}), 400
+    from catalog.gemini import GeminiError, extract_generate
+    from catalog.google_quota import configured_router
+    cache_key = 'wp-extract:' + hashlib.sha256(
+        (prompt + '|' + (model or '')).encode('utf-8')).hexdigest()
+    router = None
+    try:
+        router = configured_router()
+    except Exception:
+        router = None
+    if router is not None:
+        try:
+            cached = router.cached(cache_key)
+        except Exception:
+            cached = None
+        if isinstance(cached, dict) and isinstance(cached.get('text'), str) and cached['text'].strip():
+            response = jsonify({"ok": True, "text": cached['text'], "cached": True})
+            response.headers['Cache-Control'] = 'no-store'
+            return response
+    try:
+        text = extract_generate(prompt, model=model)
+    except QuotaDeferred as exc:
+        return jsonify({"ok": False, "error": "extract_deferred", "retry_at": exc.retry_at}), 200
+    except GeminiError:
+        return jsonify({"ok": False, "error": "extract_failed"}), 200
+    except Exception:
+        logger.exception('Extraction generation failed')
+        return jsonify({"ok": False, "error": "extract_unavailable"}), 503
+    if router is not None:
+        try:
+            router.cache(cache_key, {'text': text})
+        except Exception:
+            pass
+    response = jsonify({"ok": True, "text": text, "cached": False})
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
+TELEGRAM_FETCH_URL_RE = re.compile(r"^https://t\.me/[A-Za-z0-9_]{5,64}(/[0-9]{1,12})?$")
+TELEGRAM_FETCH_MAX_URL_LEN = 200
+TELEGRAM_FETCH_MAX_BODY_BYTES = 300000
+TELEGRAM_FETCH_TIMEOUT_SEC = 15
+TELEGRAM_FETCH_USER_AGENT = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                             "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
+
+
+def is_valid_telegram_fetch_url(url):
+    """True only for a t.me channel URL or channel-post URL.
+
+    Rejects other hosts, http, /s/ paths, and anything overlong. The regex
+    itself pins the host, the channel name, and an optional numeric message id.
+    """
+    return (isinstance(url, str) and len(url) <= TELEGRAM_FETCH_MAX_URL_LEN
+            and TELEGRAM_FETCH_URL_RE.fullmatch(url) is not None)
+
+
+class _TelegramMessageTextParser(HTMLParser):
+    """Collect the text of the first div.tgme_widget_message_text, depth-counted."""
+
+    _VOID_TAGS = frozenset({"area", "base", "br", "col", "embed", "hr", "img",
+                            "input", "link", "meta", "source", "track", "wbr"})
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self._depth = 0
+        self._parts = []
+        self._done = False
+
+    def handle_starttag(self, tag, attrs):
+        if self._done:
+            return
+        if self._depth:
+            if tag == "br":
+                self._parts.append("\n")
+            elif tag not in self._VOID_TAGS:
+                self._depth += 1
+            return
+        if tag == "div":
+            classes = dict(attrs).get("class", "")
+            if "tgme_widget_message_text" in classes.split():
+                self._depth = 1
+
+    def handle_startendtag(self, tag, attrs):
+        if self._depth and not self._done and tag == "br":
+            self._parts.append("\n")
+
+    def handle_endtag(self, tag):
+        if self._depth:
+            self._depth -= 1
+            if self._depth == 0:
+                self._done = True
+
+    def handle_data(self, data):
+        if self._depth and not self._done:
+            self._parts.append(data)
+
+    def text(self):
+        return "".join(self._parts)
+
+
+def extract_telegram_message_text(page_html):
+    """Message text from a t.me embed page, or None when the div is absent/empty."""
+    if not isinstance(page_html, str) or not page_html:
+        return None
+    parser = _TelegramMessageTextParser()
+    try:
+        parser.feed(page_html)
+        parser.close()
+    except Exception:
+        return None
+    text = html.unescape(parser.text()).strip()
+    return text or None
+
+
+def fetch_telegram_page(url):
+    """GET a t.me URL and return (http_status, page_text).
+
+    Post URLs are fetched in embed form (?embed=1); channel URLs as-is.
+    The body is capped at TELEGRAM_FETCH_MAX_BODY_BYTES. Raises
+    requests.RequestException when Railway itself cannot complete the fetch.
+    """
+    is_post = TELEGRAM_FETCH_URL_RE.fullmatch(url).group(1) is not None
+    fetch_url = url + "?embed=1" if is_post else url
+    response = requests.get(fetch_url, timeout=TELEGRAM_FETCH_TIMEOUT_SEC,
+                            headers={"User-Agent": TELEGRAM_FETCH_USER_AGENT},
+                            allow_redirects=True, stream=True)
+    try:
+        chunks = []
+        remaining = TELEGRAM_FETCH_MAX_BODY_BYTES
+        for chunk in response.iter_content(chunk_size=65536):
+            if not chunk:
+                continue
+            chunks.append(chunk[:remaining])
+            remaining -= len(chunks[-1])
+            if remaining <= 0:
+                break
+        body = b"".join(chunks)
+    finally:
+        try:
+            response.close()
+        except Exception:
+            pass
+    return response.status_code, body.decode("utf-8", errors="replace")
+
+
+@app.route("/pipeline/telegram-fetch", methods=["POST"])
+def telegram_fetch_route():
+    """Fetch one t.me page on behalf of WordPress link checks.
+
+    The staging host cannot reach Telegram at all, so WordPress asks Railway
+    to re-read the supplier post. Railway only fetches and extracts the
+    message text; WordPress maps the status/text onto its link-check states.
+    A Railway-side fetch failure returns HTTP 200 with ok=false so the caller
+    can tell it from a transport failure (same pattern as /pipeline/verdict).
+    Post text and URLs are never logged.
+    """
+    token = os.getenv("REFERENCE_BRIDGE_TOKEN") or ""
+    owners = {x.strip() for x in (os.getenv("REFERENCE_OWNER_IDS") or "").split(",") if x.strip()}
+    if len(token) < 32 or not owners:
+        return jsonify({"ok": False, "error": "unconfigured"}), 503
+    actor, auth_error = _owner_api_actor('owner:/pipeline/telegram-fetch', token, owners)
+    if auth_error:
+        return jsonify({"ok": False, "error": "unauthorized" if auth_error == 401 else "owner_required"}), auth_error
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or set(body) != {"url"} or not is_valid_telegram_fetch_url(body.get("url")):
+        return jsonify({"ok": False, "error": "invalid_body"}), 400
+    try:
+        status, page_text = fetch_telegram_page(body["url"])
+    except requests.RequestException:
+        return jsonify({"ok": False, "error": "fetch_failed"}), 200
+    response = jsonify({"ok": True, "status": status, "text": extract_telegram_message_text(page_text)})
     response.headers['Cache-Control'] = 'no-store'
     return response
 
