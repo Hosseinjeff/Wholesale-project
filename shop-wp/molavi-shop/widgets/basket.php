@@ -83,22 +83,14 @@ class Basket extends Widget_Base
         $totalLabel = trim((string) ($settings['total_label'] ?? '')) ?: 'جمع محصولات پس از تخفیف';
         $button = trim((string) ($settings['button'] ?? '')) ?: 'ادامه سفارش';
         $map = function_exists('molavi_catalog_map') ? molavi_catalog_map() : [];
+        $quote = molavi_quote();
+        $saved = $quote['savings'];
+        $total = $quote['subtotal'];
         $lines = [];
-        $saved = 0;
-        $total = 0;
-        if (function_exists('WC') && WC()->cart) {
-            foreach (WC()->cart->get_cart() as $item) {
-                $id = (string) $item['product_id'];
-                $row = $map[$id] ?? null;
-                if (!is_array($row)) {
-                    continue;
-                }
-                $qty = (int) $item['quantity'];
-                $unit = (int) (molavi_catalog_product_price($row, $qty, molavi_buyer_type(), molavi_cart_progress())['price'] ?? $row['sale']);
-                $shelf = (int) $row['shelf'];
-                $saved += $shelf > $unit ? ($shelf - $unit) * $qty : 0;
-                $total += $unit * $qty;
-                $lines[] = ['id' => $id, 'row' => $row, 'qty' => $qty, 'unit' => $unit, 'shelf' => $shelf];
+        foreach ($quote['qtys'] as $id => $qty) {
+            if ($qty > 0 && isset($map[$id], $quote['units'][$id])) {
+                $row = $map[$id];
+                $lines[] = ['id' => $id, 'row' => $row, 'qty' => $qty, 'unit' => $quote['units'][$id], 'shelf' => $row['shelf']];
             }
         }
         $count = count($lines);
@@ -111,11 +103,11 @@ class Basket extends Widget_Base
         }
         foreach ($lines as $line) {
             $row = $line['row'];
-            echo '<article class="molavi-bline" data-product="' . esc_attr($line['id']) . '" data-min="' . esc_attr((string) $row['min']) . '" data-qty="' . esc_attr((string) $line['qty']) . '">';
+            echo '<article class="molavi-bline" data-product="' . esc_attr((string) $line['id']) . '" data-min="' . esc_attr((string) $row['min']) . '" data-qty="' . esc_attr((string) $line['qty']) . '">';
             echo '<div class="molavi-bline-copy"><h3>' . esc_html((string) $row['name']) . '</h3>';
             echo '<p><strong>' . esc_html(molavi_toman((int) $line['unit'])) . '</strong>';
             if ($line['shelf'] > $line['unit']) {
-                echo ' <s>' . esc_html(molavi_toman((int) $line['shelf'])) . '</s>';
+                echo ' <s>' . esc_html(molavi_toman((int) $line['shelf'])) . '</s> <span class="molavi-rate">' . esc_html(molavi_percent(1 - $line['unit'] / $line['shelf'])) . '</span>';
             }
             echo '</p></div>';
             $step = max(1, (int) ($row[molavi_buyer_type() . '_unit'] ?? $row['min']));
@@ -124,7 +116,7 @@ class Basket extends Widget_Base
             echo '</article>';
         }
         echo '</div>';
-        echo '<div class="molavi-basket-save"' . ($saved > 0 ? '' : ' hidden') . ' data-molavi-basket-save><span>' . esc_html($saveLabel) . '</span><b data-molavi-basket-save-amount>' . esc_html(molavi_toman($saved)) . '</b></div>';
+        echo '<div class="molavi-basket-save"' . ($saved > 0 ? '' : ' hidden') . ' data-molavi-basket-save><span>' . esc_html($saveLabel) . ' <span data-molavi-basket-save-rate>' . esc_html(molavi_percent((float) $quote['savings_rate'])) . '</span></span><b data-molavi-basket-save-amount>' . esc_html(molavi_toman($saved)) . '</b></div>';
         echo '<div class="molavi-basket-total"><span>' . esc_html($totalLabel) . '</span><strong data-molavi-basket-total>' . esc_html(molavi_toman($total)) . '</strong></div>';
         echo '<p class="molavi-quote-note">مبلغ نهایی محصولات هنگام ادامه سفارش از سبد ووکامرس محاسبه می‌شود.</p>';
         echo '<a class="molavi-checkout" data-molavi-checkout href="' . esc_url(function_exists('wc_get_checkout_url') ? wc_get_checkout_url() : '#') . '"' . ($count > 0 ? '' : ' hidden') . '><span>' . esc_html($button) . '</span></a>';

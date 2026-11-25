@@ -157,7 +157,8 @@
             var qty = Number(sourceQtys[id]) || 0;
             var product = rowOf(id) || {};
             if (qty < 1) return;
-            if (Number(product.discountable) === 1 && Number(product.shelf) > 0) eligibleReference += Number(product.shelf) * qty;
+            var maxDiscount = buyerType === "shop" ? product.shopMax : product.householdMax;
+            if (maxDiscount > 0) eligibleReference += Number(product.shelf) * qty;
             var householdUnit = Math.max(1, Number(product.householdUnit) || 1);
             if (qty < householdUnit || qty % householdUnit !== 0) householdValid = false;
         });
@@ -592,7 +593,9 @@
             html += '<article class="molavi-bline' + (invalidLine ? ' is-invalid' : '') + '" data-product="' + escapeHtml(id) + '" data-min="' + min + '" data-qty="' + qty + '" data-invalid="' + (invalidLine ? '1' : '0') + '">'
                 + '<div class="molavi-bline-image"><img src="' + escapeHtml(row.image || "") + '" alt="' + escapeHtml(row.name || "") + '" loading="lazy"></div>'
                 + '<div class="molavi-bline-copy"><h3>' + escapeHtml(row.name || "") + "</h3><p><strong>"
-                + toman(unit) + "</strong> × " + digits(qty) + "</p>" + stepMarkup
+                + toman(unit) + "</strong> × " + digits(qty)
+                + (shelf > unit ? ' <span class="molavi-rate">' + percent(1 - unit / shelf) + '</span>' : '')
+                + "</p>" + stepMarkup
                 + "</div>"
                 + stepper(qty, row) + "</article>";
         });
@@ -612,6 +615,8 @@
             save.hidden = saved < 1;
             var amount = save.querySelector("[data-molavi-basket-save-amount]");
             if (amount) amount.textContent = toman(saved);
+            var rate = save.querySelector("[data-molavi-basket-save-rate]");
+            if (rate) rate.textContent = percent(referenceTotal > 0 ? saved / referenceTotal : 0);
         }
         var totalNode = document.querySelector("[data-molavi-basket-total]");
         if (totalNode) totalNode.textContent = toman(total);

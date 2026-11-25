@@ -162,15 +162,19 @@ function molavi_domain_site_products(array $tables,?array $freshness=null,?array
             error_log('[molavi-publisher] publish_flag_hold_skip product='.$id.' reason='.$flagReason);
         }
         $held=$held||$flagReason!=='';
+        $packaging=trim((string)($record['Packaging']??''));
         $minimum=molavi_domain_positive_price($record['Min Qty']??null);
-        if(!$minimum)$minimum=in_array(molavi_domain_pack_count((string)($record['Packaging']??''),$name),[6,12,24],true)?6:1;
-        $pack=molavi_domain_positive_price($record['Package Count']??null)?:$minimum;
+        if(!$minimum)$minimum=in_array(molavi_domain_pack_count($packaging,$name),[6,12,24],true)?6:1;
+        $pack=molavi_domain_positive_price($record['Package Count']??null);
+        if($pack<1||$pack>999){
+            $pack=function_exists('molavi_message_pack_size')?molavi_message_pack_size($packaging,$name):0;
+        }
         $source=trim((string)($record['Source Post URL']??''));$url=parse_url($source);
         if(!$url||($url['scheme']??'')!=='https'||!in_array($url['host']??'',['t.me','www.t.me','bale.ai','www.bale.ai'],true))$source='';
         $image=(string)($record['Image File ID']??'');if(!preg_match('/^[A-Za-z0-9_-]{8,300}$/D',$image))$image='';
         $products[]=['id'=>molavi_domain_woo_sku($record),'name'=>$name,'key'=>molavi_domain_legacy_name_key($name),
-            'channel'=>$channel,'supplier'=>$suppliers[$channel]??$channel,'packaging'=>trim((string)($record['Packaging']??'')),
-            'category'=>trim((string)($record['Category']??'')),'sale'=>$sale,'shelf'=>$shelf,'min'=>$minimum,'pack_size'=>max(1,min(999,$pack)),
+            'channel'=>$channel,'supplier'=>$suppliers[$channel]??$channel,'packaging'=>$packaging,
+            'category'=>trim((string)($record['Category']??'')),'sale'=>$sale,'shelf'=>$shelf,'min'=>$minimum,'pack_size'=>$pack,'pack_size_source'=>$pack>0?'message':'unknown',
             'source_post_url'=>$source,'reference_snapshot_id'=>trim((string)($record['Reference Snapshot ID']??'')),
             'reference_match_id'=>trim((string)($record['Reference Match ID']??'')),'reference_price_role'=>trim((string)($record['Reference Price Role']??'')),
             'reference_approval_state'=>trim((string)($record['Reference Approval State']??'')),

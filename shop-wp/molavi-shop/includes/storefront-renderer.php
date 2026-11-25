@@ -488,7 +488,9 @@ function molavi_render_storefront_basket(array $quote): void
                     <div class="molavi-bline-image"><?php if ($product): ?><?php echo wp_kses_post($product->get_image('woocommerce_thumbnail', ['alt' => (string) $row['name'], 'loading' => 'lazy'])); ?><?php endif; ?></div>
                     <div class="molavi-bline-copy">
                         <h3><?php echo esc_html((string) $row['name']); ?></h3>
-                        <p><strong><?php echo esc_html(molavi_toman($unit)); ?></strong> × <?php echo esc_html(molavi_digits((string) $qty)); ?></p>
+                        <p><strong><?php echo esc_html(molavi_toman($unit)); ?></strong> × <?php echo esc_html(molavi_digits((string) $qty)); ?>
+                            <?php if ($row['shelf'] > $unit): ?><span class="molavi-rate"><?php echo esc_html(molavi_percent(1 - $unit / $row['shelf'])); ?></span><?php endif; ?>
+                        </p>
                         <small class="molavi-order-step">گام سفارش: <strong><?php echo esc_html(molavi_digits((string) $step)); ?> عدد</strong></small>
                         <?php if ($invalidLine): ?>
                             <small class="molavi-buyer-line-warning">تعداد فعلی با این گام هماهنگ نیست.</small>

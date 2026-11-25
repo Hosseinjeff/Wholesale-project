@@ -4534,20 +4534,22 @@
             const marketUrl = new URL('/reference/item-reviews', config.apiUrl);
             marketUrl.searchParams.set('view','market-prices');
             marketUrl.searchParams.set('offer_id', item.offer_id);
-            request('GET', undefined, marketUrl.href, 'reference_items', {ttl: 60000}).then(result => {
-                if (!actualPriceField.isConnected) return;
+            form.addEventListener('focusin', async () => {
                 const input = actualPriceField.querySelector('input');
-                if (!input || normalizedAiInteger(input.value)) return;
-                const quotes = [result?.suggested_price, ...(result?.candidates || [])].filter(Boolean);
-                const selected = quotes.find(quote => quote.url && quote.url === result?.selected_url) || result?.suggested_price;
-                if (!selected) return;
-                const pack = Number(selected.pack_count);
-                const value = pack > 1 && Number(selected.regular_price) > 0
-                    ? Number(selected.regular_price) : Number(selected.regular_unit_price);
-                if (!(value > 0)) return;
-                input.value = String(value);
-                row2.appendChild(node('small', `قیمت عادی تأییدشده در بخش قیمت عادی: ${amount(value)}`));
-            }).catch(() => {});
+                if (input.value !== '') return;
+                try {
+                    const result = await request('GET', undefined, marketUrl.href, 'reference_items', {ttl: 60000});
+                    if (!input.isConnected || input.value !== '' || !result?.selected_url) return;
+                    const quotes = [result.suggested_price, ...(result.candidates || [])];
+                    const selected = quotes.find(quote => quote?.url === result.selected_url);
+                    const value = Number(selected?.regular_unit_price);
+                    if (!Number.isSafeInteger(value) || value <= 0) return;
+                    input.value = String(value);
+                    row2.appendChild(node('small', `قیمت عادی تأییدشده در بخش قیمت عادی: ${amount(value)}`));
+                } catch {
+                    // The optional price remains editable if the saved quote is unavailable.
+                }
+            }, {once: true});
         }
         row2.appendChild(field('تعداد داخل بسته', 'package_count', fields.package_count ?? item.package_count ?? '', 'number', { min: 1, step: 1 }));
         row2.appendChild(field('حداقل خرید', 'min_qty', fields.min_qty ?? item.min_qty ?? '', 'number', { min: 1, step: 1 }));

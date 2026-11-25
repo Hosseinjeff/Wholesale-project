@@ -359,7 +359,7 @@
         "reference_review_result": "not_checked",
         "reference_update_needed": false,
         "supplier_price_state": "needs_review",
-        "supplier_price_verified_at": "",
+        "supplier_price_verified_at": "2026-11-15T00:00:00+00:00",
         "supplier_price_update_due": true,
         "source_integrity_issues": [
           "duplicate_product_id",
@@ -467,9 +467,9 @@
         "reference_review_due": false,
         "reference_review_result": "not_checked",
         "reference_update_needed": false,
-        "supplier_price_state": "needs_review",
-        "supplier_price_verified_at": "",
-        "supplier_price_update_due": true,
+        "supplier_price_state": "current",
+        "supplier_price_verified_at": "2026-11-15T00:00:00+00:00",
+        "supplier_price_update_due": false,
         "source_integrity_issues": [
           "duplicate_product_id",
           "source_provenance_mismatch"
@@ -1569,7 +1569,7 @@
     }
   ],
   "capture": {
-    "snapshot_id": "f96993b92fd9bb42104e6e13c6d888d775afadb8fa9d054b5ae7ba9a91bf2733",
+    "snapshot_id": "2d68fbb9dbc0e1db529e79026449766af5c373a138532153335ede98ecab7507",
     "captured_at": "2026-11-17T00:00:00+00:00",
     "reason": "synthetic-native-parity",
     "product_count": 7,
@@ -1578,7 +1578,7 @@
   "history": {
     "snapshots": [
       {
-        "snapshot_id": "f96993b92fd9bb42104e6e13c6d888d775afadb8fa9d054b5ae7ba9a91bf2733",
+        "snapshot_id": "2d68fbb9dbc0e1db529e79026449766af5c373a138532153335ede98ecab7507",
         "captured_at": "2026-11-17T00:00:00+00:00",
         "reason": "synthetic-native-parity",
         "product_count": 7,
@@ -1586,8 +1586,8 @@
         "schema_version": 2
       }
     ],
-    "latest_snapshot_id": "f96993b92fd9bb42104e6e13c6d888d775afadb8fa9d054b5ae7ba9a91bf2733",
-    "selected_snapshot_id": "f96993b92fd9bb42104e6e13c6d888d775afadb8fa9d054b5ae7ba9a91bf2733",
+    "latest_snapshot_id": "2d68fbb9dbc0e1db529e79026449766af5c373a138532153335ede98ecab7507",
+    "selected_snapshot_id": "2d68fbb9dbc0e1db529e79026449766af5c373a138532153335ede98ecab7507",
     "products": [
       {
         "channel": "",
@@ -1693,9 +1693,9 @@
         "source_post_url": "https://t.me/Synthetic/1",
         "status": "ready",
         "status_schema_version": 2,
-        "supplier_price_state": "needs_review",
-        "supplier_price_update_due": true,
-        "supplier_price_verified_at": "",
+        "supplier_price_state": "current",
+        "supplier_price_update_due": false,
+        "supplier_price_verified_at": "2026-11-15T00:00:00+00:00",
         "update_needed": true
       },
       {

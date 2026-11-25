@@ -351,6 +351,13 @@ def extract_weight(text: str) -> str:
 _SHELL_COUNTS = {6, 12, 24}
 _OUTER_PACK = re.compile(r"(?:کارتن|باکس|شیرینگ|shell|شل(?![\u0600-\u06FF]))\s*(\d+)", re.I)
 _COUNT_PACK = re.compile(r"(\d+)\s*(?:عددی|عدد|تایی)")
+_MESSAGE_OUTER_PACK = re.compile(
+    r"(?:کارتون|کارتن|باکس|شیرینگ|shell|شل(?![\u0600-\u06FF]))"
+    r"\s*[:：]?\s*(\d{1,3})(?![\d./٬٫])"
+    r"(?=\s*(?:(?:عددی|عدد|تایی|بسته|ع)(?!\w)|$|[،,؛]))",
+    re.I,
+)
+_MESSAGE_COUNT_PACK = re.compile(r"(?<![\d./٬٫])(\d{1,3})\s*(?:عددی|عدد|تایی|ع)(?!\w)")
 
 
 def pack_count(packaging: str, name: str = "") -> int | None:
@@ -366,6 +373,17 @@ def pack_count(packaging: str, name: str = "") -> int | None:
     counts = _COUNT_PACK.findall(text)
     if counts:
         return int(counts[-1])
+    return None
+
+
+def message_pack_count(packaging: str, name: str = "") -> int | None:
+    """Recover a discount pack size from legacy message-derived catalog text."""
+    sources = (normalize(packaging), normalize(name))
+    for pattern in (_MESSAGE_OUTER_PACK, _MESSAGE_COUNT_PACK):
+        for text in sources:
+            counts = pattern.findall(text)
+            if counts:
+                return int(counts[-1])
     return None
 
 

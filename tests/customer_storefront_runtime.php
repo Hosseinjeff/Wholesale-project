@@ -44,6 +44,7 @@ class WC_Cart{
 class FakeSession{public $buyer='household';public $values=[];function get($key,$default=null){return $key==='molavi_buyer_type'?$this->buyer:($this->values[$key]??$default);}function set($key,$value){$this->values[$key]=$value;}}
 $wc=(object)['cart'=>new WC_Cart(),'session'=>new FakeSession()];function WC(){global $wc;return $wc;}
 require __DIR__.'/../shop-wp/molavi-shop/includes/pricing.php';
+require __DIR__.'/../shop-wp/molavi-shop/includes/sync.php';
 require __DIR__.'/../shop-wp/molavi-shop/includes/storefront-renderer.php';
 class SyntheticWidgetBase {}
 class_alias(SyntheticWidgetBase::class, 'Elementor\\Widget_Base');

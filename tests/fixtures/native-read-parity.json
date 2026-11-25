@@ -195,7 +195,7 @@
             "running": 1,
             "waiting_reference": 1
           },
-          "actionable_count": 5,
+          "actionable_count": 4,
           "attention_count": 3,
           "items": [
             {
@@ -211,21 +211,21 @@
               "next_action": "automatic_retry"
             },
             {
-              "id": "publish:synthetic-1",
-              "kind": "publish",
-              "state": "failed",
+              "id": "batch:synthetic-2",
+              "kind": "batch",
+              "state": "waiting_reference",
               "attempts": 0,
               "available": 200.0,
               "error": null,
-              "created_at": 101.0,
+              "created_at": 102.0,
               "lease_expired": false,
-              "age_seconds": 899,
-              "next_action": "inspect_failure_and_reconcile"
+              "age_seconds": 898,
+              "next_action": "resolve_reference_decision"
             }
           ],
           "page_count": 2,
           "has_more": true,
-          "next_cursor": "eyJ2IjoxLCJzbmFwc2hvdF90aW1lIjoxMDAwLjAsImxhc3RfY3JlYXRlZF9hdCI6MTAxLjAsImxhc3RfaWQiOiJwdWJsaXNoOnN5bnRoZXRpYy0xIn0",
+          "next_cursor": "eyJ2IjoxLCJzbmFwc2hvdF90aW1lIjoxMDAwLjAsImxhc3RfY3JlYXRlZF9hdCI6MTAyLjAsImxhc3RfaWQiOiJiYXRjaDpzeW50aGV0aWMtMiJ9",
           "items_truncated": true,
           "publication_holds": 0,
           "sheet_conflicts": 0,
@@ -250,7 +250,22 @@
           "failed_publication_ids": [
             "publish:synthetic-1"
           ],
-          "failed_batch_ids": []
+          "failed_batch_ids": [],
+          "failed_items": [
+            {
+              "age_seconds": 899,
+              "attempts": 0,
+              "available": 200.0,
+              "created_at": 101.0,
+              "error": null,
+              "id": "publish:synthetic-1",
+              "kind": "publish",
+              "lease_expired": false,
+              "next_action": "inspect_failure_and_reconcile",
+              "state": "failed"
+            }
+          ],
+          "failed_publish_by_product": {}
         }
       }
     },
@@ -271,7 +286,7 @@
             "running": 1,
             "waiting_reference": 1
           },
-          "actionable_count": 5,
+          "actionable_count": 4,
           "attention_count": 3,
           "items": [
             {
@@ -326,7 +341,22 @@
           "failed_publication_ids": [
             "publish:synthetic-1"
           ],
-          "failed_batch_ids": []
+          "failed_batch_ids": [],
+          "failed_items": [
+            {
+              "age_seconds": 899,
+              "attempts": 0,
+              "available": 200.0,
+              "created_at": 101.0,
+              "error": null,
+              "id": "publish:synthetic-1",
+              "kind": "publish",
+              "lease_expired": false,
+              "next_action": "inspect_failure_and_reconcile",
+              "state": "failed"
+            }
+          ],
+          "failed_publish_by_product": {}
         }
       }
     }
@@ -400,7 +430,16 @@
           "occurrence_id": null,
           "snapshot_id": null,
           "error_code": null,
-          "change_summary": null
+          "change_summary": null,
+          "in_progress": false,
+          "retry_at": null,
+          "revision": "cfe82eda698efbe4ec7d499828f8e8b8b6a079b005b9f3d8498332fa1d8ca865"
+        },
+        "reference_review": {
+          "decision_token": null,
+          "failed_attempts": 0,
+          "pending_count": 0,
+          "state": "refresh_due"
         }
       }
     },

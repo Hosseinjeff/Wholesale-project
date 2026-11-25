@@ -8,7 +8,6 @@ import atexit
 import base64
 import hashlib
 import hmac
-import html
 import json
 import logging
 import requests
@@ -1487,7 +1486,7 @@ def extract_telegram_message_text(page_html):
         parser.close()
     except Exception:
         return None
-    text = html.unescape(parser.text()).strip()
+    text = parser.text().strip()
     return text or None
 
 
@@ -1502,7 +1501,7 @@ def fetch_telegram_page(url):
     fetch_url = url + "?embed=1" if is_post else url
     response = requests.get(fetch_url, timeout=TELEGRAM_FETCH_TIMEOUT_SEC,
                             headers={"User-Agent": TELEGRAM_FETCH_USER_AGENT},
-                            allow_redirects=True, stream=True)
+                            allow_redirects=False, stream=True)
     try:
         chunks = []
         remaining = TELEGRAM_FETCH_MAX_BODY_BYTES
