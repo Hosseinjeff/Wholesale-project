@@ -22,7 +22,12 @@ function molavi_domain_reference_regular_deadline(array $record,int $price,int $
 
 function molavi_domain_regular_price_evidence(array $record,array $offer,?array $market,int $now): array {
     $raw=molavi_domain_positive_price($record['Consumer Price']??null)?:molavi_domain_positive_price($record['Actual Price']??null);
-    $price=(int)(($market['regular_price']??null)?:$raw);
+    // The market regular price is per single item (regular_unit_price), while the
+    // record's sale price is per sellable unit (one pack). Scale the market price
+    // to the pack basis before comparing, or every packed product looks spreadless.
+    $pack=max(1,molavi_domain_positive_price($offer['Package Count']??null)?:molavi_domain_positive_price($record['Package Count']??null));
+    $marketPrice=(int)($market['regular_price']??null);
+    $price=$marketPrice>0?$marketPrice*$pack:$raw;
     if ($price<=0) return ['amount'=>0,'state'=>'missing','expires_at'=>0];
     $deadline=0;
     if (!empty($market['regular_price'])) {
@@ -60,6 +65,7 @@ function molavi_domain_sale_offer_evidence(array $record,array $offer,array $sup
         !in_array($supplierState,['current','warning'],true)=>'supplier_price',
         $regular['state']!=='current'=>'regular_price',
         $regular['amount']<=$cost=>'no_spread',
+        $regular['amount']>$cost&&$cost>0&&function_exists('molavi_band')&&!molavi_band($cost,$regular['amount'])['discountable']=>'thin_spread',
         default=>'',
     };
     return ['supplier_price_state'=>$supplierState,'regular_price_state'=>$regular['state'],'regular_price'=>$regular['amount'],

@@ -17,7 +17,8 @@
 #molavi-owner-workflow .md-brand {display:flex;align-items:center;gap:15px;}
 #molavi-owner-workflow .md-wordmark {font-size:21px;font-weight:700;letter-spacing:-1px;color:var(--md-green);}
 #molavi-owner-workflow .md-subtitle {padding-inline-start:15px;border-inline-start:1px solid var(--md-line);color:var(--md-muted);font-size:12px;}
-#molavi-owner-workflow .md-navigation {display:flex;gap:25px;overflow:auto;padding:0 28px;background:var(--md-paper);border-bottom:1px solid var(--md-line);}
+#molavi-owner-workflow .md-navigation {display:flex;gap:25px;overflow:auto;padding:0 28px;background:var(--md-paper);border-bottom:1px solid var(--md-line);position:sticky;top:0;z-index:10;}
+body.admin-bar #molavi-owner-workflow .md-navigation {top:32px;}
 #molavi-owner-workflow .md-nav-item {border:0;border-bottom:3px solid transparent;background:transparent;color:var(--md-muted);font:inherit;padding:12px 0;white-space:nowrap;cursor:pointer;}
 #molavi-owner-workflow .md-nav-item[aria-current="page"] {color:var(--md-green);border-bottom-color:var(--md-green);font-weight:700;}
 #molavi-owner-workflow .md-activity {padding:8px 28px;background:var(--md-soft);border-bottom:1px solid var(--md-line);}
@@ -39,6 +40,7 @@
 #molavi-owner-workflow .molavi-product-messages {display:grid;gap:8px;}
 #molavi-owner-workflow .md-pricing-form {display:grid;justify-items:start;gap:14px;margin-top:14px;max-width:760px;}
 #molavi-owner-workflow .md-pricing-fields {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,235px),1fr));gap:12px;width:100%;}
+#molavi-owner-workflow .molavi-autopilot-settings .md-pricing-fields {align-items:start;}
 #molavi-owner-workflow .md-pricing-fields fieldset {min-width:0;margin:0;padding:12px;border:1px solid var(--md-line);border-radius:8px;background:var(--md-paper);}
 #molavi-owner-workflow .md-pricing-fields legend {font-weight:700;padding-inline:5px;}
 #molavi-owner-workflow .md-pricing-fields label {display:grid;gap:4px;margin-bottom:9px;}
@@ -144,6 +146,7 @@
     #molavi-owner-workflow .md-header {padding:17px;}
     #molavi-owner-workflow .md-subtitle {display:none;}
     #molavi-owner-workflow .md-navigation {gap:20px;padding:0 17px;}
+    body.admin-bar #molavi-owner-workflow .md-navigation {top:46px;}
     #molavi-owner-workflow .md-activity {padding-inline:12px;font-size:12px;}
     #molavi-owner-workflow .md-activity-source {min-height:44px;}
     #molavi-owner-workflow .md-activity-icon {width:44px;height:44px;}

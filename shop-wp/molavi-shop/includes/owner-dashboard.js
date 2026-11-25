@@ -30,7 +30,7 @@
         const focusType=['product_id','offer_id','case_id','conflict_id','hold_id','reference_id'].find(key=>params.get(key)) || 'product_id';
         const state = {
             focusType,
-            view:['products','references','sources','system','pricing'].includes(params.get('view')) ? params.get('view')
+            view:['products','references','sources','system','pricing','autopilot'].includes(params.get('view')) ? params.get('view')
                 : params.get('workbench_action') === 'reextract' || location.hash.includes('reextract') ? 'sources' : 'products',
             scope:params.get('scope') || 'ready',action:params.get('workbench_action') || '',
             focus:['product_id','offer_id','case_id','conflict_id','hold_id','reference_id'].map(key=>params.get(key)).find(Boolean) || '',
@@ -77,7 +77,7 @@
         const refresh = button('تازه‌سازی',()=> (hooks.manualRefresh||hooks.refresh)(),'md-button md-button-quiet');
         const headerActions=el('div',null,'md-header-actions');
         if(hooks.renderPricing) {
-            const gear=activityButton('تنظیمات تخفیف','admin-generic',()=>navigate('pricing'));
+            const gear=activityButton('تنظیمات','admin-generic',()=>navigate('pricing'));
             gear.classList.add('md-header-gear');
             headerActions.append(gear);
         }
@@ -86,7 +86,7 @@
         const nav = el('nav',null,'md-navigation');
         nav.setAttribute('aria-label','مدیریت فروشگاه');
         const navButtons = new Map();
-        [['products','محصولات'],['references','فهرست مرجع'],['sources','پیام‌های منبع'],['system','وضعیت سیستم']].forEach(([key,label])=>{
+        [['products','محصولات'],['references','فهرست مرجع'],['sources','پیام‌های منبع'],['system','وضعیت سیستم'],['autopilot','تصمیم‌های خودکار']].forEach(([key,label])=>{
             const item=button(label,()=>navigate(key),'md-nav-item');
             navButtons.set(key,item); nav.appendChild(item);
         });
@@ -159,11 +159,16 @@
             const dialog=el('dialog',null,'md-dialog');
             const content=el('div',null,'md-progress-report');
             const actions=el('div',null,'md-header-actions');
-            actions.append(button('باز کردن کار',()=>{dialog.close();go();}),button('بستن',()=>dialog.close(),'md-link'));
+            const openButton=button('باز کردن کار',()=>{dialog.close();go();});
+            const retryButton=button('تلاش دوباره',()=>{dialog.close();go();},'md-button');
+            actions.append(openButton,retryButton,button('بستن',()=>dialog.close(),'md-link'));
             dialog.append(content,actions);
             const render=()=>{
                 const item=resolve()||{};
                 const current=item.current||{};
+                const stuck=referenceRefreshStuck(item);
+                retryButton.hidden=!stuck;
+                openButton.hidden=stuck;
                 const phases={connecting:'اتصال به API رضوان پخش',fetching:'دریافت صفحه‌های فهرست',validating:'اعتبارسنجی شمارش و داده‌ها',
                     comparing:'مقایسه با فهرست فعلی',applying:'اعمال فهرست و بازبینی کالاها',saved:'ثبت نسخهٔ دریافت‌شده',
                     retrying:'تلاش دوباره برای دریافت فهرست',running:'پردازش در کارگر',queued:'منتظر کارگر',
@@ -361,12 +366,19 @@
             }));
             return row;
         }
+        function referenceRefreshStuck(entry) {
+            if(entry.kind!=='reference_refresh')return false;
+            if(entry.state==='failed')return true;
+            const updated=Number(entry.current?.updated_at||0);
+            return entry.state==='running'&&updated>0&&(Date.now()/1000-updated)>600;
+        }
         function groupRow(entry,quota) {
             const row=el('li');
             row.append(activityButton('جزئیات پیشرفت','info-outline',()=>progressDialog(
                 ()=>activityReport?.groups?.find(group=>group.kind===entry.kind)
                     ||(entry.kind==='reference_refresh'?activityReport?.reference_progress:null)||{...entry,state:'unknown',current:{}},
                 ()=>openActivity(entry.kind)),activityDescription(entry,quota)));
+            if(referenceRefreshStuck(entry)) row.append(button('تلاش دوباره',()=>openActivity(entry.kind),'md-button'));
             return row;
         }
         function paintActivity() {
@@ -499,12 +511,23 @@
             if(state.channel)url.searchParams.set('channel',state.channel);
             if(state.action)url.searchParams.set('workbench_action',state.action);
             if(state.focus)url.searchParams.set(state.focusType,state.focus);
-            url.hash=''; history.replaceState({},'',url);
+            // Keep the decisions anchor while on the autopilot tab, so the
+            // direct link ?view=autopilot#molavi-autopilot-decisions survives
+            // navigation; every other hash is still cleared as before.
+            if(state.view!=='autopilot'||url.hash!=='#molavi-autopilot-decisions')url.hash='';
+            history.replaceState({},'',url);
         }
         function navigate(view, product=null) {
             if(view!==state.view) clearSelection(true);
             if(view==='sources'&&product){state.sourceContext=product;state.pageCache.delete('sources');}
-            state.view=view;saveURL();paint();main.scrollIntoView({block:'start',behavior:'smooth'});
+            state.view=view;saveURL();paint();
+            // An anchor link must win over the usual scroll-to-top-of-tab:
+            // without this, navigate() would scroll back past the list.
+            // (When the data has not loaded yet there is no element; the
+            // paint() hook below scrolls once the tab mounts.)
+            const decisions=view==='autopilot'&&location.hash==='#molavi-autopilot-decisions'?document.getElementById('molavi-autopilot-decisions'):null;
+            if(decisions)decisions.scrollIntoView({block:'start',behavior:'smooth'});
+            else main.scrollIntoView({block:'start',behavior:'smooth'});
             if(view==='products') for(const item of actions.values()) {
                 if(item.watch?.kind==='market_prices'&&!activeAction(item)) refreshMarket(item.watch.key,item.state);
             }
@@ -563,7 +586,7 @@
         }
         function dismissal(product) {
             const key=next(product);
-            return key&&!['next','deferred','product_messages','market_prices','stock'].includes(key) ? model.dismissalTask(product,key) : null;
+            return key&&!['next','deferred','product_messages','market_prices'].includes(key) ? model.dismissalTask(product,key) : null;
         }
         function clearSelection(exit=false) {
             state.selected.clear();
@@ -577,7 +600,14 @@
             if(product.holds.length)return ['انتشار متوقف','blocked'];
             if(next(product)==='stock')return ['منتظر موجودی','unknown'];
             if(product.status?.status==='not_product'&&next(product)==='next')return ['رد شده','neutral'];
-            if(priceBlocked(product))return ['در انتظار قیمت','unknown'];
+            if(priceBlocked(product)) {
+                const blocker=product.status?.sale_offer_blocker;
+                if(blocker==='no_spread')return ['قیمت عادی با قیمت تأمین‌کننده هم‌خوانی ندارد','unknown'];
+                if(blocker==='thin_spread')return ['اختلاف قیمت برای تخفیف کافی نیست','unknown'];
+                if(blocker==='supplier_price')return ['در انتظار قیمت تأمین‌کننده','unknown'];
+                if(blocker==='regular_price')return ['در انتظار قیمت عادی','unknown'];
+                return ['در انتظار قیمت','unknown'];
+            }
             if(ready(product))return ['آمادهٔ بررسی','attention'];
             if(next(product)==='deferred')return ['کنارگذاشته‌شده','neutral'];
             if(waiting(product))return ['در انتظار پیگیری','unknown'];
@@ -601,8 +631,9 @@
                 };
                 if(!(groups[state.focusType]||[]).filter(Boolean).map(String).includes(state.focus))return false;
             }
-            if(state.scope==='published'&&!published(product))return false;
-            if(state.scope==='pricing'&&!priceBlocked(product))return false;
+            if(state.scope==='published'&&(!published(product)||next(product)==='deferred'))return false;
+            if(state.scope==='pricing'&&(!priceBlocked(product)||next(product)==='deferred'))return false;
+            if(state.scope==='other'&&(ready(product)||waiting(product)||priceBlocked(product)||published(product)))return false;
             if(state.action&&!state.focus&&next(product)!==state.action)return false;
             if(state.action||state.focus)return true;
             if(state.scope==='ready')return Boolean(ready(product));
@@ -661,16 +692,18 @@
                 const label=`توقف‌های انتشار · ${fa(pendingBatches.length)}`;
                 view.append(button(label,()=>reviewHold(),'md-button md-link'));
             }
+            const linkedWooIds=new Set(model.products.map(p=>p.status?.woo_product_id).filter(Boolean).map(String));
             const unlinked=(model.data.product_status?.published_unlinked||[]).map(listing=>({
                 key:`woo:${listing.woo_product_id}`,name:listing.name,channel:listing.supplier,listing,
                 status:{published:true,sale_offer_blocker:listing.sale_offer_blocker},ai:[],references:[],conflicts:[],holds:[],supplierPrices:[]
-            }));
+            })).filter(item=>!linkedWooIds.has(String(item.listing.woo_product_id)));
             const scopeBar=el('div',null,'md-scopes');scopeBar.setAttribute('aria-label','فهرست محصولات');
             const allProducts=[...model.products,...unlinked];
             [['ready','آمادهٔ بررسی',allProducts.filter(ready).length],
                 ['waiting','در انتظار پیگیری',allProducts.filter(waiting).length],
                 ['pricing','در انتظار قیمت',model.products.filter(priceBlocked).length+unlinked.filter(priceBlocked).length],
                 ['published','منتشرشده',model.products.filter(published).length+unlinked.length],
+                ['other','سایر',allProducts.filter(p=>!ready(p)&&!waiting(p)&&!priceBlocked(p)&&!published(p)).length],
                 ['all','همهٔ محصولات',allProducts.length]].forEach(([key,label,count])=>{
                 const item=button(`${label}  ${fa(count)}`,()=>{
                     clearSelection();state.scope=key;state.action='';state.focus='';state.limit=24;saveURL();paint();
@@ -681,7 +714,7 @@
             search.setAttribute('aria-label','جست‌وجوی محصولات');search.autocomplete='off';
             const action=el('select');action.setAttribute('aria-label','نوع رسیدگی');
             [['','همهٔ کارها'],...Object.entries(actionLabels)].forEach(([key,label])=>{
-                const option=el('option',label);option.value=key;action.append(option);
+                const option=el('option',key?`${label} · ${fa(allProducts.filter(p=>next(p)===key).length)}`:label);option.value=key;action.append(option);
             });action.value=state.action;
             const channel=el('select');channel.setAttribute('aria-label','تأمین‌کننده');
             const all=el('option','همهٔ تأمین‌کنندگان');all.value='';channel.append(all);
@@ -689,6 +722,12 @@
             [...new Set(candidates.map(p=>p.channel).filter(Boolean))].sort().forEach(value=>{const o=el('option',value);o.value=value;channel.append(o);});
             channel.value=state.channel;
             filters.append(search,action,channel);view.append(filters);
+            // Supplier link checks (round eight) and market agreement
+            // (round nine): the owner's confirm list, changed prices, the
+            // uncheckable report, and the market-agreement report sit above
+            // the product list while the supplier-price queue is open.
+            if (state.action==='supplier_prices'&&model.renderLinkChecks) view.append(model.renderLinkChecks());
+            if (state.action==='supplier_prices'&&model.renderMarketAgreement) view.append(model.renderMarketAgreement());
             const focus=el('div',null,'md-active-filter');focus.hidden=!state.focus;
             if(state.focus)focus.append(el('span',`شناسه: ${state.focus}`),button('نمایش همه',()=>{clearSelection();state.focus='';saveURL();paint();},'md-link'));
             view.append(focus);
@@ -727,8 +766,15 @@
             const list=el('div',null,'md-product-list');
             const more=button('نمایش بیشتر',()=>{state.limit+=24;paintList();},'md-button md-more');
             const paintList=()=>{
-                const rows=candidates.filter(matches).sort((a,b)=>Number(Boolean(a.listing))-Number(Boolean(b.listing))
-                    ||model.actionRank(next(a))-model.actionRank(next(b))||a.name.localeCompare(b.name,'fa'));
+                const rows=candidates.filter(matches).sort((a,b)=>{
+                    const holdA=model.autopilotHold?model.autopilotHold(a):null;
+                    const holdB=model.autopilotHold?model.autopilotHold(b):null;
+                    if (holdA&&holdB) return holdA.priority-holdB.priority;
+                    if (holdA) return -1;
+                    if (holdB) return 1;
+                    return Number(Boolean(a.listing))-Number(Boolean(b.listing))
+                        ||model.actionRank(next(a))-model.actionRank(next(b))||a.name.localeCompare(b.name,'fa');
+                });
                 eligible=rows.filter(product=>reopenable(product)||dismissal(product)?.task_key);
                 const eligibleKeys=new Set(eligible.map(product=>product.key));
                 state.selected=new Set([...state.selected].filter(key=>eligibleKeys.has(key)));
@@ -741,9 +787,13 @@
                     showOfferHistory(list,state.focus);
                 } else if(!rows.length) {
                     const readyScope = state.scope==='ready'&&!state.action&&!state.search&&!state.channel;
-                    list.append(empty(readyScope
+                    const emptyView=empty(readyScope
                         ? (Object.values(model.errors).some(Boolean) ? 'فهرست کارهای آماده کامل نیست' : 'کار آمادهٔ بررسی در این فهرست نیست')
-                        : state.focusType==='offer_id'&&state.focus ? 'کارت قابل بررسی برای این پیشنهاد پیدا نشد.' : 'موردی در این فهرست نیست'));
+                        : state.focusType==='offer_id'&&state.focus ? 'کارت قابل بررسی برای این پیشنهاد پیدا نشد.' : 'موردی در این فهرست نیست');
+                    if(state.action&&!state.focus) {
+                        emptyView.append(button('نمایش همهٔ کارها',()=>{clearSelection();state.action='';state.limit=24;saveURL();paint();},'md-button'));
+                    }
+                    list.append(emptyView);
                 }
                 more.hidden=rows.length<=state.limit;
             };
@@ -782,6 +832,9 @@
                     messages.addEventListener('toggle',()=>{
                         if (messages.open&&messages.childElementCount===1) messages.append(hooks.renderMessages(product.listing.woo_product_id));
                     });
+                    if (ready(product)==='product_messages') {
+                        card.append(button('انتخاب پیام کالا',()=>{messages.open=true;messages.scrollIntoView({block:'nearest'});},'md-button md-primary'));
+                    }
                     card.append(messages);
                 }
                 return card;
@@ -811,6 +864,23 @@
             header.append(model.renderSourceImage(sourceImage,icon),identity,el('span',label,`md-badge md-${tone}`));card.append(header);
             if(state.scope==='published'&&!state.selecting&&reopenable(product))
                 card.append(button('بازگشایی بررسی',()=>reopenReview([product]),'md-link md-card-action'));
+            // A failed confirm-publish leaves a note at the top of the product's
+            // own card, on every tab: the action panel alone cannot carry it,
+            // because a product whose current step is the regular-price tab
+            // never renders through renderAction. The server only lists
+            // products outside the published-review catalog, so a product that
+            // went live despite its job failing gets no warning.
+            const publishFailure = model.data.operations?.operations?.failed_publish_by_product?.[product.product_id];
+            if (publishFailure) {
+                const reason = model.publishFailureReason ? model.publishFailureReason(publishFailure.error) : String(publishFailure.error || '');
+                card.append(el('div', `آخرین انتشار این کالا کامل نشد: ${reason}`, 'notice notice-warning'));
+            }
+            // An autopilot hold surfaces first in the list and on the card, so
+            // the owner sees the exact reason before anything else.
+            const autopilotHold = model.autopilotHold ? model.autopilotHold(product) : null;
+            if (autopilotHold) {
+                card.append(el('div', `نیازمند تصمیم: ${autopilotHold.reason}`, 'notice notice-warning'));
+            }
             const nextLine=el('div',null,'md-next-action');
             if(preferred==='deferred'){
                 const keys=model.restoreKeys(product);
@@ -905,13 +975,13 @@
                             panel.append(select);
                         }
                         if (selected) {showPrice(selected);panel.append(host);}
-                        if (preferred==='market_prices'&&record.latest_offer_id&&product.product_id)
+                        if (record.latest_offer_id&&product.product_id)
                             panel.append(recoveryAction(product,'تأیید دستی قیمت عادی'));
                         else if (!selected) panel.append(button('جست‌وجوی پیام منبع',()=>navigate('sources',product)));
                         if (selected) panel.append(model.renderProductSearch(product.name));
                     }
                     if(key==='product_messages') panel.append(hooks.renderMessages(record.woo_product_id));
-                    if(hasAction&&!['storefront','product_messages','market_prices','stock'].includes(key)){
+                    if(hasAction&&!['storefront','product_messages','market_prices'].includes(key)){
                         const action=model.renderAction(product,key);
                         if (action) panel.append(action);
                         if (key==='status') {
@@ -968,7 +1038,7 @@
         }
         function pricingView() {
             const view=el('section');
-            view.append(el('h1','تنظیمات تخفیف'));
+            view.append(el('h1','تنظیمات'));
             const panel=el('div');
             view.append(panel);
             hooks.renderPricing(panel);
@@ -1026,7 +1096,11 @@
         }
         function paint() {
             navButtons.forEach((button,key)=>button.setAttribute('aria-current',key===state.view?'page':'false'));
-            if(!model&&['products','system'].includes(state.view)) {
+            // Keep the active tab visible in the horizontally scrollable nav row: the
+            // autopilot tab is last, so on a narrow screen it can sit off the edge.
+            // block:'nearest' so this never scrolls the page vertically.
+            navButtons.get(state.view)?.scrollIntoView({block:'nearest',inline:'nearest'});
+            if(!model&&['products','system','autopilot'].includes(state.view)) {
                 main.replaceChildren(state.view==='system'?systemActivity:el('p','در حال دریافت محصولات…'));
                 return;
             }
@@ -1034,9 +1108,19 @@
             else {
                 if(!state.pageCache.has(state.view))state.pageCache.set(state.view,
                     state.view==='pricing'?pricingView():state.view==='references'?referencesView()
-                        :state.view==='sources'?sourcesView():systemView());
+                        :state.view==='sources'?sourcesView():state.view==='autopilot'?model.renderAutopilot():systemView());
                 const page=state.pageCache.get(state.view);
-                if(main.firstElementChild!==page) main.replaceChildren(page);
+                const mounted=main.firstElementChild!==page;
+                if(mounted) main.replaceChildren(page);
+                // Direct link to the decisions list: the tab mounts only once
+                // the dashboard data arrives, so the anchor scroll has to
+                // happen here (on mount), not only in navigate(). Only on a
+                // fresh mount, so paints that reuse the cached page do not
+                // yank the owner away from content already on screen.
+                // (A data refresh rebuilds the tab from scratch, so the
+                // scroll repeats then — consistent, since the rebuilt DOM
+                // loses scroll position and any open <details> anyway.)
+                if(mounted&&state.view==='autopilot'&&location.hash==='#molavi-autopilot-decisions') document.getElementById('molavi-autopilot-decisions')?.scrollIntoView({block:'start'});
                 if(state.view==='sources') refreshInbox(activityReport?.inbox_revision);
             }
         }
@@ -1121,7 +1205,12 @@
             event.preventDefault();
             const view=url.searchParams.get('view');
             const focusKey=['offer_id','product_id','case_id','hold_id','conflict_id','reference_id'].find(key=>url.searchParams.has(key));
-            if(['products','sources','references','system','pricing'].includes(view)) navigate(view);
+            if(['products','sources','references','system','pricing','autopilot'].includes(view)) {
+                // Carry a decisions-anchor click through: navigate() reads
+                // location.hash, and the click's hash is not in it yet.
+                if(url.hash==='#molavi-autopilot-decisions') history.replaceState({},'',url.href);
+                navigate(view);
+            }
             else if(focusKey==='hold_id') reviewHold('molavi-batch-'+encodeURIComponent(url.searchParams.get(focusKey)));
             else if(focusKey&&model) reviewInboxItem(focusKey,url.searchParams.get(focusKey));
             else if(url.searchParams.get('workbench_action')==='reextract'||url.hash.includes('reextract'))navigate('sources');

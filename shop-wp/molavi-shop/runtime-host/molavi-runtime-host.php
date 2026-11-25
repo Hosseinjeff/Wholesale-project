@@ -84,7 +84,8 @@ function molavi_runtime_tick():void {
                 'retried'=>$nativeOutbox['retried'],'failed'=>$nativeOutbox['failed'],'error'=>$nativeOutbox['error']],false);
         }
         if(function_exists('molavi_domain_job_host')&&get_option('molavi_state_active',false)
-            &&(molavi_domain_job_host('publish')==='wordpress'||molavi_domain_job_host('order')==='wordpress')){
+            &&(molavi_domain_job_host('publish')==='wordpress'||molavi_domain_job_host('order')==='wordpress'
+                ||molavi_domain_job_host('batch')==='wordpress'||molavi_domain_job_host('reextract')==='wordpress')){
             if (molavi_domain_job_host('publish')==='wordpress'&&function_exists('molavi_domain_sale_offer_evidence')
                 &&!get_option('molavi_sale_offer_eligibility_queued',false)) {
                 molavi_domain_queue('publish','sale-offer-eligibility-v1',[]);
@@ -101,6 +102,9 @@ function molavi_runtime_tick():void {
             if(molavi_domain_job_host('publish')==='wordpress'&&function_exists('molavi_domain_ai_publish_completed_runs')
                 &&molavi_domain_route_enabled('POST','/pipeline/ai-confirmations')){
                 try{molavi_domain_ai_publish_completed_runs();}catch(Throwable $e){error_log('[molavi-native] reextraction_publication_pending');}
+            }
+            if(molavi_domain_job_host('batch')==='wordpress'&&function_exists('molavi_domain_batch_inbox')){
+                try{molavi_domain_batch_inbox();}catch(Throwable $e){error_log('[molavi-native] ingestion_batch_pending');}
             }
             $nativeJobs=molavi_domain_run_jobs();
             if($nativeJobs['claimed']||$nativeJobs['error'])update_option('molavi_native_jobs_receipt_v1',[
@@ -126,6 +130,17 @@ function molavi_runtime_tick():void {
         if(function_exists('molavi_domain_market_tick')&&get_option('molavi_state_active',false)
             &&molavi_domain_route_enabled('GET','/reference/item-reviews')){
             try{molavi_domain_market_tick($now);}catch(Throwable $e){error_log('[molavi-native] market_price_refresh_pending');}
+        }
+        if(function_exists('molavi_domain_supplier_link_check_tick')&&get_option('molavi_state_active',false)
+            &&molavi_domain_route_enabled('GET','/pipeline/supplier-link-checks')){
+            try{molavi_domain_supplier_link_check_tick($now);}catch(Throwable $e){error_log('[molavi-native] supplier_link_check_pending');}
+        }
+        if(function_exists('molavi_domain_market_agreement_tick')&&get_option('molavi_state_active',false)
+            &&molavi_domain_route_enabled('GET','/pipeline/market-agreement')){
+            try{molavi_domain_market_agreement_tick($now);}catch(Throwable $e){error_log('[molavi-native] market_agreement_pending');}
+        }
+        if(function_exists('molavi_domain_autopilot_tick')&&get_option('molavi_state_active',false)){
+            try{molavi_domain_autopilot_tick($now);}catch(Throwable $e){error_log('[molavi-native] autopilot_pending');}
         }
         if((int)$state['housekeeping_at']<=$now){
             if(function_exists('molavi_state_housekeeping')&&get_option('molavi_state_active',false)

@@ -122,3 +122,82 @@ function molavi_domain_reference_role_hint($advertised,array $reference): array 
     if(min($unitDistance,$packageDistance)>.35||abs($unitDistance-$packageDistance)<.15)return ['role'=>'needs_review','reason'=>'ambiguous_or_distant'];
     return ['role'=>$unitDistance<$packageDistance?'unit':'package','reason'=>'reference_scale_hint','supplier_price'=>$price,'unit_distance'=>$unitDistance,'package_distance'=>$packageDistance];
 }
+/** catalog.measurements.measurement_signature: base-unit values as reduced fraction strings. */
+function molavi_domain_reference_measurement_signature(string $text,string $kind): array {
+    $out=[];
+    foreach(molavi_domain_measurement_matches($text,$kind) as $match){
+        $parts=explode(' ',$match['display'],2);
+        // The display's "/" is always a fraction (from _format_fraction); the
+        // source-text "/" is a decimal separator, so molavi_domain_fraction
+        // would misread "1/3" as 1.3. Parse a display slash as a fraction.
+        if(str_contains($parts[0],'/')){$slash=explode('/',$parts[0],2);$fraction=[(int)$slash[0],(int)$slash[1]];}
+        else $fraction=molavi_domain_fraction($parts[0]);
+        if($fraction===null)continue;[$n,$d]=$fraction;$label=$parts[1]??'';
+        if($label==='لیتر'||$label==='کیلوگرم')$n*=1000;elseif($label==='میلی‌گرم')$d*=1000;
+        $a=$n;$b=$d;while($b){$next=$a%$b;$a=$b;$b=$next;}
+        // Python compares set(measurement_signature(...)): same base value
+        // collapses, so dedupe by the reduced base string (not by display).
+        $sig=(string)intdiv($n,$a).($d/$a!==1?'/'.(string)intdiv($d,$a):'');
+        if(!in_array($sig,$out,true))$out[]=$sig;
+    }
+    return $out;
+}
+/** reference_import/matching.py candidate_match: exact name plus strict explicit-attribute agreement. */
+function molavi_domain_reference_candidate_match(array $product,array $rows,array $overrides=[]): array {
+    $name=molavi_domain_match_name(molavi_domain_py_value($product['clean_name']??null,$product['name']??''));
+    if($name==='')return ['state'=>'needs_review','reason'=>'missing_name','candidates'=>[]];
+    $candidates=[];
+    foreach($rows as $row){
+        if(!is_array($row)||count($row)!==21)return ['state'=>'needs_review','reason'=>'invalid_reference_rows','candidates'=>[]];
+        if(molavi_domain_match_name(molavi_domain_py_value($row[1]??null,$row[0]??''))!==$name)continue;
+        $compatible=true;
+        foreach([['brand',12],['variant',11],['volume',8],['weight',9]] as [$key,$index]){
+            $incoming=molavi_domain_normalize_name((string)molavi_domain_py_value($product[$key]??null,$key==='variant'?($product['variation_type']??null):''));
+            if($key==='volume'||$key==='weight'){
+                $source=(string)molavi_domain_py_value($product[$key]??null);
+                $referenceValue=(string)molavi_domain_py_value($row[8]??null).' '.(string)molavi_domain_py_value($row[9]??null);
+                $kinds=[];foreach(['volume','weight'] as $kind)if(molavi_domain_reference_measurement_signature($source,$kind))$kinds[]=$kind;
+                if($kinds){
+                    foreach($kinds as $kind){
+                        $left=molavi_domain_reference_measurement_signature($source,$kind);$right=molavi_domain_reference_measurement_signature($referenceValue,$kind);
+                        sort($left);sort($right);if($left!==$right){$compatible=false;break;}
+                    }
+                    if(!$compatible)break;
+                }else{
+                    $alternatives=array_values(array_unique(array_filter([
+                        molavi_domain_normalize_name((string)molavi_domain_py_value($row[$index]??null)),
+                        molavi_domain_normalize_name((string)molavi_domain_py_value($row[8]??null)),
+                        molavi_domain_normalize_name((string)molavi_domain_py_value($row[9]??null)),
+                    ],static fn($value)=>$value!=='')));
+                    if($incoming!==''&&!in_array($incoming,$alternatives,true)){$compatible=false;break;}
+                }
+            }elseif($incoming!==''){
+                $reference=molavi_domain_normalize_name((string)molavi_domain_py_value($row[$index]??null));
+                if($reference===''||$incoming!==$reference){$compatible=false;break;}
+            }
+        }
+        if($compatible){
+            $incomingCount=molavi_domain_match_number($product['package_count']??null);$referenceCount=molavi_domain_match_number($row[6]??null);
+            if($incomingCount&&(!$referenceCount||$incomingCount!=$referenceCount))$compatible=false;
+        }
+        if($compatible)$candidates[]=molavi_domain_matching_reference($row);
+    }
+    $pinned=$overrides[molavi_domain_reference_signature($product)]??null;
+    if(is_array($pinned)){
+        $wanted=(string)molavi_domain_py_value($pinned['reference_id']??null);$selected=null;
+        foreach($rows as $row){
+            if(!is_array($row)||count($row)!==21)continue;
+            $candidate=molavi_domain_matching_reference($row);
+            if($candidate['reference_id']===$wanted){$selected=$candidate;break;}
+        }
+        if($selected!==null){
+            $selected['owner_price_role']=(string)molavi_domain_py_value($pinned['price_role']??null);
+            $selected['owner_decision_id']=(string)molavi_domain_py_value($pinned['decision_id']??null);
+            return ['state'=>'candidate','reason'=>'owner_approved_mapping','candidates'=>[$selected]];
+        }
+    }
+    if(!$candidates)return ['state'=>'needs_review','reason'=>'no_compatible_reference','candidates'=>[]];
+    if(count($candidates)>1)return ['state'=>'needs_review','reason'=>'multiple_candidates','candidates'=>$candidates];
+    if($candidates[0]['reference_id']==='')return ['state'=>'needs_review','reason'=>'missing_reference_identity','candidates'=>$candidates];
+    return ['state'=>'candidate','reason'=>'exact_compatible_identity','candidates'=>$candidates];
+}
