@@ -47,6 +47,22 @@ function molavi_price_settings(): array
     return $settings;
 }
 
+function molavi_discount_rules(): array
+{
+    $policy = get_option('molavi_discount_policy_v1', []);
+    return ($policy['rules'] ?? []) + [
+        'household_bp' => 4500,
+        'shop_bp' => 7000,
+        'household_target' => 5280000,
+        'shop_target' => 21120000,
+    ];
+}
+
+function molavi_public_opening_curve(array $curve): array
+{
+    return molavi_profile_curve($curve, ['household_cap_ratio' => molavi_discount_rules()['household_bp'] / 10000], 'household');
+}
+
 function molavi_buyer_type(): string
 {
     if (!function_exists('WC') || !WC()->session) { return 'household'; }
@@ -717,7 +733,7 @@ function molavi_render_buyer_profile_selector(string $context = 'shop'): void
                         <button type="button" data-molavi-buyer="household" aria-pressed="<?php echo $selected === 'household' ? 'true' : 'false'; ?>">خانوار</button>
                         <button type="button" data-molavi-buyer="shop" aria-pressed="<?php echo $selected === 'shop' ? 'true' : 'false'; ?>">فروشگاه</button>
                     </div>
-                    <button class="molavi-toolbar-icon molavi-buyer-help-trigger" type="button" data-molavi-open-panel="help" aria-label="راهنمای نوع خرید" aria-haspopup="dialog" aria-expanded="false" aria-controls="molavi-help-panel" title="راهنمای نوع خرید">
+                    <button class="molavi-toolbar-icon molavi-buyer-help-trigger" type="button" data-molavi-open-panel="help" aria-label="راهنمای خرید" aria-haspopup="dialog" aria-expanded="false" aria-controls="molavi-help-panel" title="راهنمای خرید">
                         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v5m0-8h.01"></path></svg>
                     </button>
                 </div>
