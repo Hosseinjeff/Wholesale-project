@@ -8,6 +8,7 @@ import atexit
 import base64
 import hashlib
 import hmac
+import html
 import json
 import logging
 import requests
@@ -17,6 +18,7 @@ import time
 import threading
 import uuid
 from urllib.parse import urlparse
+from html.parser import HTMLParser
 from utils.logger import setup_logger
 
 from catalog.durable import (
@@ -1409,6 +1411,143 @@ def extract_route():
         except Exception:
             pass
     response = jsonify({"ok": True, "text": text, "cached": False})
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
+TELEGRAM_FETCH_URL_RE = re.compile(r"^https://t\.me/[A-Za-z0-9_]{5,64}(/[0-9]{1,12})?$")
+TELEGRAM_FETCH_MAX_URL_LEN = 200
+TELEGRAM_FETCH_MAX_BODY_BYTES = 300000
+TELEGRAM_FETCH_TIMEOUT_SEC = 15
+TELEGRAM_FETCH_USER_AGENT = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                             "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
+
+
+def is_valid_telegram_fetch_url(url):
+    """True only for a t.me channel URL or channel-post URL.
+
+    Rejects other hosts, http, /s/ paths, and anything overlong. The regex
+    itself pins the host, the channel name, and an optional numeric message id.
+    """
+    return (isinstance(url, str) and len(url) <= TELEGRAM_FETCH_MAX_URL_LEN
+            and TELEGRAM_FETCH_URL_RE.fullmatch(url) is not None)
+
+
+class _TelegramMessageTextParser(HTMLParser):
+    """Collect the text of the first div.tgme_widget_message_text, depth-counted."""
+
+    _VOID_TAGS = frozenset({"area", "base", "br", "col", "embed", "hr", "img",
+                            "input", "link", "meta", "source", "track", "wbr"})
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self._depth = 0
+        self._parts = []
+        self._done = False
+
+    def handle_starttag(self, tag, attrs):
+        if self._done:
+            return
+        if self._depth:
+            if tag == "br":
+                self._parts.append("\n")
+            elif tag not in self._VOID_TAGS:
+                self._depth += 1
+            return
+        if tag == "div":
+            classes = dict(attrs).get("class", "")
+            if "tgme_widget_message_text" in classes.split():
+                self._depth = 1
+
+    def handle_startendtag(self, tag, attrs):
+        if self._depth and not self._done and tag == "br":
+            self._parts.append("\n")
+
+    def handle_endtag(self, tag):
+        if self._depth:
+            self._depth -= 1
+            if self._depth == 0:
+                self._done = True
+
+    def handle_data(self, data):
+        if self._depth and not self._done:
+            self._parts.append(data)
+
+    def text(self):
+        return "".join(self._parts)
+
+
+def extract_telegram_message_text(page_html):
+    """Message text from a t.me embed page, or None when the div is absent/empty."""
+    if not isinstance(page_html, str) or not page_html:
+        return None
+    parser = _TelegramMessageTextParser()
+    try:
+        parser.feed(page_html)
+        parser.close()
+    except Exception:
+        return None
+    text = html.unescape(parser.text()).strip()
+    return text or None
+
+
+def fetch_telegram_page(url):
+    """GET a t.me URL and return (http_status, page_text).
+
+    Post URLs are fetched in embed form (?embed=1); channel URLs as-is.
+    The body is capped at TELEGRAM_FETCH_MAX_BODY_BYTES. Raises
+    requests.RequestException when Railway itself cannot complete the fetch.
+    """
+    is_post = TELEGRAM_FETCH_URL_RE.fullmatch(url).group(1) is not None
+    fetch_url = url + "?embed=1" if is_post else url
+    response = requests.get(fetch_url, timeout=TELEGRAM_FETCH_TIMEOUT_SEC,
+                            headers={"User-Agent": TELEGRAM_FETCH_USER_AGENT},
+                            allow_redirects=True, stream=True)
+    try:
+        chunks = []
+        remaining = TELEGRAM_FETCH_MAX_BODY_BYTES
+        for chunk in response.iter_content(chunk_size=65536):
+            if not chunk:
+                continue
+            chunks.append(chunk[:remaining])
+            remaining -= len(chunks[-1])
+            if remaining <= 0:
+                break
+        body = b"".join(chunks)
+    finally:
+        try:
+            response.close()
+        except Exception:
+            pass
+    return response.status_code, body.decode("utf-8", errors="replace")
+
+
+@app.route("/pipeline/telegram-fetch", methods=["POST"])
+def telegram_fetch_route():
+    """Fetch one t.me page on behalf of WordPress link checks.
+
+    The staging host cannot reach Telegram at all, so WordPress asks Railway
+    to re-read the supplier post. Railway only fetches and extracts the
+    message text; WordPress maps the status/text onto its link-check states.
+    A Railway-side fetch failure returns HTTP 200 with ok=false so the caller
+    can tell it from a transport failure (same pattern as /pipeline/verdict).
+    Post text and URLs are never logged.
+    """
+    token = os.getenv("REFERENCE_BRIDGE_TOKEN") or ""
+    owners = {x.strip() for x in (os.getenv("REFERENCE_OWNER_IDS") or "").split(",") if x.strip()}
+    if len(token) < 32 or not owners:
+        return jsonify({"ok": False, "error": "unconfigured"}), 503
+    actor, auth_error = _owner_api_actor('owner:/pipeline/telegram-fetch', token, owners)
+    if auth_error:
+        return jsonify({"ok": False, "error": "unauthorized" if auth_error == 401 else "owner_required"}), auth_error
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or set(body) != {"url"} or not is_valid_telegram_fetch_url(body.get("url")):
+        return jsonify({"ok": False, "error": "invalid_body"}), 400
+    try:
+        status, page_text = fetch_telegram_page(body["url"])
+    except requests.RequestException:
+        return jsonify({"ok": False, "error": "fetch_failed"}), 200
+    response = jsonify({"ok": True, "status": status, "text": extract_telegram_message_text(page_text)})
     response.headers['Cache-Control'] = 'no-store'
     return response
 
