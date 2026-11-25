@@ -126,7 +126,13 @@ function molavi_owner_review_store_write_workflow_decision(array $record): bool 
 
     $eventId = (string)($record['event_id'] ?? '');
     if (!preg_match('/^[A-Za-z0-9:_-]{1,191}$/', $eventId)) { return false; }
-    $decisionId = hash('sha256', $domain . "\0" . $reviewId . "\0" . $revision);
+    $checkRef = $type === 'supplier_price' ? (string)($context['link_check_ref'] ?? '') : '';
+    if ($checkRef !== '' && !preg_match('/^link-check:' . preg_quote($reviewId, '/') . '@[0-9]{1,12}$/D', $checkRef)) return false;
+    $decisionKey = $domain . "\0" . $reviewId . "\0" . $revision;
+    $previousVerification = $type === 'supplier_price' ? (string)($context['previous_verified_at'] ?? '') : '';
+    if (strlen($previousVerification)>64) return false;
+    $occasion = $checkRef !== '' ? $checkRef : $previousVerification;
+    $decisionId = hash('sha256', $occasion === '' ? $decisionKey : $decisionKey . "\0" . $occasion);
     $commandId = hash('sha256', $domain . "\0" . $decisionId);
     if ($type === 'sheet_conflict') {
         $payload = [
@@ -151,6 +157,7 @@ function molavi_owner_review_store_write_workflow_decision(array $record): bool 
             'note'=>$note,
             'command_id'=>$commandId,
         ];
+        if ($checkRef !== '') $payload['check_ref'] = $checkRef;
         $contextData = [
             'product_id'=>$reviewId,
             'product_name'=>(string)($context['name'] ?? $context['product_name'] ?? ''),

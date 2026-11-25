@@ -291,6 +291,37 @@ function molavi_domain_supplier_link_check_public_row(array $row): array {
     ];
 }
 
+/** Recover only a link already recorded for this exact supplier message. */
+function molavi_domain_supplier_recorded_links(array $offers,array $messages): array {
+    $messageLinks=[];
+    foreach ($messages as $message) {
+        $channel=(string)($message['Channel Username']??'');
+        $batch=(string)($message['Batch ID']??'');
+        $id=(string)($message['ID']??'');
+        $url=trim((string)($message['URL']??''));
+        if ($channel==='' || $batch==='' || $id==='' || !molavi_domain_supplier_link_check_url($url)) continue;
+        $key=molavi_domain_json([$channel,$batch,$id,(string)($message['Content']??'')]);
+        $messageLinks[$key][$url]=true;
+    }
+    $links=[];
+    foreach ($offers as $offer) {
+        $id=(string)($offer['Offer ID']??'');
+        if ($id==='') continue;
+        $url=trim((string)($offer['Source Post URL']??''));
+        if ($url==='') {
+            $key=molavi_domain_json([(string)($offer['Channel Username']??''),(string)($offer['Batch ID']??''),
+                (string)($offer['Message ID']??''),(string)($offer['Original Message']??'')]);
+            $matches=$messageLinks[$key]??[];
+            if (count($matches)===1) $url=array_key_first($matches);
+        }
+        // Duplicate offer IDs cannot authorize a source selection.
+        $links[$id]=array_key_exists($id,$links)?null:($url!==''?[
+            'product'=>(string)($offer['Product ID']??''),'channel'=>(string)($offer['Channel Username']??''),
+            'message'=>(string)($offer['Original Message']??''),'url'=>$url]:null);
+    }
+    return $links;
+}
+
 /**
  * Seed due rows from the Products sheet: every item whose supplier price
  * state is needs_review or blocked. A new row (or a changed revision)
@@ -299,24 +330,29 @@ function molavi_domain_supplier_link_check_public_row(array $row): array {
  * Returns the number of rows seeded/updated.
  */
 function molavi_domain_supplier_link_check_seed(int $now): int {
-    $tables = molavi_domain_sheets(['Products'], true);
+    $tables = molavi_domain_sheets(['Products','Offers','MessageData'], true);
+    $links = molavi_domain_supplier_recorded_links(molavi_domain_records($tables['Offers']??[]),molavi_domain_records($tables['MessageData']??[]));
     $records = molavi_domain_records($tables['Products'] ?? []);
     $fresh = molavi_domain_freshness($records);
     $byId = [];
     foreach ($fresh as $offer) $byId[$offer['product_id']] = $offer;
     $seeded = 0;
-    molavi_domain_tx('pipeline', static function (SQLite3 $db) use ($records, $byId, $now, &$seeded): void {
+    molavi_domain_tx('pipeline', static function (SQLite3 $db) use ($records, $byId, $links, $now, &$seeded): void {
         foreach ($records as $record) {
             $id = trim((string)($record['Product ID'] ?? ''));
             if ($id === '' || !isset($byId[$id])) continue;
             $offer = $byId[$id];
             if (!in_array($offer['state'], ['needs_review', 'blocked'], true)) continue;
             $url = trim((string)($record['Source Post URL'] ?? ''));
+            $source = $links[(string)($record['Latest Offer ID']??'')]??null;
+            if ($url==='' && $source && $source['product']===$id && $source['channel']===($record['Channel Username']??'')
+                && $source['message']!=='' && $source['message']===($record['Original Message']??'')) $url=$source['url'];
             $revision = (string)($offer['source_revision'] ?? '');
             $existing = molavi_domain_supplier_link_check_row($db, $id);
             $stored = ['url'=>$url, 'message'=>(string)($record['Original Message'] ?? ''),
                 'sale_price'=>$record['Sale Price'] ?? null, 'name'=>(string)($record['Product Name'] ?? '')];
-            if ($existing && $existing['source_revision'] === $revision && $existing['stored_sale_price'] === (string)($record['Sale Price'] ?? '')) continue;
+            if ($existing && $existing['url'] === $url && $existing['offer_id'] === (string)($offer['offer_id'] ?? ($record['Latest Offer ID'] ?? ''))
+                && $existing['stored_message'] === $stored['message'] && $existing['source_revision'] === $revision && $existing['stored_sale_price'] === (string)($record['Sale Price'] ?? '')) continue;
             $row = [
                 'product_id'=>$id, 'offer_id'=>(string)($offer['offer_id'] ?? ($record['Latest Offer ID'] ?? '')),
                 'title'=>(string)($record['Product Name'] ?? ''), 'url'=>$url, 'source_revision'=>$revision,
@@ -432,21 +468,31 @@ function molavi_domain_supplier_link_check_execute(array $row, string $lease, in
 
 /** Mark a no-change check confirmed after the owner's manual verify. Idempotent on the same verified_at. */
 function molavi_domain_supplier_link_check_confirm(string $productId, string $checkRef, string $verifiedAt, string $actor, int $now): array {
-    return molavi_domain_tx('pipeline', static function (SQLite3 $db) use ($productId, $checkRef, $verifiedAt, $actor, $now): array {
-        $row = molavi_domain_supplier_link_check_row($db, $productId);
-        if (!$row || $row['outcome'] !== 'unchanged') molavi_domain_fail('link_check_not_confirmable', 409);
-        if ($row['checked_at'] === null
-            || molavi_domain_supplier_link_check_ref($productId, (int)$row['checked_at']) !== $checkRef) molavi_domain_fail('link_check_mismatch', 409);
-        if (molavi_domain_timestamp($verifiedAt) === null) molavi_domain_fail('invalid_verified_at', 400);
-        if ($row['confirmed_at'] !== null) {
-            if ($row['confirmed_verified_at'] === $verifiedAt) return ['ok'=>true, 'product_id'=>$productId, 'idempotent'=>true];
-            molavi_domain_fail('link_check_already_confirmed', 409);
-        }
-        molavi_domain_sql($db, 'UPDATE supplier_link_checks SET confirmed_at=?,confirmed_verified_at=? WHERE product_id=?',
-            [$now, $verifiedAt, $productId]);
-        molavi_domain_supplier_link_check_record_event($db, $row, 'confirmed', $row['stored_sale_price'], null, $verifiedAt, $now);
-        return ['ok'=>true, 'product_id'=>$productId, 'idempotent'=>false];
-    });
+    return molavi_domain_tx('pipeline', static fn(SQLite3 $db) =>
+        molavi_domain_supplier_link_check_confirm_receipt($db, $productId, $checkRef, $verifiedAt, $actor, $now));
+}
+
+/** Called in the verification transaction, or by an older client acknowledging its saved receipt. */
+function molavi_domain_supplier_link_check_confirm_receipt(SQLite3 $db, string $productId, string $checkRef,
+    string $verifiedAt, string $actor, int $now): array {
+    $row = molavi_domain_supplier_link_check_row($db, $productId);
+    if (!$row || $row['outcome'] !== 'unchanged') molavi_domain_fail('link_check_not_confirmable', 409);
+    if ($row['checked_at'] === null || molavi_domain_supplier_link_check_ref($productId, (int)$row['checked_at']) !== $checkRef)
+        molavi_domain_fail('link_check_mismatch', 409);
+    $stamp = molavi_domain_timestamp($verifiedAt);
+    if ($stamp === null || $stamp < (int)$row['checked_at']) molavi_domain_fail('link_check_mismatch', 409);
+    $proof = molavi_domain_row($db, "SELECT 1 FROM supplier_price_evidence_history
+        WHERE offer_id=? AND source_revision=? AND verified_at=? AND verified_by=? AND method='manual'",
+        [$productId, $row['source_revision'], $verifiedAt, $actor]);
+    if (!$proof) molavi_domain_fail('link_check_mismatch', 409);
+    if ($row['confirmed_at'] !== null) {
+        if ($row['confirmed_verified_at'] === $verifiedAt) return ['ok'=>true, 'product_id'=>$productId, 'idempotent'=>true];
+        molavi_domain_fail('link_check_already_confirmed', 409);
+    }
+    molavi_domain_sql($db, 'UPDATE supplier_link_checks SET confirmed_at=?,confirmed_verified_at=? WHERE product_id=?',
+        [$now, $verifiedAt, $productId]);
+    molavi_domain_supplier_link_check_record_event($db, $row, 'confirmed', $row['stored_sale_price'], null, $verifiedAt, $now);
+    return ['ok'=>true, 'product_id'=>$productId, 'idempotent'=>false];
 }
 
 function molavi_domain_supplier_link_check_lists(): array {

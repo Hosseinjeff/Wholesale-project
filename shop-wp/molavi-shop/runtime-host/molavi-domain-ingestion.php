@@ -160,8 +160,8 @@ function molavi_domain_ingest_direct(array $message, string $channel): array {
     $postId = (string) ($message['message_id'] ?? '');
     $sourceCreatedAt = $isChannelPost ? ($message['date'] ?? '') : '';
     $sourceUpdateAt = $isChannelPost ? ($message['edit_date'] ?? '') : '';
-    // Python builds a t.me URL for any channel post, Bale included; ported as-is.
-    $sourceUrl = ($isChannelPost && $channelUsername !== '' && $postId !== '') ? 'https://t.me/' . $channelUsername . '/' . $postId : '';
+    $base = $channel === 'bale' ? 'https://bale.ai/' : 'https://t.me/';
+    $sourceUrl = ($isChannelPost && $channelUsername !== '' && $postId !== '') ? $base . $channelUsername . '/' . $postId : '';
     $author = $isChannelPost
         ? ((string) ($chat['title'] ?? '') !== '' ? (string) $chat['title'] : ($channelUsername !== '' ? $channelUsername : 'Channel'))
         : ((string) ((is_array($message['from'] ?? null) ? $message['from'] : [])['username'] ?? '') !== '' ? (string) $message['from']['username'] : 'User');
@@ -212,7 +212,7 @@ function molavi_domain_ingest_forward(array $message): array {
         $data['author'] = (string) ($chat['title'] ?? '') !== '' ? (string) $chat['title'] : 'Channel';
         $data['timestamp'] = $origin['date'] ?? '';
         $data['source_created_at'] = $origin['date'] ?? '';
-        if ($username !== '') $data['url'] = 'https://t.me/' . $username . '/' . ($origin['message_id'] ?? '');
+        if ($username !== '' && !empty($origin['message_id'])) $data['url'] = 'https://t.me/' . $username . '/' . ($origin['message_id'] ?? '');
     } elseif ($type === 'user') {
         $sender = is_array($origin['sender_user'] ?? null) ? $origin['sender_user'] : [];
         $name = trim(((string) ($sender['first_name'] ?? '')) . ' ' . ((string) ($sender['last_name'] ?? '')));
@@ -245,7 +245,7 @@ function molavi_domain_ingest_bale_forward(array $message): array {
         $data['channel_username'] = $username !== '' ? '@' . $username : ((string) ($forwardChat['title'] ?? '') !== '' ? (string) $forwardChat['title'] : 'Channel');
         $data['author'] = (string) ($forwardChat['title'] ?? '') !== '' ? (string) $forwardChat['title'] : 'Channel';
         $data['timestamp'] = $message['date'] ?? null;
-        if ($username !== '') $data['url'] = 'https://bale.ai/' . $username . '/' . ($message['message_id'] ?? '');
+        if ($username !== '' && !empty($message['forward_from_message_id'])) $data['url'] = 'https://bale.ai/' . $username . '/' . $message['forward_from_message_id'];
     } elseif ($forwardFrom) {
         $name = trim(((string) ($forwardFrom['first_name'] ?? '')) . ' ' . ((string) ($forwardFrom['last_name'] ?? '')));
         $data['author'] = $name !== '' ? $name : ((string) ($forwardFrom['username'] ?? '') !== '' ? (string) $forwardFrom['username'] : 'User');
@@ -257,6 +257,10 @@ function molavi_domain_ingest_bale_forward(array $message): array {
 /** app.py inbound_payload: build the sheet payload for one Telegram or Bale update. Returns [data|null, source]. */
 function molavi_domain_ingest_payload(array $message, string $channel): array {
     $chat = is_array($message['chat'] ?? null) ? $message['chat'] : [];
+    if ($channel === 'telegram' && !isset($message['forward_origin']) && ($message['forward_from_chat']['type']??'')==='channel') {
+        $message['forward_origin']=['type'=>'channel','chat'=>$message['forward_from_chat'],
+            'message_id'=>$message['forward_from_message_id']??null,'date'=>$message['forward_date']??null];
+    }
     if ($channel === 'telegram' && (string) ($chat['type'] ?? '') === 'channel') {
         $data = molavi_domain_ingest_direct($message, $channel);
         $source = 'channel';

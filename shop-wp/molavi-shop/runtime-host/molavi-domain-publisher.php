@@ -81,44 +81,69 @@ function molavi_domain_supplier_available(array $record): bool {
 // One batched read for the whole pass (two small SELECTs, no per-product
 // query, no model call), intersected in PHP with this pass's product ids.
 //
-// Fail-open by design: the autopilot tables/columns exist only once the
-// autopilot has run on this host. Pre-round-six staging has neither table,
-// which means no flag or owner hold can exist there — there is nothing to
-// block, so the pass publishes as before. Any read failure (missing table
-// or column, locked database) logs once and returns an empty set instead
-// of fataling: the check must never wedge the publish pass, and Arm 10
-// remains the primary guard. The next pass re-checks.
-function molavi_domain_publisher_flag_held_products(array $productIds,float $now): array {
+// Legacy installations may lack one or both tables. A failed read on an
+// active store must abort projection before WooCommerce changes any products.
+function molavi_domain_publication_blocks(SQLite3 $db,float $now): array {
+    $tables=array_column(molavi_domain_rows($db,"SELECT name FROM sqlite_master WHERE type='table'
+        AND name IN ('autopilot_log','autopilot_holds')"),'name');
     $blocked=[];
-    if(!$productIds)return $blocked;
-    try {
-        $blocked=molavi_domain_read('pipeline',static function(SQLite3 $db)use($now): array {
-            $tables=array_column(molavi_domain_rows($db,"SELECT name FROM sqlite_master WHERE type='table' AND name IN ('autopilot_log','autopilot_holds')"),'name');
-            if(!in_array('autopilot_log',$tables,true)||!in_array('autopilot_holds',$tables,true))return [];
-            $logColumns=array_column(molavi_domain_rows($db,'PRAGMA table_info(autopilot_log)'),'name');
-            foreach(['product_id','gate','action','result','verdict','created_at'] as $column)
-                if(!in_array($column,$logColumns,true))return [];
-            $out=[];
-            foreach(molavi_domain_rows($db,"SELECT product_id FROM autopilot_log WHERE verdict='flag'
-                AND gate='admission' AND action='live' AND result='admitted' AND created_at>=?",
-                [$now-7*86400]) as $row)
-                $out[(string)($row['product_id']??'')]='flagged';
-            // An owner hold is the stronger signal: it wins over a flag
-            // when a product carries both (a revert also rewrites the
-            // admitted row to 'reverted', so the flag query above stops
-            // matching it — the hold is what keeps the revert durable).
-            foreach(molavi_domain_rows($db,"SELECT product_id FROM autopilot_holds WHERE gate='admission_owner'") as $row)
-                $out[(string)($row['product_id']??'')]='owner_hold';
-            return $out;
-        });
-    } catch(Throwable $e) {
-        error_log('[molavi-publisher] flag_hold_check_failed');
-        return [];
+    if(in_array('autopilot_log',$tables,true)) {
+        $columns=array_column(molavi_domain_rows($db,'PRAGMA table_info(autopilot_log)'),'name');
+        if(!array_diff(['product_id','gate','action','result','verdict','created_at'],$columns)) {
+            foreach(molavi_domain_rows($db,"SELECT DISTINCT product_id FROM autopilot_log WHERE verdict='flag'
+                AND gate='admission' AND action='live' AND result='admitted' AND created_at>=?",[$now-7*86400]) as $row)
+                $blocked[$row['product_id']]='flagged';
+        }
     }
-    $wanted=array_flip($productIds);
-    return array_intersect_key($blocked,$wanted);
+    if(in_array('autopilot_holds',$tables,true)) {
+        foreach(molavi_domain_rows($db,"SELECT product_id FROM autopilot_holds WHERE gate='admission_owner'") as $row)
+            $blocked[$row['product_id']]='owner_hold';
+    }
+    return $blocked;
 }
-function molavi_domain_site_products(array $tables,?array $freshness=null,?array $conflicts=null): ?array {
+
+function molavi_domain_publisher_flag_held_products(array $productIds,float $now): array {
+    if(!$productIds)return [];
+    $blocked=molavi_domain_read('pipeline',static fn(SQLite3 $db)=>molavi_domain_publication_blocks($db,$now));
+    return array_intersect_key($blocked,array_flip($productIds));
+}
+
+/** Woo can check every item on a catalog page. Read its permission snapshot once per request. */
+function molavi_domain_storefront_permits_sale(string $productId): bool {
+    if($productId===''||!get_option('molavi_state_active',false))return true;
+    if(!isset($GLOBALS['molavi_storefront_blocks'])) {
+        try {
+            $db=new SQLite3(molavi_state_path('pipeline'),SQLITE3_OPEN_READONLY);
+            try {
+                $db->enableExceptions(true);
+                $db->busyTimeout(1000);
+                $GLOBALS['molavi_storefront_blocks']=molavi_domain_publication_blocks($db,time());
+            } finally { $db->close(); }
+        } catch(Throwable $error) {
+            error_log('[molavi-publisher] storefront_hold_read_failed');
+            $GLOBALS['molavi_storefront_blocks']=false;
+        }
+    }
+    $blocks=$GLOBALS['molavi_storefront_blocks'];
+    return is_array($blocks)&&!isset($blocks[$productId]);
+}
+/** Current offer permissions for a full-catalog pass when live admission is enabled. */
+function molavi_domain_offer_permissions(): ?array {
+    $settings=get_option('molavi_autopilot_settings_v1',[]);
+    if(empty($settings['master_enabled'])||($settings['rule_modes']['gA']??'')!=='live')return null;
+    return molavi_domain_read('pipeline',static function(SQLite3 $db): array {
+        $rows=molavi_domain_rows($db,'SELECT product_id,offer_id,source_revision FROM owner_publication_permissions');
+        $receipts=molavi_domain_rows($db,"SELECT r.product_id,r.offer_id,json_extract(l.inputs_json,'$.source_revision') source_revision
+            FROM autopilot_admission_receipts r JOIN autopilot_log l ON l.id=r.log_id
+            WHERE l.rule_id='gA' AND l.action='live' AND l.provenance='live' AND l.result='admitted' AND l.verdict<>'flag'");
+        $permissions=[];
+        foreach(array_merge($rows,$receipts) as $row)
+            $permissions[$row['product_id']][$row['offer_id']][(string)$row['source_revision']]=true;
+        return $permissions;
+    });
+}
+
+function molavi_domain_site_products(array $tables,?array $freshness=null,?array $conflicts=null,?string $requestedProduct=null): ?array {
     if(empty($tables['Products']))return null;
     $records=molavi_domain_records($tables['Products']);$offers=molavi_domain_records($tables['Offers']??[]);
     $offersById=array_column($offers,null,'Offer ID');$now=time();
@@ -134,6 +159,13 @@ function molavi_domain_site_products(array $tables,?array $freshness=null,?array
     // molavi_domain_publisher_flag_held_products). Skips forced by this
     // check are collected in $GLOBALS for molavi_domain_publish_shop,
     // which carries them in the publish-job result.
+    $permissions=molavi_domain_offer_permissions();
+    $onShelf=[];
+    if($permissions!==null && function_exists('molavi_domain_registered_products')) {
+        foreach(molavi_domain_registered_products() as $listing)
+            if(!empty($listing['published']) && !empty($listing['source_record_id']))
+                $onShelf[$listing['source_record_id']]=$listing;
+    }
     $flagHeld=molavi_domain_publisher_flag_held_products(array_column($records,'Product ID'),(float)$now);
     $GLOBALS['molavi_publisher_flag_hold_skipped']=[];
     foreach($records as $index=>$record){
@@ -156,6 +188,19 @@ function molavi_domain_site_products(array $tables,?array $freshness=null,?array
         // (re-)publishing it. Only a product that would otherwise project
         // 'sell' is recorded as a skip — one already held for another
         // reason stays held without a duplicate skip entry.
+        $offerId=(string)($record['Latest Offer ID']??'');
+        $listing=$onShelf[$id]??null;
+        // Older listings predate active_offer_id. The incoming-message chooser
+        // protects replacements for those listings through keep_registered.
+        $existingOffer=$listing && (empty($listing['active_offer_id']) || $listing['active_offer_id']===$offerId);
+        if($permissions!==null && $requestedProduct!==$id && !$existingOffer
+            && empty($permissions[$id][$offerId][(string)($evidence['source_revision']??'')])) {
+            // Preserve the previous listing for a pending replacement. Explicit
+            // stock, evidence or owner holds still take precedence.
+            if($listing && !$held && empty($flagHeld[$id]))
+                $registered[$id]=['keep_registered'=>[(int)$listing['woo_product_id']]];
+            $held=true;
+        }
         $flagReason=$flagHeld[$id]??'';
         if($flagReason!==''&&!$held){
             $GLOBALS['molavi_publisher_flag_hold_skipped'][]=['product_id'=>$id,'reason'=>$flagReason];
@@ -205,20 +250,36 @@ function molavi_domain_site_settings(array $rows): array {
     }return $settings;
 }
 
-function molavi_domain_request_product_publication(array $body): array {
+function molavi_domain_request_product_publication(array $body,string $actor): array {
     molavi_domain_body_keys($body,['action','product_id','offer_id']);
     $id=$body['product_id'];$offer=$body['offer_id'];
     if (!is_string($id)||$id===''||strlen($id)>200||!is_string($offer)||$offer===''||strlen($offer)>300)
         molavi_domain_fail('invalid_fields',400);
-    return molavi_domain_lock('publication',static function()use($id,$offer): array {
+    return molavi_domain_lock('publication',static function()use($id,$offer,$actor): array {
+        if(molavi_domain_read('pipeline',static fn(SQLite3 $db)=>molavi_domain_row($db,'SELECT 1 FROM publication_holds LIMIT 1')))
+            molavi_domain_fail('publication_held_for_review');
         $tables=molavi_domain_sheets(['Products','Offers','Shop'],true);
         $records=array_values(array_filter(molavi_domain_records($tables['Products']),static fn($record)=>($record['Product ID']??'')===$id));
         if (count($records)!==1||($records[0]['Latest Offer ID']??'')!==$offer) molavi_domain_fail('offer_changed');
-        $projected=array_column(molavi_domain_site_products($tables)??[],null,'source_record_id');
+        $owner=molavi_domain_owner_actor($actor);
+        if(!$owner&&!in_array($actor,['g5','gA'],true))molavi_domain_fail('owner_required',403);
+        $previewId=$owner||$actor==='gA'?$id:null;
+        $projected=array_column(molavi_domain_site_products($tables,null,null,$previewId)??[],null,'source_record_id');
         if (($projected[$id]['status']??'')!=='sell'||!empty($projected[$id]['keep_registered']))
             molavi_domain_fail('product_publication_prerequisite');
         $published=array_column(molavi_domain_published_review_catalog(),'purchasable','source_record_id');
-        if (!empty($published[$id])) return ['ok'=>true,'product_id'=>$id,'publish_job'=>null,'state'=>'published'];
+        $registered=function_exists('molavi_domain_registered_products')
+            ?array_column(molavi_domain_registered_products(),null,'source_record_id'):[];
+        $activeOffer=(string)($registered[$id]['active_offer_id']??'');
+        if($owner){
+            $revision=molavi_domain_source_revision($records[0]);
+            molavi_domain_tx('pipeline',static fn(SQLite3 $db)=>molavi_domain_sql($db,
+                'INSERT INTO owner_publication_permissions(product_id,offer_id,source_revision,actor,requested_at)
+                 VALUES(?,?,?,?,?) ON CONFLICT(product_id) DO UPDATE SET offer_id=excluded.offer_id,
+                 source_revision=excluded.source_revision,actor=excluded.actor,requested_at=excluded.requested_at',
+                [$id,$offer,$revision,$actor,microtime(true)]));
+        }
+        if (!empty($published[$id]) && ($activeOffer===''||$activeOffer===$offer)) return ['ok'=>true,'product_id'=>$id,'publish_job'=>null,'state'=>'published'];
         $job=molavi_domain_read('pipeline',static fn(SQLite3 $db)=>molavi_domain_row($db,
             "SELECT id FROM jobs WHERE kind='publish' AND state IN ('queued','running','waiting_publication')
              AND COALESCE(json_extract(payload,'$.images_only'),0)=0 ORDER BY created_at LIMIT 1"));

@@ -116,6 +116,7 @@ function molavi_domain_product_step_trace(array $record,array $offer,array $maps
     $quoteStats=molavi_domain_step_trace_quote_stats($quotes,$pack);
     $gaLog=$maps['ga_log'][$id]??null;
     $gaHold=$maps['ga_holds'][$id]??null;
+    $saleBlock=$maps['sale_blocks'][$id]??null;
     $gaInputs=[];
     if($gaLog&&isset($gaLog['inputs_json'])) {
         try { $gaInputs=molavi_domain_decode((string)$gaLog['inputs_json'],[]); }
@@ -270,10 +271,11 @@ function molavi_domain_product_step_trace(array $record,array $offer,array $maps
         $admissionFacts[]=['ارزیابی پذیرش','هنوز ارزیابی پذیرش ثبت نشده','text'];
         $admissionNote='این کالا هنوز در هیچ تیک پذیرش ارزیابی نشده است.';
     }
-    $admissionStatus=$gaHold?'bad':($gaLog?'ok':'info');
+    $admissionStatus=$gaHold?'bad':($gaLog && !in_array($gaLog['result'],['reverted','overridden'],true)?'ok':'info');
     $steps[]=['key'=>'admission','label'=>'پذیرش خودکار (gA)',
         'status'=>$admissionStatus,
-        'status_label'=>$gaHold?'مسدود':($gaLog?(($gaLog['result']??'')==='admitted'?'پذیرفته شد':'آمادهٔ پذیرش'):'ارزیابی نشده'),
+        'status_label'=>$gaHold?'توقف پذیرش بعدی':match($gaLog['result']??''){
+            'admitted'=>'پذیرفته شد','would_admit'=>'آمادهٔ پذیرش','reverted','overridden'=>'لغو شد',default=>'ارزیابی نشده'},
         'facts'=>$admissionFacts,'note'=>$admissionNote];
 
     // (f) Verdict: ok / flag / pending and its reason.
@@ -290,7 +292,7 @@ function molavi_domain_product_step_trace(array $record,array $offer,array $maps
         'status'=>$gaLog?match($verdict){'ok'=>'ok','flag'=>'bad',default=>'warn'}:'info',
         'status_label'=>$gaLog?match($verdict){'ok'=>'تأیید شد','flag'=>'پرچم خورد',default=>'در انتظار'}:'ثبت نشده',
         'facts'=>$verdictFacts,
-        'note'=>$verdict==='flag'?'داوری پرچم‌خورده، پذیرش زنده را به‌صورت خودکار برمی‌گرداند و کالا را متوقف می‌کند.':null];
+        'note'=>$verdict==='flag'&&($gaLog['action']??'')==='live'?'داوری پرچم‌خورده، پذیرش زنده را به‌صورت خودکار برمی‌گرداند و کالا را متوقف می‌کند.':null];
 
     // (g) Publication / storefront: published / draft / hidden and why.
     $blocker=(string)($saleOffer['sale_offer_blocker']??'');
@@ -300,8 +302,9 @@ function molavi_domain_product_step_trace(array $record,array $offer,array $maps
     if($published) {
         $pubFacts=[['وضعیت فروشگاه','منتشر شده','text']];
         if($wooId>0)$pubFacts[]=['شناسهٔ ووکامرس',$wooId,'int'];
-        if(!empty($registered['purchasable']))$pubFacts[]=['قابل خرید','بله','text'];
-        $pubStatus='ok';$pubLabel='منتشر شده';$pubNote=null;
+        $canBuy=!empty($registered['purchasable']);
+        $pubFacts[]=['قابل خرید',$canBuy?'بله':'خیر','text'];
+        $pubStatus=$canBuy?'ok':'warn';$pubLabel=$canBuy?'منتشر شده':'منتشر شده، فروش بسته';$pubNote=null;
     } elseif($registered) {
         $pubFacts=[['وضعیت فروشگاه','پیش‌نویس / پنهان (رکورد ووکامرس هست، منتشر نیست)','text']];
         if($wooId>0)$pubFacts[]=['شناسهٔ ووکامرس',$wooId,'int'];
@@ -311,6 +314,14 @@ function molavi_domain_product_step_trace(array $record,array $offer,array $maps
         $pubFacts=[['وضعیت فروشگاه','هنوز در فروشگاه ساخته نشده','text'],
             ['دلیل',molavi_domain_step_trace_blocker_label($blocker),'text']];
         $pubStatus='info';$pubLabel='ساخته نشده';$pubNote=null;
+    }
+    $permissions=$maps['offer_permissions']??null;
+    $revision=(string)($record['Latest Offer ID']??'');
+    if(!$published && $permissions!==null && empty($permissions[$id][$revision][molavi_domain_source_revision($record)]))
+        $pubFacts[]=['مجوز انتشار','در انتظار پذیرش خودکار یا درخواست انتشار مالک برای همین پیشنهاد','text'];
+    if ($saleBlock!==null) {
+        $pubFacts[]=['مجوز فروش',$saleBlock==='owner_hold'?'توقف به دستور مالک':'توقف به‌دلیل داوری پذیرش زنده','text'];
+        $pubStatus='bad';
     }
     if($blocker!==''&&!$published)
         $pubFacts[]=['مانع انتشار',molavi_domain_step_trace_blocker_label($blocker),'text'];
@@ -348,13 +359,18 @@ function molavi_domain_product_step_traces(array $tables): array {
                 molavi_domain_rows($db,'SELECT lookup_key,candidates_json FROM market_price_lookups'),'candidates_json','lookup_key'));
             // Latest gA log row per product (all arms green at that moment).
             $gaRows=molavi_domain_read('pipeline',static fn(SQLite3 $db)=>molavi_domain_rows($db,
-                "SELECT * FROM autopilot_log WHERE gate='admission' ORDER BY created_at DESC, id DESC LIMIT 1000"));
+                "SELECT * FROM autopilot_log WHERE id IN (
+                    SELECT MAX(id) FROM autopilot_log WHERE gate='admission' AND rule_id='gA'
+                    AND action IN ('live','shadow') AND provenance IN ('live','legacy') GROUP BY product_id)"));
             foreach($gaRows as $row) {
                 $pid=(string)($row['product_id']??'');
                 if($pid!==''&&!isset($maps['ga_log'][$pid]))$maps['ga_log'][$pid]=$row;
             }
             $maps['ga_holds']=molavi_domain_read('pipeline',static fn(SQLite3 $db)=>array_column(
-                molavi_domain_rows($db,"SELECT * FROM autopilot_holds WHERE gate='admission'"),null,'product_id'));
+                molavi_domain_rows($db,"SELECT * FROM autopilot_holds WHERE gate IN ('admission','admission_owner') ORDER BY gate"),null,'product_id'));
+            if(function_exists('molavi_domain_offer_permissions'))$maps['offer_permissions']=molavi_domain_offer_permissions();
+            if(function_exists('molavi_domain_publisher_flag_held_products'))
+                $maps['sale_blocks']=molavi_domain_publisher_flag_held_products(array_column($products,'Product ID'),(float)$now);
         }
         if(function_exists('molavi_domain_market_catalog_sources'))
             $maps['market_sources']=molavi_domain_market_catalog_sources($products,$offers);

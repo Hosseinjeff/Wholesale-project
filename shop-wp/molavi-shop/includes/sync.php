@@ -656,7 +656,9 @@ function molavi_supplier_offer_is_purchasable(bool $purchasable, $product): bool
     if (!molavi_sale_offer_woo_allowed($product)) return false;
     $catalogState=(string)$product->get_meta('_molavi_catalog_state', true);
     if ($catalogState !== '' && $catalogState !== 'sell') { return false; }
-    if ((string)$product->get_meta('_molavi_supplier_offer_id', true) === '') { return $purchasable; }
+    $sourceId=(string)$product->get_meta('_molavi_supplier_offer_id', true);
+    if ($sourceId === '') { return $purchasable; }
+    if (function_exists('molavi_domain_storefront_permits_sale') && !molavi_domain_storefront_permits_sale($sourceId)) return false;
     $state=(string)$product->get_meta('_molavi_supplier_price_state', true);
     $verified=strtotime((string)$product->get_meta('_molavi_supplier_price_verified_at', true));
     $age=$verified === false ? -1 : time() - $verified;
