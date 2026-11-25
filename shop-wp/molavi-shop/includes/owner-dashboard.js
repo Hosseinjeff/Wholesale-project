@@ -828,13 +828,12 @@
                 }
                 if (priceBlocked(product)||product.listing.message_count!==undefined) {
                     const messages=el('details',null,'md-card-action');
-                    messages.append(el('summary',product.listing.message_count?`انتخاب پیام کالا · ${fa(product.listing.message_count)}`:'پیام‌های کالا'));
+                    const summary=el('summary',product.listing.message_count?`انتخاب پیام کالا · ${fa(product.listing.message_count)}`:'پیام‌های کالا');
+                    if (ready(product)==='product_messages') summary.classList.add('md-button','md-primary');
+                    messages.append(summary);
                     messages.addEventListener('toggle',()=>{
                         if (messages.open&&messages.childElementCount===1) messages.append(hooks.renderMessages(product.listing.woo_product_id));
                     });
-                    if (ready(product)==='product_messages') {
-                        card.append(button('انتخاب پیام کالا',()=>{messages.open=true;messages.scrollIntoView({block:'nearest'});},'md-button md-primary'));
-                    }
                     card.append(messages);
                 }
                 return card;

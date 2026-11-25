@@ -858,7 +858,9 @@ const fixtures={
  assert.equal(await scopedInbox.locator('summary').count(),1,'supplier recovery opens the corresponding bot receipt');
  await page.getByRole('button',{name:'محصولات',exact:true}).click();
  await page.getByRole('button',{name:/^آمادهٔ بررسی/}).click();
- await page.locator('.md-product-card').filter({hasText:'کالای دارای پیام'}).getByText(/انتخاب پیام کالا/).waitFor();
+ const messageChoice=page.locator('.md-product-card').filter({hasText:'کالای دارای پیام'}).getByText(/انتخاب پیام کالا/);
+ await messageChoice.click();
+ assert.equal(await messageChoice.evaluate(summary=>summary.closest('details').open),true,'selecting a supplier message opens its list');
  products.push({product_id:'verified',product_name:'کالای تأییدشده در انتظار انتشار',channel:'@supplier',
    latest_offer_id:'verified-offer',status:'imported',publication_needed:true});
  await mount('&product_id=verified',true,true);
