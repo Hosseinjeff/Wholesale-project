@@ -20,10 +20,10 @@ function molavi_domain_operations(array $query, ?float $clock = null): array {
     }
     return molavi_domain_read('pipeline', static function(SQLite3 $db)use($now,$limit,$snapshot,$after):array {
         $db->exec('BEGIN');
-        $states=['queued','running','waiting_reference','waiting_publication','failed','needs_review'];
+        $states=['queued','running','waiting_reference','waiting_publication','needs_review'];
         $byState=[]; foreach(molavi_domain_rows($db,'SELECT state,COUNT(*) AS count FROM jobs GROUP BY state') as $row)$byState[$row['state']]=$row['count'];
         $created='COALESCE(created_at,updated_at,available,0)';
-        $where="state IN (?,?,?,?,?,?) AND $created<=?"; $params=[...$states,$snapshot];
+        $where="state IN (?,?,?,?,?) AND $created<=?"; $params=[...$states,$snapshot];
         if($after){$where.=" AND ($created>? OR ($created=? AND id>?))";array_push($params,$after['last_created_at'],$after['last_created_at'],$after['last_id']);}
         $rows=molavi_domain_rows($db,"SELECT id,kind,state,attempts,available,expires,error,created_at,$created AS cursor_created_at FROM jobs WHERE $where ORDER BY cursor_created_at,id LIMIT ?",[...$params,$limit+1]);
         $more=count($rows)>$limit;$rows=array_slice($rows,0,$limit);$items=[];
@@ -36,6 +36,24 @@ function molavi_domain_operations(array $query, ?float $clock = null): array {
         $cursor=null;
         if($more&&$rows){$last=end($rows);$cursor=rtrim(strtr(base64_encode(molavi_domain_json(['v'=>1,'snapshot_time'=>$snapshot,
             'last_created_at'=>$last['cursor_created_at'],'last_id'=>$last['id']],false,false,false)),'+/','-_'),'=');}
+        // Failed jobs leave the actionable queue: they are returned separately
+        // (with their reason) so the queue only shows work that can still move.
+        $failedItems=[];
+        foreach(molavi_domain_rows($db,"SELECT id,kind,state,attempts,available,expires,error,created_at,$created AS cursor_created_at FROM jobs WHERE state='failed' ORDER BY cursor_created_at DESC LIMIT 100") as $row){
+            $item=array_intersect_key($row,array_flip(['id','kind','state','attempts','available','error','created_at']));
+            $item['lease_expired']=false;
+            $item['age_seconds']=max(0,(int)($now-(float)($row['cursor_created_at']?:0)));
+            $item['next_action']='inspect_failure_and_reconcile';$failedItems[]=$item;}
+        // Latest failed confirm-publish per product, so the product card can
+        // say why its publication did not complete. Only products outside the
+        // published-review catalog are listed: a product that went live
+        // despite its job failing needs no warning on its card.
+        $failedPublish=[];
+        $publishedIds=function_exists('molavi_domain_published_review_catalog')&&function_exists('molavi_domain_published_review_ids')
+            ?molavi_domain_published_review_ids(molavi_domain_published_review_catalog()):[];
+        foreach(molavi_domain_rows($db,"SELECT r.product_id,j.id,j.error,j.attempts,j.updated_at FROM jobs j JOIN published_product_reviews r ON r.resolved_decision_id=substr(j.id,length('publish:ai-confirmation:')+1) WHERE j.kind='publish' AND j.state='failed' AND j.id LIKE 'publish:ai-confirmation:%' ORDER BY j.updated_at DESC") as $row){
+            $pid=(string)($row['product_id']??'');
+            if($pid!==''&&!isset($publishedIds[$pid])&&!isset($failedPublish[$pid]))$failedPublish[$pid]=['job_id'=>(string)$row['id'],'error'=>(string)($row['error']??''),'attempts'=>(int)$row['attempts'],'failed_at'=>(float)$row['updated_at']];}
         $worker=molavi_domain_row($db,'SELECT worker_id,started_at,heartbeat_at,state,current_job_id,progress_at,last_claimed_job_id,last_claimed_at,last_completed_job_id,last_completed_at,last_error_code FROM pipeline_workers ORDER BY heartbeat_at DESC,started_at DESC LIMIT 1');
         if($worker){$age=max(0,$now-$worker['heartbeat_at']);$progress=max(0,$now-($worker['progress_at']?:$worker['started_at']));
             $worker+=['status'=>$worker['state']==='stopped'?'stopped':($age>45?'stale':'alive'),'heartbeat_age_seconds'=>round($age,1),
@@ -45,7 +63,8 @@ function molavi_domain_operations(array $query, ?float $clock = null): array {
             $failed[$row['kind']==='publish'?'publication_ids':'batch_ids'][]=$row['id'];
         $summary=['snapshot_time'=>$snapshot,'by_state'=>(object)$byState,'actionable_count'=>array_sum(array_intersect_key($byState,array_flip($states))),
             'attention_count'=>array_sum(array_intersect_key($byState,array_flip(['waiting_reference','waiting_publication','failed','needs_review']))),
-            'items'=>$items,'page_count'=>count($items),'has_more'=>$cursor!==null,'next_cursor'=>$cursor,'items_truncated'=>$cursor!==null,
+            'items'=>$items,'failed_items'=>$failedItems,'failed_publish_by_product'=>(object)$failedPublish,
+            'page_count'=>count($items),'has_more'=>$cursor!==null,'next_cursor'=>$cursor,'items_truncated'=>$cursor!==null,
             'publication_holds'=>molavi_domain_row($db,'SELECT COUNT(*) AS n FROM publication_holds')['n'],
             'sheet_conflicts'=>molavi_domain_row($db,"SELECT COUNT(*) AS n FROM sheet_sync_conflicts WHERE state='open'")['n'],
             'worker'=>$worker,'pending_telegram_chats'=>molavi_domain_rows($db,"SELECT chat_id,first_seen_at,last_seen_at,seen_count,revision FROM pending_telegram_chats WHERE state='pending' ORDER BY last_seen_at DESC,chat_id DESC LIMIT 50"),

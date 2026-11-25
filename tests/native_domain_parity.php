@@ -63,7 +63,14 @@ $initial=new SQLite3($root.'/reference.sqlite3');$initial->exec('PRAGMA user_ver
 foreach($reads['seed'] as $store=>$seeds){$db=molavi_domain_db($store);
     if($store==='pipeline')$db->exec('DELETE FROM jobs');
     foreach($seeds as $seed)molavi_domain_sql($db,$seed['sql'],$seed['params']);$db->close();}
-foreach($reads['operations'] as $index=>$case)compare_native(molavi_domain_operations($case['query'],1000.0),$case['expected'],'operations/'.$index);
+foreach ($reads['operations'] as $index => $case) {
+    // Associative JSON decoding turns the empty product-to-failure map into a list.
+    $case['expected']['operations']['failed_publish_by_product'] = (object) $case['expected']['operations']['failed_publish_by_product'];
+    compare_native(molavi_domain_operations($case['query'], 1000.0), $case['expected'], 'operations/'.$index);
+}
+$firstPage = molavi_domain_operations(['limit' => 2], 1000.0)['operations'];
+$nextPage = molavi_domain_operations(['limit' => 2, 'cursor' => $firstPage['next_cursor']], 1000.0)['operations'];
+compare_native(array_column($nextPage['items'], 'id'), ['publish:synthetic-3', 'batch:synthetic-4'], 'active jobs paginate past failed jobs');
 foreach($reads['reference'] as $index=>$case)compare_native(molavi_domain_reference_snapshots($case['query']),$case['expected'],'references/'.$index);
 compare_native(molavi_domain_dispatch('GET','/pipeline/stock-lots',[],null,'wp:99')['status'],403,'gateway owner guard');
 compare_native(molavi_domain_dispatch('PUT','/reference/snapshots',[],[], 'wp:7')['status'],404,'gateway method guard');

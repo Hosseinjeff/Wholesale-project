@@ -11,25 +11,48 @@ function molavi_domain_verification_receipt(string $command,string $product,stri
         return ['verified_at'=>$row['verified_at'],'idempotent'=>true];
     });
 }
-function molavi_domain_verify_price(string $product,string $revision,string $actor,string $note,string $now,?string $command=null): array {
+function molavi_domain_verify_price(string $product,string $revision,string $actor,string $note,string $now,?string $command=null,string $method='manual'): array {
     if($product===''||$revision===''||$actor===''||trim($note)===''||molavi_domain_strlen($note)>1000)molavi_domain_fail('verification_rejected');
+    if(!in_array($method,['manual','market'],true))molavi_domain_fail('verification_rejected');
     if($command!==null&&!preg_match('/^[a-f0-9]{64}$/D',$command))molavi_domain_fail('verification_rejected');
     $stamp=molavi_domain_timestamp($now);if($stamp===null)molavi_domain_fail('verification_rejected');
-    return molavi_domain_tx('pipeline',static function(SQLite3 $db)use($product,$revision,$actor,$note,$now,$command,$stamp):array {
+    return molavi_domain_tx('pipeline',static function(SQLite3 $db)use($product,$revision,$actor,$note,$now,$command,$stamp,$method):array {
         if($command!==null){$prior=molavi_domain_row($db,'SELECT * FROM supplier_price_verification_commands WHERE command_id=?',[$command]);
             if($prior){if($prior['offer_id']!==$product||$prior['source_revision']!==$revision)molavi_domain_fail('verification_rejected');
                 return ['verified_at'=>$prior['verified_at'],'idempotent'=>true];}}
         $old=molavi_domain_row($db,'SELECT * FROM supplier_price_evidence WHERE offer_id=?',[$product]);
         if($old&&$stamp<(molavi_domain_timestamp($old['verified_at'])??INF))molavi_domain_fail('verification_rejected');
-        molavi_domain_sql($db,"INSERT INTO supplier_price_evidence (offer_id,source_revision,verified_at,method,verified_by) VALUES (?,?,?,'manual',?) ON CONFLICT(offer_id) DO UPDATE SET source_revision=excluded.source_revision,verified_at=excluded.verified_at,method='manual',verified_by=excluded.verified_by",[$product,$revision,$now,$actor]);
-        molavi_domain_sql($db,"INSERT INTO supplier_price_evidence_history (offer_id,source_revision,verified_at,method,verified_by,note) VALUES (?,?,?,'manual',?,?)",[$product,$revision,$now,$actor,trim($note)]);
+        molavi_domain_sql($db,"INSERT INTO supplier_price_evidence (offer_id,source_revision,verified_at,method,verified_by) VALUES (?,?,?,?,?) ON CONFLICT(offer_id) DO UPDATE SET source_revision=excluded.source_revision,verified_at=excluded.verified_at,method=?,verified_by=excluded.verified_by",[$product,$revision,$now,$method,$actor,$method]);
+        molavi_domain_sql($db,"INSERT INTO supplier_price_evidence_history (offer_id,source_revision,verified_at,method,verified_by,note) VALUES (?,?,?,?,?,?)",[$product,$revision,$now,$method,$actor,trim($note)]);
         if($command!==null)molavi_domain_sql($db,'INSERT INTO supplier_price_verification_commands (command_id,offer_id,source_revision,verified_at,verified_by,note) VALUES (?,?,?,?,?,?)',[$command,$product,$revision,$now,$actor,trim($note)]);
         return ['verified_at'=>$now,'idempotent'=>false];
     });
 }
 function molavi_domain_supplier_prices_api(string $method,?array $body,string $actor): array {
     if($method==='GET'){$tables=molavi_domain_sheets(['Products'],true);$offers=molavi_domain_freshness(molavi_domain_records($tables['Products']));
-        return ['ok'=>true,'offers'=>array_values(array_filter($offers,static fn($row)=>$row['state']!=='current'))];}
+        $offers=array_values(array_filter($offers,static fn($row)=>$row['state']!=='current'));
+        // Attach the latest supplier link check per product (round eight):
+        // the card shows whether the original link was re-read, with what
+        // outcome, so the owner can confirm a no-change check from the card.
+        if(function_exists('molavi_domain_supplier_link_check_public_row')){
+            $checks=molavi_domain_read('pipeline',static fn(SQLite3 $db)=>array_column(
+                molavi_domain_rows($db,'SELECT * FROM supplier_link_checks'),null,'product_id'));
+            foreach($offers as &$offer)$offer['link_check']=isset($checks[$offer['product_id']])
+                ?molavi_domain_supplier_link_check_public_row($checks[$offer['product_id']]):null;
+            unset($offer);
+        }
+        // Attach the latest market-agreement check per product (round nine):
+        // the card shows whether the supplier price was re-verified by
+        // market agreement (evidence method 'market'), distinct from a
+        // link-check confirmation (method 'manual').
+        if(function_exists('molavi_domain_market_agreement_public_row')){
+            $agreements=molavi_domain_read('pipeline',static fn(SQLite3 $db)=>array_column(
+                molavi_domain_rows($db,'SELECT * FROM market_agreement_checks'),null,'product_id'));
+            foreach($offers as &$offer)$offer['market_agreement']=isset($agreements[$offer['product_id']])
+                ?molavi_domain_market_agreement_public_row($agreements[$offer['product_id']]):null;
+            unset($offer);
+        }
+        return ['ok'=>true,'offers'=>$offers];}
     $keys=array_keys($body??[]);sort($keys);if($keys!==['expected_revision','note','product_id']&&$keys!==['command_id','expected_revision','note','product_id'])molavi_domain_fail('invalid_body',400);
     $id=$body['product_id'];$revision=$body['expected_revision'];$note=$body['note'];$command=$body['command_id']??null;
     if(!is_string($id)||$id===''||molavi_domain_strlen($id)>200)molavi_domain_fail('invalid_product_id',400);

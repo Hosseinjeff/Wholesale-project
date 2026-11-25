@@ -205,7 +205,25 @@ function molavi_domain_status_history(?string $selected=null,bool $marketEligibi
     });
 }
 function molavi_domain_status_api(string $method,array $query,?array $body,string $actor): array {
-    if($method==='GET'&&($query['view']??null)==='current')return array_merge(['ok'=>true],molavi_domain_current_products());
+    if($method==='GET'&&($query['view']??null)==='current'){
+        $tables=molavi_domain_sheets(['Products','Offers'],true);
+        $current=molavi_domain_current_products($tables);
+        // Per-product step-status trace (owner request 2026-11-25): the card
+        // shows what the system inferred at each step on the way to
+        // publication. Read-only reporting — a trace failure must never
+        // break the product list, so it is guarded and swallowed.
+        if(function_exists('molavi_domain_product_step_traces')){
+            try {
+                $traces=molavi_domain_product_step_traces($tables);
+                foreach($current['products'] as &$product){
+                    $id=(string)($product['product_id']??'');
+                    if($id!==''&&isset($traces[$id]))$product['step_trace']=$traces[$id];
+                }
+                unset($product);
+            } catch(Throwable $e) {}
+        }
+        return array_merge(['ok'=>true],$current);
+    }
     if($method==='POST'){
         if (($body['action']??'')==='request_publication') return molavi_domain_request_product_publication($body);
         if($body!==['action'=>'capture'])molavi_domain_fail('invalid_body',400);
@@ -264,6 +282,26 @@ function molavi_domain_status_api(string $method,array $query,?array $body,strin
             if ($product['published']) $linked[$id]=true;
         }
         unset($product);
+        // Per-product step-status trace (owner request 2026-11-25): the
+        // dashboard loads products through /pipeline/dashboard-bootstrap,
+        // which dispatches product_status with an empty query, so this
+        // snapshot branch — not the view=current branch above — is what
+        // the workbench renders. Attach the same trace here, guarded the
+        // same way, so a trace failure can never break the product list.
+        // The payload shape is unchanged; step_trace is simply added per
+        // product. Historical snapshots ($selected!=='') get no trace: a
+        // trace built from today's sheets would be anachronistic there.
+        if(function_exists('molavi_domain_product_step_traces')){
+            try {
+                $traceTables=$tables?:molavi_domain_sheets(['Products','Offers']);
+                $traces=molavi_domain_product_step_traces($traceTables);
+                foreach($history['products'] as &$product){
+                    $id=(string)($product['product_id']??'');
+                    if($id!==''&&isset($traces[$id]))$product['step_trace']=$traces[$id];
+                }
+                unset($product);
+            } catch(Throwable $e) {}
+        }
         $history['published_unlinked']=[];
         foreach ($catalog as $listing) {
             if (isset($linked[$listing['source_record_id']])) continue;

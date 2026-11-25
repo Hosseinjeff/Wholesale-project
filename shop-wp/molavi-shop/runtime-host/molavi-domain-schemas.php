@@ -198,6 +198,61 @@ CREATE TABLE IF NOT EXISTS product_message_choices (
     case_id TEXT, actor TEXT NOT NULL, decided_at REAL NOT NULL, PRIMARY KEY(woo_product_id,offer_id)
 )
 SQL,
+        // Supplier link checks (round eight): one row per product, latest check.
+        // outcome: 'unchanged' (a) | 'changed' (b) | 'uncheckable' (c).
+        // reason_code carries the C-/C-S category for outcome (c), or the
+        // unchanged detail ('identical' | 'price_unchanged') for outcome (a).
+        // Nothing here ever re-verifies a price: only the manual-verify call
+        // writes supplier_price_evidence. A changed live price is recorded
+        // as surfaced evidence only and is never written to any price field.
+        <<<'SQL'
+CREATE TABLE IF NOT EXISTS supplier_link_checks (
+    product_id TEXT PRIMARY KEY, offer_id TEXT NOT NULL,
+    title TEXT NOT NULL, url TEXT NOT NULL, source_revision TEXT NOT NULL,
+    stored_sale_price TEXT NOT NULL, stored_message TEXT NOT NULL,
+    outcome TEXT, reason_code TEXT, live_price TEXT, live_text TEXT,
+    route TEXT, checked_at INTEGER, next_at INTEGER NOT NULL,
+    lease TEXT, confirmed_at INTEGER, confirmed_verified_at TEXT,
+    created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS supplier_link_checks_due ON supplier_link_checks(next_at) WHERE outcome IS NOT NULL OR url IS NOT NULL;
+CREATE TABLE IF NOT EXISTS supplier_link_check_events (
+    id TEXT PRIMARY KEY, product_id TEXT NOT NULL, offer_id TEXT NOT NULL,
+    title TEXT NOT NULL, kind TEXT NOT NULL,
+    old_price TEXT, live_price TEXT, code TEXT, url TEXT NOT NULL,
+    occurred_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS supplier_link_check_events_recent ON supplier_link_check_events(occurred_at);
+CREATE INDEX IF NOT EXISTS supplier_link_check_events_product ON supplier_link_check_events(product_id, occurred_at);
+SQL,
+        // Market agreement checks (round nine): one row per product, latest check.
+        // outcome: 'agree' | 'disagree' | 'no_quotes' | 'chain_limit'.
+        // reason_code carries the agreement detail ('agreement' |
+        // 'rezvan_crosscheck' | 'quotes_disagree' | 'single_quote_no_reference' |
+        // 'rezvan_mismatch' | 'spread_too_thin' | 'spread_too_wide' | 'no_match' |
+        // 'lookup_not_ready' | 'lookup_pending' | 'quotes_stale' | 'no_identity' |
+        // 'chain_limit'). An 'agree' row means supplier_price_evidence was
+        // written with method 'market'; every other outcome writes no evidence.
+        <<<'SQL'
+CREATE TABLE IF NOT EXISTS market_agreement_checks (
+    product_id TEXT PRIMARY KEY, offer_id TEXT NOT NULL,
+    title TEXT NOT NULL, source_revision TEXT NOT NULL,
+    stored_sale_price TEXT NOT NULL,
+    outcome TEXT, reason_code TEXT, basis TEXT,
+    quote_url TEXT, quote_price INTEGER, implied_spread REAL,
+    checked_at INTEGER, next_at INTEGER NOT NULL, lease TEXT,
+    verified_at TEXT, created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS market_agreement_checks_due ON market_agreement_checks(next_at);
+CREATE TABLE IF NOT EXISTS market_agreement_events (
+    id TEXT PRIMARY KEY, product_id TEXT NOT NULL, offer_id TEXT NOT NULL,
+    title TEXT NOT NULL, kind TEXT NOT NULL,
+    old_price TEXT, quote_price INTEGER, implied_spread REAL, code TEXT, url TEXT,
+    occurred_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS market_agreement_events_recent ON market_agreement_events(occurred_at);
+CREATE INDEX IF NOT EXISTS market_agreement_events_product ON market_agreement_events(product_id, occurred_at);
+SQL,
     ];
     case 'reference': return [
         // reference_import/decisions.py

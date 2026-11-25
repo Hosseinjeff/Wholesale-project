@@ -145,6 +145,7 @@ function molavi_apply_catalog(array $payload, bool $native = false): array
     $catalogChanged = false;
     $settingsChanged = false;
     $queue = [];
+    $deadImages = molavi_dead_image_files();
     $present = [];
     foreach ($cleanRows as $rowIndex => $clean) {
         if (!empty($clean['keep_registered'])) {
@@ -191,7 +192,8 @@ function molavi_apply_catalog(array $payload, bool $native = false): array
             $unchanged++;
         }
         if (!(int) get_post_meta($productId, '_molavi_owner_market_image_id', true)
-            && $clean['image'] !== '' && (string) get_post_meta($productId, '_molavi_image_id', true) !== $clean['image']) {
+            && $clean['image'] !== '' && !isset($deadImages[$clean['image']])
+            && (string) get_post_meta($productId, '_molavi_image_id', true) !== $clean['image']) {
             $queue[] = ['product' => $productId, 'file' => $clean['image']];
         }
     }
@@ -755,6 +757,23 @@ function molavi_receive_images(array $payload): array
             $queue = $rest;
         }
     }
+    // A dropped image is gone for good (its file returned 404/410 from the
+    // reference server), so it leaves the queue instead of cycling to the
+    // back of it. A fresh supplier message brings a new file id, which is
+    // not on the dead list and is queued normally.
+    $drops = $payload['drop'] ?? [];
+    if (is_array($drops)) {
+        foreach ($drops as $drop) {
+            if (!is_array($drop)) {
+                continue;
+            }
+            $productId = (int) ($drop['product'] ?? 0);
+            $file = (string) ($drop['file'] ?? '');
+            $queue = array_values(array_filter($queue, static function (array $item) use ($productId, $file): bool {
+                return (int) ($item['product'] ?? 0) !== $productId || (string) ($item['file'] ?? '') !== $file;
+            }));
+        }
+    }
     update_option('molavi_image_queue', $queue, false);
     if ($attached > 0) {
         molavi_purge_shop_cache();
@@ -765,6 +784,34 @@ function molavi_receive_images(array $payload): array
         'images_left' => count($queue),
         'pending' => molavi_image_pending(1),
     ];
+}
+
+function molavi_dead_image_files(): array
+{
+    $files = get_option('molavi_dead_image_files', []);
+    if (!is_array($files)) {
+        return [];
+    }
+    $clean = [];
+    foreach ($files as $file) {
+        if (is_string($file) && preg_match('/^[A-Za-z0-9_-]{8,300}$/', $file)) {
+            $clean[$file] = true;
+        }
+    }
+    return $clean;
+}
+
+function molavi_mark_image_dead(string $file): void
+{
+    if (!preg_match('/^[A-Za-z0-9_-]{8,300}$/', $file)) {
+        return;
+    }
+    $files = molavi_dead_image_files();
+    if (isset($files[$file])) {
+        return;
+    }
+    $files[$file] = true;
+    update_option('molavi_dead_image_files', array_slice(array_keys($files), -200), false);
 }
 
 function molavi_image_queue(): array

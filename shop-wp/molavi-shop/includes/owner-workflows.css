@@ -444,3 +444,24 @@
     margin:.5rem 0; padding:0; border-top:1px solid #d5dde2;
 }
 #molavi-owner-workflow .molavi-secondary-product-checks { padding:0 .5rem .5rem; }
+
+/* Autonomous-decisions review (round six): risk badges, filter, pending note. */
+#molavi-owner-workflow .molavi-risk-badge { display:inline-flex; align-items:center; gap:.3rem; padding:.1rem .55rem; border:1px solid; border-radius:999px; font-size:.78rem; font-weight:600; line-height:1.5; }
+#molavi-owner-workflow .molavi-risk-badge .molavi-risk-icon { width:1em; height:1em; flex:none; }
+/* Per-product step-status trace (owner request 2026-11-25): seven steps on
+   the way to publication, collapsed by default on the card. */
+#molavi-owner-workflow .molavi-step-trace-step { margin:.9rem 0 0; padding-top:.6rem; border-top:1px solid #e1e5e9; }
+#molavi-owner-workflow .molavi-step-trace-step:first-of-type { border-top:0; padding-top:.1rem; }
+#molavi-owner-workflow .molavi-step-trace-heading { display:flex; align-items:center; justify-content:space-between; gap:.5rem; margin:.1rem 0 .4rem; font-size:.95rem; }
+#molavi-owner-workflow .molavi-step-trace-note { margin:.4rem 0 0; color:#5a6871; font-size:.85rem; }
+#molavi-owner-workflow .molavi-risk-red { color:#9c1c1c; border-color:#d98a8a; background:#fdecea; }
+#molavi-owner-workflow .molavi-risk-amber { color:#7a5200; border-color:#d9b36c; background:#fff4d6; }
+#molavi-owner-workflow .molavi-risk-green { color:#1e6b34; border-color:#7fb98f; background:#e6f4ea; }
+#molavi-owner-workflow .molavi-risk-none { color:#5a6871; border-color:#c3ccd1; background:#f2f4f5; }
+#molavi-owner-workflow .molavi-risk-filter { display:flex; flex-wrap:wrap; align-items:center; gap:.4rem; margin:.5rem 0; }
+#molavi-owner-workflow .molavi-risk-filter .is-active { font-weight:700; text-decoration:underline; }
+/* Direct anchor to the decisions list (#molavi-autopilot-decisions): keep
+   the heading clear of the sticky workbench nav and the WP admin bar
+   (together ~5rem) when the tab is opened on that anchor. */
+#molavi-owner-workflow .molavi-autopilot-view #molavi-autopilot-decisions { scroll-margin-top:6rem; }
+#molavi-owner-workflow .molavi-risk-pending { color:#9c1c1c; }

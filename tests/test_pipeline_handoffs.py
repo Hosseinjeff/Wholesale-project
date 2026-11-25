@@ -110,6 +110,31 @@ class HandoffTests(unittest.TestCase):
             actor_id='wp:7',note='Owner verified the batch.',resume_batch=False)
         self.assertEqual(self.queue.get(publish)['state'],'queued')
 
+    def test_reviewed_batch_replay_records_new_notice_and_one_publication(self):
+        import app
+
+        self.queue.receive(self.message)
+        job = self.queue.batch()
+        batch_id = json.loads(self.queue.get(job)['payload'])['batch_id']
+        outcomes = [
+            {'status': 'success', 'extraction_status': 'failed', 'rollback': True},
+            {'status': 'success', 'extraction_status': 'success', 'products_by_sender': {'telegram:7': 1}},
+        ]
+        with patch.dict(os.environ, {'TELEGRAM_OPERATOR_CHAT_IDS': '7', 'REFERENCE_STORE_PATH': ''}), \
+                patch.object(app, 'USE_SHEETS', True), patch.object(app, 'build_store', return_value=self.store), \
+                patch.object(app, 'finalize_batch', side_effect=outcomes):
+            app.run_durable_handoff(self.queue, job_id=job)
+            self.assertEqual(self.queue.get(job)['state'], 'needs_review')
+            self.queue.resolve_publication_hold(batch_id, expected_reason='batch_unverified',
+                                                actor_id='wp:7', note='Reviewed synthetic batch', resume_batch=True)
+            app.run_durable_handoff(self.queue, job_id=job)
+            self.assertEqual(self.queue.get(job)['state'], 'done')
+            self.assertFalse(app.run_durable_handoff(self.queue, job_id=job))
+        self.assertEqual(self.queue.publication_holds(), [])
+        with self.queue.connect() as db:
+            counts = dict(db.execute("SELECT kind, COUNT(*) FROM jobs GROUP BY kind").fetchall())
+        self.assertEqual(counts, {'batch': 1, 'notice': 2, 'publish': 1})
+
     def test_stable_batch_retry_does_not_duplicate_raw_messages_or_offers(self):
         self.queue.receive(self.message);batch=self.queue.batch();job=self.queue.claim(batch)
         payload=job['payload'];finalize_batch(self.store,payload)

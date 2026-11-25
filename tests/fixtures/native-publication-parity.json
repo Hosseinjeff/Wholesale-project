@@ -197,7 +197,7 @@
           "sale": 10000,
           "shelf": 20000,
           "min": 6,
-          "pack_size": 6,
+          "pack_size": 0,
           "source_post_url": "https://t.me/bonakdarjavan/11",
           "reference_snapshot_id": "",
           "reference_match_id": "",
@@ -213,7 +213,8 @@
           "source_integrity_issues": [],
           "source_record_id": "synthetic-conflict",
           "supplier_price_state": "current",
-          "supplier_price_verified_at": "2026-11-15T00:00:00+00:00"
+          "supplier_price_verified_at": "2026-11-15T00:00:00+00:00",
+          "pack_size_source": "unknown"
         },
         {
           "id": "da30e40dab2c",
@@ -226,7 +227,7 @@
           "sale": 0,
           "shelf": 20000,
           "min": 6,
-          "pack_size": 6,
+          "pack_size": 0,
           "source_post_url": "https://t.me/bonakdarjavan/11",
           "reference_snapshot_id": "",
           "reference_match_id": "",
@@ -244,7 +245,8 @@
           ],
           "source_record_id": "synthetic-no-offer",
           "supplier_price_state": "current",
-          "supplier_price_verified_at": "2026-11-15T00:00:00+00:00"
+          "supplier_price_verified_at": "2026-11-15T00:00:00+00:00",
+          "pack_size_source": "unknown"
         },
         {
           "id": "90da58e4b96a",
@@ -257,7 +259,7 @@
           "sale": 10000,
           "shelf": 20000,
           "min": 6,
-          "pack_size": 6,
+          "pack_size": 0,
           "source_post_url": "https://t.me/bonakdarjavan/11",
           "reference_snapshot_id": "",
           "reference_match_id": "",
@@ -273,7 +275,8 @@
           "source_integrity_issues": [],
           "source_record_id": "p_11c93412a807fd5732d0147e",
           "supplier_price_state": "current",
-          "supplier_price_verified_at": "2026-11-15T00:00:00+00:00"
+          "supplier_price_verified_at": "2026-11-15T00:00:00+00:00",
+          "pack_size_source": "unknown"
         },
         {
           "id": "c2bccc73e5b5",
@@ -286,7 +289,7 @@
           "sale": 15000,
           "shelf": 20000,
           "min": 1,
-          "pack_size": 1,
+          "pack_size": 0,
           "source_post_url": "https://t.me/bonakdarjavan/11",
           "reference_snapshot_id": "",
           "reference_match_id": "",
@@ -302,7 +305,8 @@
           "source_integrity_issues": [],
           "source_record_id": "p_c2bccc73e5b5e201f5d1d1e4",
           "supplier_price_state": "current",
-          "supplier_price_verified_at": "2026-11-15T00:00:00+00:00"
+          "supplier_price_verified_at": "2026-11-15T00:00:00+00:00",
+          "pack_size_source": "unknown"
         }
       ]
     },
@@ -644,7 +648,7 @@
           "sale": 10000,
           "shelf": 20000,
           "min": 6,
-          "pack_size": 6,
+          "pack_size": 0,
           "source_post_url": "https://t.me/bonakdarjavan/11",
           "reference_snapshot_id": "",
           "reference_match_id": "",
@@ -662,7 +666,8 @@
           ],
           "source_record_id": "p_11c93412a807fd5732d0147e",
           "supplier_price_state": "current",
-          "supplier_price_verified_at": "2026-11-16T00:00:00+00:00"
+          "supplier_price_verified_at": "2026-11-16T00:00:00+00:00",
+          "pack_size_source": "unknown"
         },
         {
           "id": "c2bccc73e5b5",
@@ -675,7 +680,7 @@
           "sale": 15000,
           "shelf": 20000,
           "min": 1,
-          "pack_size": 1,
+          "pack_size": 0,
           "source_post_url": "https://t.me/bonakdarjavan/11",
           "reference_snapshot_id": "",
           "reference_match_id": "",
@@ -691,7 +696,8 @@
           "source_integrity_issues": [],
           "source_record_id": "p_c2bccc73e5b5e201f5d1d1e4",
           "supplier_price_state": "current",
-          "supplier_price_verified_at": "2026-11-15T00:00:00+00:00"
+          "supplier_price_verified_at": "2026-11-15T00:00:00+00:00",
+          "pack_size_source": "unknown"
         }
       ]
     }

@@ -69,7 +69,7 @@ function molavi_domain_product_message_queue(array $offers,array $catalog,?array
             if (!$choice && $received!==null && $received<($listing['registered_at']??0)) continue;
             $queues[$woo][$id]=[
                 'offer_id'=>$id,'title'=>$offer['Product Name'],'channel'=>(string)($offer['Channel Username']??''),
-                'received_at'=>(string)($offer['Import Timestamp']??''),'source_url'=>(string)($offer['Source Post URL']??''),
+                'received_at'=>(string)($offer['Import Timestamp']??''),'source_created_at'=>(string)(($offer['Message Timestamp']??'')?:($offer['Source Post Created At']??'')),'source_url'=>(string)($offer['Source Post URL']??''),
                 'excerpt'=>molavi_domain_context_text($offer['Original Message']??'',600),
                 'category'=>(string)(($offer['Category']??'')?:($listing['category']??'')),
                 'sale_price'=>($offer['Detected Price']??'')?:($offer['Sale Price']??''),'consumer_price'=>$offer['Consumer Price']??'',
@@ -133,14 +133,20 @@ function molavi_domain_product_message_choose(array $body,string $actor): array 
         $source=$sources[0];
         $product=$listing['source_record_id']?:((string)($source['Product ID']??'')?:'woo-'.$woo);
         $products=molavi_domain_records($tables['Products']);
+        // Owner override: a manually chosen message is accepted even when it is no longer
+        // the product's latest offer. The staleness is reported with the message age so the
+        // workbench can warn the owner instead of blocking them.
+        $offerStale=false;
         foreach ($products as $row) {
             if (($row['Product ID']??null)===$product && $listing['source_record_id']===''
                 && !in_array($offer,[$row['Latest Offer ID']??'',($old['case_id']??null)?'owner-confirm:'.(molavi_domain_ai_decision_history($old['case_id'],1)[0]['decision_id']??''):''],true))
-                molavi_domain_fail('product_message_target_changed');
+                $offerStale=true;
         }
-        return molavi_domain_tx('pipeline',static function(SQLite3 $db)use($woo,$offer,$choice,$actor,$old,$source,$product): array {
+        $messageAt=molavi_domain_timestamp($source['Message Timestamp']?:($source['Import Timestamp']??null));
+        $offerAgeDays=$messageAt===null?null:max(0,(int)floor((time()-$messageAt)/86400));
+        return molavi_domain_tx('pipeline',static function(SQLite3 $db)use($woo,$offer,$choice,$actor,$old,$source,$product,$offerStale,$offerAgeDays): array {
             $case=$old['case_id']??null;
-            if ($choice==='review' && ($old['state']??null)==='review') return ['ok'=>true,'case_id'=>$case,'state'=>'review'];
+            if ($choice==='review' && ($old['state']??null)==='review') return ['ok'=>true,'case_id'=>$case,'state'=>'review','offer_stale'=>$offerStale,'offer_age_days'=>$offerAgeDays];
             if ($choice==='review' && molavi_domain_row($db,
                 "SELECT 1 FROM product_message_choices WHERE (woo_product_id=? AND state='review')
                 OR (offer_id=? AND woo_product_id!=? AND state IN ('review','used'))",[$woo,$offer,$woo]))
@@ -160,7 +166,7 @@ function molavi_domain_product_message_choose(array $body,string $actor): array 
             molavi_domain_sql($db,'INSERT INTO product_message_choices VALUES(?,?,?,?,?,?)
                 ON CONFLICT(woo_product_id,offer_id) DO UPDATE SET state=excluded.state,case_id=excluded.case_id,actor=excluded.actor,decided_at=excluded.decided_at',
                 [$woo,$offer,$state,$case,$actor,microtime(true)]);
-            return ['ok'=>true,'case_id'=>$case,'state'=>$state];
+            return ['ok'=>true,'case_id'=>$case,'state'=>$state,'offer_stale'=>$offerStale,'offer_age_days'=>$offerAgeDays];
         });
     });
 }

@@ -47,7 +47,8 @@ const source=path.resolve(__dirname,'../shop-wp/molavi-shop'),fixture=process.en
  await page.keyboard.press('Escape');assert.equal(await page.locator('[data-molavi-open-library]').evaluate(node=>node===document.activeElement),true,'closing restores heart focus');
  assert.equal(await first.locator('.molavi-add span').innerText(),'افزودن ۴ عدد');await first.locator('.molavi-add').click();await page.waitForFunction(()=>document.querySelector('[data-molavi-checkout]').getAttribute('aria-disabled')==='true');
  await page.locator('[data-molavi-checkout]').click({force:true});assert.equal(new URL(page.url()).pathname,'/','checkout waits for save');holdMutation();await page.waitForFunction(()=>document.querySelector('[data-molavi-checkout]').getAttribute('aria-disabled')==='false');
- assert.equal(await page.locator('[data-molavi-delivery-remaining],[data-molavi-selection-cost]').count(),0);assert.match(await page.locator('[data-molavi-mobile-rate]').innerText(),/۵٪/);
+ assert.equal(await page.locator('[data-molavi-delivery-remaining],[data-molavi-selection-cost]').count(),0);const expectedRate = Math.round(1000 * quote.savings / quote.reference_total) / 10;
+ assert.equal(await page.locator('[data-molavi-mobile-rate]').innerText(), String(expectedRate).replace(/\d/g, d => '۰۱۲۳۴۵۶۷۸۹'[d]) + '٪');
  await first.locator('[data-molavi-favorite]').click();await page.evaluate(()=>{localStorage.setItem('molavi-wishlist-v1','["52","1"]');dispatchEvent(new StorageEvent('storage',{key:'molavi-wishlist-v1'}));});
  await page.locator('[data-molavi-open-library]').click();await library.locator('.molavi-library-product .molavi-control').first().waitFor();await page.waitForFunction(()=>document.querySelector('[data-molavi-save-favorites]').disabled===false);
  assert.equal(await library.locator('.molavi-library-product').count(),2,'favorites include off-page products');

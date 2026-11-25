@@ -157,7 +157,8 @@
             var qty = Number(sourceQtys[id]) || 0;
             var product = rowOf(id) || {};
             if (qty < 1) return;
-            if (Number(product.discountable) === 1 && Number(product.shelf) > 0) eligibleReference += Number(product.shelf) * qty;
+            var maxDiscount = buyerType === "shop" ? product.shopMax : product.householdMax;
+            if (maxDiscount > 0) eligibleReference += Number(product.shelf) * qty;
             var householdUnit = Math.max(1, Number(product.householdUnit) || 1);
             if (qty < householdUnit || qty % householdUnit !== 0) householdValid = false;
         });
@@ -592,7 +593,9 @@
             html += '<article class="molavi-bline' + (invalidLine ? ' is-invalid' : '') + '" data-product="' + escapeHtml(id) + '" data-min="' + min + '" data-qty="' + qty + '" data-invalid="' + (invalidLine ? '1' : '0') + '">'
                 + '<div class="molavi-bline-image"><img src="' + escapeHtml(row.image || "") + '" alt="' + escapeHtml(row.name || "") + '" loading="lazy"></div>'
                 + '<div class="molavi-bline-copy"><h3>' + escapeHtml(row.name || "") + "</h3><p><strong>"
-                + toman(unit) + "</strong> × " + digits(qty) + "</p>" + stepMarkup
+                + toman(unit) + "</strong> × " + digits(qty)
+                + (shelf > unit ? ' <span class="molavi-rate">' + percent(1 - unit / shelf) + '</span>' : '')
+                + "</p>" + stepMarkup
                 + "</div>"
                 + stepper(qty, row) + "</article>";
         });
@@ -612,6 +615,8 @@
             save.hidden = saved < 1;
             var amount = save.querySelector("[data-molavi-basket-save-amount]");
             if (amount) amount.textContent = toman(saved);
+            var rate = save.querySelector("[data-molavi-basket-save-rate]");
+            if (rate) rate.textContent = percent(referenceTotal > 0 ? saved / referenceTotal : 0);
         }
         var totalNode = document.querySelector("[data-molavi-basket-total]");
         if (totalNode) totalNode.textContent = toman(total);
@@ -1548,6 +1553,9 @@
 
         searches.forEach(function (input) {
             input.addEventListener("input", function () { updateSearch(input); });
+            // Native clear button of <input type="search"> fires "search" (not
+            // always "input") in some browsers; keep the filter in sync either way.
+            input.addEventListener("search", function () { updateSearch(input); });
             if (input.form) {
                 input.form.addEventListener("submit", function (event) {
                     event.preventDefault();
@@ -1576,6 +1584,17 @@
             if (!open) activeSearchToggle = null;
         }
 
+        // Closing search with the × (or Escape) used to hide the overlay while
+        // leaving the filter active, so the grid stayed filtered with no
+        // visible search box. Clearing the query first restores all cards.
+        function clearSearchAndClose(restoreFocus) {
+            if (searchInput) {
+                searchInput.value = "";
+                updateSearch(searchInput);
+            }
+            setToolbarSearchOpen(false, restoreFocus);
+        }
+
         if (searchToggles.length && toolbarSearch) {
             searchToggles.forEach(function (toggle) {
                 toggle.addEventListener("click", function () {
@@ -1587,11 +1606,11 @@
                     }
                 });
             });
-            if (searchClose) searchClose.addEventListener("click", function () { setToolbarSearchOpen(false, true); });
+            if (searchClose) searchClose.addEventListener("click", function () { clearSearchAndClose(true); });
             toolbarSearch.addEventListener("keydown", function (event) {
                 if (event.key === "Escape" && !toolbarSearch.hidden) {
                     event.preventDefault();
-                    setToolbarSearchOpen(false, true);
+                    clearSearchAndClose(true);
                     return;
                 }
                 if (event.key === "Tab" && !toolbarSearch.hidden) {
@@ -1981,139 +2000,6 @@
         });
     }
 
-    function setupCardStepHelp() {
-        var selector = ".molavi-card-step-help";
-        var activeHelp = null;
-        var activeNodes = null;
-        var activeOverlay = null;
-        var activePlaceholder = null;
-        var activeDialogAttributes = null;
-        var nextHelpId = 0;
-
-        function parts(details) {
-            if (!details) return null;
-            var summary = details.querySelector(":scope > summary");
-            var panel = details.querySelector(".molavi-card-step-popover");
-            if (summary && panel) {
-                if (!panel.id) {
-                    do {
-                        nextHelpId += 1;
-                        panel.id = "molavi-step-help-" + nextHelpId;
-                    } while (document.getElementById(panel.id) !== panel);
-                }
-                summary.setAttribute("aria-controls", panel.id);
-                if (!summary.hasAttribute("aria-expanded")) {
-                    summary.setAttribute("aria-expanded", details.open ? "true" : "false");
-                }
-            }
-            return summary && panel ? { summary: summary, panel: panel } : null;
-        }
-
-        function closeHelp(details, restoreFocus) {
-            details = details || activeHelp;
-            if (!details) return;
-            var isActive = activeHelp === details;
-            var nodes = isActive && activeNodes ? activeNodes : parts(details);
-
-            if (isActive && nodes) {
-                if (activePlaceholder && activePlaceholder.parentNode) {
-                    var parent = activePlaceholder.parentNode;
-                    parent.insertBefore(nodes.panel, activePlaceholder);
-                    parent.removeChild(activePlaceholder);
-                } else if (!nodes.panel.parentNode) {
-                    details.appendChild(nodes.panel);
-                }
-                if (activeOverlay && activeOverlay.parentNode) {
-                    activeOverlay.parentNode.removeChild(activeOverlay);
-                }
-                nodes.panel.removeAttribute("data-molavi-positioned");
-                ["role", "aria-modal", "aria-label", "tabindex"].forEach(function (name) {
-                    var value = activeDialogAttributes && activeDialogAttributes[name];
-                    if (value === null || value === undefined) nodes.panel.removeAttribute(name);
-                    else nodes.panel.setAttribute(name, value);
-                });
-                activeNodes = null;
-                activeOverlay = null;
-                activePlaceholder = null;
-                activeDialogAttributes = null;
-            }
-
-            details.open = false;
-            if (nodes) {
-                nodes.summary.setAttribute("aria-expanded", "false");
-            }
-            if (isActive) activeHelp = null;
-            if (restoreFocus && nodes) nodes.summary.focus();
-        }
-
-        function openHelp(details) {
-            if (activeHelp && activeHelp !== details) closeHelp(activeHelp);
-            var nodes = parts(details);
-            if (!nodes || !document.body) return;
-
-            activeHelp = details;
-            activeNodes = nodes;
-            activePlaceholder = document.createComment("molavi-step-help-panel");
-            nodes.panel.parentNode.insertBefore(activePlaceholder, nodes.panel);
-
-            activeDialogAttributes = {
-                role: nodes.panel.getAttribute("role"),
-                "aria-modal": nodes.panel.getAttribute("aria-modal"),
-                "aria-label": nodes.panel.getAttribute("aria-label"),
-                tabindex: nodes.panel.getAttribute("tabindex")
-            };
-            activeOverlay = document.createElement("div");
-            activeOverlay.className = "molavi-card-step-overlay";
-            nodes.panel.setAttribute("role", "dialog");
-            nodes.panel.setAttribute("aria-modal", "true");
-            nodes.panel.setAttribute("aria-label", "راهنمای گام سفارش");
-            nodes.panel.setAttribute("tabindex", "-1");
-            activeOverlay.appendChild(nodes.panel);
-            document.body.appendChild(activeOverlay);
-            nodes.summary.setAttribute("aria-expanded", "true");
-
-            window.requestAnimationFrame(function () {
-                if (activeHelp === details && details.open) nodes.panel.focus();
-            });
-        }
-
-        Array.prototype.forEach.call(document.querySelectorAll(selector), function (details) {
-            parts(details);
-        });
-
-        document.addEventListener("pointerdown", function (event) {
-            if (!activeHelp) return;
-            var target = event.target && event.target.nodeType === 1 ? event.target : event.target.parentElement;
-            var clickedSummary = target && target.closest
-                ? target.closest(".molavi-card-step-help > summary") : null;
-            if (!clickedSummary || clickedSummary.parentElement !== activeHelp) closeHelp(activeHelp);
-        }, true);
-
-        document.addEventListener("click", function (event) {
-            var target = event.target && event.target.nodeType === 1 ? event.target : event.target.parentElement;
-            var summary = target && target.closest
-                ? target.closest(".molavi-card-step-help > summary") : null;
-            if (!summary) {
-                if (activeHelp) closeHelp(activeHelp);
-                return;
-            }
-            var details = summary.parentElement;
-            event.preventDefault();
-            if(details.open&&activeHelp===details)closeHelp(details,true);
-            else{details.open=true;openHelp(details);}
-        }, true);
-
-        document.addEventListener("keydown", function (event) {
-            if (!activeHelp) return;
-            if (event.key === "Escape") {
-                event.preventDefault();
-                closeHelp(activeHelp, true);
-            } else if (event.key === "Tab") {
-                closeHelp(activeHelp, true);
-            }
-        }, true);
-    }
-
     var pageInteractionsInitialized = false;
     var storefrontControlsInitialized = false;
     var storefrontObserver = null;
@@ -2150,7 +2036,6 @@
     function initializePageInteractions() {
         if (pageInteractionsInitialized) return;
         pageInteractionsInitialized = true;
-        setupCardStepHelp();
         setupFavoritesLibrary();
         setupShoppingHelp();
         setupNativeCartAutoUpdate();

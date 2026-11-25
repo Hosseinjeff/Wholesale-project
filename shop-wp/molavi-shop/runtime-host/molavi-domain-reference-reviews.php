@@ -75,6 +75,31 @@ function molavi_domain_reference_extracted_offers(array $offers,string $offerId,
 function molavi_domain_reference_latest(string $case): ?array {
     return molavi_domain_read('reference',static fn(SQLite3 $db)=>molavi_domain_row($db,'SELECT * FROM reference_item_decisions WHERE case_id=? ORDER BY sequence DESC LIMIT 1',[$case]));
 }
+/** reference_import/item_reviews.py ItemReviewLedger.overrides: exact owner mappings + inherited mappings within 5%. */
+function molavi_domain_reference_overrides(string $snapshotId): array {
+    if($snapshotId==='')return [];
+    // Latest decision per case_id WITHIN this snapshot (Python's join form).
+    // ORDER BY sequence makes the values[-1] pick deterministic; Python fetches
+    // with no ORDER BY, so which identical mapping wins there is unspecified.
+    $rows=molavi_domain_read('reference',static fn(SQLite3 $db)=>molavi_domain_rows($db,
+        'SELECT d.* FROM reference_item_decisions d JOIN (SELECT case_id, MAX(sequence) AS sequence FROM reference_item_decisions WHERE snapshot_id=? GROUP BY case_id) latest ON latest.sequence=d.sequence ORDER BY d.sequence',
+        [$snapshotId]));
+    $grouped=[];
+    foreach($rows as $row){
+        $grouped[(string)($row['signature']??'')][]=[
+            'choice'=>(string)($row['choice']??''),'reference_id'=>(string)($row['reference_id']??''),
+            'price_role'=>(string)($row['price_role']??''),'decision_id'=>(string)($row['decision_id']??'')];
+    }
+    $result=[];
+    foreach($grouped as $signature=>$values){
+        $mappings=[];foreach($values as $value)$mappings[$value['reference_id']."\0".$value['price_role']]=true;
+        $allMatch=true;foreach($values as $value)if($value['choice']!=='match'){$allMatch=false;break;}
+        if($allMatch&&count($mappings)===1)$result[$signature]=end($values);
+    }
+    foreach(molavi_domain_inherit_reference_mappings($snapshotId) as $signature=>$value)
+        if(!isset($result[$signature]))$result[$signature]=$value;
+    return $result;
+}
 function molavi_domain_reference_review_cases(array $tables,array $snapshot,bool $includeDecided=false,bool $candidates=true,string $manualOffer=''): array {
     $id=(string)molavi_domain_py_value($snapshot['snapshot_id']??null);if($id==='')return [];$offers=[];
     $sources=molavi_domain_records($tables['Offers']??[]);$products=molavi_domain_records($tables['Products']??[]);

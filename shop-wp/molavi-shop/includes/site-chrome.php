@@ -28,6 +28,12 @@ function molavi_site_page_links(): array
         } elseif (in_array($slug, ['contact', 'contact-us', 'contactus'], true)
             || strpos($title, 'تماس') !== false) {
             $links['تماس با ما'] = get_permalink($page);
+        } elseif (in_array($slug, ['returns', 'return-policy', 'return', 'بازگشت-کالا'], true)
+            || strpos($title, 'بازگشت') !== false) {
+            $links['شرایط بازگشت کالا'] = get_permalink($page);
+        } elseif (in_array($slug, ['privacy', 'privacy-policy', 'حریم-خصوصی'], true)
+            || strpos($title, 'حریم خصوصی') !== false) {
+            $links['حریم خصوصی'] = get_permalink($page);
         }
     }
     return $links;

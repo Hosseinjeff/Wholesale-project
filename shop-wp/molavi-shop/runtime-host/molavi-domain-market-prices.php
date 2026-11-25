@@ -4,6 +4,11 @@ declare(strict_types=1);
 defined('ABSPATH') || exit;
 
 const MOLAVI_MARKET_DAILY_LOOKUPS = 25;
+// A search that finds no comparable listing is not retried the next day:
+// it would eat one of the 25 daily searches every day. Back it off a week
+// so the budget goes to products never searched. The owner can still
+// re-search from the tab once the product's next turn arrives.
+const MOLAVI_MARKET_NO_MATCH_BACKOFF_SECONDS = 604800;
 
 function molavi_domain_market_key(): string {
     return trim((string)(defined('MOLAVI_TAVILY_API_KEY') ? MOLAVI_TAVILY_API_KEY
@@ -89,11 +94,15 @@ function molavi_domain_market_seed(array $identities,int $now): void {
     $rows=[];
     foreach ($identities as $identity) if (!$identity['assortment']) $rows[molavi_domain_hash($identity)]=$identity;
     molavi_domain_tx('reference',static function(SQLite3 $db)use($rows,$now): void {
-        molavi_domain_sql($db,'UPDATE market_price_lookups SET active=0 WHERE active=1');
+        // Rows seeded by the market-agreement runner (priority -1) are not
+        // owned by this seed: they stay active so stale-supplier items keep
+        // their lookup queue, and a row that becomes missing-price eligible
+        // is promoted back to the default priority.
+        molavi_domain_sql($db,'UPDATE market_price_lookups SET active=0 WHERE active=1 AND priority>=0');
         foreach ($rows as $key=>$identity) {
             molavi_domain_market_keep_saved_source($db,$identity,$now);
             molavi_domain_sql($db,'INSERT INTO market_price_lookups(lookup_key,identity_json,next_at) VALUES(?,?,?)
-                ON CONFLICT(lookup_key) DO UPDATE SET active=1',[$key,molavi_domain_json($identity),$now]);
+                ON CONFLICT(lookup_key) DO UPDATE SET active=1,priority=max(priority,0)',[$key,molavi_domain_json($identity),$now]);
         }
     });
 }
@@ -262,7 +271,7 @@ function molavi_domain_market_run(int $now,?callable $fetch=null): void {
         $quotes=($fetch??'molavi_domain_market_fetch')(molavi_domain_decode($row['identity_json']),$pinned);
         foreach ($quotes as &$quote) $quote['verified_at']=$now;
         unset($quote);
-        $update=['next'=>$update['next'],'state'=>$quotes?'ready':'no_match','checked'=>$now,'quotes'=>molavi_domain_json($quotes)];
+        $update=['next'=>$quotes?$update['next']:$now+MOLAVI_MARKET_NO_MATCH_BACKOFF_SECONDS,'state'=>$quotes?'ready':'no_match','checked'=>$now,'quotes'=>molavi_domain_json($quotes)];
         if (!$quotes&&$pinned&&molavi_domain_basalam_listing_id($pinned)) {
             // A confirmed missing or changed listing goes back through discovery under its daily budget.
             $pinned=null;$update['state']='queued';$update['next']=$now;

@@ -82,6 +82,28 @@ def _store() -> MemoryStore:
 
 
 class PublishTests(unittest.TestCase):
+    def test_publish_keeps_message_pack_size_separate_from_order_minimum(self):
+        cases = [
+            (12, "۶ عددی", 12),  # Structured count from the bot is authoritative.
+            (6, "", 6),          # A real pack count can equal the order minimum.
+            ("", "تعداد داخل کارتون: ١٢", 12),
+            ("", "بسته ۲۵ عدد و کارتن ۳۶ بسته", 36),
+            ("", "قیمت کارتن: ۴۰۰ تومان", 0),
+            (1000, "کارتن ۱۲ عددی", 12),
+            ("", "", 0),
+        ]
+        for bot_count, packaging, expected in cases:
+            with self.subTest(bot_count=bot_count, packaging=packaging):
+                store = _store()
+                products = store.sheets['Products']
+                products[0].append('Package Count')
+                products[1].append(bot_count)
+                products[1][products[0].index('Packaging')] = packaging
+                soda = next(item for item in site_products(store) if item['name'] == 'آب سودا')
+                self.assertEqual(soda['min'], 6)
+                self.assertEqual(soda['pack_size'], expected)
+                self.assertEqual(soda['pack_size_source'], 'message' if expected else 'unknown')
+
     def test_site_products_split_sell_and_hold(self):
         products = site_products(_store())
         self.assertIsNotNone(products)

@@ -17,7 +17,7 @@ from urllib.parse import urlparse
 
 import requests
 
-from catalog.extract import minimum_purchase
+from catalog.extract import message_pack_count, minimum_purchase
 from catalog.media import safe_file_id
 from catalog.product_identity import woo_sku
 from catalog.pricing import settings_from_rows
@@ -108,11 +108,11 @@ def site_products(store: MemoryStore | GoogleSheetStore) -> list[dict[str, Any]]
         held=(held or not name or sale<=0 or shelf<=sale or
               freshness_state not in {'current','warning'} or source_record_id in conflicted_products
               or availability == 'outofstock' or source_issue is not None)
-        minimum = _positive_price(record.get("Min Qty")) or minimum_purchase(
-            str(record.get("Packaging") or ""),
-            name,
-        )
-        package_size = _positive_price(record.get('Package Count')) or minimum
+        packaging = str(record.get("Packaging") or "").strip()
+        minimum = _positive_price(record.get("Min Qty")) or minimum_purchase(packaging, name)
+        package_size = _positive_price(record.get('Package Count')) or 0
+        if not 1 <= package_size <= 999:
+            package_size = message_pack_count(packaging, name) or 0
         source_url = str(record.get('Source Post URL') or '').strip()
         try:
             parsed_source_url = urlparse(source_url)
@@ -127,12 +127,13 @@ def site_products(store: MemoryStore | GoogleSheetStore) -> list[dict[str, Any]]
             "key": _product_key(name),
             "channel": channel,
             "supplier": _SUPPLIERS.get(channel, channel),
-            "packaging": str(record.get("Packaging") or "").strip(),
+            "packaging": packaging,
             "category": str(record.get("Category") or "").strip(),
             "sale": int(sale),
             "shelf": int(shelf),
             "min": int(minimum),
-            "pack_size": int(max(1, min(999, package_size))),
+            "pack_size": package_size,
+            "pack_size_source": "message" if package_size else "unknown",
             "source_post_url": source_url,
             "reference_snapshot_id": str(record.get('Reference Snapshot ID') or '').strip(),
             "reference_match_id": str(record.get('Reference Match ID') or '').strip(),
