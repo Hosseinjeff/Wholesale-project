@@ -388,13 +388,13 @@ function molavi_domain_market_agreement_execute(array $row, string $lease, int $
         // record it as not-ready, revisited in a day.
     }
     $finish = static function (string $outcome, string $reason, ?string $basis, ?array $quote, ?int $quotePack,
-        ?float $spread, ?string $verifiedAt) use ($row, $lease, $now): array {
+        ?float $spread, ?string $verifiedAt, ?int $nextCheck = null) use ($row, $lease, $now): array {
         return molavi_domain_tx('pipeline', static function (SQLite3 $db) use ($row, $lease, $outcome, $reason, $basis,
-            $quote, $quotePack, $spread, $verifiedAt, $now): array {
+            $quote, $quotePack, $spread, $verifiedAt, $nextCheck, $now): array {
             $updated = molavi_domain_sql($db, 'UPDATE market_agreement_checks SET lease=NULL,outcome=?,reason_code=?,basis=?,
                 quote_url=?,quote_price=?,implied_spread=?,checked_at=?,next_at=?,verified_at=? WHERE product_id=? AND lease=?',
                 [$outcome, $reason, $basis, $quote ? (string)($quote['url'] ?? '') : null, $quotePack, $spread,
-                    $now, $now + MOLAVI_MARKET_AGREEMENT_SECONDS, $verifiedAt, $row['product_id'], $lease]);
+                    $now, $nextCheck ?? ($now + MOLAVI_MARKET_AGREEMENT_SECONDS), $verifiedAt, $row['product_id'], $lease]);
             if ($updated['changes'] !== 1) return molavi_domain_market_agreement_public_row($row);
             molavi_domain_market_agreement_record_event($db, $row, $outcome, $row['stored_sale_price'],
                 $quotePack, $spread, $reason, $quote ? (string)($quote['url'] ?? '') : null, $now);
@@ -422,6 +422,11 @@ function molavi_domain_market_agreement_execute(array $row, string $lease, int $
         return $finish('no_quotes', 'lookup_pending', '', null, null, null, null);
     }
     $lookupState = (string)($lookup['state'] ?? '');
+    if ($lookupState === 'queued') {
+        // Revisit stored results after the existing market worker has had a turn.
+        $nextCheck=max($now+1800,min($now+MOLAVI_MARKET_AGREEMENT_SECONDS,(int)$lookup['next_at']));
+        return $finish('no_quotes', 'lookup_pending', '', null, null, null, null, $nextCheck);
+    }
     if ($lookupState !== 'ready') {
         return $finish('no_quotes', $lookupState === 'no_match' ? 'no_match' : 'lookup_not_ready', '', null, null, null, null);
     }

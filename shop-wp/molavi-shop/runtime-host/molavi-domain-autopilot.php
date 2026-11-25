@@ -1118,7 +1118,7 @@ function molavi_domain_autopilot_run_verdicts(array $settings,float $now): array
         MOLAVI_AUTOPILOT_VERDICT_RAILWAY_MAX_PER_TICK);
     $rows=molavi_domain_read('pipeline',static fn(SQLite3 $db)=>
         molavi_domain_rows($db,"SELECT * FROM autopilot_log WHERE verdict='pending'
-            AND rule_id<>'' AND action IN ('shadow','live')
+            AND rule_id<>'' AND action IN ('shadow','live') AND result NOT IN ('overridden','reverted')
             ORDER BY created_at ASC, id ASC LIMIT ?",[$limit]));
     foreach($rows as $row) {
         $id=(int)($row['id']??0);
@@ -1154,6 +1154,8 @@ function molavi_domain_autopilot_run_verdicts(array $settings,float $now): array
             // row instead), but the verdict run must survive it anyway.
             if($gate==='admission'&&($row['action']??'')==='live'&&($row['result']??'')==='admitted') {
                 try {
+                    unset($GLOBALS['molavi_storefront_blocks']);
+                    $row['verdict_reason']=$reason;
                     $reheld=molavi_domain_autopilot_rehold_live_admission($row,$now);
                     if(!empty($reheld['reheld']))$counts['reheld']++;
                 } catch(Throwable $e) {
@@ -1166,9 +1168,14 @@ function molavi_domain_autopilot_run_verdicts(array $settings,float $now): array
     // a flagged hold would vanish on the next tick unless re-asserted here.
     // Re-assert flags from the last 7 days (skipping overridden decisions).
     $flagged=molavi_domain_read('pipeline',static fn(SQLite3 $db)=>
-        molavi_domain_rows($db,"SELECT product_id, gate, verdict_reason FROM autopilot_log
+        molavi_domain_rows($db,"SELECT product_id, gate, verdict_reason FROM autopilot_log AS flag
             WHERE verdict='flag' AND rule_id<>'' AND action IN ('shadow','live')
-            AND result<>'overridden' AND created_at>=? ORDER BY created_at DESC LIMIT 50",
+            AND result NOT IN ('overridden','reverted') AND created_at>=?
+            AND NOT (flag.gate='admission' AND flag.action='shadow' AND EXISTS (
+                SELECT 1 FROM autopilot_log newer WHERE newer.product_id=flag.product_id AND newer.id>flag.id
+                AND newer.gate='admission' AND newer.action='live' AND newer.result='admitted'
+                AND newer.provenance='live' AND newer.verdict='ok'))
+            ORDER BY created_at ASC, id ASC",
             [$now-7*86400]));
     foreach($flagged as $flag) {
         $productId=(string)($flag['product_id']??'');
@@ -1269,7 +1276,7 @@ function molavi_domain_autopilot_rule(string $gate,array $settings,array $tables
         molavi_domain_row($db,'SELECT state FROM autopilot_rules WHERE id=?',[$gate]));
     if(($state['state']??'')==='suspended')return ['shadow'=>0,'live'=>0,'holds'=>0];
     $mode=(string)($settings['rule_modes'][$gate]??'shadow');
-    $live=(bool)($settings['master_enabled']??false)&&$mode==='live';
+    $live=$provenance==='live'&&!empty($settings['master_enabled'])&&$mode==='live';
     $shadow=(bool)($settings['shadow_enabled']??true);
     if(!$live&&!$shadow)return ['shadow'=>0,'live'=>0,'holds'=>0];
     return match($gate){
@@ -1352,7 +1359,7 @@ function molavi_domain_autopilot_rule_publish(array $settings,array $tables,floa
         if($already)continue;
         try {
             $result=molavi_domain_request_product_publication(
-                ['action'=>'request_publication','product_id'=>$id,'offer_id'=>$offerId]);
+                ['action'=>'request_publication','product_id'=>$id,'offer_id'=>$offerId],'g5');
         } catch(MolaviWorkflowError $e) {
             $reason=match($e->getMessage()){
                 'offer_changed'=>'پیشنهاد منبع تغییر کرده است.',
@@ -1365,6 +1372,7 @@ function molavi_domain_autopilot_rule_publish(array $settings,array $tables,floa
             });
             $counts['holds']++;continue;
         }
+        if (($result['state']??'')==='published') continue;
         $inputs['publish_job']=$result['publish_job']??null;
         molavi_domain_tx('pipeline',static function(SQLite3 $db)use($id,$inputs,$now,$result,$provenance,$globalHold): void {
             molavi_domain_autopilot_log($db,'g5','publish',$id,'',$inputs,1.0,'live',
@@ -1705,8 +1713,10 @@ function molavi_domain_autopilot_rule_admission(array $settings,array $tables,fl
     $dead=function_exists('molavi_dead_image_files')?molavi_dead_image_files():[];
     $registered=function_exists('molavi_domain_registered_products')?molavi_domain_registered_products():[];
     $wooByRecord=[];
+    $alreadyForSale=[];
     foreach($registered as $row) {
         $rid=(string)($row['source_record_id']??'');
+        if(!empty($row['published'])&&!empty($row['purchasable']))$alreadyForSale[$rid]=(string)($row['active_offer_id']??'');
         if($rid!==''&&($row['woo_product_id']??null))$wooByRecord[$rid]=(int)$row['woo_product_id'];
     }
     // Candidate set: imported products with a latest offer. Their spec
@@ -1847,6 +1857,7 @@ function molavi_domain_autopilot_rule_admission(array $settings,array $tables,fl
         if(!molavi_domain_supplier_available($record)) { $fail('کالا ناموجود است.'); continue; }
         // Arm 10: product hold (any other gate's hold, or a verdict flag).
         if(!empty($heldProducts[$id])) { $fail('کالا در توقف است.'); continue; }
+        if($live&&isset($alreadyForSale[$id])&&($alreadyForSale[$id]===''||$alreadyForSale[$id]===$offerId))continue;
         // All arms green.
         $saleEvidence=molavi_domain_sale_offer_evidence($record,$offer,$saved,$market[$id]['price']??null,(int)$now);
         // Closeness to the tightest arm threshold, measured at decision time
@@ -1957,54 +1968,66 @@ function molavi_domain_autopilot_rule_admission(array $settings,array $tables,fl
         // 'three' allows up to 3 in total, 'open' leaves the per-day cap
         // in charge. The stage advances only by an explicit API action.
         $cap=(int)($settings['admission_cap_per_day']??5);
-        $rollout=molavi_domain_read('pipeline',static fn(SQLite3 $db)=>
-            molavi_domain_autopilot_admission_rollout($db,$dayStart,$cap,$now));
-        if(empty($rollout['allowed'])) {
-            // In stage 'open' the rollout limit IS the per-day cap, so the
-            // block is reported as the daily cap, not as a stage limit.
-            $fail(($rollout['stage']??'')==='open'?'سقف روزانهٔ پذیرش پر شده است.':'سقف مرحله‌ای پذیرش زنده پر شده است.');
-            continue;
-        }
-        // The per-day cap stays as an independent backstop, counted from
-        // the log itself, so a lost or stale rollout row can never admit
-        // past the cap.
-        $done=molavi_domain_read('pipeline',static fn(SQLite3 $db)=>
-            molavi_domain_autopilot_live_count_today($db,'admission',$dayStart));
-        if($done>=$cap) { $fail('سقف روزانهٔ پذیرش پر شده است.'); continue; }
-        $already=molavi_domain_read('pipeline',static fn(SQLite3 $db)=>
-            (bool)molavi_domain_row($db,"SELECT 1 FROM autopilot_log WHERE gate='admission' AND product_id=?
-                AND action='live' AND result='admitted' AND created_at>=? LIMIT 1",[$id,$dayStart]));
-        if($already)continue;
-        try {
-            $result=molavi_domain_request_product_publication(
-                ['action'=>'request_publication','product_id'=>$id,'offer_id'=>$offerId]);
-        } catch(MolaviWorkflowError $e) {
-            $reason=match($e->getMessage()){
-                'offer_changed'=>'پیشنهاد منبع تغییر کرده است.',
-                'product_publication_prerequisite'=>'شرایط پذیرش برقرار نیست.',
-                'publication_held_for_review'=>'انتشار متوقف است.',
-                default=>'درخواست انتشار ناموفق بود.',
-            };
-            $fail($reason);continue;
-        }
-        $inputs['publish_job']=$result['publish_job']??null;
-        $receipt['publish_job']=$result['publish_job']??null;
-        // Effective tier at admission: the verdict is still pending (it
-        // runs after the rules in this tick), so the admission is flagged
-        // red regardless of closeness. risk_tier_closeness keeps the
-        // closeness-only tier for the review surface.
-        $inputs['risk_tier']='red';
-        $inputs['verdict_pending']=true;
-        $receipt['risk_tier']='red';
-        $receipt['verdict_pending']=true;
-        molavi_domain_tx('pipeline',static function(SQLite3 $db)use($id,$inputs,$receipt,$now,$confidence,$provenance,$globalHold,$closeness,$rollout): void {
-            $logId=molavi_domain_autopilot_log($db,'gA','admission',$id,'',$inputs,$confidence,'live','admitted',$now,$provenance,$globalHold,$closeness['closeness'],$closeness['arm'],'red');
-            $receipt['log_id']=$logId;
-            molavi_domain_autopilot_admission_receipt($db,$logId,$receipt);
-            molavi_domain_autopilot_admission_rollout_record($db,$rollout,$now);
-            molavi_domain_sql($db,"UPDATE autopilot_rules SET last_applied_at=?,apply_count=apply_count+1 WHERE id='gA'",[$now]);
+        $admitted=molavi_domain_lock('publication',static function()use($dayStart,$cap,$now,$fail,$id,$offerId,
+            $inputs,$receipt,$confidence,$provenance,$globalHold,$closeness): bool {
+            $rollout=molavi_domain_read('pipeline',static fn(SQLite3 $db)=>
+                molavi_domain_autopilot_admission_rollout($db,$dayStart,$cap,$now));
+            if(empty($rollout['allowed'])) {
+                // In stage 'open' the rollout limit IS the per-day cap, so the
+                // block is reported as the daily cap, not as a stage limit.
+                $fail(($rollout['stage']??'')==='open'?'سقف روزانهٔ پذیرش پر شده است.':'سقف مرحله‌ای پذیرش زنده پر شده است.');
+                return false;
+            }
+            // The per-day cap stays as an independent backstop, counted from
+            // the log itself, so a lost or stale rollout row can never admit
+            // past the cap.
+            $done=molavi_domain_read('pipeline',static fn(SQLite3 $db)=>
+                molavi_domain_autopilot_live_count_today($db,'admission',$dayStart));
+            if($done>=$cap) { $fail('سقف روزانهٔ پذیرش پر شده است.'); return false; }
+            $already=molavi_domain_read('pipeline',static fn(SQLite3 $db)=>
+                (bool)molavi_domain_row($db,"SELECT 1 FROM autopilot_log WHERE gate='admission' AND product_id=?
+                    AND action='live' AND result='admitted' AND created_at>=? LIMIT 1",[$id,$dayStart]));
+            if($already)return false;
+            try {
+                $result=molavi_domain_request_product_publication(
+                    ['action'=>'request_publication','product_id'=>$id,'offer_id'=>$offerId],'gA');
+            } catch(MolaviWorkflowError $e) {
+                $reason=match($e->getMessage()){
+                    'offer_changed'=>'پیشنهاد منبع تغییر کرده است.',
+                    'product_publication_prerequisite'=>'شرایط پذیرش برقرار نیست.',
+                    'publication_held_for_review'=>'انتشار متوقف است.',
+                    default=>'درخواست انتشار ناموفق بود.',
+                };
+                $fail($reason);return false;
+            }
+            if (($result['state']??'')==='published') return false;
+            $pendingJob=$result['publish_job']??null;
+            if (!$pendingJob) return false;
+            $logged=molavi_domain_read('pipeline',static fn(SQLite3 $db)=>molavi_domain_row($db,
+                "SELECT 1 FROM autopilot_log WHERE product_id=? AND gate='admission' AND action='live' AND result='admitted'
+                    AND json_extract(inputs_json,'$.publish_job')=? AND json_extract(inputs_json,'$.offer_id')=? LIMIT 1",
+                [$id,$pendingJob,$offerId]));
+            if ($logged) return false;
+            $inputs['publish_job']=$pendingJob;
+            $receipt['publish_job']=$result['publish_job']??null;
+            // Effective tier at admission: the verdict is still pending (it
+            // runs after the rules in this tick), so the admission is flagged
+            // red regardless of closeness. risk_tier_closeness keeps the
+            // closeness-only tier for the review surface.
+            $inputs['risk_tier']='red';
+            $inputs['verdict_pending']=true;
+            $receipt['risk_tier']='red';
+            $receipt['verdict_pending']=true;
+            molavi_domain_tx('pipeline',static function(SQLite3 $db)use($id,$inputs,$receipt,$now,$confidence,$provenance,$globalHold,$closeness,$rollout): void {
+                $logId=molavi_domain_autopilot_log($db,'gA','admission',$id,'',$inputs,$confidence,'live','admitted',$now,$provenance,$globalHold,$closeness['closeness'],$closeness['arm'],'red');
+                $receipt['log_id']=$logId;
+                molavi_domain_autopilot_admission_receipt($db,$logId,$receipt);
+                molavi_domain_autopilot_admission_rollout_record($db,$rollout,$now);
+                molavi_domain_sql($db,"UPDATE autopilot_rules SET last_applied_at=?,apply_count=apply_count+1 WHERE id='gA'",[$now]);
+            });
+            return true;
         });
-        $counts['live']++;
+        if($admitted)$counts['live']++;
     }
     return $counts;
 }
@@ -2197,6 +2220,7 @@ function molavi_domain_autopilot_api(string $method,array $query,?array $body,st
         });
         return ['ok'=>true,'settings'=>$merged,'changed'=>$changed];
     }
+    unset($GLOBALS['molavi_storefront_blocks']);
     if($action==='override_log') {
         molavi_domain_body_keys($body,['action','log_id']);
         if(!is_int($body['log_id']))molavi_domain_fail('invalid_body',400);

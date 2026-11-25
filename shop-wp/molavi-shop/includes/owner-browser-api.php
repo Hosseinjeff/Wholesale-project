@@ -38,6 +38,8 @@ function molavi_owner_workflow_proxy_paths(): array {
     $paths = array_column(molavi_owner_workflow_pages(), 0);
     return array_values(array_unique(array_merge($paths, [
         '/pipeline/reconciliation',
+        '/pipeline/supplier-link-checks',
+        '/pipeline/market-agreement',
         '/pipeline/reconcile-publication-backlog',
         '/pipeline/migration-shadow',
         '/pipeline/telegram-operator-chats',
@@ -431,7 +433,8 @@ add_action('wp_ajax_molavi_owner_workbench_dismissals', 'molavi_owner_workbench_
 function molavi_owner_workflow_token(string $scope): string {
     if (!molavi_reference_owner()) { return ''; }
     $allowed = array_merge(array_column(molavi_owner_workflow_pages(), 1),
-        ['owner:/pipeline/telegram-operator-chats','owner:/pipeline/migration-shadow']);
+        ['owner:/pipeline/telegram-operator-chats','owner:/pipeline/migration-shadow','owner:/pipeline/autopilot',
+            'owner:/pipeline/supplier-link-checks','owner:/pipeline/market-agreement']);
     if (!in_array($scope, $allowed, true)) { return ''; }
     $secret = defined('MOLAVI_REFERENCE_BRIDGE_TOKEN') ? MOLAVI_REFERENCE_BRIDGE_TOKEN : '';
     if (!is_string($secret) || strlen($secret) < 32) { return ''; }

@@ -16,6 +16,9 @@ CREATE TABLE IF NOT EXISTS jobs (
                 id TEXT PRIMARY KEY, payload TEXT NOT NULL, batch_id TEXT, received_at REAL);
                 CREATE TABLE IF NOT EXISTS publication_holds (
                 hold_id TEXT PRIMARY KEY, reason TEXT NOT NULL, created_at REAL NOT NULL);
+                CREATE TABLE IF NOT EXISTS owner_publication_permissions (
+                product_id TEXT PRIMARY KEY, offer_id TEXT NOT NULL, source_revision TEXT NOT NULL,
+                actor TEXT NOT NULL, requested_at REAL NOT NULL);
                 CREATE TABLE IF NOT EXISTS publication_hold_resolutions (
                 id INTEGER PRIMARY KEY, hold_id TEXT NOT NULL, reason TEXT NOT NULL,
                 actor_id TEXT NOT NULL, note TEXT NOT NULL, resolved_at REAL NOT NULL);

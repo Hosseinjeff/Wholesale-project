@@ -596,8 +596,8 @@ def extract_forward_data(message):
         data['author'] = chat.get('title', 'Channel')
         data['timestamp'] = forward_origin.get('date') or ''
         data['source_created_at'] = forward_origin.get('date') or ''
-        if chat.get('username'):
-            data['url'] = f"https://t.me/{chat['username']}/{forward_origin.get('message_id', '')}"
+        if chat.get('username') and forward_origin.get('message_id'):
+            data['url'] = f"https://t.me/{chat['username']}/{forward_origin['message_id']}"
 
     elif origin_type == 'user':
         sender = forward_origin.get('sender_user', {})
@@ -651,8 +651,8 @@ def extract_bale_forward_data(message):
         data['channel_username'] = f"@{chat.get('username', '')}" if chat.get('username') else chat.get('title', 'Channel')
         data['author'] = chat.get('title', 'Channel')
         data['timestamp'] = message.get('date')
-        if chat.get('username'):
-            data['url'] = f"https://bale.ai/{chat['username']}/{message.get('message_id', '')}"
+        if chat.get('username') and message.get('forward_from_message_id'):
+            data['url'] = f"https://bale.ai/{chat['username']}/{message['forward_from_message_id']}"
     elif forward_from:
         user = forward_from
         first_name = user.get('first_name', '')
@@ -911,7 +911,8 @@ def extract_direct_data(message, channel):
     source_update_at = (message.get('edit_date') or '') if is_channel_post else ''
     source_timestamp = (source_update_at or source_created_at) if is_channel_post else message.get('date')
     if is_channel_post and channel_username:
-        source_url = f"https://t.me/{channel_username}/{post_id}" if post_id else ''
+        host = 'bale.ai' if channel == 'bale' else 't.me'
+        source_url = f"https://{host}/{channel_username}/{post_id}" if post_id else ''
     else:
         source_url = ''
     author = (chat.get('title') or channel_username or 'Channel') if is_channel_post else (
@@ -938,6 +939,10 @@ def extract_direct_data(message, channel):
 def inbound_payload(message, channel):
     """Build the sheet payload for one Telegram or Bale update."""
     chat = message.get('chat') if isinstance(message.get('chat'), dict) else {}
+    legacy_origin = message.get('forward_from_chat')
+    if channel == 'telegram' and 'forward_origin' not in message and isinstance(legacy_origin, dict) and legacy_origin.get('type') == 'channel':
+        message = {**message, 'forward_origin': {'type': 'channel', 'chat': legacy_origin,
+                   'message_id': message.get('forward_from_message_id'), 'date': message.get('forward_date')}}
     if channel == 'telegram' and str(chat.get('type') or '') == 'channel':
         data = extract_direct_data(message, channel)
         source = 'channel'

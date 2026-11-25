@@ -225,7 +225,7 @@ function molavi_domain_status_api(string $method,array $query,?array $body,strin
         return array_merge(['ok'=>true],$current);
     }
     if($method==='POST'){
-        if (($body['action']??'')==='request_publication') return molavi_domain_request_product_publication($body);
+        if (($body['action']??'')==='request_publication') return molavi_domain_request_product_publication($body,$actor);
         if($body!==['action'=>'capture'])molavi_domain_fail('invalid_body',400);
         $capture=molavi_domain_status_capture(molavi_domain_sheets(['Products','Offers'],true),'owner_capture:'.$actor);
         return array_merge(['ok'=>true,'capture'=>$capture],molavi_domain_status_history());

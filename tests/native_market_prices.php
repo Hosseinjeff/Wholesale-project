@@ -1,12 +1,14 @@
 <?php
 declare(strict_types=1);
 define('MOLAVI_STATE_ROOT',sys_get_temp_dir().'/molavi-market-test-'.bin2hex(random_bytes(5)));
+define('MOLAVI_REFERENCE_OWNER_IDS',[7]);
 define('ABSPATH',MOLAVI_STATE_ROOT.'/wp/');
 function add_action(...$args){}
 function add_filter(...$args){}
 function get_transient($key){return $GLOBALS['cache'][$key]??false;}
 function set_transient($key,$value,$ttl){$GLOBALS['cache'][$key]=$value;}
 function get_option($key,$default=false){return $GLOBALS['options'][$key]??$default;}
+function add_option($key,$value,...$args){if(isset($GLOBALS['options'][$key]))return false;$GLOBALS['options'][$key]=$value;return true;}
 function update_option($key,$value,$autoload=false){$GLOBALS['options'][$key]=$value;}
 function wp_http_validate_url($url){return $url;}
 function wp_remote_retrieve_response_code($response){return $response['status'];}

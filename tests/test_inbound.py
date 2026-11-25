@@ -9,6 +9,21 @@ from catalog.durable import Handoffs
 
 
 class InboundPayloadTests(unittest.TestCase):
+    def test_forwarded_post_url_uses_the_supplier_message_id(self):
+        message = {'message_id': 99, 'text': 'catalog', 'date': 20, 'forward_date': 10,
+                   'chat': {'type': 'private'}, 'forward_from_message_id': 7,
+                   'forward_from_chat': {'type': 'channel', 'username': 'supplier'}}
+        for channel, host in [('telegram', 't.me'), ('bale', 'bale.ai')]:
+            with self.subTest(channel=channel):
+                data, source = inbound_payload(message, channel)
+                self.assertEqual(source, 'forward')
+                self.assertEqual(data['url'], f'https://{host}/supplier/7')
+                direct, _ = inbound_payload({'message_id': 13, 'text': 'catalog',
+                                             'chat': message['forward_from_chat']}, channel)
+                self.assertEqual(direct['url'], f'https://{host}/supplier/13')
+                missing = {key: value for key, value in message.items() if key != 'forward_from_message_id'}
+                self.assertEqual(inbound_payload(missing, channel)[0]['url'], '')
+
     def test_direct_text_keeps_chat_id_for_the_reply(self):
         data, source = inbound_payload({
             "message_id": 7,

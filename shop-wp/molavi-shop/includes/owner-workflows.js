@@ -581,7 +581,7 @@
     async function requestSupplierPrice(payload, apiKey = 'supplier_prices') {
         try { return await request('POST', payload, undefined, apiKey); }
         catch (error) {
-            if (!payload || !Object.prototype.hasOwnProperty.call(payload, 'command_id')
+            if (!payload || payload.check_ref || !Object.prototype.hasOwnProperty.call(payload, 'command_id')
                 || !error.responseBody || error.responseBody.error !== 'invalid_body') throw error;
             const compatiblePayload = {...payload};
             delete compatiblePayload.command_id;
@@ -1964,29 +1964,25 @@
                     const eventId = reviewEventId('supplier_price', offer.product_id);
                     const context = {product_id:offer.product_id,name:offer.name,channel:offer.channel,
                         sale_price:offer.sale_price,source_timestamp:offer.source_timestamp,
-                        source_revision:offer.source_revision};
-                    const decision = {action:'verify_current_supplier_price',note:'Owner checked the current supplier source.'};
+                        source_revision:offer.source_revision,previous_verified_at:offer.verified_at || ''};
                     // A no-change link check makes the confirmation auditable:
                     // the note carries the check reference, URL, and time.
                     const checkedLink = linkCheck && linkCheck.outcome === 'unchanged' && !linkCheck.confirmed_at && linkCheck.check_ref ? linkCheck : null;
                     const verifyNote = checkedLink ? linkCheckConfirmNote(checkedLink) : 'مالک منبع فعلی قیمت را از پنل بررسی تأیید کرد.';
+                    if (checkedLink) context.link_check_ref = checkedLink.check_ref;
+                    const decision = {action:'verify_current_supplier_price',note:verifyNote};
                     try {
                         const stored = await persistOwnerReviews([reviewRecord(eventId,'supplier_price',offer.product_id,'pending',context,decision)]);
                         const commandId = stored.commands[eventId];
                         if (!commandId) throw new Error('review_store_failed');
                         const receipt = await requestSupplierPrice({product_id:offer.product_id,
-                            expected_revision:offer.source_revision,note:verifyNote,
+                            expected_revision:offer.source_revision,note:verifyNote, ...(checkedLink ? {check_ref:checkedLink.check_ref} : {}),
                             command_id:commandId},'supplier_prices');
                         if (receipt.product_id !== offer.product_id || receipt.source_revision !== offer.source_revision
                             || receipt.command_id !== commandId || !receipt.verified_at || !receipt.publish_job) throw new Error('invalid_receipt');
                         let warning = '';
                         try { await persistOwnerReviews([reviewRecord(eventId,'supplier_price',offer.product_id,'accepted',context,decision,receipt)]); }
                         catch (_error) { warning = ' قیمت تأیید شد، اما رسید محلی وردپرس هنوز همگام نشده است.'; }
-                        if (checkedLink) {
-                            try { await request('POST', {action:'confirm', product_id:offer.product_id,
-                                check_ref:checkedLink.check_ref, verified_at:receipt.verified_at}, undefined, 'supplier_link_checks', {quiet:true}); }
-                            catch (_error) { warning = ' قیمت تأیید شد، اما ثبت بررسی لینک هنوز همگام نشده است.'; }
-                        }
                         offer.acknowledged = true;
                         verify.textContent = 'قیمت تأیید شد';
                         const message = `قیمت تأیید شد و انتشار دوباره در صف قرار گرفت.${warning}`;
@@ -2218,21 +2214,19 @@
             const eventId = reviewEventId('supplier_price', item.product_id);
             const context = {product_id:item.product_id, name:item.title, sale_price:item.stored_sale_price,
                 source_revision:item.source_revision, source_post_url:item.url, link_check_ref:item.check_ref || ''};
-            const decision = {action:'verify_current_supplier_price', note:'Owner confirmed the supplier price with the supplier after a no-change link check.'};
+            const decision = {action:'verify_current_supplier_price', note:linkCheckConfirmNote(item)};
             try {
                 const stored = await persistOwnerReviews([reviewRecord(eventId, 'supplier_price', item.product_id, 'pending', context, decision)]);
                 const commandId = stored.commands[eventId];
                 if (!commandId) throw new Error('review_store_failed');
                 const receipt = await requestSupplierPrice({product_id:item.product_id,
-                    expected_revision:item.source_revision, note:linkCheckConfirmNote(item),
+                    expected_revision:item.source_revision, note:decision.note, check_ref:item.check_ref,
                     command_id:commandId}, 'supplier_prices');
                 if (receipt.product_id !== item.product_id || receipt.source_revision !== item.source_revision
                     || receipt.command_id !== commandId || !receipt.verified_at || !receipt.publish_job) throw new Error('invalid_receipt');
                 let warning = '';
                 try {
                     await persistOwnerReviews([reviewRecord(eventId, 'supplier_price', item.product_id, 'accepted', context, decision, receipt)]);
-                    await request('POST', {action:'confirm', product_id:item.product_id,
-                        check_ref:item.check_ref, verified_at:receipt.verified_at}, undefined, 'supplier_link_checks', {quiet:true});
                 } catch (_error) { warning = ' قیمت تأیید شد، اما ثبت بررسی لینک هنوز همگام نشده است.'; }
                 updateActionStatus(progressStatus, `قیمت تأیید شد و انتشار دوباره در صف قرار گرفت.${warning}`, warning ? 'warning' : 'success');
                 await dashboard('قیمت تأیید شد و انتشار دوباره در صف قرار گرفت.', warning ? 'warning' : 'success',
