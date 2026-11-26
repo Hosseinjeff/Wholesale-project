@@ -57,6 +57,8 @@ function molavi_domain_supplier_link_check_reason_label(string $code): string {
         'fetch_blocked'=>'تلگرام جلوی خواندن را گرفت (C-S2؟)',
         'fetch_failed'=>'خواندن لینک ناموفق بود',
         'price_not_found'=>'قیمت در متن خوانده‌شده پیدا نشد (C-S6؟)',
+        'source_stock_changed'=>'پیام تأمین‌کننده اکنون به اتمام موجودی اشاره دارد؛ موجودی کالا بررسی شود',
+        'source_pack_changed'=>'مشخصات بسته یا اندازه با پیام قبلی تطابق ندارد',
         'price_ambiguous'=>'چند قیمت در پیام است؛ قیمت کالا مشخص نیست',
         'bot_forward_unavailable'=>'خواندن با ربات تنظیم نشده',
     ][$code] ?? $code;
@@ -165,7 +167,8 @@ function molavi_domain_supplier_link_check_bot_forward(string $channel, string $
 }
 
 /** Read money only from the identified supplier item. Keep retail, unit and carton roles separate. */
-function molavi_domain_supplier_item_prices(string $text,string $productName): array {
+function molavi_domain_supplier_item_prices(string $text, string $productName, array &$sourceSpec): array {
+    $sourceSpec = [];
     $titleKey=static fn(string $value): string => trim((string)preg_replace('/[^\pL\pN]+/u',' ',molavi_domain_extract_label_text($value)));
     $key=$titleKey($productName);
     if($key==='')return [];
@@ -173,19 +176,31 @@ function molavi_domain_supplier_item_prices(string $text,string $productName): a
     // Slash and Arabic separators may group thousands. A decimal with a multiplier
     // (1.5 million) is distinct from an amount grouped as 1/500/000.
     $number='(?<amount>\d{1,3}(?:[,٬٫./]\d{3})+|\d+(?:[.٫]\d{1,2})?)';
+    $count = '(?:(?:در\s+)?(?:کارتن|باکس|بسته|تعداد)\s*[:：]?\s*)?\d{1,4}\s*(?:عددی|تایی|عدد)';
+    $measure = '\d+(?:[٫./]\d+)?\s*(?:میلی\s*لیتری?|لیتری?|کیلوگرمی?|گرمی?)';
+    $metadata = '~^\s*(?:'.$count.'|'.$measure.')(?:\s*[،,]\s*(?:'.$count.'|'.$measure.'))*\s*$~uD';
     $money='~^\s*[:：=\-–]?\s*'.$number.'\s*(?<scale>هزار|میلیون)?\s*(?<currency>تومان|تومن|ریال)?\s*[.!،,؛]*\s*$~uD';
     foreach(preg_split('/\R/u',$text) ?: [] as $line) {
         $line=trim(molavi_domain_extract_label_text($line));
         if($line==='')continue;
         $labels=molavi_domain_extract_price_labels($line);
         $prefix=$labels?substr($line,0,$labels[0]['start']):$line;
-        if($titleKey($prefix)===$key) {
-            if($seen)return []; // Duplicate title, unclear which listing is current.
+        $lineKey = $titleKey($prefix);
+        $withoutCount = preg_replace('~\s+'.$count.'$~uD', '', $lineKey);
+        if ($lineKey === $key || $withoutCount === $key) {
+            if ($seen) return []; // Multiple matching pack variants need an owner.
+            $sourceSpec[] = $lineKey;
             $seen=$active=true;
             if(!$labels)continue;
         } elseif(!$active)continue;
         elseif($labels && $titleKey($prefix)!=='') { $active=false;continue; }
         if(!$labels) {
+            $details = preg_replace('/^[✅✔\x{FE0F}\s]+/u', '', $line);
+            if (preg_match($metadata, $details)) {
+                // Keep the decimal separator in a volume or weight.
+                $sourceSpec[] = preg_replace('/\s+/u', ' ', $details);
+                continue;
+            }
             if(!preg_match($money,$line,$m) || empty($m['currency'])) { $active=false;continue; }
             $labels=[['role'=>'stated','end'=>0]];
         }
@@ -253,8 +268,17 @@ function molavi_domain_supplier_link_check_classify(array $stored, ?array $live)
             'live_price'=>$storedPrice > 0 ? (string)$storedPrice : null, 'live_text'=>$liveText, 'route'=>$route];
     }
     $name=(string)($stored['name']??'');
-    $before=molavi_domain_supplier_item_prices($message,$name);
-    $after=molavi_domain_supplier_item_prices($liveText,$name);
+    // A post can describe several products. A new sold-out notice needs an owner to resolve its scope.
+    if (molavi_domain_extract_explicit_stock_status($liveText) === 'Out of Stock'
+        && molavi_domain_extract_explicit_stock_status($message) !== 'Out of Stock') {
+        return ['outcome'=>'uncheckable','reason_code'=>'source_stock_changed','live_price'=>null,'live_text'=>$liveText,'route'=>$route];
+    }
+    $beforeSpec = $afterSpec = [];
+    $before=molavi_domain_supplier_item_prices($message,$name,$beforeSpec);
+    $after=molavi_domain_supplier_item_prices($liveText,$name,$afterSpec);
+    if ($before && $after && $beforeSpec !== $afterSpec) {
+        return ['outcome'=>'uncheckable','reason_code'=>'source_pack_changed','live_price'=>null,'live_text'=>$liveText,'route'=>$route];
+    }
     $roles=array_keys(array_filter($before,static fn($amounts)=>count($amounts)===1&&isset($amounts[$storedPrice])));
     $prices=count($roles)===1?array_keys($after[$roles[0]]??[]):[];
     if(count($prices)!==1) {
