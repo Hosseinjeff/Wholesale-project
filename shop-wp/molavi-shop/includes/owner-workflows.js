@@ -423,6 +423,7 @@
         start_offer_reextraction:'بازاستخراج پیام',start_reextraction:'بازاستخراج گروهی',
         start_open_case_reextraction:'بازاستخراج موارد باز',start_recent_policy_reextraction:'بازاستخراج با قواعد فعلی',
         start_media_reextraction:'بازاستخراج رسانه',cancel_reextraction:'لغو پیام‌های باقی‌مانده',
+        register_price_from_message:'ثبت قیمت از پیام',
         refresh:'تازه‌سازی فهرست مرجع',review:'ثبت بررسی فهرست',activate:'فعال‌سازی مرجع',
         pause_review:'توقف تطبیق',use_last_snapshot:'ادامه با فهرست ذخیره‌شده',capture:'ثبت وضعیت محصولات',
         confirm:'تأیید مشخصات',not_product:'رد پیشنهاد',save_discount_policy:'به‌روزرسانی تخفیف‌ها',
@@ -843,10 +844,6 @@
     const workbenchQueue = 'next';
     let workbenchLoadId = 0;
     let workbenchData = null;
-    // Review surface (round six): the tab's risk filter survives dashboard
-    // reloads (renderAutopilot is rebuilt on every dashboard() call, so
-    // state kept next to it would reset after every review action).
-    let autopilotRiskFilter = 'all';
     const workbenchErrors = {};
     let workbenchReconciliation = null;
     let workbenchReconciliationError = '';
@@ -1080,10 +1077,179 @@
         return key;
     }
 
+    // The product's autopilot holds, from the cached autopilot read. The
+    // dashboard refreshes workbenchData before it renders any card, so this
+    // is the same list the «نیازمند تصمیم» notice reads (autopilotHold reads
+    // the same data inside dashboard()). [] when the autopilot read failed —
+    // the routing then falls back to the pre-G3 behaviour (fail open).
+    function workbenchAutopilotHolds(product) {
+        const holds = workbenchData?.autopilot?.holds || [];
+        return holds.filter(hold => String(hold.product_id) === String(product.product_id));
+    }
+
+    // G1 — a supplier-price row whose source revision is empty: the verify
+    // button is disabled and there is no open AI case to edit through. The
+    // owner registers the price (and its source) from the message instead.
+    // Returns the unacknowledged no-revision offer, or null.
+    function workbenchNeedsPriceRegistration(product) {
+        return (product.supplierPrices || []).find(offer => !offer.acknowledged
+            && !String(offer.source_revision || '').trim()) || null;
+    }
+
+    // G1 follow-up — the register-price-from-message form, extracted from
+    // the supplier_prices section so it can also render in the source tab
+    // («پیام تأمین‌کننده»), the tab the no-revision cards actually have.
+    // The supplier tab only exists when the price queue is the preferred
+    // action, so the form was unreachable for the 25 empty-revision offers
+    // whose preferred action is source_integrity (their missing URL is
+    // itself an integrity issue). `container` receives the progress/error
+    // notices — the section in the supplier tab, the panel in the source
+    // tab — and stays visible when the details close on success.
+    // `verify` is the supplier tab's verify button, flipped to its
+    // confirmed state on success (null in the source tab, where there is
+    // no verify button). `reviewStoreAvailable` is the dashboard's
+    // review-store flag (Boolean(config.reviewStoreUrl &&
+    // config.reviewStoreNonce)) — the submit button is disabled while
+    // the store is unavailable, because the submit persists the review
+    // first. It is passed in because this helper lives at module scope,
+    // outside dashboard(), where the flag's `contextStored` object is
+    // defined; reading that object here threw ReferenceError and broke
+    // the source tab and the dashboard refresh for no-revision cards.
+    // The form itself is G1's, unchanged: the owner
+    // types the price (and its source); it is written to the sheet and
+    // verified, so the verify button re-arms.
+    function workbenchPriceRegisterSection(product, offer, container, verify, reviewStoreAvailable) {
+        const register = document.createElement('details');
+        register.className = 'molavi-price-register';
+        register.open = true;
+        register.appendChild(node('summary', 'ثبت قیمت از پیام'));
+        const registerForm = document.createElement('form');
+        const storedPrice = Number(offer.sale_price);
+        registerForm.appendChild(field('قیمت تأییدشده به تومان', 'sale_price',
+            Number.isSafeInteger(storedPrice) && storedPrice > 0 ? String(storedPrice) : '',
+            'number', {required:true, min:1, step:1}));
+        const registerSource = String(product.status?.source_post_url || offer.source_post_url || '');
+        registerForm.appendChild(field('منبع قیمت (پیوند پیام تأمین‌کننده — اختیاری)', 'source_url',
+            registerSource, 'text', {maxLength:500}));
+        registerForm.appendChild(node('p', 'اگر قیمت را نمی‌دانید، پیام تازه از تأمین‌کننده بخواهید.', 'molavi-price-register-hint'));
+        const registerSubmit = node('button', 'ثبت قیمت و تأیید', 'button button-primary');
+        registerSubmit.type = 'submit';
+        registerSubmit.disabled = !reviewStoreAvailable;
+        registerForm.appendChild(registerSubmit);
+        register.appendChild(registerForm);
+        registerForm.addEventListener('submit', async event => {
+            event.preventDefault();
+            if (!registerForm.reportValidity()) return;
+            const data = new FormData(registerForm);
+            const price = Number(data.get('sale_price'));
+            if (!Number.isSafeInteger(price) || price < 1) { errorBox('قیمت معتبر وارد کنید.', container); return; }
+            const url = String(data.get('source_url') || '').trim();
+            if (url !== '' && !url.startsWith('https://')) { errorBox('پیوند منبع باید با https:// شروع شود.', container); return; }
+            registerSubmit.disabled = true;
+            const originalLabel = registerSubmit.textContent;
+            registerSubmit.textContent = 'در حال ثبت…';
+            const progressStatus = actionStatus(container, 'در حال ثبت قیمت با درخواست AJAX…');
+            const registerEventId = reviewEventId('supplier_price', offer.product_id);
+            const registerContext = {product_id:offer.product_id, name:offer.name, channel:offer.channel,
+                sale_price:price, previous_sale_price:offer.sale_price, source_url:url,
+                source_timestamp:offer.source_timestamp, previous_verified_at:offer.verified_at || ''};
+            const registerNote = url !== '' ? `مالک قیمت را از پیام ثبت کرد؛ منبع: ${url}` : 'مالک قیمت را از پیام ثبت کرد.';
+            const registerDecision = {action:'register_price_from_message', note:registerNote};
+            try {
+                await persistOwnerReviews([reviewRecord(registerEventId,'supplier_price',offer.product_id,'pending',registerContext,registerDecision)]);
+                const receipt = await requestSupplierPrice({action:'register_price_from_message',
+                    product_id:offer.product_id, sale_price:price, ...(url!==''?{source_url:url}:{}),
+                    note:registerNote}, 'supplier_prices');
+                if (receipt.product_id !== offer.product_id || !receipt.source_revision || !receipt.verified_at || !receipt.publish_job) throw new Error('invalid_receipt');
+                try { await persistOwnerReviews([reviewRecord(registerEventId,'supplier_price',offer.product_id,'accepted',registerContext,registerDecision,receipt)]); }
+                catch (_error) { /* local receipt sync is best-effort; the price is verified */ }
+                offer.acknowledged = true;
+                offer.source_revision = receipt.source_revision;
+                offer.sale_price = price;
+                if (verify) { verify.textContent = 'قیمت تأیید شد'; verify.disabled = true; }
+                register.open = false;
+                updateActionStatus(progressStatus, 'قیمت ثبت و تأیید شد و انتشار دوباره در صف قرار گرفت.', 'success');
+                await dashboard('قیمت ثبت و تأیید شد و انتشار دوباره در صف قرار گرفت.', 'success',
+                    ['supplier_prices','supplier_link_checks','product_status','operations']);
+            } catch (error) {
+                try { await persistOwnerReviews([reviewRecord(registerEventId,'supplier_price',offer.product_id,error.remoteRejected?'failed':'pending',registerContext,registerDecision,{error:String(error.message||'request_failed')})]); }
+                catch (_ignored) {}
+                registerSubmit.textContent = originalLabel;
+                registerSubmit.disabled = !reviewStoreAvailable;
+                updateActionStatus(progressStatus, errorText(error.message), 'error');
+                errorBox(errorText(error.message), container);
+            }
+        });
+        return register;
+    }
+
+    // G9 — an unacknowledged supplier-price row whose source link was
+    // checked and found unchanged, and not yet confirmed by the owner: the
+    // confirm is fast (the link was already read), so the first-view line
+    // says so instead of the generic verify wording. The link check is
+    // attached to the offer only when its source revision matches
+    // (molavi-domain-supplier-prices.php), so a row carrying one has a
+    // valid revision by construction.
+    function workbenchHasUnchangedLinkCheck(product) {
+        return (product.supplierPrices || []).some(offer => !offer.acknowledged
+            && offer.link_check && offer.link_check.outcome === 'unchanged'
+            && !offer.link_check.confirmed_at);
+    }
+
+    // G3 — hold-aware routing. When an autopilot hold stands and the
+    // sale-offer blocker is empty, the next step must point at the hold's
+    // cause, not at publication: a publish request would fail or be held
+    // while the cause stands. The cause is read from the hold's GATE (the
+    // API holds list), not from the reason text — the admission hold's
+    // reason is generic ('کالا در توقف است.') because it only mirrors
+    // another gate's hold. Precedence: a market hold is the concrete fix
+    // (pick a quote) and wins over a verdict reason that merely names the
+    // supplier price; a supplier-price hold is next; a flagged verdict is
+    // classified by its reason's keywords (market/regular → market tab,
+    // supplier price → supplier tab, market checked first because a reason
+    // that names both — e.g. 'قیمت تأمین‌کننده بسیار بالاتر از نقل‌قول‌های
+    // بازار است.' — is fixed by picking a quote, not by re-verifying an
+    // already-verified supplier price). An owner hold alone is deliberate,
+    // not a fixable cause — it routes nowhere, and a hold with no routable
+    // cause falls through to the normal routing. Returns {key, reason, gate}
+    // or null.
+    function workbenchHoldRoute(product) {
+        if (product.status?.sale_offer_blocker) return null;
+        const holds = workbenchAutopilotHolds(product);
+        const market = holds.find(hold => hold.gate === 'market');
+        if (market) return {key:'market_prices', reason:String(market.reason || ''), gate:'market'};
+        const supplier = holds.find(hold => hold.gate === 'supplier_price');
+        if (supplier) return {key:'supplier_prices', reason:String(supplier.reason || ''), gate:'supplier_price'};
+        const summary = product.status?.step_trace?.autopilot;
+        if (summary && summary.verdict === 'flag') {
+            const reason = `${summary.verdict_reason || ''} ${summary.reason || ''}`;
+            if (/نقل‌قول|قیمت عادی/.test(reason)) return {key:'market_prices', reason:String(summary.verdict_reason || ''), gate:'verdict'};
+            if (/قیمت تأمین‌کننده/.test(reason)) return {key:'supplier_prices', reason:String(summary.verdict_reason || ''), gate:'verdict'};
+        }
+        return null;
+    }
+
     function workbenchPendingAction(product) {
         if (!product.holds.length&&product.ai.some(item=>item.message_review&&!item.publication_held&&!workbenchAiCaseIsDismissed(item)))
             return 'ai';
-        return workbenchActionOrder.find(key=>workbenchQueueMatches(product,key,true))||'next';
+        const key = workbenchActionOrder.find(key=>workbenchQueueMatches(product,key,true))||'next';
+        // G3: a hold-blocked product whose normal step is publication must
+        // be pointed at the hold's cause instead — the publish request
+        // cannot work while the cause stands.
+        // G3 follow-up: the same applies when the normal step is 'next' or
+        // 'storefront'. A published+held product (e.g. cappuccino: already
+        // live, regular price current, market hold) matches no queue, so
+        // its normal step is 'next' — a dead end with no next-step line
+        // and no tab marker at all. And when the Woo state is a mismatch,
+        // the normal step is 'storefront' — a reconcile diagnostic, not the
+        // fix. The hold's cause is the only path forward in both cases.
+        // Every earlier queue (spec, prices, conflicts, holds, …) already
+        // names the real work and keeps its precedence.
+        if (key==='status'||key==='next'||key==='storefront') {
+            const holdRoute = workbenchHoldRoute(product);
+            if (holdRoute) return holdRoute.key;
+        }
+        return key;
     }
 
     function workbenchActionKey(product) {
@@ -1138,8 +1304,28 @@
 
     function workbenchNextStep(product, queue = workbenchQueue) {
         const key = workbenchActionForQueue(product, queue);
+        // G3: when the hold router sent the card to the hold's cause, say so
+        // in the first-view line — the generic tab text would not name the
+        // block, and for a market hold the regular price is current, so the
+        // ordinary market-prices wording does not apply at all.
+        const holdRoute = workbenchHoldRoute(product);
+        if (holdRoute && key === holdRoute.key) {
+            if (holdRoute.key === 'market_prices') return 'نقل‌قول‌های بازار همخوان نیستند؛ یک نقل‌قول را انتخاب کنید.';
+            if (holdRoute.key === 'supplier_prices') return 'قیمت تأمین‌کننده به بازبینی نیاز دارد؛ منبع فعلی را بررسی و تأیید کنید.';
+        }
         if (key==='product_messages') return 'پیام‌های رسیده برای این کالا را مقایسه کنید و یک پیام را برای بررسی انتخاب کنید.';
-        if (key === 'source_integrity') return 'انتشار متوقف است؛ پیام اصلی یا پیشنهاد تازهٔ همین کالا را به ربات بفرستید.';
+        if (key === 'source_integrity') {
+            // G1 follow-up — the price row has no valid revision: the
+            // path is registering the price from the message, not
+            // sending a fresh message. (A hold notice above the card
+            // still shows a hold when one stands.)
+            if (workbenchNeedsPriceRegistration(product)) return 'نسخهٔ معتبر قیمت برای این ردیف ثبت نشده است؛ قیمت را از پیام تأمین‌کننده ثبت کنید.';
+            // G12: the source path is external-only (a fresh message to
+            // the bot) — say so in plain words on the first view; the
+            // card refreshes when the new extraction lands. No re-link
+            // or re-extract action: a gone offer is not fixed from here.
+            return 'پیام تازه را به ربات بفرستید؛ وقتی استخراج آماده شد، همین کارت به‌روز می‌شود.';
+        }
         if (key === 'ai') {
             const cases = product.ai.filter(item=>!workbenchAiCaseIsDismissed(item));
             if (cases.some(item => item.publication_held)) return 'جزئیات و اقدام دستهٔ متوقف‌شده را باز کنید؛ تصمیم این استخراج تا رفع همان توقف قفل است.';
@@ -1152,15 +1338,46 @@
         }
         if (key === 'references') return 'مرجع درست و مبنای قیمت را انتخاب کنید.';
         if (key === 'conflicts') return 'مقدار سرور را نگه دارید؛ فقط اگر خودتان شیت را دستی تغییر داده‌اید، اصلاح شیت را به فروشگاه بفرستید.';
-        if (key === 'stock') return 'پس از اعلام موجودی، پیام تازهٔ تأمین‌کننده را به ربات بفرستید.';
-        if (key === 'supplier_prices') return workbenchReadyAction(product) === key
-            ? 'قیمت تأمین‌کننده را با پیشنهاد فعلی بررسی و تأیید کنید.'
-            : 'برای تأیید، پیام فعلی تأمین‌کننده و نسخهٔ معتبر قیمت لازم است.';
+        // G12: the stock path is external-only — the supplier announces
+        // stock in a fresh message, so the first view says to send one.
+        // No manual back-in-stock override: the availability rule
+        // stands (a supplier message means available unless it says not).
+        if (key === 'stock') return 'وقتی تأمین‌کننده موجودی را اعلام کرد، پیام تازه را به ربات بفرستید.';
+        if (key === 'supplier_prices') {
+            // G1: no valid source revision — the verify button is disabled,
+            // so the path is registering the price from the message, not
+            // verifying a version that does not exist.
+            if (workbenchNeedsPriceRegistration(product)) return 'نسخهٔ معتبر قیمت برای این ردیف ثبت نشده است؛ قیمت را از پیام تأمین‌کننده ثبت کنید.';
+            // G9: the source link was already checked and the price is
+            // unchanged — the owner confirm is fast, say so. (A hold, via
+            // the hold route above, still takes precedence over this text.)
+            if (workbenchHasUnchangedLinkCheck(product)) return 'لینک منبع بررسی شد؛ قیمت بدون تغییر است. با تأمین‌کننده تأیید کنید.';
+            return workbenchReadyAction(product) === key
+                ? 'قیمت تأمین‌کننده را با پیشنهاد فعلی بررسی و تأیید کنید.'
+                : 'برای تأیید، پیام فعلی تأمین‌کننده و نسخهٔ معتبر قیمت لازم است.';
+        }
         if (key === 'market_prices') return ({missing:'قیمت عادی را از یک منبع به‌روز پیدا و تأیید کنید.',
             expired:'اعتبار قیمت عادی پایان یافته است. منبع قیمت را به‌روزرسانی کنید.',
             unverified:'قیمت عادی ثبت‌شده به مدرک به‌روز نیاز دارد.'})[product.status?.regular_price_state]||'قیمت عادی را بررسی کنید.';
         if (key === 'holds') return 'جزئیات پیام‌های همان دسته را باز کنید و یک‌بار اقدام بازیابی را اجرا کنید.';
         if (key === 'deferred') return 'گام فعلی کنار گذاشته شده است؛ برای ادامه آن را در وضعیت سیستم بازگردانید.';
+        // G8: thin spread is not diagnostic in one line — name both prices
+        // so the owner sees which side is wrong. Both values come from the
+        // step trace (same pack basis); when either is missing, fall
+        // through to the generic line below rather than inventing a number.
+        if (key === 'status' && product.status?.sale_offer_blocker === 'thin_spread') {
+            const traceSteps = product.status?.step_trace?.steps;
+            const traceFact = (stepKey, label) => {
+                if (!Array.isArray(traceSteps)) return null;
+                const step = traceSteps.find(item => item.key === stepKey);
+                const fact = step && Array.isArray(step.facts) ? step.facts.find(item => item[0] === label) : null;
+                return fact ? fact[1] : null;
+            };
+            const supplierPrice = Number(traceFact('supplier_price', 'قیمت ثبت‌شده'));
+            const regularPrice = Number(traceFact('regular_price', 'قیمت عادی'));
+            if (Number.isFinite(supplierPrice) && supplierPrice > 0 && Number.isFinite(regularPrice) && regularPrice > 0)
+                return `قیمت تأمین‌کننده ${supplierPrice.toLocaleString('fa-IR')} است و قیمت عادی ${regularPrice.toLocaleString('fa-IR')}؛ برای تخفیف باید قیمت تأمین‌کننده کمتر یا قیمت عادی بیشتر شود.`;
+        }
         if (key === 'status'&&product.status?.sale_offer_blocker==='thin_spread') return 'اختلاف قیمت تأمین‌کننده و قیمت عادی برای تخفیف کافی نیست؛ قیمت‌ها را بازبینی کنید.';
         if (key === 'status'&&product.status?.sale_offer_blocker==='no_spread') return 'برای عرضه، قیمت عادی باید از قیمت تأمین‌کننده بیشتر باشد.';
         if (key === 'status'&&product.status?.publication_needed) return 'قیمت‌ها و مشخصات تأیید شده‌اند. انتشار را به صف بفرستید.';
@@ -1818,7 +2035,8 @@
                     embedded:true, apiKey:'ai_confirmations', refresh:refreshInPlace,
                     sourcePriceGap, sourceVariantGap, sourceStockGap,
                     holdTarget:'',
-                    parentName:product.name, parentChannel:product.channel, parentImageId:product.ai[0]?.image_file_id
+                    parentName:product.name, parentChannel:product.channel, parentImageId:product.ai[0]?.image_file_id,
+                    parentLinkCheck:product.link_check || null
                 });
                 const title = node('h3', item.message_review?'بررسی پیام انتخاب‌شده':item.publication_review?'بازبینی برای انتشار'
                     :item.reopened?'بازبینی کالای منتشرشده':'استخراج از پیام تأمین‌کننده');
@@ -1833,8 +2051,15 @@
                 panel.append(title);
                 const content=node('div');
                 panel.append(content);
+                // Render the case immediately: the owner's confirm/dismiss
+                // decision must never wait behind the reference-candidate
+                // lookup. Candidates enrich the reference area in the
+                // background when they arrive; a slow or hung lookup used
+                // to leave only «در حال بررسی مرجع این پیشنهاد…» and no
+                // case at all (beer message 7218).
+                content.replaceChildren(renderCase());
+                let candidateNotice=null;
                 const readCandidates=async()=>{
-                    content.replaceChildren(node('p','در حال بررسی مرجع این پیشنهاد…'));
                     try {
                         await Promise.all(relatedItems.map(async row=>{
                             if (!row.reference_snapshot_id || row.reference_match_id || row.reference_assignment?.choice==='match') return;
@@ -1847,12 +2072,17 @@
                             row.reference_candidates=[...new Map(merged.map(candidate=>[candidate.reference_id,candidate])).values()].slice(0,12);
                             row.reference_snapshot_id=result.snapshot_id || '';
                         }));
-                        content.replaceChildren(renderCase());
+                        if (content.isConnected) content.replaceChildren(renderCase());
                     } catch(error) {
+                        // The case is already visible; surface a retry for
+                        // the reference suggestions without hiding it.
+                        if (!content.isConnected || candidateNotice) return;
                         const retry=node('button','تلاش دوباره','button');
                         retry.type='button';
                         retry.addEventListener('click',readCandidates);
-                        content.replaceChildren(notice('پیشنهادهای خودکار دریافت نشد. می‌توانید فهرست را جست‌وجو کنید یا بدون مرجع ادامه دهید.','warning'),retry,renderCase());
+                        candidateNotice=node('div',null,'molavi-ai-candidate-error');
+                        candidateNotice.append(notice('پیشنهادهای خودکار دریافت نشد. می‌توانید فهرست را جست‌وجو کنید یا بدون مرجع ادامه دهید.','warning'),retry);
+                        content.prepend(candidateNotice);
                     }
                 };
                 addWorkflowSection(panel, 'ai');
@@ -1953,6 +2183,12 @@
                 verify.disabled = offer.acknowledged || !sourceRevision || !contextStored.supplier_prices;
                 if (!offer.acknowledged && !sourceRevision) {
                     section.appendChild(notice('برای این ردیف قیمت فروش معتبر در منبع فعلی ثبت نشده است؛ ابتدا داده قیمت را اصلاح کنید. این مورد قابل تأیید نیست.', 'warning'));
+                    // G1 — register the price from the message. The owner
+                    // types the price (and its source); it is written to
+                    // the sheet and verified, so the verify button re-arms.
+                    // No AI case is needed. Telegram stays manual: the
+                    // "fresh message" line is a note, not a message.
+                    section.appendChild(workbenchPriceRegisterSection(product, offer, section, verify, reviewStoreAvailable));
                 } else if (!offer.acknowledged && !contextStored.supplier_prices) {
                     section.appendChild(notice('ثبت زمینه این بررسی در پایگاه داده وردپرس ناموفق بود؛ اقدام غیرفعال است.', 'error'));
                 }
@@ -2152,20 +2388,16 @@
 
             return card;
         };
-        // Review surface (round six): risk badges, filter and sort. Pure
-        // helpers, so the ordering rule is one place: red first, then
-        // amber, then green, then untiered; within a tier the API order
-        // (newest first) is kept. A tier the server did not send fails
-        // closed to red. Tiering is defined only for admission rows; other
-        // gates render 'none' (neutral, never green, never red).
-        const autopilotRiskOrder = {red:0, amber:1, green:2, none:3};
+        // Review surface (round six): risk badges. A tier the server did
+        // not send fails closed to red. Tiering is defined only for
+        // admission rows; other gates render 'none' (neutral, never green,
+        // never red). The history arrives newest-first from the trace
+        // builder; the risk filter lives on the Products list, not here.
         const autopilotRiskLabels = {red:'پرخطر', amber:'ریسک متوسط', green:'کم‌ریسک', none:'بدون درجه‌بندی'};
         const autopilotRiskTier = row => {
             const tier = String(row && row.risk_tier || '');
             return ['red','amber','green','none'].includes(tier) ? tier : 'red';
         };
-        const autopilotRiskSort = rows => [...rows].sort((a,b) => autopilotRiskOrder[autopilotRiskTier(a)] - autopilotRiskOrder[autopilotRiskTier(b)]);
-        const autopilotRiskFilterRows = (rows, filter) => filter === 'all' ? [...rows] : rows.filter(row => autopilotRiskTier(row) === filter);
         const autopilotRiskIcon = tier => {
             const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
             svg.setAttribute('viewBox','0 0 16 16');
@@ -2194,6 +2426,198 @@
         const autopilotHold = product => {
             const holds = data?.autopilot?.holds || [];
             return holds.find(hold => String(hold.product_id) === String(product.product_id)) || null;
+        };
+        // Autopilot on the product card (owner request 2026-11-26): the
+        // decisions tab dissolves into the Products cards. The labels below
+        // are the tab's labels, kept so the card and the tab cannot disagree.
+        const autopilotGateLabels = {publish:'انتشار',market:'قیمت عادی',supplier_price:'قیمت تأمین‌کننده',admission:'پذیرش',admission_owner:'توقف مالک',settings:'تنظیمات'};
+        const autopilotRuleLabels = {g5:'درخواست انتشار',g4:'انتخاب نقل‌قول بازار',g3:'تأیید قیمت تأمین‌کننده',gA:'پذیرش کالا'};
+        const autopilotActionLabels = {shadow:'سایه (انجام نشد)',live:'انجام شد',override:'لغو شد',revert:'بازگردانده شد',hold:'متوقف شد',release_hold:'توقف رفع شد',confirm:'بازبینی شد',settings:'تنظیمات'};
+        const autopilotVerdictLabels = {pending:'در انتظار',approved:'تأیید شد',flagged:'نیازمند بررسی',ok:'تأیید شد',flag:'نیازمند بررسی',not_run:'اجرا نشد'};
+        // The one-line explanation of why the product is in its state.
+        // Priority: the verdict reason when the verdict flagged, then the
+        // risk reason (tightest arm + values), then the hold reason, then
+        // a plain line. Never invented — every value comes from the trace.
+        const autopilotStateExplanation = summary => {
+            if (summary.verdict === 'flag' && summary.verdict_reason) return summary.verdict_reason;
+            if (summary.reason) return summary.reason;
+            if (summary.hold_reason) return summary.hold_reason;
+            if (summary.state === 'not_evaluated') return 'هنوز ارزیابی پذیرش ثبت نشده است.';
+            return summary.state_label || '';
+        };
+        // G5 — wait-state copy: a silent wait becomes an obvious one. Only
+        // the states with nothing to do get a line. A hold, a blocker, or
+        // a flagged verdict already names the work, and the wait line must
+        // never override it — so those return '' here. The cap comes from
+        // the live autopilot read the card already receives
+        // (admission_rollout.remaining); when it is unavailable, no claim
+        // is made about the next tick. 'would_admit' with the autopilot off
+        // (master off or gA shadow) is a wait that will not happen, said
+        // plainly. Returns the line, or ''.
+        const autopilotWaitLine = (summary, product, autopilot) => {
+            if (!summary) return '';
+            if (summary.state === 'blocked' || summary.state === 'reverted') return '';
+            if (summary.verdict === 'flag') return '';
+            if (summary.hold_reason) return '';
+            if (product && product.status && product.status.sale_offer_blocker) return '';
+            if (summary.state === 'not_evaluated') return 'در تیک بعدی خلبان خودکار ارزیابی می‌شود.';
+            if (summary.state === 'would_admit') {
+                if (!summary.active) return 'خلبان خودکار خاموش است؛ پذیرش انجام نمی‌شود.';
+                const rollout = autopilot && autopilot.admission_rollout;
+                const remaining = rollout ? Number(rollout.remaining) : NaN;
+                if (Number.isFinite(remaining)) return remaining > 0 ? 'در تیک بعدی پذیرفته می‌شود.' : 'سقف پذیرش امروز پر شده؛ فردا پذیرفته می‌شود.';
+                if (rollout && typeof rollout.allowed === 'boolean') return rollout.allowed ? 'در تیک بعدی پذیرفته می‌شود.' : 'سقف پذیرش امروز پر شده؛ فردا پذیرفته می‌شود.';
+                return '';
+            }
+            return '';
+        };
+        // One decision row on the card, rendered exactly as the tab rendered
+        // it (same badge, detail line, verdict line, reviewed line). The
+        // four per-decision actions call the SAME autopilot API endpoints
+        // the tab used; the API is unchanged. After an action, the dashboard
+        // re-reads product_status + autopilot so the card re-renders with
+        // the new state. Rule-level actions (override a decision, suspend
+        // a rule) are NOT on the card — they act on the rule, not the
+        // product; suspending is available through the rule modes in the
+        // settings view.
+        const renderAutopilotHistoryRow = (row, product, ownerHeld) => {
+            const item = document.createElement('div');
+            item.className = 'molavi-autopilot-log-row';
+            const inputs = row.inputs || {};
+            let detail = '';
+            if (row.gate==='market' && inputs.url) detail = `نقل‌قول: ${inputs.url}${Number.isFinite(Number(inputs.spread)) ? ` · اختلاف ${(Number(inputs.spread)*100).toLocaleString('fa-IR',{maximumFractionDigits:1})}٪` : ''}${inputs.basis ? ` · مبنا: ${inputs.basis === 'agreement' ? 'هم‌خوانی نقل‌قول‌ها' : 'تطبیق با مرجع'}` : ''}`;
+            else if (row.gate==='supplier_price' && inputs.source_revision) detail = `بازبینی: ${String(inputs.source_revision).slice(0,12)}…`;
+            else if (row.gate==='publish' && inputs.publish_job) detail = `کار صف: ${inputs.publish_job}`;
+            else if (row.gate==='admission' && Number.isFinite(Number(inputs.supplier_price))) detail = `قیمت تأمین‌کننده: ${Number(inputs.supplier_price).toLocaleString('fa-IR')} · قیمت عادی: ${Number(inputs.regular_price).toLocaleString('fa-IR')}${inputs.spec_via ? ` · مشخصات: ${inputs.spec_via === 'auto-import' ? 'واردشدهٔ خودکار' : inputs.spec_via === 'owner-confirm' ? 'تأیید مالک' : 'بازبینی هوش مصنوعی'}` : ''}`;
+            else if (row.action==='settings') detail = `تغییر تنظیمات: ${Object.keys(inputs.changed || {}).join('، ') || '—'}`;
+            else if (row.action==='override') detail = `لغو تصمیم شمارهٔ ${inputs.overrides_log_id ?? '—'}`;
+            item.appendChild(node('p',`${autopilotRuleLabels[row.rule_id] || autopilotGateLabels[row.gate] || row.gate || '—'} · ${autopilotActionLabels[row.action] || row.action}`));
+            item.appendChild(autopilotRiskBadge(row));
+            if (detail) item.appendChild(node('p',detail));
+            if (row.risk_reason) item.appendChild(node('p',row.risk_reason));
+            if (row.gate==='admission' && row.verdict==='pending') item.appendChild(node('p','داوری در انتظار است؛ تا زمان داوری، این تصمیم پرخطر شمرده می‌شود.','molavi-risk-pending'));
+            if (Number(row.reviewed_at) > 0) item.appendChild(node('p',`بازبینی شد${row.reviewed_by ? ` — ${row.reviewed_by}` : ''} · ${formatSourceTimestamp(Math.floor(Number(row.reviewed_at)))}`));
+            const verdictText = autopilotVerdictLabels[row.verdict] || row.verdict || 'در انتظار';
+            const verdictLine = row.verdict_reason ? `داوری: ${verdictText} — ${row.verdict_reason}` : `داوری: ${verdictText}`;
+            item.appendChild(node('p',`${Number.isFinite(Number(row.confidence)) ? `اطمینان: ${Math.round(Number(row.confidence)*100)}٪ · ` : ''}${verdictLine}${row.created_at ? ` · ${formatSourceTimestamp(Math.floor(Number(row.created_at)))}` : ''}${row.action==='shadow' ? ' · سایه' : ''}`));
+            const statusBox = node('p','');
+            item.appendChild(statusBox);
+            const isDecision = ['shadow','live'].includes(row.action);
+            const isUndone = ['overridden','reverted'].includes(row.result);
+            const refresh = async message => { await dashboard(message,'success',['product_status','autopilot','operations']); };
+            if (row.gate==='admission' && isDecision && ['would_admit','admitted'].includes(row.result) && !isUndone) {
+                const revertButton = node('button','بازگردانی پذیرش','button button-secondary');
+                revertButton.type='button';
+                revertButton.addEventListener('click', async () => {
+                    revertButton.disabled=true; statusBox.textContent='در حال بازگردانی پذیرش…';
+                    try {
+                        const result = await request('POST',{action:'revert_decision',log_id:Number(row.id)},undefined,'autopilot');
+                        await refresh(result.hidden===true ? 'پذیرش بازگردانده شد؛ کالا پنهان شد.' : 'پذیرش بازگردانده شد؛ توقف پذیرش ثبت شد.');
+                    } catch(error) { statusBox.textContent=errorText(error.message); revertButton.disabled=false; }
+                });
+                item.appendChild(revertButton);
+                if (!ownerHeld) {
+                    const holdButton = node('button','توقف پذیرش','button button-secondary');
+                    holdButton.type='button';
+                    holdButton.addEventListener('click', async () => {
+                        holdButton.disabled=true; statusBox.textContent='در حال توقف پذیرش…';
+                        try {
+                            await request('POST',{action:'hold_decision',log_id:Number(row.id)},undefined,'autopilot');
+                            await refresh('پذیرش کالا متوقف شد.');
+                        } catch(error) { statusBox.textContent=errorText(error.message); holdButton.disabled=false; }
+                    });
+                    item.appendChild(holdButton);
+                }
+            }
+            if (row.gate==='admission' && ownerHeld) {
+                const releaseButton = node('button','رفع توقف پذیرش','button button-secondary');
+                releaseButton.type='button';
+                releaseButton.addEventListener('click', async () => {
+                    releaseButton.disabled=true; statusBox.textContent='در حال رفع توقف پذیرش…';
+                    try {
+                        await request('POST',{action:'release_hold',product_id:String(row.product_id)},undefined,'autopilot');
+                        await refresh('توقف پذیرش رفع شد.');
+                    } catch(error) { statusBox.textContent=errorText(error.message); releaseButton.disabled=false; }
+                });
+                item.appendChild(releaseButton);
+            }
+            if (isDecision && !isUndone && !Number(row.reviewed_at)) {
+                const confirmButton = node('button','تأیید بازبینی','button button-secondary');
+                confirmButton.type='button';
+                confirmButton.addEventListener('click', async () => {
+                    confirmButton.disabled=true; statusBox.textContent='در حال ثبت بازبینی…';
+                    try {
+                        await request('POST',{action:'confirm_reviewed',log_id:Number(row.id)},undefined,'autopilot');
+                        await refresh('بازبینی ثبت شد.');
+                    } catch(error) { statusBox.textContent=errorText(error.message); confirmButton.disabled=false; }
+                });
+                item.appendChild(confirmButton);
+            }
+            return item;
+        };
+        // The autopilot section for one product card: the current state
+        // (from the step trace's autopilot summary), the risk tier, the
+        // verdict, the one-line explanation, and the decision history with
+        // its actions. Read-only except for the four actions, which call
+        // the existing autopilot API. Returns null when the product carries
+        // no trace (the section then simply does not appear).
+        const renderAutopilotCard = product => {
+            const trace = product && product.status && product.status.step_trace;
+            const summary = trace && trace.autopilot;
+            if (!summary) return null;
+            const holds = data?.autopilot?.holds || [];
+            const ownerHeld = holds.some(hold => hold.gate==='admission_owner' && String(hold.product_id)===String(product.product_id));
+            const section = node('section', null, 'molavi-product-subsection molavi-autopilot-state');
+            const heading = node('h3', null, 'molavi-autopilot-state-heading');
+            heading.appendChild(node('span', 'خلبان خودکار'));
+            heading.appendChild(autopilotRiskBadge({risk_tier: summary.tier}));
+            heading.appendChild(node('span', summary.mode_label || '', 'molavi-autopilot-state-mode'));
+            section.appendChild(heading);
+            section.appendChild(reviewFacts([
+                ['وضعیت', summary.state_label || 'ارزیابی نشده'],
+                ['داوری', summary.verdict_label || 'ثبت نشده'],
+            ], 'molavi-review-facts molavi-autopilot-state-facts'));
+            const explanation = autopilotStateExplanation(summary);
+            if (explanation) section.appendChild(node('p', explanation, 'molavi-autopilot-state-reason'));
+            // G5: the wait-state line, when the product is only waiting.
+            const waitLine = autopilotWaitLine(summary, product, data?.autopilot);
+            if (waitLine) section.appendChild(node('p', waitLine, 'molavi-autopilot-state-wait'));
+            // G7: the release is buried in the collapsed history — surface
+            // it. When the block is an owner hold (blocked/reverted + an
+            // admission_owner hold stands), the owner can release it from
+            // here; the history row keeps its own button. A gate hold
+            // (market/admission) is NOT releasable here — its fix is the
+            // hold's cause (G3 routing), and release_hold would 404 on it.
+            if ((summary.state === 'blocked' || summary.state === 'reverted') && ownerHeld) {
+                const releaseWrap = node('div', null, 'molavi-autopilot-state-release');
+                const releaseStatus = node('p', '');
+                const releaseButton = node('button', 'رفع توقف پذیرش', 'button button-primary');
+                releaseButton.type = 'button';
+                releaseButton.addEventListener('click', async () => {
+                    releaseButton.disabled = true; releaseStatus.textContent = 'در حال رفع توقف پذیرش…';
+                    try {
+                        await request('POST', {action:'release_hold', product_id:String(product.product_id)}, undefined, 'autopilot');
+                        await dashboard('توقف پذیرش رفع شد.', 'success', ['product_status','autopilot','operations']);
+                    } catch (error) { releaseStatus.textContent = errorText(error.message); releaseButton.disabled = false; }
+                });
+                releaseWrap.appendChild(releaseButton);
+                releaseWrap.appendChild(releaseStatus);
+                section.appendChild(releaseWrap);
+            }
+            const history = Array.isArray(summary.history) ? summary.history : [];
+            const unreviewed = history.filter(row => ['shadow','live'].includes(row.action)
+                && !['overridden','reverted'].includes(row.result) && !Number(row.reviewed_at)).length;
+            const details = document.createElement('details');
+            details.className = 'molavi-autopilot-history';
+            details.appendChild(node('summary',
+                `سابقهٔ تصمیم‌ها (${new Intl.NumberFormat('fa-IR').format(history.length)})`
+                + (unreviewed > 0 ? ` · بازبینی‌نشده: ${new Intl.NumberFormat('fa-IR').format(unreviewed)}` : '')));
+            if (!history.length) {
+                details.appendChild(node('p', 'هنوز تصمیمی برای این کالا ثبت نشده است.'));
+            }
+            history.forEach(row => details.appendChild(renderAutopilotHistoryRow(row, product, ownerHeld)));
+            section.appendChild(details);
+            return section;
         };
         // Supplier link checks (round eight): the owner's confirm list
         // (outcome a), the changed-price list (outcome b), and the
@@ -2434,185 +2858,6 @@
                 chainSection.appendChild(row);
             });
             wrap.appendChild(chainSection);
-            return wrap;
-        };
-        const renderAutopilot = () => {
-            const wrap = document.createElement('div');
-            wrap.className = 'molavi-autopilot-view';
-            const autopilot = data?.autopilot || null;
-            if (!autopilot || !autopilot.ok) {
-                wrap.appendChild(notice(workbenchErrors.autopilot || 'تصمیم‌های خودکار در دسترس نیست.','warning'));
-                return wrap;
-            }
-            const settings = autopilot.settings || {};
-            const rules = autopilot.rules || [];
-            const log = autopilot.log || [];
-            const holds = autopilot.holds || [];
-            const gateLabels = {publish:'انتشار',market:'قیمت عادی',supplier_price:'قیمت تأمین‌کننده',admission:'پذیرش',admission_owner:'توقف مالک',settings:'تنظیمات'};
-            const ruleLabels = {g5:'درخواست انتشار',g4:'انتخاب نقل‌قول بازار',g3:'تأیید قیمت تأمین‌کننده',gA:'پذیرش کالا'};
-            const actionLabels = {shadow:'سایه (انجام نشد)',live:'انجام شد',override:'لغو شد',revert:'بازگردانده شد',hold:'متوقف شد',release_hold:'توقف رفع شد',confirm:'بازبینی شد',settings:'تنظیمات'};
-            const verdictLabels = {pending:'در انتظار',approved:'تأیید شد',flagged:'نیازمند بررسی',ok:'تأیید شد',flag:'نیازمند بررسی',not_run:'اجرا نشد'};
-            const productName = id => byProductId.get(String(id))?.name || String(id || '—');
-            const holdsBox = document.createElement('section');
-            holdsBox.className = 'card molavi-product-subsection';
-            holdsBox.appendChild(node('h2',`موارد نیازمند تصمیم (${holds.length})`));
-            if (!holds.length) holdsBox.appendChild(node('p','موردی در انتظار تصمیم نیست.'));
-            holds.forEach(hold => {
-                const row = document.createElement('div');
-                row.className='molavi-autopilot-hold';
-                row.appendChild(node('p',`${productName(hold.product_id)} · ${gateLabels[hold.gate] || hold.gate} · ${hold.reason}`));
-                if (Number.isFinite(Number(hold.score))) row.appendChild(node('p',`اطمینان: ${Math.round(Number(hold.score)*100)}٪`));
-                holdsBox.appendChild(row);
-            });
-            const logBox = document.createElement('section');
-            logBox.className = 'card molavi-product-subsection';
-            logBox.id = 'molavi-autopilot-decisions';
-            logBox.appendChild(node('h2','تصمیم‌های خودکار'));
-            // Read-only master state: the settings form itself moved to the
-            // settings view (gear icon), so the tab shows only whether the
-            // autopilot is on, not a control to change it.
-            logBox.appendChild(node('p', settings.master_enabled
-                ? 'خلبان خودکار روشن است؛ قانون‌های «فعال» اقدام می‌کنند.'
-                : 'خلبان خودکار خاموش است؛ همهٔ قانون‌ها فقط در حالت سایه محاسبه و ثبت می‌شوند.'));
-            if (Number(autopilot.unreviewed_decisions) > 0) logBox.appendChild(node('p',`بازبینی‌نشده: ${Number(autopilot.unreviewed_decisions).toLocaleString('fa-IR')} تصمیم`));
-            if (!log.length) logBox.appendChild(node('p','هنوز تصمیمی ثبت نشده است.'));
-            // Risk filter + risk-first sort are client-side over the rows
-            // the API returns (the tab has no server-side filter; the
-            // dashboard fetch loads the whole section at once). Within a
-            // tier the API order (newest first) is kept.
-            const riskCounts = {all:log.length, red:0, amber:0, green:0, none:0};
-            log.forEach(row => { riskCounts[autopilotRiskTier(row)]++; });
-            const filterBox = document.createElement('div');
-            filterBox.className = 'molavi-risk-filter';
-            filterBox.appendChild(node('span','پالایش بر پایهٔ ریسک:'));
-            [['all','همه'],['red','پرخطر'],['amber','ریسک متوسط'],['green','کم‌ریسک']].forEach(([value,label]) => {
-                const button = node('button',`${label} (${riskCounts[value].toLocaleString('fa-IR')})`,'button button-secondary');
-                button.type='button';
-                if (autopilotRiskFilter===value) button.classList.add('is-active');
-                button.addEventListener('click', () => {
-                    autopilotRiskFilter=value;
-                    filterBox.querySelectorAll('button').forEach(candidate => candidate.classList.toggle('is-active', candidate===button));
-                    renderLogRows();
-                });
-                filterBox.appendChild(button);
-            });
-            logBox.appendChild(filterBox);
-            const logList = document.createElement('div');
-            logBox.appendChild(logList);
-            const renderLogRows = () => {
-                while (logList.firstChild) logList.removeChild(logList.firstChild);
-                autopilotRiskSort(autopilotRiskFilterRows(log, autopilotRiskFilter)).forEach(row => {
-                const item = document.createElement('div');
-                item.className='molavi-autopilot-log-row';
-                const inputs = row.inputs || {};
-                let detail = '';
-                if (row.gate==='market' && inputs.url) detail = `نقل‌قول: ${inputs.url}${Number.isFinite(Number(inputs.spread)) ? ` · اختلاف ${(Number(inputs.spread)*100).toLocaleString('fa-IR',{maximumFractionDigits:1})}٪` : ''}${inputs.basis ? ` · مبنا: ${inputs.basis === 'agreement' ? 'هم‌خوانی نقل‌قول‌ها' : 'تطبیق با مرجع'}` : ''}`;
-                else if (row.gate==='supplier_price' && inputs.source_revision) detail = `بازبینی: ${String(inputs.source_revision).slice(0,12)}…`;
-                else if (row.gate==='publish' && inputs.publish_job) detail = `کار صف: ${inputs.publish_job}`;
-                else if (row.gate==='admission' && Number.isFinite(Number(inputs.supplier_price))) detail = `قیمت تأمین‌کننده: ${Number(inputs.supplier_price).toLocaleString('fa-IR')} · قیمت عادی: ${Number(inputs.regular_price).toLocaleString('fa-IR')}${inputs.spec_via ? ` · مشخصات: ${inputs.spec_via === 'auto-import' ? 'واردشدهٔ خودکار' : inputs.spec_via === 'owner-confirm' ? 'تأیید مالک' : 'بازبینی هوش مصنوعی'}` : ''}`;
-                else if (row.action==='settings') detail = `تغییر تنظیمات: ${Object.keys(inputs.changed || {}).join('، ') || '—'}`;
-                else if (row.action==='override') detail = `لغو تصمیم شمارهٔ ${inputs.overrides_log_id ?? '—'}`;
-                item.appendChild(node('p',`${productName(row.product_id)} · ${ruleLabels[row.rule_id] || gateLabels[row.gate] || row.gate || '—'} · ${actionLabels[row.action] || row.action}`));
-                item.appendChild(autopilotRiskBadge(row));
-                if (detail) item.appendChild(node('p',detail));
-                if (row.risk_reason) item.appendChild(node('p',row.risk_reason));
-                if (row.gate==='admission' && row.verdict==='pending') item.appendChild(node('p','داوری در انتظار است؛ تا زمان داوری، این تصمیم پرخطر شمرده می‌شود.','molavi-risk-pending'));
-                if (Number(row.reviewed_at) > 0) item.appendChild(node('p',`بازبینی شد${row.reviewed_by ? ` — ${row.reviewed_by}` : ''} · ${formatSourceTimestamp(Math.floor(Number(row.reviewed_at)))}`));
-                const verdictText = verdictLabels[row.verdict] || row.verdict || 'در انتظار';
-                const verdictLine = row.verdict_reason ? `داوری: ${verdictText} — ${row.verdict_reason}` : `داوری: ${verdictText}`;
-                item.appendChild(node('p',`${Number.isFinite(Number(row.confidence)) ? `اطمینان: ${Math.round(Number(row.confidence)*100)}٪ · ` : ''}${verdictLine}${row.created_at ? ` · ${formatSourceTimestamp(Math.floor(Number(row.created_at)))}` : ''}${row.action==='shadow' ? ' · سایه' : ''}`));
-                const statusBox = node('p','');
-                item.appendChild(statusBox);
-                const ownerHeld = holds.some(hold => hold.gate==='admission_owner' && String(hold.product_id)===String(row.product_id));
-                const isDecision = ['shadow','live'].includes(row.action);
-                const isUndone = ['overridden','reverted'].includes(row.result);
-                if (row.action!=='override' && row.action!=='settings' && row.result!=='overridden' && row.result!=='reverted') {
-                    const overrideButton = node('button','لغو و توقف قانون','button button-secondary');
-                    overrideButton.type='button';
-                    overrideButton.addEventListener('click', async () => {
-                        overrideButton.disabled=true; statusBox.textContent='در حال ثبت لغو…';
-                        try {
-                            await request('POST',{action:'override_log',log_id:Number(row.id)},undefined,'autopilot');
-                            await dashboard('تصمیم لغو و قانون متوقف شد.','success',['autopilot']);
-                        } catch(error) { statusBox.textContent=errorText(error.message); overrideButton.disabled=false; }
-                    });
-                    item.appendChild(overrideButton);
-                }
-                const rule = rules.find(rule => rule.id === row.rule_id);
-                if (rule && rule.state!=='suspended' && row.action!=='settings') {
-                    const suspendButton = node('button','توقف قانون','button button-secondary');
-                    suspendButton.type='button';
-                    suspendButton.addEventListener('click', async () => {
-                        suspendButton.disabled=true; statusBox.textContent='در حال توقف قانون…';
-                        try {
-                            await request('POST',{action:'suspend_rule',rule_id:row.rule_id},undefined,'autopilot');
-                            await dashboard('قانون متوقف شد.','success',['autopilot']);
-                        } catch(error) { statusBox.textContent=errorText(error.message); suspendButton.disabled=false; }
-                    });
-                    item.appendChild(suspendButton);
-                }
-                // Review actions (round six): revert undoes the admission
-                // itself (un-publish + owner hold), hold suspends the
-                // product's admission, confirm marks the decision reviewed
-                // so the digest stops listing it as new.
-                if (row.gate==='admission' && isDecision && ['would_admit','admitted'].includes(row.result) && !isUndone) {
-                    const revertButton = node('button','بازگردانی پذیرش','button button-secondary');
-                    revertButton.type='button';
-                    revertButton.addEventListener('click', async () => {
-                        revertButton.disabled=true; statusBox.textContent='در حال بازگردانی پذیرش…';
-                        try {
-                            const result = await request('POST',{action:'revert_decision',log_id:Number(row.id)},undefined,'autopilot');
-                            await dashboard(result.hidden===true ? 'پذیرش بازگردانده شد؛ کالا پنهان شد.' : 'پذیرش بازگردانده شد؛ توقف پذیرش ثبت شد.','success',['autopilot']);
-                        } catch(error) { statusBox.textContent=errorText(error.message); revertButton.disabled=false; }
-                    });
-                    item.appendChild(revertButton);
-                    if (!ownerHeld) {
-                        const holdButton = node('button','توقف پذیرش','button button-secondary');
-                        holdButton.type='button';
-                        holdButton.addEventListener('click', async () => {
-                            holdButton.disabled=true; statusBox.textContent='در حال توقف پذیرش…';
-                            try {
-                                await request('POST',{action:'hold_decision',log_id:Number(row.id)},undefined,'autopilot');
-                                await dashboard('پذیرش کالا متوقف شد.','success',['autopilot']);
-                            } catch(error) { statusBox.textContent=errorText(error.message); holdButton.disabled=false; }
-                        });
-                        item.appendChild(holdButton);
-                    }
-                }
-                if (row.gate==='admission' && ownerHeld) {
-                    const releaseButton = node('button','رفع توقف پذیرش','button button-secondary');
-                    releaseButton.type='button';
-                    releaseButton.addEventListener('click', async () => {
-                        releaseButton.disabled=true; statusBox.textContent='در حال رفع توقف پذیرش…';
-                        try {
-                            await request('POST',{action:'release_hold',product_id:String(row.product_id)},undefined,'autopilot');
-                            await dashboard('توقف پذیرش رفع شد.','success',['autopilot']);
-                        } catch(error) { statusBox.textContent=errorText(error.message); releaseButton.disabled=false; }
-                    });
-                    item.appendChild(releaseButton);
-                }
-                if (isDecision && !isUndone && !Number(row.reviewed_at)) {
-                    const confirmButton = node('button','تأیید بازبینی','button button-secondary');
-                    confirmButton.type='button';
-                    confirmButton.addEventListener('click', async () => {
-                        confirmButton.disabled=true; statusBox.textContent='در حال ثبت بازبینی…';
-                        try {
-                            await request('POST',{action:'confirm_reviewed',log_id:Number(row.id)},undefined,'autopilot');
-                            await dashboard('بازبینی ثبت شد.','success',['autopilot']);
-                        } catch(error) { statusBox.textContent=errorText(error.message); confirmButton.disabled=false; }
-                    });
-                    item.appendChild(confirmButton);
-                }
-                logList.appendChild(item);
-            });
-            };
-            renderLogRows();
-            // Decisions first: the holds box used to sit above this list,
-            // pushing it about two phone screens down. The settings form
-            // moved to the settings view (gear icon); the tab keeps only a
-            // read-only master-state line above the list.
-            wrap.appendChild(logBox);
-            wrap.appendChild(holdsBox);
             return wrap;
         };
         const renderSystem = () => {
@@ -2953,9 +3198,20 @@
             readyAction:product=>readyActions.get(product),actionRank:key=>workbenchActionOrder.indexOf(key),
             nextStep:(product,key)=>workbenchNextStep(product,key),
             wooState:workbenchWooState,wooLabel:workbenchWooLabel,
-            renderAction,renderBatch,renderSystem,renderAutopilot,renderLinkChecks,renderMarketAgreement,
+            renderAction,renderBatch,renderSystem,renderAutopilotCard,renderLinkChecks,renderMarketAgreement,
             publishFailureReason: error => displayBatchError(error),
             autopilotHold,
+            holdRoute: workbenchHoldRoute,
+            needsPriceRegistration: workbenchNeedsPriceRegistration,
+            // G1 follow-up — the register form for a no-revision row,
+            // rendered in the source tab the card actually has. Returns
+            // null when the card carries no no-revision row. `container`
+            // receives the progress/error notices and stays visible when
+            // the details close on success.
+            renderPriceRegister: (product, container) => {
+                const offer = workbenchNeedsPriceRegistration(product);
+                return offer ? workbenchPriceRegisterSection(product, offer, container, null, reviewStoreAvailable) : null;
+            },
             renderOfferReextraction: offerReextraction,
             renderSupplierMessage: supplierMessagePanel,
             renderSourceImage: sourceImageThumbnail,
@@ -2967,7 +3223,11 @@
                     return product.ai.filter(item=>item.offer_id&&(item.market_tracked||!normalizedAiInteger(item.actual_price||item.consumer_price)))
                         .map(item=>({offer_id:item.offer_id,case_id:item.case_id,name:item.product_name||product.name}));
                 }
-                return (status?.regular_price_missing||status?.regular_price_due||status?.market_tracked||['no_spread','thin_spread'].includes(status?.sale_offer_blocker))&&status.latest_offer_id
+                // G3: a hold-routed market product must reach the quote picker
+                // even when the regular price is current (so none of the
+                // ordinary market-tracked flags apply) — the market hold is
+                // exactly the reason the picker is needed.
+                return (status?.regular_price_missing||status?.regular_price_due||status?.market_tracked||workbenchHoldRoute(product)?.key==='market_prices'||['no_spread','thin_spread'].includes(status?.sale_offer_blocker))&&status.latest_offer_id
                     ? [{offer_id:status.latest_offer_id,name:product.name}] : [];
             },
             renderReferenceTools: productReferenceTools,
@@ -2979,6 +3239,16 @@
                 if (response.product_id!==product.product_id||!['queued','published'].includes(response.state)) throw new Error('invalid_receipt');
                 await dashboard(response.state==='queued'?'انتشار در صف است. نتیجه را در اعلان بالای صفحه ببینید.':'کالا در فروشگاه قابل خرید است.',
                     'success',['product_status','operations']);
+            },
+            releaseAutopilotHold:async product=>{
+                // G7/G11: the surfaced «رفع توقف پذیرش» button (autopilot
+                // section, sale-closed line) calls the same release_hold
+                // the history row calls. Only an owner hold is released —
+                // the API 404s when there is none, and the button is only
+                // rendered when one stands.
+                const response=await request('POST',{action:'release_hold',product_id:String(product.product_id)},undefined,'autopilot');
+                if (response.product_id!==String(product.product_id)||response.held!==false) throw new Error('invalid_receipt');
+                await dashboard('توقف پذیرش رفع شد.','success',['product_status','autopilot','operations']);
             },
             dismissalTask:(product,key)=>({task_key:workbenchCurrentDismissalKey(product,key),queue:key,
                 stage:workbenchDismissalStage(key),label:workbenchTaskMeta(product,key).label,
@@ -4257,6 +4527,18 @@
             ['موجودی اعلام‌شده', aiStockLabel(item.stock_status)],
             ['حداقل خرید', item.min_qty || 'ثبت نشده']
         );
+        // Detected-vs-confirmed comparison (beer message 7218): the
+        // re-extract detects a new supplier price; the owner needs the
+        // currently confirmed Sale Price next to it. The confirmed price
+        // is carried on the case server-side (product record lookup, not
+        // extraction content). Shown only when both are positive and
+        // differ. The price facts are built before the
+        // reference-selection early return, so the line renders in BOTH
+        // ai paths.
+        const confirmedSalePrice = normalizedAiInteger(item.confirmed_sale_price);
+        if (confirmedSalePrice && visibleSupplierPrice && confirmedSalePrice !== visibleSupplierPrice) {
+            priceFacts.push(['قیمت شناسایی‌شده در برابر تأییدشده', `${amount(visibleSupplierPrice)} در برابر ${amount(confirmedSalePrice)}`]);
+        }
         if (!options.embedded) priceFacts.push(['تأمین‌کننده', item.channel || 'نامشخص']);
         if (packagePrice && packagePrice !== visibleSupplierPrice) {
             priceFacts.push(['قیمت کل بسته / کارتن تأمین‌کننده', amount(packagePrice)]);
@@ -4277,6 +4559,44 @@
                 : sourcePostUrl && sourcePostUrl !== item.source_post_url ? 'باز کردن پست تلگرام' : 'باز کردن پیام اصلی');
         if (originalPost) sourceTools.appendChild(originalPost);
         if (sourceTools.childNodes.length) card.appendChild(sourceTools);
+        // Link-check status for the source post (cappuccino,
+        // t.me/bonakdarjavan/1337): the card must say whether the
+        // original Telegram post still exists. A deleted post used to
+        // be invisible — the stored copy and link stayed on the card
+        // with only a staleness warning. The status rides on the
+        // product payload (product.link_check, attached server-side
+        // for the current source revision) and is read here from
+        // options.parentLinkCheck. Only shown for the source this
+        // section displays: the check's URL must match the case's
+        // source URL (scheme-insensitive — the case carries it
+        // schemeless, the check row carries the full URL). Built
+        // before the reference-selection early return, so it renders
+        // in BOTH ai paths. Unchanged/changed/uncheckable reuse the
+        // supplier-prices view's exact lines; the deleted-post line
+        // and the never-checked line are new wording (flagged).
+        if (sourcePostUrl) {
+            const normalizeSourceUrl = value => String(value || '').trim()
+                .replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/+$/, '');
+            const parentLinkCheck = options.parentLinkCheck || null;
+            const linkCheckForSource = parentLinkCheck && parentLinkCheck.url
+                && normalizeSourceUrl(parentLinkCheck.url) === normalizeSourceUrl(sourcePostUrl)
+                ? parentLinkCheck : null;
+            if (linkCheckForSource && linkCheckForSource.outcome) {
+                const checkedAt = linkCheckForSource.checked_at
+                    ? formatSourceTimestamp(new Date(linkCheckForSource.checked_at * 1000).toISOString()) : '';
+                if (linkCheckForSource.outcome === 'uncheckable' && linkCheckForSource.reason_code === 'post_not_found') {
+                    card.appendChild(notice(`پست منبع حذف شده است${checkedAt ? ` (بررسی لینک: ${checkedAt})` : ''}. پیام تازه را به ربات بفرستید؛ وقتی استخراج آماده شد، همین کارت به‌روز می‌شود.`, 'warning'));
+                } else if (linkCheckForSource.outcome === 'uncheckable') {
+                    card.appendChild(notice(`لینک منبع قابل بررسی نیست: ${linkCheckForSource.reason_label || linkCheckForSource.reason_code || 'نامشخص'}.`, 'warning'));
+                } else if (linkCheckForSource.outcome === 'unchanged') {
+                    card.appendChild(notice(`لینک منبع بررسی شد؛ قیمت بدون تغییر است (${linkCheckForSource.reason_label || ''} · ${checkedAt || 'زمان ثبت نشده'} · مرجع: ${linkCheckForSource.check_ref || '—'}). تأیید شما با تأمین‌کننده است که قیمت را تازه می‌کند.`, 'info'));
+                } else if (linkCheckForSource.outcome === 'changed') {
+                    card.appendChild(notice(`قیمت در لینک منبع تغییر کرده است: ثبت‌شده ${amount(visibleSupplierPrice)}، تازه ${amount(linkCheckForSource.live_price)} — قیمت تازه جایگزین نشده است و کالا همچنان متوقف است.`, 'warning'));
+                }
+            } else {
+                card.appendChild(notice('پیام منبع هنوز از لینک اصلی‌اش خوانده نشده است.', 'info'));
+            }
+        }
         const sourcePriceNeedsReview = Boolean(options.sourcePriceGap?.missing?.length);
         const sourcePriceUnclear = Boolean(options.sourcePriceGap?.unverified);
         const sourceVariantNeedsReview = Boolean(options.sourceVariantGap);
@@ -4303,6 +4623,56 @@
         const blockedBySourceGap = sourcePriceNeedsReview || sourceVariantNeedsReview;
         const sourceVerificationRequired = relatedItems.some(row => row
             && (row.historical_reextract || row.source_current_check_required)) || sourceStockNeedsReview || sourcePriceUnclear;
+        // The price/stock check is a precondition for confirming, not an
+        // alternative to the reference step, so it is built here — before
+        // the reference-selection early return below — and rendered in
+        // BOTH paths. The candidates fetch re-renders the card into the
+        // reference branch, which used to skip this block entirely: the
+        // «قیمت و موجودی امروز» section (and the owner's checkbox state)
+        // vanished until a full reload, then vanished again as soon as
+        // the fetch completed. (Beer message 7218.) The checkbox only
+        // records the check in the module-level verifiedCurrentPriceCases
+        // set; the confirm gate itself — disabled buttons until it is
+        // ticked, plus the server-side source_current_verified check —
+        // is unchanged.
+        let currentPriceVerified = null;
+        const sourceVerificationItems = relatedItems.filter(row => row
+            && (row.historical_reextract || row.source_current_check_required || sourceStockNeedsReview || sourcePriceUnclear));
+        const buildSourceVerificationSection = (onVerifiedChange) => {
+            if (!sourceVerificationRequired) return null;
+            const verification=node('section',null,'molavi-source-confirmation');
+            verification.appendChild(node('h4','قیمت و موجودی امروز'));
+            verification.appendChild(node('p','پس از بررسی منبع، تأیید را علامت بزنید تا فرم مشخصات باز شود.'));
+            if (item.historical_reextract && !item.reopened) {
+                const recentSupplierPosts = safeSourceLink(aiSourceChannelUrl(item), 'دیدن پست‌های جدیدتر تأمین‌کننده');
+                if (recentSupplierPosts) verification.appendChild(recentSupplierPosts);
+                verification.appendChild(notice(`آخرین زمان مؤثر منبع ${sourceAgeText(item.source_updated_at || item.source_update_at || item.message_timestamp || item.source_created_at)} است. قیمت را از منبع فعلی بررسی کنید.`, 'warning'));
+            } else if (item.source_current_check_required) {
+                verification.appendChild(notice(aiSourceCurrentCheckMessage(item), 'warning'));
+            }
+            if (options.sourceStockGap) {
+                verification.appendChild(notice('پیام قبلی اتمام موجودی را ذکر می‌کند. موجودی امروز را از تأمین‌کننده بررسی کنید.', 'warning'));
+            }
+            const checkLabel = node('label', null, 'molavi-reextract-current-check');
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.checked = sourceVerificationItems.length > 0
+                && sourceVerificationItems.every(row => verifiedCurrentPriceCases.has(currentPriceVerificationKey(row)));
+            const stockNeedsCurrentCheck = sourceStockNeedsReview || relatedItems.some(row =>
+                !['','Unknown','unknown'].includes(String(row && row.stock_status || '')));
+            checkLabel.append(checkbox, document.createTextNode(stockNeedsCurrentCheck
+                ? 'قیمت و موجودی امروز را بررسی کردم.' : 'قیمت امروز را از تأمین‌کننده بررسی کردم.'));
+            verification.append(checkLabel);
+            checkbox.addEventListener('change', () => {
+                sourceVerificationItems.forEach(row => {
+                    const key = currentPriceVerificationKey(row);
+                    if (checkbox.checked) verifiedCurrentPriceCases.add(key);
+                    else verifiedCurrentPriceCases.delete(key);
+                });
+                if (typeof onVerifiedChange === 'function') onVerifiedChange();
+            });
+            return {section: verification, checkbox};
+        };
         if (held) {
             const link=options.holdTarget
                 ? ownerWorkflowAnchor(options.holdTarget,'باز کردن دسته')
@@ -4384,6 +4754,13 @@
             card.append(proceedWithoutReference(unmatched,'ai',{
                 enabled:contextStored&&decisionsEnabled,refresh:options.refresh}));
             if (reextraction) card.appendChild(reextraction);
+            // The price/stock check stays visible while the owner picks a
+            // reference: it is a precondition for confirming, and ticking
+            // it here is recorded in verifiedCurrentPriceCases, so it is
+            // still ticked when the card re-renders into the confirmation
+            // path after the reference is picked.
+            const verified = buildSourceVerificationSection();
+            if (verified) { currentPriceVerified = verified.checkbox; card.appendChild(verified.section); }
             return card;
         }
         if (unmatched.length || referenceEligible.some(row=>row.reference_waived)) {
@@ -4409,38 +4786,22 @@
         const quickActions = node('div', null, 'molavi-ai-quick-actions');
         confirmation.appendChild(node('h4','گام فعلی · تأیید مشخصات'));
         const quickButtons = [notProduct];
-        let currentPriceVerified = null;
         let manualConfirmButton = null;
-        const sourceVerificationItems = relatedItems.filter(row => row
-            && (row.historical_reextract || row.source_current_check_required || sourceStockNeedsReview || sourcePriceUnclear));
-        if (sourceVerificationRequired) {
-            const verification=node('section',null,'molavi-source-confirmation');
-            verification.appendChild(node('h4','قیمت و موجودی امروز'));
-            verification.appendChild(node('p','پس از بررسی منبع، تأیید را علامت بزنید تا فرم مشخصات باز شود.'));
-            if (item.historical_reextract && !item.reopened) {
-                const recentSupplierPosts = safeSourceLink(aiSourceChannelUrl(item), 'دیدن پست‌های جدیدتر تأمین‌کننده');
-                if (recentSupplierPosts) verification.appendChild(recentSupplierPosts);
-                verification.appendChild(notice(`آخرین زمان مؤثر منبع ${sourceAgeText(item.source_updated_at || item.source_update_at || item.message_timestamp || item.source_created_at)} است. قیمت را از منبع فعلی بررسی کنید.`, 'warning'));
-            } else if (item.source_current_check_required) {
-                verification.appendChild(notice(aiSourceCurrentCheckMessage(item), 'warning'));
-            }
-            if (options.sourceStockGap) {
-                verification.appendChild(notice('پیام قبلی اتمام موجودی را ذکر می‌کند. موجودی امروز را از تأمین‌کننده بررسی کنید.', 'warning'));
-            }
-
-            const checkLabel = node('label', null, 'molavi-reextract-current-check');
-            currentPriceVerified = document.createElement('input');
-            currentPriceVerified.type = 'checkbox';
-            currentPriceVerified.checked = sourceVerificationItems.length > 0
-                && sourceVerificationItems.every(row => verifiedCurrentPriceCases.has(currentPriceVerificationKey(row)));
-            const stockNeedsCurrentCheck = sourceStockNeedsReview || relatedItems.some(row =>
-                !['','Unknown','unknown'].includes(String(row && row.stock_status || '')));
-            checkLabel.append(currentPriceVerified, document.createTextNode(stockNeedsCurrentCheck
-                ? 'قیمت و موجودی امروز را بررسی کردم.' : 'قیمت امروز را از تأمین‌کننده بررسی کردم.'));
-            verification.append(checkLabel);card.appendChild(verification);
-        }
+        // The checkbox listener is attached by the helper; the callback
+        // below runs only on user interaction, after
+        // refreshConfirmationGates is initialized.
+        const verified = buildSourceVerificationSection(() => refreshConfirmationGates());
+        if (verified) { currentPriceVerified = verified.checkbox; card.appendChild(verified.section); }
         const refreshConfirmationGates = () => {
-            confirmation.hidden=sourceVerificationRequired&&!currentPriceVerified?.checked;
+            // The confirmation section stays visible even while source
+            // verification is pending: the owner must SEE the confirm
+            // path (and what unlocks it) instead of finding no decision
+            // at all on the card. The gate is the disabled state below
+            // — plus the server-side source_current_verified check — not
+            // invisibility. (Beer message 7218: the case rendered, but
+            // the whole «گام فعلی · تأیید مشخصات» section was hidden
+            // until the checkbox was ticked, so the card looked like it
+            // had no confirm/dismiss to offer.)
             quickButtons.forEach(button => {
                 if (button===notProduct) return;
                 button.disabled = !contextStored || !decisionsEnabled
@@ -4457,14 +4818,6 @@
                     : '';
             }
         };
-        if (currentPriceVerified) currentPriceVerified.addEventListener('change', () => {
-            sourceVerificationItems.forEach(row => {
-                const key = currentPriceVerificationKey(row);
-                if (currentPriceVerified.checked) verifiedCurrentPriceCases.add(key);
-                else verifiedCurrentPriceCases.delete(key);
-            });
-            refreshConfirmationGates();
-        });
         const addQuickConfirm = (selectedRole, label, style = 'button-primary') => {
             const selectedFields = aiDecisionFields(item, selectedRole);
             const button = node('button', label, `button ${style}`);

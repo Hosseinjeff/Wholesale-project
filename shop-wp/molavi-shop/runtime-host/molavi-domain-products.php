@@ -204,6 +204,33 @@ function molavi_domain_status_history(?string $selected=null,bool $marketEligibi
         return ['snapshots'=>$snapshots,'latest_snapshot_id'=>$latest,'selected_snapshot_id'=>$exists?$id:null,'products'=>$products];
     });
 }
+/**
+ * Attach the latest supplier link check per product (round eight +
+ * source-post-status fix): the card shows whether the original
+ * Telegram post still exists, with what outcome, instead of only the
+ * grouped link-check report. Only the check for the product's CURRENT
+ * source revision is attached — a check for an old revision says
+ * nothing about the current source, so the card reports "never
+ * checked" for it. Products without a row (or without a matching
+ * revision, or without a Products-sheet record) get no link_check key.
+ * A failure here must never break the product list; the caller guards
+ * the call the same way as the step-trace attachment.
+ */
+function molavi_domain_attach_product_link_checks(array $products, array $productsById): array {
+    if (!function_exists('molavi_domain_supplier_link_check_public_row')) return $products;
+    $checks = molavi_domain_read('pipeline', static fn(SQLite3 $db) => array_column(
+        molavi_domain_rows($db, 'SELECT * FROM supplier_link_checks'), null, 'product_id'));
+    foreach ($products as &$product) {
+        $id = (string)($product['product_id'] ?? '');
+        if ($id === '' || !isset($checks[$id])) continue;
+        $record = $productsById[$id] ?? null;
+        if (!is_array($record)) continue;
+        if ((string)($checks[$id]['source_revision'] ?? '') !== molavi_domain_source_revision($record)) continue;
+        $product['link_check'] = molavi_domain_supplier_link_check_public_row($checks[$id]);
+    }
+    unset($product);
+    return $products;
+}
 function molavi_domain_status_api(string $method,array $query,?array $body,string $actor): array {
     if($method==='GET'&&($query['view']??null)==='current'){
         $tables=molavi_domain_sheets(['Products','Offers'],true);
@@ -300,6 +327,17 @@ function molavi_domain_status_api(string $method,array $query,?array $body,strin
                     if($id!==''&&isset($traces[$id]))$product['step_trace']=$traces[$id];
                 }
                 unset($product);
+            } catch(Throwable $e) {}
+        }
+        // Per-product link-check status (source-post-status fix): the card
+        // shows whether the original Telegram post still exists. Attached
+        // the same way as the step trace, guarded the same way, so a
+        // failure can never break the product list. Historical snapshots
+        // ($selected!=='') get no link_check: a check read today would be
+        // anachronistic there.
+        if(function_exists('molavi_domain_attach_product_link_checks')){
+            try {
+                $history['products']=molavi_domain_attach_product_link_checks($history['products'],$productsById);
             } catch(Throwable $e) {}
         }
         $history['published_unlinked']=[];

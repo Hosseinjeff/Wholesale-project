@@ -25,16 +25,202 @@
             ...product.conflicts.map(row=>row.conflict_id),...product.holds.map(row=>row.hold_id),
             ...product.supplierPrices.flatMap(row=>[row.offer_id,row.product_id])].filter(Boolean).map(String);
     }
+    // Streamline funnel («مسیر انتشار», owner request 2026-11-26): the
+    // aggregate view of the same 7 publication steps the per-card trace
+    // («مراحل انتشار این کالا») shows. Every count below is computed from
+    // product.status.step_trace — the same evaluation the card renders — so
+    // the funnel and the card trace can never disagree. A product is stuck
+    // at the FIRST step (in pipeline order) that blocks it; a product with
+    // no blocking step is flowing (or published, when the publication step
+    // is ok). 'warn'/'info' do not block by themselves — only the states
+    // that actually stop publication do (see streamlineStepBlocks).
+    const STREAMLINE_STEPS=[
+        {key:'supplier_price',label:'قیمت تأمین‌کننده',action:'تأیید قیمت تأمین‌کننده'},
+        {key:'regular_price',label:'قیمت عادی',action:'بررسی قیمت عادی'},
+        {key:'market_agreement',label:'توافق بازار',action:'بررسی نقل‌قول‌های بازار'},
+        {key:'availability',label:'موجودی',action:'پیگیری موجودی'},
+        {key:'admission',label:'پذیرش خودکار (gA)',action:'بررسی توقف پذیرش'},
+        {key:'verdict',label:'داوری',action:'بازبینی داوری'},
+        {key:'publication',label:'انتشار / فروشگاه',action:'بررسی انتشار'},
+    ];
+    const STREAMLINE_REASONS={
+        supplier_price:{missing_price:'قیمت ثبت نشده',no_source_url:'پیام منبع ثبت نشده',
+            awaiting_confirm:'در انتظار تأیید مالک',uncheckable:'لینک منبع خوانده نشد',
+            stale:'قیمت کهنه (بیش از ۱۴ روز)',never_verified:'قیمت هرگز تأیید نشده'},
+        regular_price:{missing:'قیمت عادی ثبت نشده',expired:'قیمت عادی منقضی شده',
+            unverified:'قیمت عادی تأیید نشده',no_spread:'قیمت فروش از قیمت عادی بیشتر است',
+            thin_spread:'اختلاف قیمت برای تخفیف کافی نیست'},
+        market_agreement:{disagree:'نقل‌قول‌های بازار همخوان نیستند'},
+        availability:{out_of_stock:'تأمین‌کننده ناموجود اعلام کرده'},
+        admission:{owner_hold:'توقف به دستور مالک',verdict_hold:'توقف به‌خاطر داوری پرچم‌خورده',other_hold:'توقف پذیرش'},
+        verdict:{flag:'داوری پرچم خورد'},
+        publication:{awaiting_publish:'آمادهٔ انتشار؛ هنوز منتشر نشده',sale_closed:'منتشر شده، فروش بسته',sale_block:'فروش متوقف است'},
+    };
+    function streamlineStep(trace,key) {
+        const steps=trace?.steps;
+        if(!Array.isArray(steps))return null;
+        return steps.find(item=>item.key===key)||null;
+    }
+    function streamlineStepFact(step,label) {
+        if(!step||!Array.isArray(step.facts))return undefined;
+        const fact=step.facts.find(item=>item[0]===label);
+        return fact?fact[1]:undefined;
+    }
+    // Whether this trace step actually stops publication. 'bad' always
+    // blocks. The supplier step is the exception that proves the rule: a
+    // price that was never verified has trace status 'warn' (the trace's
+    // default for state needs_review), but the sale-offer blocker
+    // 'supplier_price' is set for exactly that state — so the blocker is
+    // the discriminator there, and a 7–14 day 'warning' (still usable, no
+    // blocker) does not block. 'warn' blocks only where the warning IS the
+    // block: an unverified regular price (the sale offer needs a current
+    // one), a disagreeing market (the market hold), and a draft /
+    // sale-closed storefront (the publish itself is the remaining work). A
+    // pending verdict does not stop anything — that 'warn' never blocks.
+    // The spread blockers (no_spread/thin_spread) live on the regular-price
+    // step even when the regular price itself is current, so the blocker
+    // counts there. A not-yet-built storefront blocks only once the
+    // admission has been evaluated and passed — before that the product is
+    // still flowing toward its first evaluation, not stuck at publication.
+    function streamlineStepBlocks(product,step) {
+        if(!step)return false;
+        const key=step.key;
+        if(key==='supplier_price')return step.status==='bad'||product.status?.sale_offer_blocker==='supplier_price';
+        if(key==='regular_price')return step.status==='bad'||step.status==='warn'
+            ||['no_spread','thin_spread'].includes(product.status?.sale_offer_blocker);
+        if(key==='market_agreement')return step.status==='warn'&&step.status_label==='ناهمخوان';
+        if(key==='availability')return step.status==='bad';
+        if(key==='admission')return step.status==='bad';
+        if(key==='verdict')return step.status==='bad';
+        if(key==='publication') {
+            if(step.status==='warn'||step.status==='bad')return true;
+            if(step.status!=='info')return false;
+            const admission=streamlineStep(product.status?.step_trace,'admission');
+            return admission&&admission.status==='ok';
+        }
+        return false;
+    }
+    // The step this product is stuck at: the first blocking step in
+    // pipeline order, or '' when nothing blocks it. A product without a
+    // trace cannot be placed — it is not stuck anywhere (see
+    // streamlineFunnel's untraced count) rather than guessed at a step.
+    // A published product has completed the pipeline, so it has no current
+    // blocker step even when it carries a hold (the hold blocks
+    // re-admission, and the card shows that — the funnel counts the
+    // product as published, not stuck). This is what keeps the funnel's
+    // counts and the Products list step filter in exact agreement: the
+    // filter uses this same function, so a step's list can never show a
+    // product the funnel does not count there.
+    function streamlineStuckStep(product) {
+        const trace=product.status?.step_trace;
+        if(!trace||!Array.isArray(trace.steps))return '';
+        const publication=streamlineStep(trace,'publication');
+        if(publication&&publication.status==='ok')return '';
+        for(const item of STREAMLINE_STEPS) {
+            if(streamlineStepBlocks(product,streamlineStep(trace,item.key)))return item.key;
+        }
+        return '';
+    }
+    // Exactly one reason per stuck product, so the reasons for a step always
+    // sum to the step's count (no product counted twice, none missing).
+    // The reason is read from the same trace facts the card shows, plus the
+    // sale-offer blocker and the autopilot hold — never invented.
+    function streamlineStuckReason(product,hold) {
+        const stuck=streamlineStuckStep(product);
+        if(!stuck)return '';
+        const trace=product.status?.step_trace;
+        if(stuck==='supplier_price') {
+            const step=streamlineStep(trace,'supplier_price');
+            const sale=streamlineStepFact(step,'قیمت ثبت‌شده');
+            if(step.status_label==='ثبت نشده'||(typeof sale==='number'&&sale<=0))return 'missing_price';
+            const sourceUrl=product.status?.source_post_url||sourceFor(product)?.source_post_url||'';
+            if(!sourceUrl)return 'no_source_url';
+            const link=streamlineStepFact(step,'بررسی لینک');
+            if(link==='بدون تغییر')return 'awaiting_confirm';
+            if(link==='قابل بررسی نیست')return 'uncheckable';
+            if(step.status_label==='کهنه')return 'stale';
+            return 'never_verified';
+        }
+        if(stuck==='regular_price') {
+            const blocker=product.status?.sale_offer_blocker;
+            if(blocker==='no_spread')return 'no_spread';
+            if(blocker==='thin_spread')return 'thin_spread';
+            const step=streamlineStep(trace,'regular_price');
+            if(step.status_label==='ثبت نشده')return 'missing';
+            if(step.status_label==='منقضی شده')return 'expired';
+            return 'unverified';
+        }
+        if(stuck==='market_agreement')return 'disagree';
+        if(stuck==='availability')return 'out_of_stock';
+        if(stuck==='admission') {
+            if(hold&&hold.gate==='admission_owner')return 'owner_hold';
+            const verdict=streamlineStep(trace,'verdict');
+            if(verdict&&verdict.status==='bad')return 'verdict_hold';
+            return 'other_hold';
+        }
+        if(stuck==='verdict')return 'flag';
+        if(stuck==='publication') {
+            const step=streamlineStep(trace,'publication');
+            if(step.status_label==='منتشر شده، فروش بسته')return 'sale_closed';
+            if(step.status==='bad')return 'sale_block';
+            return 'awaiting_publish';
+        }
+        return '';
+    }
+    // The funnel aggregate for a product list: per-step stuck counts with
+    // their reason breakdowns, plus the totals the summary line needs.
+    // holdFor resolves the autopilot hold for a product (model.autopilotHold
+    // in the dashboard; a stub in tests). Products without a trace are
+    // counted as untraced, never assigned to a step.
+    function streamlineFunnel(products,holdFor) {
+        const steps=STREAMLINE_STEPS.map(item=>({...item,count:0,reasons:[]}));
+        const byKey=new Map(steps.map(item=>[item.key,item]));
+        const reasonCounts=new Map();
+        let published=0,flowing=0,untraced=0;
+        for(const product of products) {
+            const trace=product.status?.step_trace;
+            if(!trace||!Array.isArray(trace.steps)){untraced++;continue;}
+            const publication=streamlineStep(trace,'publication');
+            if(publication&&publication.status==='ok'){published++;continue;}
+            const stuck=streamlineStuckStep(product);
+            if(!stuck){flowing++;continue;}
+            const entry=byKey.get(stuck);
+            entry.count++;
+            const reason=streamlineStuckReason(product,holdFor?holdFor(product):null);
+            const key=stuck+'|'+reason;
+            reasonCounts.set(key,(reasonCounts.get(key)||0)+1);
+        }
+        for(const entry of steps) {
+            const rows=[];
+            for(const [key,count] of reasonCounts) {
+                const [stepKey,reasonKey]=key.split('|');
+                if(stepKey!==entry.key)continue;
+                rows.push({key:reasonKey,label:STREAMLINE_REASONS[entry.key]?.[reasonKey]||reasonKey,count});
+            }
+            rows.sort((a,b)=>b.count-a.count);
+            entry.reasons=rows.slice(0,3);
+        }
+        let bottleneck='';
+        for(const entry of steps) {
+            if(entry.count>0&&(!bottleneck||entry.count>byKey.get(bottleneck).count))bottleneck=entry.key;
+        }
+        const topReason=bottleneck?byKey.get(bottleneck).reasons[0]||null:null;
+        return {total:products.length,published,flowing,untraced,steps,bottleneck,topReason};
+    }
     function create(root, hooks) {
         const params = new URLSearchParams(location.search);
         const focusType=['product_id','offer_id','case_id','conflict_id','hold_id','reference_id'].find(key=>params.get(key)) || 'product_id';
         const state = {
             focusType,
-            view:['products','references','sources','system','pricing','autopilot'].includes(params.get('view')) ? params.get('view')
+            view:['products','references','sources','system','pricing','streamline'].includes(params.get('view')) ? params.get('view')
                 : params.get('workbench_action') === 'reextract' || location.hash.includes('reextract') ? 'sources' : 'products',
             scope:params.get('scope') || 'ready',action:params.get('workbench_action') || '',
             focus:['product_id','offer_id','case_id','conflict_id','hold_id','reference_id'].map(key=>params.get(key)).find(Boolean) || '',
             search:params.get('q') || '',channel:params.get('channel') || '',limit:24,
+            step:STREAMLINE_STEPS.some(item=>item.key===params.get('step')) ? params.get('step') : '',
+            stepReason:params.get('step_reason') || '',
+            risk:['red','amber','green','none'].includes(params.get('risk')) ? params.get('risk') : '',
+            held:params.get('held')==='1',
             active:'',section:'',panels:new Map(),pageCache:new Map(),selecting:false,selected:new Set()
         };
         if (state.scope === 'attention') state.scope = 'ready';
@@ -86,7 +272,7 @@
         const nav = el('nav',null,'md-navigation');
         nav.setAttribute('aria-label','مدیریت فروشگاه');
         const navButtons = new Map();
-        [['products','محصولات'],['references','فهرست مرجع'],['sources','پیام‌های منبع'],['system','وضعیت سیستم'],['autopilot','تصمیم‌های خودکار']].forEach(([key,label])=>{
+        [['products','محصولات'],['streamline','مسیر انتشار'],['references','فهرست مرجع'],['sources','پیام‌های منبع'],['system','وضعیت سیستم']].forEach(([key,label])=>{
             const item=button(label,()=>navigate(key),'md-nav-item');
             navButtons.set(key,item); nav.appendChild(item);
         });
@@ -504,30 +690,25 @@
         }
         function saveURL() {
             const url=new URL(location.href);
-            ['view','scope','q','channel','workbench_action','product_id','offer_id','case_id','conflict_id','hold_id','reference_id'].forEach(key=>url.searchParams.delete(key));
+            ['view','scope','q','channel','workbench_action','product_id','offer_id','case_id','conflict_id','hold_id','reference_id','risk','held','step','step_reason'].forEach(key=>url.searchParams.delete(key));
             if(state.view!=='products')url.searchParams.set('view',state.view);
             if(state.scope!=='attention')url.searchParams.set('scope',state.scope);
             if(state.search)url.searchParams.set('q',state.search);
             if(state.channel)url.searchParams.set('channel',state.channel);
             if(state.action)url.searchParams.set('workbench_action',state.action);
             if(state.focus)url.searchParams.set(state.focusType,state.focus);
-            // Keep the decisions anchor while on the autopilot tab, so the
-            // direct link ?view=autopilot#molavi-autopilot-decisions survives
-            // navigation; every other hash is still cleared as before.
-            if(state.view!=='autopilot'||url.hash!=='#molavi-autopilot-decisions')url.hash='';
+            if(state.risk)url.searchParams.set('risk',state.risk);
+            if(state.held)url.searchParams.set('held','1');
+            if(state.step)url.searchParams.set('step',state.step);
+            if(state.step&&state.stepReason)url.searchParams.set('step_reason',state.stepReason);
+            url.hash='';
             history.replaceState({},'',url);
         }
         function navigate(view, product=null) {
             if(view!==state.view) clearSelection(true);
             if(view==='sources'&&product){state.sourceContext=product;state.pageCache.delete('sources');}
             state.view=view;saveURL();paint();
-            // An anchor link must win over the usual scroll-to-top-of-tab:
-            // without this, navigate() would scroll back past the list.
-            // (When the data has not loaded yet there is no element; the
-            // paint() hook below scrolls once the tab mounts.)
-            const decisions=view==='autopilot'&&location.hash==='#molavi-autopilot-decisions'?document.getElementById('molavi-autopilot-decisions'):null;
-            if(decisions)decisions.scrollIntoView({block:'start',behavior:'smooth'});
-            else main.scrollIntoView({block:'start',behavior:'smooth'});
+            main.scrollIntoView({block:'start',behavior:'smooth'});
             if(view==='products') for(const item of actions.values()) {
                 if(item.watch?.kind==='market_prices'&&!activeAction(item)) refreshMarket(item.watch.key,item.state);
             }
@@ -577,6 +758,64 @@
         function next(product) { return product.listing ? (product.listing.message_count?'product_messages':priceBlocked(product)?'source_integrity':'next') : model.primaryAction(product); }
         function ready(product) { return product.listing ? (product.listing.message_count?'product_messages':'') : model.readyAction(product); }
         function published(product) { return Boolean(product.status?.published); }
+        // G4: a 'next' product that is not published has no path forward —
+        // the card must show the unclear-status line. A published product
+        // (even sale-closed) is not a G4 case; that is G11's territory.
+        function nextDeadEnd(product) { return next(product)==='next'&&!published(product); }
+        // G4: the direct publish button only when the gates look clear —
+        // the product exists, there is an offer to publish, no price
+        // blocker, no autopilot hold, and it is a real product. The server
+        // is the final arbiter; a request that cannot work fails there and
+        // the error is shown, exactly as the status tab's button behaves.
+        function nextDeadEndPublishable(product) {
+            const record=product.status||{};
+            return Boolean(product.product_id&&record.latest_offer_id
+                &&!record.sale_offer_blocker&&record.status!=='not_product'
+                &&!(model.autopilotHold&&model.autopilotHold(product)));
+        }
+        // G11: published but sale closed — the trace's publication step says
+        // «منتشر شده، فروش بسته». Returns the step, or null when the product
+        // is not sale-closed (or has no trace). The badge and the first-view
+        // line both read this one helper, so they cannot disagree.
+        function saleClosed(product) {
+            const steps=product.status?.step_trace?.steps;
+            if (!Array.isArray(steps)) return null;
+            const step=steps.find(item=>item.key==='publication');
+            return step&&step.status_label==='منتشر شده، فروش بسته' ? step : null;
+        }
+        // The reason the sale is closed, from the trace's «مجوز فروش» fact
+        // (owner hold or verdict re-hold) — '' when the trace names none.
+        function saleClosedReason(product) {
+            const step=saleClosed(product);
+            if (!step||!Array.isArray(step.facts)) return '';
+            const fact=step.facts.find(item=>item[0]==='مجوز فروش');
+            return fact&&typeof fact[1]==='string' ? fact[1] : '';
+        }
+        // G10: the repair for a storefront mismatch, from the reconcile
+        // result. 'not_visible'/'not_purchasable' can be fixed by asking
+        // for publication again; 'sku_mismatch' needs the specs reviewed
+        // (the Woo id and the source id differ). Anything else — no
+        // reconcile result yet ('not_checked', no data at all), a healthy
+        // storefront ('purchasable'), or a held/blocked one — has no
+        // repair button: the path stays "run the check, then see".
+        // G10 follow-up: a republish repair on a product with an
+        // autopilot hold standing cannot work — the publisher blocks
+        // re-publication of held products server-side — so the repair
+        // is a separate kind ('republish_held') carrying the hold's
+        // reason, and the tab renders it disabled with that reason
+        // (the G3 pattern for «درخواست انتشار»). The hold shown is
+        // the one the «نیازمند تصمیم» notice already shows, so the
+        // card cannot disagree with itself. The spec repair is a
+        // review, not a publish, so a hold never disables it.
+        function storefrontRepair(product) {
+            const state=model.wooState(product);
+            if (state==='not_visible'||state==='not_purchasable') {
+                const hold = model.autopilotHold ? model.autopilotHold(product) : null;
+                return hold ? {kind:'republish_held', reason: hold.reason||'توقف پذیرش ثبت شده است.'} : {kind:'republish'};
+            }
+            if (state==='sku_mismatch') return {kind:'spec',note:'شناسهٔ ووکامرس با شناسهٔ منبع فرق دارد'};
+            return null;
+        }
         function priceBlocked(product) { return Boolean(product.status?.sale_offer_blocker); }
         function reopenable(product) {
             return !model.errors.product_status&&!model.errors.ai_confirmations&&
@@ -611,6 +850,12 @@
             if(ready(product))return ['آمادهٔ بررسی','attention'];
             if(next(product)==='deferred')return ['کنارگذاشته‌شده','neutral'];
             if(waiting(product))return ['در انتظار پیگیری','unknown'];
+            // G11: published but sale closed — the green «منتشرشده» would
+            // lie, so the badge says the sale is closed (warning tone).
+            // The badges above name the actual work (a blocker, a ready
+            // review, a wait), so they keep their precedence; only the
+            // finished-looking badge is replaced.
+            if(saleClosed(product))return ['منتشر شده، فروش بسته','attention'];
             if(published(product))return ['منتشرشده','good'];
             const woo=model.wooState(product);
             if(woo==='purchasable')return ['قابل خرید','good'];
@@ -621,6 +866,21 @@
             const text=normalize([product.name,product.channel,product.listing?.woo_product_id,...identities(product)].join(' '));
             if(state.search&&!text.includes(normalize(state.search)))return false;
             if(state.channel&&product.channel!==state.channel)return false;
+            // Risk tier (from the card's autopilot summary; a product with
+            // no trace is 'none') and the held filter — the two filters the
+            // decisions tab used to offer, now on the Products list.
+            if(state.risk){
+                const tier=product.status?.step_trace?.autopilot?.tier||'none';
+                if(tier!==state.risk)return false;
+            }
+            if(state.held&&!(model&&model.autopilotHold&&model.autopilotHold(product)))return false;
+            // Streamline step filter (the funnel's drill-in): the product
+            // must be stuck at this step — the same stuck-step function the
+            // funnel counts with, so the list and the funnel cannot disagree.
+            if(state.step){
+                if(streamlineStuckStep(product)!==state.step)return false;
+                if(state.stepReason&&streamlineStuckReason(product,model&&model.autopilotHold?model.autopilotHold(product):null)!==state.stepReason)return false;
+            }
             if(state.focus){
                 const groups={
                     product_id:[product.product_id],
@@ -684,6 +944,10 @@
             title.append(copy);
             const stamp=model.data.product_status?.generated_at;
             if(stamp)title.append(el('small',`آخرین دریافت: ${model.formatDate(stamp)}`,'md-last-read'));
+            // Unreviewed autopilot decisions (the count the decisions tab
+            // showed) — now on the Products view, where the cards are.
+            const unreviewed=Number(model.data.autopilot?.unreviewed_decisions)||0;
+            if(unreviewed>0)title.append(el('small',`بازبینی‌نشده: ${fa(unreviewed)} تصمیم`,'md-unreviewed'));
             view.append(title);
             const policyNotice=extractionPolicyNotice();
             if (policyNotice) view.append(policyNotice);
@@ -706,7 +970,7 @@
                 ['other','سایر',allProducts.filter(p=>!ready(p)&&!waiting(p)&&!priceBlocked(p)&&!published(p)).length],
                 ['all','همهٔ محصولات',allProducts.length]].forEach(([key,label,count])=>{
                 const item=button(`${label}  ${fa(count)}`,()=>{
-                    clearSelection();state.scope=key;state.action='';state.focus='';state.limit=24;saveURL();paint();
+                    clearSelection();state.scope=key;state.action='';state.focus='';state.step='';state.stepReason='';state.limit=24;saveURL();paint();
                 },'md-scope');item.setAttribute('aria-pressed',String(state.scope===key&&(!state.action||key==='published')));scopeBar.append(item);
             });view.append(scopeBar);
             const filters=el('div',null,'md-filters');
@@ -721,15 +985,39 @@
             const candidates=allProducts;
             [...new Set(candidates.map(p=>p.channel).filter(Boolean))].sort().forEach(value=>{const o=el('option',value);o.value=value;channel.append(o);});
             channel.value=state.channel;
-            filters.append(search,action,channel);view.append(filters);
+            // Risk filter + held filter (the decisions tab's filters, now on
+            // the Products list): tier counts come from the cards' autopilot
+            // summaries; a product without a trace counts as 'none'.
+            const risk=el('select');risk.setAttribute('aria-label','ریسک خلبان خودکار');
+            const riskCounts={red:0,amber:0,green:0,none:0};
+            allProducts.forEach(p=>{const tier=p.status?.step_trace?.autopilot?.tier||'none';if(riskCounts[tier]!==undefined)riskCounts[tier]++;});
+            [['','همهٔ ریسک‌ها'],['red','پرخطر'],['amber','ریسک متوسط'],['green','کم‌ریسک'],['none','بدون درجه‌بندی']].forEach(([key,label])=>{
+                const option=el('option',key?`${label} · ${fa(riskCounts[key])}`:label);option.value=key;risk.append(option);
+            });risk.value=state.risk;
+            risk.addEventListener('change',()=>{clearSelection();state.risk=risk.value;state.limit=24;saveURL();paintList();});
+            const heldWrap=el('label',null,'md-filter-held');
+            const heldBox=el('input');heldBox.type='checkbox';heldBox.checked=state.held;
+            heldBox.setAttribute('aria-label','فقط کالاهای توقف‌دار');
+            heldBox.addEventListener('change',()=>{clearSelection();state.held=heldBox.checked;state.limit=24;saveURL();paintList();});
+            heldWrap.append(heldBox,document.createTextNode(' فقط توقف‌دار'));
+            filters.append(search,action,channel,risk,heldWrap);view.append(filters);
             // Supplier link checks (round eight) and market agreement
             // (round nine): the owner's confirm list, changed prices, the
             // uncheckable report, and the market-agreement report sit above
             // the product list while the supplier-price queue is open.
             if (state.action==='supplier_prices'&&model.renderLinkChecks) view.append(model.renderLinkChecks());
             if (state.action==='supplier_prices'&&model.renderMarketAgreement) view.append(model.renderMarketAgreement());
-            const focus=el('div',null,'md-active-filter');focus.hidden=!state.focus;
+            const focus=el('div',null,'md-active-filter');focus.hidden=!state.focus&&!state.step;
             if(state.focus)focus.append(el('span',`شناسه: ${state.focus}`),button('نمایش همه',()=>{clearSelection();state.focus='';saveURL();paint();},'md-link'));
+            // Streamline step filter chip: the funnel's drill-in, with the
+            // step (and reason, when set) named so the owner knows what the
+            // list is showing — and a way back out.
+            if(state.step){
+                const stepDef=STREAMLINE_STEPS.find(item=>item.key===state.step);
+                const reasonLabel=state.stepReason?STREAMLINE_REASONS[state.step]?.[state.stepReason]:'';
+                focus.append(el('span',`مرحله: ${stepDef?stepDef.label:state.step}${reasonLabel?` — ${reasonLabel}`:''}`),
+                    button('نمایش همه',()=>{clearSelection();state.step='';state.stepReason='';saveURL();paint();},'md-link'));
+            }
             view.append(focus);
             const count=el('p',null,'md-result-count');count.setAttribute('role','status');
             const controls=el('div',null,'md-result-controls');
@@ -793,6 +1081,9 @@
                     if(state.action&&!state.focus) {
                         emptyView.append(button('نمایش همهٔ کارها',()=>{clearSelection();state.action='';state.limit=24;saveURL();paint();},'md-button'));
                     }
+                    if(state.step) {
+                        emptyView.append(button('نمایش همهٔ کالاها',()=>{clearSelection();state.step='';state.stepReason='';state.limit=24;saveURL();paint();},'md-button'));
+                    }
                     list.append(emptyView);
                 }
                 more.hidden=rows.length<=state.limit;
@@ -804,7 +1095,7 @@
                 state.search=search.value;state.limit=24;clearTimeout(searchTimer);
                 searchTimer=setTimeout(()=>{selectAll.disabled=false;saveURL();paintList();},160);
             });
-            action.addEventListener('change',()=>{clearSelection();state.action=action.value;state.limit=24;saveURL();paintList();});
+            action.addEventListener('change',()=>{clearSelection();state.action=action.value;state.step='';state.stepReason='';state.limit=24;saveURL();paintList();});
             channel.addEventListener('change',()=>{clearSelection();state.channel=channel.value;state.limit=24;saveURL();paintList();});
             view.append(controls,selection,list,more);paintList();return view;
         }
@@ -880,20 +1171,106 @@
             if (autopilotHold) {
                 card.append(el('div', `نیازمند تصمیم: ${autopilotHold.reason}`, 'notice notice-warning'));
             }
+            // Autopilot state on the card (owner request 2026-11-26): the
+            // decisions tab dissolves into the Products cards, so the card
+            // itself shows the state, the reason, the history and the
+            // actions — on the first view, above the tabs.
+            if (model.renderAutopilotCard) {
+                const autopilotSection = model.renderAutopilotCard(product);
+                if (autopilotSection) card.append(autopilotSection);
+            }
+            // G11: published but sale closed — say why on the first view,
+            // with the matching button. An owner hold can be released from
+            // here (the same release_hold the history row calls); a
+            // flag-based block cannot be released (release_hold only
+            // releases an owner hold, and the flag expires on its own), so
+            // the storefront tab is the path — unless the next-step line
+            // already offers it.
+            if (saleClosed(product)) {
+                const saleLine=el('div',null,'md-next-action');
+                const closedReason=saleClosedReason(product);
+                saleLine.append(el('p',closedReason?`مجوز فروش: ${closedReason}`:'فروش این کالا بسته است.'));
+                const ownerHeldSale=model.data&&model.data.autopilot&&Array.isArray(model.data.autopilot.holds)
+                    &&model.data.autopilot.holds.some(hold=>hold.gate==='admission_owner'&&String(hold.product_id)===String(product.product_id));
+                if (ownerHeldSale) {
+                    saleLine.append(button('رفع توقف پذیرش',async event=>{
+                        const control=event.currentTarget;control.disabled=true;
+                        try {await model.releaseAutopilotHold(product);} catch (error) {loading(false,error.message,'error');control.disabled=false;}
+                    },'md-button md-primary'));
+                } else if (preferred!=='storefront') {
+                    saleLine.append(button('بررسی فروشگاه',()=>activate('storefront'),'md-button'));
+                }
+                card.append(saleLine);
+            }
             const nextLine=el('div',null,'md-next-action');
             if(preferred==='deferred'){
                 const keys=model.restoreKeys(product);
                 nextLine.append(el('p','بررسی این کالا کنار گذاشته شده است. برای ادامه آن را بازگردانید.'));
+                // A deferred card that still carries a no-revision price
+                // row can register the price from the message without
+                // restoring the step first — the form lives in the source
+                // tab, the only tab a deferred card has. The dismissal
+                // stands (the restore button stays); the button follows
+                // the row, not the queue, exactly as the G1 follow-up did
+                // for source_integrity. Why the rice card is deferred at
+                // all: dismissals are keyed by product
+                // (workbenchDismissalKey uses product_id), so setting the
+                // source_integrity step aside on one card for a product
+                // sets it aside for every card of that product — the live
+                // rice card inherited the dismissal from its duplicates.
+                // Re-scoping dismissals by card would orphan existing
+                // dismissals and change what "set aside" means; surfacing
+                // the price path is the scoped fix.
+                const needsPriceRegistration = model.needsPriceRegistration ? model.needsPriceRegistration(product) : null;
+                if (needsPriceRegistration) nextLine.append(button('ثبت قیمت از پیام',()=>activate('source_integrity'),'md-button md-primary'));
                 if (keys.length) nextLine.append(button('بازگرداندن همین بررسی',async event=>{
                     const control=event.currentTarget;control.disabled=true;state.active=product.key;
                     try {await hooks.restore(keys);} catch (error) {loading(false,error.message,'error');control.disabled=false;}
-                },'md-button md-primary'));
+                },needsPriceRegistration?'md-button':'md-button md-primary'));
                 else nextLine.append(button('کارهای کنارگذاشته‌شده',()=>navigate('system'),'md-link'));
+            }else if(nextDeadEnd(product)){
+                // G4: the only state with literally no path — an unpublished
+                // product matching no queue. Say so on the first view and
+                // point at the status tab, where the reason can be checked;
+                // when the gates look clear, offer the publish request
+                // directly (the server is the final arbiter, as in the tab).
+                nextLine.append(el('p','وضعیت این کالا روشن نیست — دلیل را بررسی کنید.'));
+                nextLine.append(button('بررسی انتشار',()=>activate('status'),'md-button md-primary'));
+                if (nextDeadEndPublishable(product)) nextLine.append(button('درخواست انتشار',async event=>{
+                    const control=event.currentTarget;control.disabled=true;
+                    try {await model.requestPublication(product);} catch (error) {loading(false,error.message,'error');control.disabled=false;}
+                },'md-button'));
+            }else if(preferred==='status'&&product.status?.sale_offer_blocker==='thin_spread'){
+                // G8: thin spread is not diagnostic in one button — the
+                // next-step text names both prices, and the two fixes sit
+                // side by side: pick a market quote (regular price up) or
+                // reopen the spec form (supplier price down). The spec
+                // button reuses the status tab's recovery action, which
+                // opens the spec/edit form.
+                const reason=el('div');reason.append(el('p',model.nextStep(product,preferred)));
+                nextLine.append(reason,button('بررسی قیمت عادی',()=>activate('market_prices'),'md-button md-primary'));
+                nextLine.append(recoveryAction(product,'بازبینی مشخصات'));
             }else if(preferred!=='next'){
                 const reason=el('div');reason.append(el('p',model.nextStep(product,preferred)));
                 const actionable=ready(product)===preferred;
-                const label=!actionable&&preferred==='supplier_prices'?'مدرک قیمت':actionLabels[preferred];
-                const proceed=button(label,()=>activate(preferred),actionable?'md-button md-primary':'md-button');
+                // G1: a supplier-price row with no valid source revision has
+                // no working verify — the first-view action is registering
+                // the price from the message, and it is primary.
+                // G1 follow-up: the gate was preferred==='supplier_prices',
+                // but the no-revision cards' preferred action is
+                // source_integrity — their missing URL is itself an
+                // integrity issue that outranks the price queue — so the
+                // button must follow the row, not the queue. Other queues
+                // keep their own first-view action: an earlier queue naming
+                // real work (a batch hold, an open spec case, a conflict)
+                // is not overridden. The button opens the preferred tab,
+                // which is the supplier tab or the source tab — the form
+                // lives in both.
+                const needsPriceRegistration = ['supplier_prices','source_integrity'].includes(preferred) && model.needsPriceRegistration
+                    ? model.needsPriceRegistration(product) : null;
+                const label = needsPriceRegistration ? 'ثبت قیمت از پیام'
+                    : (!actionable&&preferred==='supplier_prices'?'مدرک قیمت':actionLabels[preferred]);
+                const proceed=button(label,()=>activate(preferred),(actionable||needsPriceRegistration)?'md-button md-primary':'md-button');
                 nextLine.append(reason,proceed);
             }
             if (nextLine.childNodes.length) card.append(nextLine);
@@ -912,6 +1289,34 @@
             if (preferred==='next'&&record.latest_offer_id&&!record.source_integrity_issues?.length&&record.status!=='not_product')
                 productSections.push(['references','مرجع']);
             if(priceOffers.length&&preferred!=='market_prices') productSections.splice(currentSection?1:0,0,['market_prices','قیمت عادی']);
+            // G3: a hold-routed product keeps its status tab, so the owner can
+            // open it and see WHY publication is disabled (the disabled button
+            // + the hold reason) instead of the tab silently vanishing when
+            // the next step moves to the hold's cause. The tab is not the
+            // preferred action, so its content renders through the hold
+            // branch in fill() below, not the action block.
+            if (model.holdRoute && model.holdRoute(product) && record.publication_needed) productSections.push(['status','انتشار']);
+            // G4: a 'next' product's status tab must exist so the first-view
+            // «بررسی انتشار» button can open it. Without it, activate('status')
+            // finds no tab and the button does nothing.
+            if (nextDeadEnd(product)&&!productSections.some(([key])=>key==='status')) productSections.push(['status','انتشار']);
+            // G8: a thin-spread card offers «بررسی قیمت عادی» on the first
+            // view, so the market tab must exist even when there is no
+            // price offer to splice it in for (no latest offer yet).
+            if (preferred==='status'&&record.sale_offer_blocker==='thin_spread'&&!productSections.some(([key])=>key==='market_prices')) productSections.push(['market_prices','قیمت عادی']);
+            // G11: a sale-closed card offers «بررسی فروشگاه» on the first
+            // view (unless the next step already points there), so the
+            // storefront tab must exist for that button to open.
+            if (saleClosed(product)&&!productSections.some(([key])=>key==='storefront')) productSections.push(['storefront','فروشگاه']);
+            // G3 follow-up: a hold-routed product keeps its storefront tab
+            // too. When the normal step was 'next', the tab bar fell back to
+            // the storefront tab (sections.at(-1)); when it was 'storefront',
+            // the tab was the preferred one. Routing the next step to the
+            // hold's cause must not silently drop that tab — the owner can
+            // still run the reconcile from it, and the tab is not the
+            // preferred action, so it renders through the ordinary
+            // storefront branch in fill() below.
+            if (model.holdRoute && model.holdRoute(product) && record.woo_product_id) productSections.push(['storefront','فروشگاه']);
             function activate(key, scroll=true) {
                 state.active=product.key;state.section=key;
                 main.querySelectorAll('.md-card-panel').forEach(item=>{if(item!==panelHost)item.hidden=true;});
@@ -945,10 +1350,43 @@
                             if (offer&&!record.source_integrity_issues?.length) panel.append(model.renderOfferReextraction(String(offer)));
                             else panel.append(button('یافتن پیام تأمین‌کننده',()=>navigate('sources',product)));
                         }
+                        // G1 follow-up — a supplier-price row with no valid
+                        // source revision has no working verify: the register
+                        // form lives in this tab, the one the card actually
+                        // has. The supplier tab only exists when the price
+                        // queue is the preferred action, so the form was
+                        // unreachable for the cards whose preferred action is
+                        // source_integrity. Renders for any card carrying a
+                        // no-revision row, whatever its preferred action; it
+                        // changes no routing, only adds the form to an
+                        // existing tab.
+                        if (model.renderPriceRegister) {
+                            const registerBlock = model.renderPriceRegister(product, panel);
+                            if (registerBlock) panel.append(registerBlock);
+                        }
                     }
                     else if(key==='storefront'){
                         panel.append(el('p',model.wooLabel(model.wooState(product))));
                         panel.append(button('بررسی وضعیت فروشگاه',event=>model.reconcile(event.currentTarget)));
+                        // G10: a reconcile that returned a real mismatch
+                        // gets its repair button here, calling the existing
+                        // endpoints. Before any reconcile result
+                        // (not_checked) there is nothing to repair yet.
+                        const repair=storefrontRepair(product);
+                        if (repair&&repair.kind==='republish') panel.append(button('انتشار دوباره',async event=>{
+                            const control=event.currentTarget;control.disabled=true;
+                            try {await model.requestPublication(product);} catch (error) {loading(false,error.message,'error');control.disabled=false;}
+                        },'md-button md-primary'));
+                        else if (repair&&repair.kind==='republish_held') {
+                            panel.append(el('p',`انتشار متوقف است: ${repair.reason}`,'notice notice-warning'));
+                            const disabledBtn=button('انتشار دوباره',()=>{},'md-button md-primary');
+                            disabledBtn.disabled=true;
+                            panel.append(disabledBtn);
+                        }
+                        else if (repair&&repair.kind==='spec') {
+                            panel.append(el('p',repair.note));
+                            panel.append(recoveryAction(product,'بازبینی مشخصات'));
+                        }
                     }
                     else if (key==='stock') {
                         panel.append(el('p','پس از دریافت پیام تازه، موجودی و قیمت را در همان پیشنهاد بررسی کنید.'),
@@ -984,7 +1422,19 @@
                         const action=model.renderAction(product,key);
                         if (action) panel.append(action);
                         if (key==='status') {
-                            if (record.publication_needed) panel.append(button('درخواست انتشار',async event=>{
+                            // G3: while an autopilot hold stands, publication
+                            // cannot work — show the request as disabled with
+                            // the hold's reason instead of inviting a click
+                            // that will fail. The hold shown is the one the
+                            // «نیازمند تصمیم» notice already shows, so the
+                            // card cannot disagree with itself.
+                            const hold = model.autopilotHold ? model.autopilotHold(product) : null;
+                            if (record.publication_needed && hold) {
+                                panel.append(el('p',`انتشار متوقف است: ${hold.reason||'توقف پذیرش ثبت شده است.'}`,'notice notice-warning'));
+                                const disabledBtn=button('درخواست انتشار',()=>{},'md-button md-primary');
+                                disabledBtn.disabled=true;
+                                panel.append(disabledBtn);
+                            } else if (record.publication_needed) panel.append(button('درخواست انتشار',async event=>{
                                 const control=event.currentTarget;control.disabled=true;
                                 try {await model.requestPublication(product);} catch (error) {loading(false,error.message,'error');control.disabled=false;}
                             },'md-button md-primary'));
@@ -999,6 +1449,45 @@
                         if (key==='supplier_prices'&&!product.supplierPrices.length&&!record.latest_offer_id)
                             panel.append(button('یافتن پیام تأمین‌کننده',()=>navigate('sources',product),'md-button md-primary'));
                         panel.append(button('کنارگذاشتن این کار',()=>dismissTask(model.dismissalTask(product,key)),'md-link md-muted'));
+                    }
+                    // G3: a hold-routed product keeps its status tab (added to
+                    // the tab bar above), but the tab is not the preferred
+                    // action, so the action block above is skipped. Render the
+                    // disabled publish button + the hold's cause reason here,
+                    // so the owner sees why publication is not available.
+                    if (key==='status' && !hasAction && record.publication_needed) {
+                        const route = model.holdRoute ? model.holdRoute(product) : null;
+                        if (route) {
+                            panel.append(el('p',`انتشار متوقف است: ${route.reason||'توقف پذیرش ثبت شده است.'}`,'notice notice-warning'));
+                            const disabledBtn=button('درخواست انتشار',()=>{},'md-button md-primary');
+                            disabledBtn.disabled=true;
+                            panel.append(disabledBtn);
+                        }
+                    }
+                    // G4: a 'next' product's status tab is not the preferred
+                    // action either, so the action block above is skipped —
+                    // render the same publication check, or the tab the
+                    // first-view «بررسی انتشار» button opens is empty. A
+                    // nextDeadEnd product has no hold route (the G3 router
+                    // would have sent it to the hold's cause instead), so
+                    // the hold case here is defensive only.
+                    if (key==='status' && !hasAction && nextDeadEnd(product)) {
+                        const hold = model.autopilotHold ? model.autopilotHold(product) : null;
+                        if (hold) {
+                            panel.append(el('p',`انتشار متوقف است: ${hold.reason||'توقف پذیرش ثبت شده است.'}`,'notice notice-warning'));
+                            const disabledBtn=button('درخواست انتشار',()=>{},'md-button md-primary');
+                            disabledBtn.disabled=true;
+                            panel.append(disabledBtn);
+                        } else if (record.publication_needed) {
+                            panel.append(button('درخواست انتشار',async event=>{
+                                const control=event.currentTarget;control.disabled=true;
+                                try {await model.requestPublication(product);} catch (error) {loading(false,error.message,'error');control.disabled=false;}
+                            },'md-button md-primary'));
+                        } else {
+                            if (priceOffers.length) panel.append(button('بررسی قیمت عادی',()=>activate('market_prices')));
+                            if (record.latest_offer_id&&product.product_id) panel.append(recoveryAction(product,'بازبینی مشخصات برای انتشار'));
+                            else panel.append(button('یافتن پیام تأمین‌کننده',()=>navigate('sources',product),'md-button md-primary'));
+                        }
                     }
                     state.panels.set(cacheKey,panel);
                 }
@@ -1093,33 +1582,90 @@
                 if(hooks.pageUrls[key]){const link=el('a',label,'md-utility-link');link.href=hooks.pageUrls[key];utilities.append(link);}
             });view.append(utilities);return view;
         }
+        // The funnel's drill-in: show the Products list filtered to one
+        // step (and one reason, when given). Read-only navigation — it only
+        // sets the list filters, never product state.
+        function openStepFilter(key,reason) {
+            clearSelection();
+            state.scope='all';state.action='';state.focus='';state.search='';state.channel='';
+            state.step=key;state.stepReason=reason||'';state.limit=24;
+            navigate('products');
+        }
+        // Streamline funnel («مسیر انتشار», owner request 2026-11-26): one
+        // screen showing, for each of the 7 publication steps, how many
+        // products are stuck there, why, and what to do. The counts come
+        // from streamlineFunnel — the same step-trace evaluation the card
+        // renders — so the funnel and the cards cannot disagree. Every
+        // button only navigates to the filtered Products list; nothing here
+        // changes any product state.
+        function streamlineView() {
+            const view=el('section',null,'md-streamline');
+            const title=el('div',null,'md-page-heading');
+            const copy=el('div');copy.append(el('h1','مسیر انتشار'));
+            title.append(copy);
+            const stamp=model.data.product_status?.generated_at;
+            if(stamp)title.append(el('small',`آخرین دریافت: ${model.formatDate(stamp)}`,'md-last-read'));
+            view.append(title);
+            const funnel=streamlineFunnel(model.products,product=>model.autopilotHold?model.autopilotHold(product):null);
+            const bottleneckEntry=funnel.bottleneck?funnel.steps.find(item=>item.key===funnel.bottleneck):null;
+            const summaryParts=[`${fa(funnel.total)} کالا`,
+                funnel.published>0?`${fa(funnel.published)} منتشر شده`:'',
+                funnel.flowing>0?`${fa(funnel.flowing)} در جریان`:''];
+            let summaryText=summaryParts.filter(Boolean).join(' · ');
+            if(bottleneckEntry){
+                summaryText+=` · بیشترین گلوگاه: ${bottleneckEntry.label} — ${fa(bottleneckEntry.count)} کالا`;
+                if(funnel.topReason)summaryText+=`؛ بیشترشان (${fa(funnel.topReason.count)}) ${funnel.topReason.label}`;
+            } else {
+                summaryText+=' · هیچ گلوگاهی نیست؛ همهٔ کالاها یا منتشر شده‌اند یا در جریان‌اند.';
+            }
+            view.append(el('p',summaryText,'md-streamline-summary'));
+            if(funnel.untraced>0)view.append(el('p',`${fa(funnel.untraced)} کالا ردپای مرحله ندارند؛ در شمارش مرحله‌ها نیستند.`,'md-streamline-note'));
+            const flow=el('div',null,'md-funnel');
+            flow.dir='ltr';
+            funnel.steps.forEach((entry,index)=>{
+                if(index>0)flow.append(el('span','→','md-funnel-arrow'));
+                const block=el('section',null,'md-funnel-step'
+                    +(entry.key===funnel.bottleneck?' md-funnel-step--bottleneck':'')
+                    +(entry.count===0?' md-funnel-step--empty':''));
+                block.dir='rtl';
+                block.append(el('span',fa(index+1),'md-funnel-number'));
+                block.append(el('h2',entry.label));
+                block.append(el('p',fa(entry.count),'md-funnel-count'));
+                if(entry.key===funnel.bottleneck)block.append(el('span','گلوگاه','md-funnel-bottleneck'));
+                if(entry.reasons.length){
+                    const reasons=el('ul',null,'md-funnel-reasons');
+                    entry.reasons.forEach(reason=>{
+                        const item=el('li');
+                        item.append(button(`${reason.label} · ${fa(reason.count)}`,()=>openStepFilter(entry.key,reason.key),'md-link'));
+                        reasons.append(item);
+                    });
+                    block.append(reasons);
+                }
+                if(entry.count>0)block.append(button(entry.action,()=>openStepFilter(entry.key,''),'md-button md-primary'));
+                flow.append(block);
+            });
+            view.append(flow);
+            return view;
+        }
         function paint() {
             navButtons.forEach((button,key)=>button.setAttribute('aria-current',key===state.view?'page':'false'));
-            // Keep the active tab visible in the horizontally scrollable nav row: the
-            // autopilot tab is last, so on a narrow screen it can sit off the edge.
+            // Keep the active tab visible in the horizontally scrollable nav row:
+            // on a narrow screen the active tab can sit off the edge.
             // block:'nearest' so this never scrolls the page vertically.
             navButtons.get(state.view)?.scrollIntoView({block:'nearest',inline:'nearest'});
-            if(!model&&['products','system','autopilot'].includes(state.view)) {
+            if(!model&&['products','system','streamline'].includes(state.view)) {
                 main.replaceChildren(state.view==='system'?systemActivity:el('p','در حال دریافت محصولات…'));
                 return;
             }
             if(state.view==='products')main.replaceChildren(productsView());
+            else if(state.view==='streamline')main.replaceChildren(streamlineView());
             else {
                 if(!state.pageCache.has(state.view))state.pageCache.set(state.view,
                     state.view==='pricing'?pricingView():state.view==='references'?referencesView()
-                        :state.view==='sources'?sourcesView():state.view==='autopilot'?model.renderAutopilot():systemView());
+                        :state.view==='sources'?sourcesView():systemView());
                 const page=state.pageCache.get(state.view);
                 const mounted=main.firstElementChild!==page;
                 if(mounted) main.replaceChildren(page);
-                // Direct link to the decisions list: the tab mounts only once
-                // the dashboard data arrives, so the anchor scroll has to
-                // happen here (on mount), not only in navigate(). Only on a
-                // fresh mount, so paints that reuse the cached page do not
-                // yank the owner away from content already on screen.
-                // (A data refresh rebuilds the tab from scratch, so the
-                // scroll repeats then — consistent, since the rebuilt DOM
-                // loses scroll position and any open <details> anyway.)
-                if(mounted&&state.view==='autopilot'&&location.hash==='#molavi-autopilot-decisions') document.getElementById('molavi-autopilot-decisions')?.scrollIntoView({block:'start'});
                 if(state.view==='sources') refreshInbox(activityReport?.inbox_revision);
             }
         }
@@ -1204,10 +1750,7 @@
             event.preventDefault();
             const view=url.searchParams.get('view');
             const focusKey=['offer_id','product_id','case_id','hold_id','conflict_id','reference_id'].find(key=>url.searchParams.has(key));
-            if(['products','sources','references','system','pricing','autopilot'].includes(view)) {
-                // Carry a decisions-anchor click through: navigate() reads
-                // location.hash, and the click's hash is not in it yet.
-                if(url.hash==='#molavi-autopilot-decisions') history.replaceState({},'',url.href);
+            if(['products','sources','references','system','pricing','streamline'].includes(view)) {
                 navigate(view);
             }
             else if(focusKey==='hold_id') reviewHold('molavi-batch-'+encodeURIComponent(url.searchParams.get(focusKey)));

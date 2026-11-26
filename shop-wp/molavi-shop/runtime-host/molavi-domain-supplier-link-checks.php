@@ -368,10 +368,17 @@ function molavi_domain_supplier_recorded_links(array $offers, array $messages, a
 }
 
 /**
- * Seed due rows from the Products sheet: every item whose supplier price
- * state is needs_review or blocked. A new row (or a changed revision)
- * is due now; uncheckable rows (no URL / Bale) are classified at once,
- * without a fetch, and revisited in a week or when the revision changes.
+ * Seed due rows from the Products sheet: EVERY product gets a row, not
+ * only items whose supplier price is stale. The state filter used to
+ * be ['needs_review', 'blocked'], so a product whose price was
+ * currently verified never got a row — the cappuccino
+ * (p_2495a6cc4a8a643c0946ca0d, price owner-confirmed 2026-11-24) had
+ * none, and neither did 12 other products, so the card could never
+ * show whether their source post still exists. A new row (or a changed
+ * revision) is due now; uncheckable rows (no URL / Bale) are classified
+ * at once, without a fetch, and revisited in a week or when the revision
+ * changes. Existing rows are left alone when nothing changed, so the
+ * check cadence for products that already have rows is untouched.
  * Returns the number of rows seeded/updated.
  */
 function molavi_domain_supplier_link_check_seed(int $now): int {
@@ -388,7 +395,6 @@ function molavi_domain_supplier_link_check_seed(int $now): int {
             $id = trim((string)($record['Product ID'] ?? ''));
             if ($id === '' || !isset($byId[$id])) continue;
             $offer = $byId[$id];
-            if (!in_array($offer['state'], ['needs_review', 'blocked'], true)) continue;
             $url = trim((string)($record['Source Post URL'] ?? ''));
             $source = $links[(string)($record['Latest Offer ID']??'')]??null;
             if ($url==='' && $source && $source['product']===$id && $source['channel']===($record['Channel Username']??'')
@@ -487,6 +493,17 @@ function molavi_domain_supplier_link_check_execute(array $row, string $lease, in
         if (($live['code'] ?? '') === 'post_maybe_gone') {
             // Split C-S3 (deleted post) from C-S2 (private/gone channel):
             // a public channel page still resolves when only the post is gone.
+            $live = ['code'=>molavi_domain_supplier_link_check_channel_exists($parsed['channel'], $fetch)
+                ? 'post_not_found' : 'channel_unavailable'];
+        } elseif (($live['code'] ?? '') === 'channel_unavailable') {
+            // Same split for the 200-with-no-text fetch: t.me serves
+            // HTTP 200 "Post not found" for a deleted post, and the
+            // Railway fetch returns null text for it — indistinguishable
+            // from a channel problem without this check. The cappuccino
+            // (t.me/bonakdarjavan/1337) was misclassified as
+            // channel_unavailable this way; the channel is alive, only
+            // the post is gone. A channel that genuinely does not exist
+            // still lands on channel_unavailable.
             $live = ['code'=>molavi_domain_supplier_link_check_channel_exists($parsed['channel'], $fetch)
                 ? 'post_not_found' : 'channel_unavailable'];
         } elseif (in_array($live['code'] ?? '', ['fetch_blocked', 'fetch_failed'], true)) {

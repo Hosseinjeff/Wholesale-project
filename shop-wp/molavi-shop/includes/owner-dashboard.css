@@ -56,7 +56,7 @@ body.admin-bar #molavi-owner-workflow .md-navigation {top:32px;}
 #molavi-owner-workflow .md-scopes {display:flex;gap:7px;flex-wrap:wrap;margin-bottom:20px;}
 #molavi-owner-workflow .md-scope {border:1px solid var(--md-line);border-radius:7px;background:white;padding:8px 14px;color:var(--md-muted);font:inherit;cursor:pointer;}
 #molavi-owner-workflow .md-scope[aria-pressed="true"] {background:var(--md-green);border-color:var(--md-green);color:white;}
-#molavi-owner-workflow .md-filters {display:grid;grid-template-columns:minmax(0,1fr) 190px 190px;gap:10px;}
+#molavi-owner-workflow .md-filters {display:grid;grid-template-columns:minmax(0,1fr) 190px 190px 190px auto;gap:10px;}
 #molavi-owner-workflow.molavi-dashboard :is(input:not([type="checkbox"]):not([type="radio"]),select,textarea) {
     font:inherit;color:var(--md-ink);border:1px solid #ccd5cd;border-radius:7px;min-width:0;max-width:100%;background:white;padding:8px 10px;min-height:39px;
 }
@@ -170,4 +170,30 @@ body.admin-bar #molavi-owner-workflow .md-navigation {top:32px;}
 @media(prefers-reduced-motion:reduce){#molavi-owner-workflow * {scroll-behavior:auto!important;}}
 #molavi-owner-workflow .md-source-context {display:grid;gap:8px;padding:15px;margin-top:15px;border:1px solid var(--md-line);border-radius:8px;background:white;}
 #molavi-owner-workflow .md-last-read {align-self:center;color:var(--md-muted);font-size:11px;}
+/* Autopilot on the Products list (owner request 2026-11-26): the decisions
+   tab's unreviewed count and its risk/held filters, now on this view. */
+#molavi-owner-workflow .md-unreviewed {align-self:center;color:#9c1c1c;font-size:11px;font-weight:600;}
+#molavi-owner-workflow .md-filter-held {display:flex;align-items:center;gap:.3rem;white-space:nowrap;}
 @media(max-width:782px){#molavi-owner-workflow .md-page-heading{flex-wrap:wrap;gap:8px;}}
+/* Streamline funnel («مسیر انتشار», owner request 2026-11-26): the
+   pipeline overview — one block per publication step, left to right in
+   pipeline order, the most-choked step marked as the bottleneck. */
+#molavi-owner-workflow .md-streamline-summary {font-size:15px;margin-bottom:20px!important;}
+#molavi-owner-workflow .md-streamline-note {color:var(--md-muted);font-size:12px;margin-bottom:14px!important;}
+#molavi-owner-workflow .md-funnel {display:flex;align-items:stretch;gap:6px;direction:ltr;overflow-x:auto;padding-bottom:6px;}
+#molavi-owner-workflow .md-funnel-arrow {flex:0 0 auto;align-self:center;color:var(--md-muted);font-size:18px;}
+#molavi-owner-workflow .md-funnel-step {flex:1 1 0;min-width:150px;display:flex;flex-direction:column;gap:6px;padding:14px;background:var(--md-paper);border:1px solid var(--md-line);border-radius:11px;}
+#molavi-owner-workflow .md-funnel-step--empty {opacity:.55;}
+#molavi-owner-workflow .md-funnel-step--bottleneck {border:2px solid #bd873a;background:#fff9ec;}
+#molavi-owner-workflow .md-funnel-number {display:grid;place-items:center;width:26px;height:26px;border-radius:50%;background:var(--md-soft);color:var(--md-green);font-size:12px;font-weight:700;}
+#molavi-owner-workflow .md-funnel-step--bottleneck .md-funnel-number {background:#bd873a;color:#fff;}
+#molavi-owner-workflow .md-funnel-count {font-size:28px;font-weight:700;line-height:1.2;color:var(--md-green);}
+#molavi-owner-workflow .md-funnel-bottleneck {align-self:flex-start;font-size:11px;font-weight:700;padding:2px 8px;border-radius:5px;background:#bd873a;color:#fff;}
+#molavi-owner-workflow .md-funnel-reasons {list-style:none;margin:0;padding:0;display:grid;gap:4px;}
+#molavi-owner-workflow .md-funnel-reasons .md-link {text-align:start;padding:0;}
+#molavi-owner-workflow .md-funnel-step .md-button {margin-top:auto;}
+@media(max-width:782px){
+    #molavi-owner-workflow .md-funnel {flex-direction:column;overflow-x:visible;}
+    #molavi-owner-workflow .md-funnel-arrow {transform:rotate(90deg);}
+    #molavi-owner-workflow .md-funnel-step {min-width:0;}
+}

@@ -14,7 +14,7 @@ function molavi_domain_ai_reviewable(array $offer): bool {
     $parts=array_values(array_filter(array_map('trim',explode(';',strtolower($raw))),static fn($part)=>$part!==''));
     if(!$parts)return true;foreach($parts as $part)if(!str_starts_with($part,'reference:'))return true;return false;
 }
-function molavi_domain_ai_case(array $offer,?array $latest=null,?float $clock=null): ?array {
+function molavi_domain_ai_case(array $offer,?array $latest=null,?float $clock=null,?array $confirmedPrices=null): ?array {
     $id=(string)molavi_domain_py_value($offer['Offer ID']??null);if($id===''||!molavi_domain_ai_reviewable($offer))return null;
     $now=$clock??microtime(true);$timestamp=molavi_domain_timestamp(molavi_domain_py_value($offer['Source Post Updated At']??null,molavi_domain_py_value($offer['Message Timestamp']??null,$offer['Source Post Created At']??null)));
     $old=$timestamp===null||$timestamp>$now||$now-$timestamp>=14*86400;$basis=trim((string)molavi_domain_py_value($offer['Source Timestamp Basis']??null));
@@ -25,6 +25,24 @@ function molavi_domain_ai_case(array $offer,?array $latest=null,?float $clock=nu
         'brand'=>'Brand','category'=>'Category','variation_type'=>'Variation Type','volume'=>'Volume','weight'=>'Weight','reason'=>'Review Reason','price_type'=>'Price Type','currency'=>'Currency',
         'packaging'=>'Packaging','reference_match_state'=>'Reference Match State','reference_match_id'=>'Reference Match ID','reference_price_role_hint'=>'Reference Price Role Hint'];
     foreach($map as $key=>$field)$case[$key]=(string)molavi_domain_py_value($offer[$field]??null);
+    // Duplicate-card merge: a re-extract case's offer_id differs from the
+    // product's latest_offer_id, so the workbench built a second card. Carry
+    // the offer row's own Product ID so ensureProduct merges the case into
+    // its product. Only when non-empty — an absent key and '' compare equal
+    // everywhere the case is read, so offers without one keep the old shape.
+    $offerProductId=trim((string)molavi_domain_py_value($offer['Product ID']??null));
+    if($offerProductId!=='')$case['product_id']=$offerProductId;
+    // Detected-vs-confirmed comparison (beer message 7218): a
+    // re-extract detects a new supplier price; the owner needs the
+    // currently confirmed Sale Price next to it to tell at a glance
+    // what changed. The product record's Sale Price is a WP-side
+    // lookup, not extraction content — Railway cases do not carry it
+    // (see $skip in ai-confirmations). Only when a product + positive
+    // price exist; otherwise the old shape stands.
+    if($offerProductId!==''&&is_array($confirmedPrices)){
+        $confirmed=molavi_domain_positive_price($confirmedPrices[$offerProductId]??null);
+        if($confirmed>0)$case['confirmed_sale_price']=$confirmed;
+    }
     $case['historical_reextract']=str_starts_with($case['batch_id'],'reextract:')&&$old;
     $case['source_current_check_required']=!in_array($basis,['supplier_channel_update','supplier_channel_forward'],true)||$old;
     foreach(['sale_price'=>'Sale Price','package_price'=>'Package Price','package_count'=>'Package Count','min_qty'=>'Min Qty'] as $key=>$field)$case[$key]=molavi_domain_py_value($offer[$field]??null);
@@ -83,6 +101,16 @@ function molavi_domain_ai_candidates(array $case,array $snapshot): array {
 }
 function molavi_domain_ai_review_cases(array $tables,?array $snapshot=null,bool $history=false,int $limit=200,?float $clock=null,bool $candidates=true,string $focused=''): array {
     $offers=molavi_domain_records($tables['Offers']??[]);$snapshotId=(string)($snapshot['snapshot_id']??'');$referenceNames=[];
+    // Confirmed-price comparison: product_id => current Sale Price from
+    // the Products sheet. Only when the caller passed Products (the
+    // workbench path does; the case-diff and single-case paths pass
+    // Offers only, so the map stays empty there and the old case shape
+    // stands). Built once, not per case.
+    $confirmedPrices=[];
+    foreach(molavi_domain_records($tables['Products']??[]) as $productRow){
+        $pid=trim((string)molavi_domain_py_value($productRow['Product ID']??null));
+        if($pid!==''&&!isset($confirmedPrices[$pid]))$confirmedPrices[$pid]=$productRow['Sale Price']??null;
+    }
     foreach($snapshot['rows']??[] as $row)if(is_array($row)&&count($row)>16)$referenceNames[(string)molavi_domain_py_value($row[16],molavi_domain_py_value($row[2]))]=(string)molavi_domain_py_value($row[0]);
     $data=molavi_domain_read('pipeline',static fn(SQLite3 $db)=>['decisions'=>molavi_domain_rows($db,'SELECT d.* FROM ai_confirmation_decisions d WHERE rowid=(SELECT p.rowid FROM ai_confirmation_decisions p WHERE p.case_id=d.case_id ORDER BY p.created_at DESC,p.rowid DESC LIMIT 1)'),
         'source_results'=>molavi_domain_rows($db,'SELECT * FROM ai_source_reextractions')]);$latest=[];$sourceResults=[];$referenceDecisions=[];
@@ -96,7 +124,7 @@ function molavi_domain_ai_review_cases(array $tables,?array $snapshot=null,bool 
         $batch=(string)molavi_domain_py_value($offer['Batch ID']??null);$marker=molavi_domain_json([(string)molavi_domain_py_value($offer['Message ID']??null),(string)molavi_domain_py_value($offer['Channel Username']??null)]);
         $key=molavi_domain_ai_source_key($offer);$superseded=isset($markers[$marker])&&!str_starts_with($batch,'reextract:');$source=$sourceResults[$key]??[];$sourceBatch=($source['outcome']??null)==='products'?($source['batch_id']??null):null;
         if($sourceBatch)$superseded=$superseded||$batch!==$sourceBatch;elseif(str_starts_with($batch,'reextract:'))$superseded=$superseded||$batch!==($latestBatch[$key]??null);elseif(isset($latestBatch[$key]))$superseded=true;
-        $case=$superseded?null:molavi_domain_ai_case($offer,$decision,$clock);
+        $case=$superseded?null:molavi_domain_ai_case($offer,$decision,$clock,$confirmedPrices);
         if($case){$case['reference_match_name']=$referenceNames[(string)molavi_domain_py_value($case['reference_match_id'])]??'';$case['reference_candidates']=[];
             if($snapshotId!==''){$case['reference_snapshot_id']=$snapshotId;$attrs=molavi_domain_offer_attributes($offer);$refDecision=$referenceDecisions[molavi_domain_reference_case_id($id,$snapshotId)]??null;
                 if($refDecision&&$refDecision['snapshot_id']===$snapshotId&&$refDecision['signature']===molavi_domain_reference_signature($attrs)){$refId=(string)molavi_domain_py_value($refDecision['reference_id']);
@@ -112,7 +140,7 @@ function molavi_domain_ai_review_cases(array $tables,?array $snapshot=null,bool 
     foreach(molavi_domain_ai_decision_history($focused!==''?'ai:'.hash('sha256',$focused):null,$limit) as $decision){if(isset($seen[$decision['case_id']]))continue;$seen[$decision['case_id']]=true;$pair=$all[$decision['offer_id']]??null;if(!$pair)continue;$source=$pair[0];
         $marker=molavi_domain_json([(string)molavi_domain_py_value($source['Message ID']??null),(string)molavi_domain_py_value($source['Channel Username']??null)]);
         if(isset($markers[$marker])&&!str_starts_with((string)molavi_domain_py_value($source['Batch ID']??null),'reextract:'))continue;
-        $case=molavi_domain_ai_case($source,molavi_domain_ai_reviewable($source)?($latest['ai:'.hash('sha256',(string)molavi_domain_py_value($source['Offer ID']??null))]??null):null,$clock);
+        $case=molavi_domain_ai_case($source,molavi_domain_ai_reviewable($source)?($latest['ai:'.hash('sha256',(string)molavi_domain_py_value($source['Offer ID']??null))]??null):null,$clock,$confirmedPrices);
         if($case)$recent[]=$case+['decision'=>$decision];}
     $ids=array_values(array_unique(array_merge(array_column(array_slice($cases,0,$limit),'case_id'),array_column(array_slice($recent,0,$limit),'case_id'))));$histories=[];
     if($ids){$rows=molavi_domain_read('pipeline',static fn(SQLite3 $db)=>molavi_domain_rows($db,'SELECT * FROM ai_confirmation_decisions WHERE case_id IN ('.implode(',',array_fill(0,count($ids),'?')).') ORDER BY created_at DESC LIMIT 2000',$ids));
