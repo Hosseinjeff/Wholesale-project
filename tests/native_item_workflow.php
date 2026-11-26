@@ -98,6 +98,20 @@ check($compare($source['message']."\nتوضیح تازه")['outcome']==='unchang
 check($compare("کالای دیگر\nقیمت فروش ما: ۱۲۰/۰۰۰ تومان")['outcome']==='uncheckable','borrowed unrelated item price');
 check($compare($source['name']."\nقیمت مصرف کننده: ۱۲۰/۰۰۰ تومان")['outcome']==='uncheckable','borrowed retail price');
 check($compare($source['name']."\nتماس ۱۲۳۴۵۶۷۸")['outcome']==='uncheckable','contact digits treated as money');
+$tuna=['name'=>'تن ماهی محفل','url'=>'https://t.me/supplier/7','sale_price'=>210000,
+    'message'=>"تن ماهی محفل،۲۴ عددی\nقیمت فروش ما: ۲۱۰/۰۰۰ تومان"];
+$tunaCheck=fn($text)=>molavi_domain_supplier_link_check_classify($tuna,['text'=>$text,'route'=>'railway']);
+$tunaEdit=str_replace('۲۱۰/۰۰۰','۲۲۰/۰۰۰',$tuna['message']);
+check($tunaCheck($tunaEdit)['live_price']==='220000','catalog title omitted the explicit 24-pack on both source posts');
+check($tunaCheck(str_replace('۲۴','۱۲',$tunaEdit))['reason_code']==='source_pack_changed','compared different carton sizes');
+check($tunaCheck($tunaEdit."\n".$tuna['message'])['outcome']==='uncheckable','merged prices from repeated item titles');
+check($tunaCheck($tunaEdit."\n❌اتمام موجودی")['reason_code']==='source_stock_changed','new availability notice treated as a price check');
+$oil=['name'=>'روغن سرخ کردنی ذرت الفجیل','url'=>'https://t.me/supplier/7','sale_price'=>10000000,
+    'message'=>"روغن سرخ کردنی ذرت الفجیل\n۱/۵ لیتری،کارتن ۶ عددی\nقیمت فروش ما: ۱۰/۰۰۰/۰۰۰ تومان"];
+$oilEdit=str_replace('۱۰/۰۰۰/۰۰۰','۹۹۰/۰۰۰',$oil['message']);
+$oilCheck=fn($text)=>molavi_domain_supplier_link_check_classify($oil,['text'=>$text,'route'=>'railway']);
+check($oilCheck($oilEdit)['live_price']==='990000','metadata on its own line hid the supplier price');
+check($oilCheck(str_replace('۱/۵','۱۵',$oilEdit))['reason_code']==='source_pack_changed','different volume treated as the same item');
 require __DIR__.'/../shop-wp/molavi-shop/includes/pricing.php';
 require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-sale-offers.php';
 function add_option($key,$value,...$args){$GLOBALS['options'][$key]=$value;}
