@@ -64,6 +64,16 @@ foreach(['telegram'=>'t.me','bale'=>'bale.ai'] as $channel=>$host){
     unset($message['forward_from_message_id']);
     check(molavi_domain_ingest_payload($message,$channel)[0]['url']==='','guessed URL from recipient message');
 }
+require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-extraction.php';
+$source=['name'=>'نوشیدنی یک لیتری،۱۲ عددی','url'=>'https://t.me/supplier/7','sale_price'=>120000];
+$source['message']=$source['name']."\n\nقیمت فروش ما: ۱۲۰/۰۰۰ تومان\n\nقیمت مصرف کننده: ندارد";
+$edited=str_replace('۱۲۰/۰۰۰','۱۴۰/۰۰۰',$source['message']);
+$compare=fn($text)=>molavi_domain_supplier_link_check_classify($source,['text'=>$text,'route'=>'railway']);
+check($compare($edited)['live_price']==='140000','edited slash-separated supplier price lost');
+check($compare($source['message']."\nتوضیح تازه")['outcome']==='unchanged','text-only edit changed the sale price');
+check($compare("کالای دیگر\nقیمت فروش ما: ۱۲۰/۰۰۰ تومان")['outcome']==='uncheckable','borrowed unrelated item price');
+check($compare($source['name']."\nقیمت مصرف کننده: ۱۲۰/۰۰۰ تومان")['outcome']==='uncheckable','borrowed retail price');
+check($compare($source['name']."\nتماس ۱۲۳۴۵۶۷۸")['outcome']==='uncheckable','contact digits treated as money');
 require __DIR__.'/../shop-wp/molavi-shop/includes/pricing.php';
 require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-sale-offers.php';
 function add_option($key,$value,...$args){$GLOBALS['options'][$key]=$value;}
