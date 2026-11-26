@@ -342,7 +342,7 @@ function molavi_domain_market_agreement_run_one(int $now, ?string $isoNow = null
     $lease = bin2hex(random_bytes(12));
     $row = molavi_domain_tx('pipeline', static function (SQLite3 $db) use ($now, $lease): ?array {
         $due = molavi_domain_row($db, 'SELECT * FROM market_agreement_checks
-            WHERE next_at<=? AND lease IS NULL ORDER BY next_at,product_id LIMIT 1', [$now]);
+            WHERE next_at<=? ORDER BY next_at,product_id LIMIT 1', [$now]);
         if ($due) molavi_domain_sql($db, 'UPDATE market_agreement_checks SET lease=?,next_at=? WHERE product_id=?',
             [$lease, $now + MOLAVI_MARKET_AGREEMENT_LEASE_SECONDS, $due['product_id']]);
         return $due;
@@ -356,7 +356,7 @@ function molavi_domain_market_agreement_run_product(string $productId, int $now,
     $lease = bin2hex(random_bytes(12));
     $row = molavi_domain_tx('pipeline', static function (SQLite3 $db) use ($productId, $now, $lease): ?array {
         $due = molavi_domain_row($db, 'SELECT * FROM market_agreement_checks
-            WHERE product_id=? AND lease IS NULL', [$productId]);
+            WHERE product_id=? AND (lease IS NULL OR next_at<=?)', [$productId, $now]);
         if ($due) molavi_domain_sql($db, 'UPDATE market_agreement_checks SET lease=?,next_at=? WHERE product_id=?',
             [$lease, $now + MOLAVI_MARKET_AGREEMENT_LEASE_SECONDS, $productId]);
         return $due;
@@ -388,9 +388,28 @@ function molavi_domain_market_agreement_execute(array $row, string $lease, int $
         // record it as not-ready, revisited in a day.
     }
     $finish = static function (string $outcome, string $reason, ?string $basis, ?array $quote, ?int $quotePack,
-        ?float $spread, ?string $verifiedAt, ?int $nextCheck = null) use ($row, $lease, $now): array {
+        ?float $spread, ?string $verifiedAt, ?int $nextCheck = null, string $note = '') use ($row, $lease, $now): array {
         return molavi_domain_tx('pipeline', static function (SQLite3 $db) use ($row, $lease, $outcome, $reason, $basis,
-            $quote, $quotePack, $spread, $verifiedAt, $nextCheck, $now): array {
+            $quote, $quotePack, $spread, $verifiedAt, $nextCheck, $now, $note): array {
+            if ($verifiedAt !== null) {
+                $current = molavi_domain_market_agreement_row($db, $row['product_id']);
+                if (!$current || $current['lease'] !== $lease) return molavi_domain_market_agreement_public_row($current ?? $row);
+                $saved = molavi_domain_row($db, 'SELECT * FROM supplier_price_evidence WHERE offer_id=?', [$row['product_id']]);
+                if (molavi_domain_saved_price_state($row['source_revision'], $saved, null, $now)['state'] === 'current') {
+                    molavi_domain_sql($db, 'UPDATE market_agreement_checks SET lease=NULL,next_at=? WHERE product_id=?',
+                        [$now + MOLAVI_MARKET_AGREEMENT_SECONDS, $row['product_id']]);
+                    return array_merge(molavi_domain_market_agreement_public_row($current), ['skipped'=>'already_current']);
+                }
+                if (molavi_domain_market_agreement_chain_count($db, $row['product_id']) >= MOLAVI_MARKET_AGREEMENT_CHAIN_LIMIT) {
+                    $outcome = $reason = 'chain_limit';
+                    $verifiedAt = null;
+                } else {
+                    molavi_domain_verify_price_in_transaction($db, $row['product_id'], $row['source_revision'], 'market', $note, $verifiedAt, null, 'market');
+                    $receipt = hash('sha256', $row['source_revision'].'|'.$verifiedAt);
+                    molavi_domain_queue_in_transaction($db, 'publish', 'supplier-verification:'.$row['product_id'].':'.$receipt,
+                        ['product_id'=>$row['product_id'], 'source_revision'=>$row['source_revision']]);
+                }
+            }
             $updated = molavi_domain_sql($db, 'UPDATE market_agreement_checks SET lease=NULL,outcome=?,reason_code=?,basis=?,
                 quote_url=?,quote_price=?,implied_spread=?,checked_at=?,next_at=?,verified_at=? WHERE product_id=? AND lease=?',
                 [$outcome, $reason, $basis, $quote ? (string)($quote['url'] ?? '') : null, $quotePack, $spread,
@@ -402,14 +421,16 @@ function molavi_domain_market_agreement_execute(array $row, string $lease, int $
             return $fresh ? molavi_domain_market_agreement_public_row($fresh) : molavi_domain_market_agreement_public_row($row);
         });
     };
-    if ($record === null || $state === 'current') {
+    $skip = $record === null ? 'no_record' : ($state === 'current' ? 'already_current' : null);
+    if ($record !== null && molavi_domain_source_revision($record) !== $row['source_revision']) $skip = 'source_changed';
+    if ($skip !== null) {
         // No record, or the price is current again (owner confirmed, or a
         // fresh source observation): park it for a day, no event.
         $parked = molavi_domain_tx('pipeline', static fn(SQLite3 $db) => molavi_domain_sql($db,
             'UPDATE market_agreement_checks SET lease=NULL,next_at=? WHERE product_id=? AND lease=?',
             [$now + MOLAVI_MARKET_AGREEMENT_SECONDS, $row['product_id'], $lease]));
         if (($parked['changes'] ?? 0) !== 1) return molavi_domain_market_agreement_public_row($row);
-        return array_merge(molavi_domain_market_agreement_public_row($row), ['skipped'=>$record === null ? 'no_record' : 'already_current']);
+        return array_merge(molavi_domain_market_agreement_public_row($row), ['skipped'=>$skip]);
     }
     $identity = function_exists('molavi_domain_market_identity') ? molavi_domain_market_identity($record) : null;
     if (!$identity || !empty($identity['assortment'])) {
@@ -461,24 +482,13 @@ function molavi_domain_market_agreement_execute(array $row, string $lease, int $
         return $finish($decision['outcome'], $decision['reason_code'], $decision['basis'], $decision['quote'],
             $decision['quote_pack_price'], $decision['implied_spread'], null);
     }
-    // Chain limit (G3's count): >=3 consecutive non-manual verifications
-    // means a manual touch is due. No evidence is written.
-    $chain = molavi_domain_read('pipeline', static fn(SQLite3 $db) => molavi_domain_market_agreement_chain_count($db, $row['product_id']));
-    if ($chain >= MOLAVI_MARKET_AGREEMENT_CHAIN_LIMIT) {
-        return $finish('chain_limit', 'chain_limit', $decision['basis'], $decision['quote'],
-            $decision['quote_pack_price'], $decision['implied_spread'], null);
-    }
     $iso = $isoNow ?? molavi_domain_now();
     $urls = array_values(array_unique(array_filter(array_map(
         static fn($quote) => (string)($quote['url'] ?? ''),
         array_filter($quotes, static fn($quote) => (int)($quote['regular_unit_price'] ?? $quote['unit_price'] ?? 0) > 0)))));
     $note = molavi_domain_market_agreement_note($row['product_id'], $now, (float)$decision['implied_spread'], $urls);
-    $verification = molavi_domain_verify_price($row['product_id'], $row['source_revision'], 'market', $note, $iso, null, 'market');
-    $receipt = hash('sha256', $row['source_revision'].'|'.$verification['verified_at']);
-    molavi_domain_queue('publish', 'supplier-verification:'.$row['product_id'].':'.$receipt,
-        ['product_id'=>$row['product_id'], 'source_revision'=>$row['source_revision']]);
     return $finish('agree', $decision['reason_code'], $decision['basis'], $decision['quote'],
-        $decision['quote_pack_price'], $decision['implied_spread'], $verification['verified_at']);
+        $decision['quote_pack_price'], $decision['implied_spread'], $iso, null, $note);
 }
 
 /** Simple report: market-verified products + counts. No confirm flow. */

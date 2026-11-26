@@ -37,6 +37,20 @@ $verify=['product_id'=>'p1','expected_revision'=>$revision,'command_id'=>str_rep
 rejected(fn()=>molavi_domain_supplier_prices_api('POST',array_merge($verify,['check_ref'=>'stale']),'wp:7'),'link_check_mismatch');
 check(!molavi_domain_read('pipeline',fn($db)=>molavi_domain_row($db,"SELECT 1 FROM supplier_price_evidence_history WHERE method='manual'")),'stale approval wrote evidence');
 rejected(fn()=>molavi_domain_supplier_link_check_confirm('p1',$ref,gmdate('c',$now),'wp:7',$now),'link_check_mismatch');
+molavi_domain_tx('pipeline',fn($db)=>molavi_domain_sql($db,"UPDATE supplier_link_checks SET lease='reading' WHERE product_id='p1'"));
+rejected(fn()=>molavi_domain_supplier_prices_api('POST',$verify,'wp:7'),'link_check_mismatch');
+molavi_domain_tx('pipeline',fn($db)=>molavi_domain_sql($db,"UPDATE supplier_link_checks SET lease=NULL WHERE product_id='p1'"));
+molavi_domain_tx('pipeline',fn($db)=>$db->exec("CREATE TRIGGER simulate_queue_failure BEFORE INSERT ON jobs
+    BEGIN SELECT RAISE(ABORT, 'fixture queue failure'); END"));
+try {
+    molavi_domain_supplier_prices_api('POST',$verify,'wp:7');
+    throw new RuntimeException('expected queue failure');
+} catch (Exception $failure) {
+    check(str_contains($failure->getMessage(),'fixture queue failure'),'unexpected database failure');
+}
+check(!molavi_domain_read('pipeline',fn($db)=>molavi_domain_row($db,"SELECT 1 FROM supplier_price_evidence_history WHERE method='manual'")),
+    'queue failure left a partial owner approval');
+molavi_domain_tx('pipeline',fn($db)=>$db->exec('DROP TRIGGER simulate_queue_failure'));
 $receipt=molavi_domain_supplier_prices_api('POST',$verify,'wp:7');
 $again=molavi_domain_supplier_prices_api('POST',$verify,'wp:7');
 check($again['idempotent'] && $again['publish_job']===$receipt['publish_job'],'retry duplicated the verification or job');
@@ -106,3 +120,52 @@ molavi_domain_tx('pipeline',fn($db)=>molavi_domain_sql($db,"UPDATE autopilot_log
 unset($GLOBALS['molavi_storefront_blocks']);
 check(!molavi_domain_storefront_permits_sale('new-product') && $projection()==='hold','live flag failed to revoke checkout');
 echo "PASS native retrieval, owner permission, idempotence and publication workflow\n";
+
+$fetches = 0;
+$fetch = static function () use (&$fetches) {
+    $fetches++;
+    return ['status'=>200,'body'=>'<div class="tgme_widget_message_text">original</div>'];
+};
+molavi_domain_tx('pipeline', fn($db)=>molavi_domain_sql($db, "INSERT INTO supplier_link_checks
+    (product_id,offer_id,title,url,source_revision,stored_sale_price,stored_message,lease,next_at,created_at)
+    VALUES('timeout','old','item','https://t.me/supplier/8','rev','50000','original','abandoned',?,?)", [$now,$now]));
+molavi_domain_supplier_link_check_run_product('timeout',$now-1,$fetch);
+check($fetches===0,'manual check stole an active lease');
+check(molavi_domain_supplier_link_check_run_one($now,$fetch)['reason_code']==='identical' && $fetches===1,'abandoned source check failed to resume');
+
+require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-market-prices.php';
+require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-market-sources.php';
+require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-market-agreement.php';
+(new SQLite3(molavi_state_root().'/reference.sqlite3'))->close();
+$marketProduct = ['Product ID'=>'market-timeout','Latest Offer ID'=>'market-offer','Product Name'=>'چای بهاران',
+    'Sale Price'=>'70000','Message Timestamp'=>gmdate('c',$now-25*86400)];
+$marketOffer = $marketProduct + ['Offer ID'=>'market-offer'];
+$GLOBALS['sheets'] = ['Products'=>[array_keys($marketProduct),array_values($marketProduct)],
+    'Offers'=>[array_keys($marketOffer),array_values($marketOffer)]];
+$marketRevision = molavi_domain_source_revision($marketProduct);
+$identity = molavi_domain_market_identity($marketProduct);
+$quotes = [['url'=>'https://one.example/tea','unit_price'=>100000],['url'=>'https://two.example/tea','unit_price'=>101000]];
+molavi_domain_tx('reference',fn($db)=>molavi_domain_sql($db, "INSERT INTO market_price_lookups
+    (lookup_key,identity_json,state,candidates_json,checked_at,next_at) VALUES(?,?,'ready',?,?,?)",
+    [molavi_domain_hash($identity),molavi_domain_json($identity),molavi_domain_json($quotes),$now,$now+86400]));
+molavi_domain_tx('pipeline',fn($db)=>molavi_domain_sql($db, "INSERT INTO market_agreement_checks
+    (product_id,offer_id,title,source_revision,stored_sale_price,lease,next_at,created_at)
+    VALUES('market-timeout','market-offer','tea',?,'70000','interrupted',?,?)",[$marketRevision,$now,$now]));
+$marketRow = molavi_domain_read('pipeline',fn($db)=>molavi_domain_market_agreement_row($db,'market-timeout'));
+$evidenceCount = fn()=>molavi_domain_read('pipeline',fn($db)=>molavi_domain_row($db,
+    "SELECT COUNT(*) AS count FROM supplier_price_evidence_history WHERE offer_id='market-timeout' AND method='market'")['count']);
+molavi_domain_market_agreement_run_product('market-timeout',$now-1);
+molavi_domain_market_agreement_execute($marketRow,'superseded',$now);
+check($evidenceCount()===0,'a stale or parallel market check wrote evidence');
+$iso = gmdate('c',$now);
+$jobId = 'publish:supplier-verification:market-timeout:'.hash('sha256',$marketRevision.'|'.$iso);
+molavi_domain_tx('pipeline',fn($db)=>molavi_domain_sql($db,"INSERT INTO jobs(id,kind,payload,state,available)
+    VALUES(?,'publish','{}','queued',?)",[$jobId,$now]));
+rejected(fn()=>molavi_domain_market_agreement_run_one($now,$iso),'job_identity_changed');
+check($evidenceCount()===0,'failed queue write left partial market evidence');
+molavi_domain_tx('pipeline',fn($db)=>molavi_domain_sql($db,'DELETE FROM jobs WHERE id=?',[$jobId]));
+$result = molavi_domain_market_agreement_run_product('market-timeout',$now+MOLAVI_MARKET_AGREEMENT_LEASE_SECONDS,$iso);
+check($result['outcome']==='agree' && $evidenceCount()===1,'market check failed to resume and verify exactly once');
+check(molavi_domain_read('pipeline',fn($db)=>molavi_domain_row($db,'SELECT state FROM jobs WHERE id=?',[$jobId]))['state']==='queued',
+    'market verification failed to queue the matching publication job');
+echo "PASS abandoned checks recover, live leases are respected and market evidence commits with its publish job\n";
