@@ -57,6 +57,16 @@ $original=['Batch ID'=>'b','ID'=>'8','Channel Username'=>'@supplier','Content'=>
 $offer=['Offer ID'=>'o','Product ID'=>'p','Message ID'=>'8','Batch ID'=>'b','Channel Username'=>'@supplier','Original Message'=>'exact message'];
 check(molavi_domain_supplier_recorded_links([$offer],[$original])['o']['url']===$original['URL'],'saved original link lost');
 check(molavi_domain_supplier_recorded_links([$offer],[$original,array_merge($original,['URL'=>'https://t.me/supplier/9'])])['o']===null,'ambiguous source accepted');
+$legacyOffer = array_merge($offer, ['Product ID'=>'']);
+$currentProduct = ['Product ID'=>'p', 'Latest Offer ID'=>'o'];
+$recover = fn($products, $messages, $offers) => molavi_domain_supplier_recorded_links($offers, $messages, $products)['o'];
+check($recover([$currentProduct], [$original], [$legacyOffer])['product'] === 'p', 'legacy offer lost its uniquely referenced source');
+check($recover([$currentProduct, ['Product ID'=>'other','Latest Offer ID'=>'o']], [$original], [$legacyOffer]) === null, 'shared legacy offer accepted');
+check($recover([$currentProduct, ['Product ID'=>'p','Latest Offer ID'=>'other']], [$original], [$legacyOffer]) === null, 'duplicate legacy product accepted');
+check($recover([$currentProduct], [$original], [$legacyOffer,$legacyOffer]) === null, 'duplicate legacy offer ID accepted');
+check($recover([$currentProduct], [], [$legacyOffer]) === null, 'missing post URL invented');
+check($recover([$currentProduct], [array_merge($original,['URL'=>'https://t.me/unrelated/7'])], [$legacyOffer]) === null, 'borrowed a link from another channel');
+check($recover([$currentProduct], [$original], [array_merge($legacyOffer,['Source Post URL'=>'https://t.me/supplier/9'])]) === null, 'conflicting saved links accepted');
 foreach(['telegram'=>'t.me','bale'=>'bale.ai'] as $channel=>$host){
     $message=['text'=>'fixture','message_id'=>90,'chat'=>['type'=>'private'],'forward_date'=>10,'forward_from_message_id'=>7,
         'forward_from_chat'=>['type'=>'channel','username'=>'supplier']];
