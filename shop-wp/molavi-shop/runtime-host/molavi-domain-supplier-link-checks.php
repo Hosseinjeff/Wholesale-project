@@ -294,7 +294,18 @@ function molavi_domain_supplier_link_check_public_row(array $row): array {
 }
 
 /** Recover only a link already recorded for this exact supplier message. */
-function molavi_domain_supplier_recorded_links(array $offers,array $messages): array {
+function molavi_domain_supplier_recorded_links(array $offers, array $messages, array $products = []): array {
+    // Older offers may only be linked in the Products -> Latest Offer ID direction.
+    $productCounts = [];
+    $currentProduct = [];
+    foreach ($products as $product) {
+        $productId = trim((string)($product['Product ID'] ?? ''));
+        $offerId = trim((string)($product['Latest Offer ID'] ?? ''));
+        $productCounts[$productId] = ($productCounts[$productId] ?? 0) + 1;
+        if ($offerId !== '') {
+            $currentProduct[$offerId] = array_key_exists($offerId, $currentProduct) ? '' : $productId;
+        }
+    }
     $messageLinks=[];
     foreach ($messages as $message) {
         $channel=(string)($message['Channel Username']??'');
@@ -310,16 +321,24 @@ function molavi_domain_supplier_recorded_links(array $offers,array $messages): a
         $id=(string)($offer['Offer ID']??'');
         if ($id==='') continue;
         $url=trim((string)($offer['Source Post URL']??''));
-        if ($url==='') {
-            $key=molavi_domain_json([(string)($offer['Channel Username']??''),(string)($offer['Batch ID']??''),
-                (string)($offer['Message ID']??''),(string)($offer['Original Message']??'')]);
-            $matches=$messageLinks[$key]??[];
-            if (count($matches)===1) $url=array_key_first($matches);
+        $channel = (string)($offer['Channel Username'] ?? '');
+        $message = (string)($offer['Original Message'] ?? '');
+        $key = molavi_domain_json([$channel, (string)($offer['Batch ID'] ?? ''), (string)($offer['Message ID'] ?? ''), $message]);
+        $matches = $messageLinks[$key] ?? [];
+        if ($url === '' && count($matches) === 1) $url = array_key_first($matches);
+        $productId = trim((string)($offer['Product ID'] ?? ''));
+        if ($productId === '') {
+            $productId = $currentProduct[$id] ?? '';
+            $parsed = molavi_domain_supplier_link_check_url($url);
+            if (($productCounts[$productId] ?? 0) !== 1 || !$parsed
+                || strcasecmp($parsed['channel'], ltrim($channel, '@')) !== 0
+                || ($matches && (count($matches) !== 1 || !isset($matches[$url])))) {
+                $productId = '';
+            }
         }
         // Duplicate offer IDs cannot authorize a source selection.
-        $links[$id]=array_key_exists($id,$links)?null:($url!==''?[
-            'product'=>(string)($offer['Product ID']??''),'channel'=>(string)($offer['Channel Username']??''),
-            'message'=>(string)($offer['Original Message']??''),'url'=>$url]:null);
+        $links[$id] = !array_key_exists($id, $links) && $productId !== '' && $url !== ''
+            ? ['product'=>$productId, 'channel'=>$channel, 'message'=>$message, 'url'=>$url] : null;
     }
     return $links;
 }
@@ -333,8 +352,9 @@ function molavi_domain_supplier_recorded_links(array $offers,array $messages): a
  */
 function molavi_domain_supplier_link_check_seed(int $now): int {
     $tables = molavi_domain_sheets(['Products','Offers','MessageData'], true);
-    $links = molavi_domain_supplier_recorded_links(molavi_domain_records($tables['Offers']??[]),molavi_domain_records($tables['MessageData']??[]));
     $records = molavi_domain_records($tables['Products'] ?? []);
+    $links = molavi_domain_supplier_recorded_links(molavi_domain_records($tables['Offers'] ?? []),
+        molavi_domain_records($tables['MessageData'] ?? []), $records);
     $fresh = molavi_domain_freshness($records);
     $byId = [];
     foreach ($fresh as $offer) $byId[$offer['product_id']] = $offer;
@@ -558,9 +578,9 @@ function molavi_domain_supplier_link_check_api(string $method, array $query, ?ar
 
 /** One minute-tick step: seed stale items (daily), then run a single due check. */
 function molavi_domain_supplier_link_check_tick(int $now, ?callable $fetch = null): void {
-    if ((int)get_option('molavi_link_check_seed_v2_at', 0) <= $now) {
+    if ((int)get_option('molavi_link_check_seed_v3_at', 0) <= $now) {
         molavi_domain_supplier_link_check_seed($now);
-        update_option('molavi_link_check_seed_v2_at', $now + MOLAVI_LINK_CHECK_SECONDS, false);
+        update_option('molavi_link_check_seed_v3_at', $now + MOLAVI_LINK_CHECK_SECONDS, false);
     }
     molavi_domain_supplier_link_check_run_one($now, $fetch);
 }
