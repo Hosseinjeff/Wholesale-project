@@ -164,43 +164,48 @@ function molavi_domain_supplier_link_check_bot_forward(string $channel, string $
         'detail'=>'Bot API forward route is designed but not built: no bot membership or target chat is configured.'];
 }
 
-/** Candidate prices (toman) found in normalized text. Handles هزار/میلیون and ریال. */
-function molavi_domain_supplier_link_check_prices(string $text): array {
-    // molavi_domain_identity_text converts Persian digits but leaves the
-    // Arabic thousands separator (٬) in place; normalize it to a comma.
-    $normalized = str_replace('٬', ',', molavi_domain_identity_text($text));
-    $found = [];
-    if (!preg_match_all('~(\d[\d,]*(?:\.\d+)?)\s*(هزار|میلیون)?\s*(تومان|تومن|ریال)?~u', $normalized, $matches, PREG_SET_ORDER)) return [];
-    foreach ($matches as $m) {
-        $value = (float)str_replace(',', '', $m[1]);
-        if (($m[2] ?? '') === 'هزار') $value *= 1000;
-        elseif (($m[2] ?? '') === 'میلیون') $value *= 1000000;
-        if (($m[3] ?? '') === 'ریال') $value /= 10;
-        $toman = (int)round($value);
-        if ($toman >= 1000 && $toman <= 100000000) $found[$toman] = true;
-    }
-    return array_keys($found);
-}
-
-/** The message block (blank-line separated) that names this product, or null. */
-function molavi_domain_supplier_link_check_product_block(string $text, string $productName): ?string {
-    $key = molavi_domain_name_key($productName);
-    if ($key === '') return null;
-    // Products in a supplier message are separated by blank lines; the
-    // name and its price sit on adjacent lines inside one block.
-    $blocks = preg_split('/\R{2,}/u', $text) ?: [];
-    foreach ($blocks as $block) {
-        if (str_contains(molavi_domain_name_key($block), $key)) return $block;
-    }
-    // Fall back to the naming line plus the two lines after it, where the
-    // price usually sits when the message has no blank-line structure.
-    $lines = preg_split('/\R/u', $text) ?: [];
-    foreach ($lines as $index => $line) {
-        if (str_contains(molavi_domain_name_key($line), $key)) {
-            return implode("\n", array_slice($lines, $index, 3));
+/** Read money only from the identified supplier item. Keep retail, unit and carton roles separate. */
+function molavi_domain_supplier_item_prices(string $text,string $productName): array {
+    $titleKey=static fn(string $value): string => trim((string)preg_replace('/[^\pL\pN]+/u',' ',molavi_domain_extract_label_text($value)));
+    $key=$titleKey($productName);
+    if($key==='')return [];
+    $active=false;$seen=false;$prices=[];
+    // Slash and Arabic separators may group thousands. A decimal with a multiplier
+    // (1.5 million) is distinct from an amount grouped as 1/500/000.
+    $number='(?<amount>\d{1,3}(?:[,٬٫./]\d{3})+|\d+(?:[.٫]\d{1,2})?)';
+    $money='~^\s*[:：=\-–]?\s*'.$number.'\s*(?<scale>هزار|میلیون)?\s*(?<currency>تومان|تومن|ریال)?\s*[.!،,؛]*\s*$~uD';
+    foreach(preg_split('/\R/u',$text) ?: [] as $line) {
+        $line=trim(molavi_domain_extract_label_text($line));
+        if($line==='')continue;
+        $labels=molavi_domain_extract_price_labels($line);
+        $prefix=$labels?substr($line,0,$labels[0]['start']):$line;
+        if($titleKey($prefix)===$key) {
+            if($seen)return []; // Duplicate title, unclear which listing is current.
+            $seen=$active=true;
+            if(!$labels)continue;
+        } elseif(!$active)continue;
+        elseif($labels && $titleKey($prefix)!=='') { $active=false;continue; }
+        if(!$labels) {
+            if(!preg_match($money,$line,$m) || empty($m['currency'])) { $active=false;continue; }
+            $labels=[['role'=>'stated','end'=>0]];
+        }
+        foreach($labels as $i=>$label) {
+            $role=$label['role'];
+            if(!in_array($role,['unit','package','sale','stated'],true))continue;
+            $end=$labels[$i+1]['start']??strlen($line);
+            $suffix=substr($line,$label['end'],$end-$label['end']);
+            if(!preg_match($money,$suffix,$m))continue;
+            $raw=$m['amount'];
+            $grouped=preg_match('~^\d{1,3}(?:[,٬٫./]\d{3})+$~uD',$raw);
+            $value=(float)($grouped?preg_replace('/\D/','',$raw):str_replace('٫','.',$raw));
+            if(($m['scale']??'')==='هزار')$value*=1000;
+            if(($m['scale']??'')==='میلیون')$value*=1000000;
+            if(($m['currency']??'')==='ریال')$value/=10;
+            $amount=(int)round($value);
+            if($amount>=1000 && $amount<=100000000)$prices[$role][$amount]=true;
         }
     }
-    return null;
+    return $prices;
 }
 
 /**
@@ -247,17 +252,14 @@ function molavi_domain_supplier_link_check_classify(array $stored, ?array $live)
         return ['outcome'=>'unchanged', 'reason_code'=>'identical',
             'live_price'=>$storedPrice > 0 ? (string)$storedPrice : null, 'live_text'=>$liveText, 'route'=>$route];
     }
-    $block = molavi_domain_supplier_link_check_product_block($liveText, (string)($stored['name'] ?? ''));
-    $prices = molavi_domain_supplier_link_check_prices($block ?? $liveText);
-    if ($block === null && count($prices) !== 1) {
-        return ['outcome'=>'uncheckable', 'reason_code'=>count($prices) === 0 ? 'price_not_found' : 'price_ambiguous',
-            'live_price'=>null, 'live_text'=>$liveText, 'route'=>$route];
-    }
-    if (count($prices) === 0) {
-        return ['outcome'=>'uncheckable', 'reason_code'=>'price_not_found', 'live_price'=>null, 'live_text'=>$liveText, 'route'=>$route];
-    }
-    if (count($prices) > 1) {
-        return ['outcome'=>'uncheckable', 'reason_code'=>'price_ambiguous', 'live_price'=>null, 'live_text'=>$liveText, 'route'=>$route];
+    $name=(string)($stored['name']??'');
+    $before=molavi_domain_supplier_item_prices($message,$name);
+    $after=molavi_domain_supplier_item_prices($liveText,$name);
+    $roles=array_keys(array_filter($before,static fn($amounts)=>count($amounts)===1&&isset($amounts[$storedPrice])));
+    $prices=count($roles)===1?array_keys($after[$roles[0]]??[]):[];
+    if(count($prices)!==1) {
+        return ['outcome'=>'uncheckable','reason_code'=>$after?'price_ambiguous':'price_not_found',
+            'live_price'=>null,'live_text'=>$liveText,'route'=>$route];
     }
     $livePrice = (string)$prices[0];
     if ($storedPrice > 0 && $prices[0] === $storedPrice) {
@@ -454,7 +456,7 @@ function molavi_domain_supplier_link_check_execute(array $row, string $lease, in
         ? $now + MOLAVI_LINK_CHECK_RETRY_SECONDS
         : $now + MOLAVI_LINK_CHECK_SECONDS;
     $result = molavi_domain_tx('pipeline', static function (SQLite3 $db) use ($row, $lease, $decision, $nextAt, $now): array {
-        $updated = molavi_domain_sql($db, 'UPDATE supplier_link_checks SET lease=NULL,outcome=?,reason_code=?,live_price=?,live_text=?,route=?,checked_at=?,next_at=? WHERE product_id=? AND lease=?',
+        $updated = molavi_domain_sql($db, 'UPDATE supplier_link_checks SET lease=NULL,confirmed_at=NULL,confirmed_verified_at=NULL,outcome=?,reason_code=?,live_price=?,live_text=?,route=?,checked_at=?,next_at=? WHERE product_id=? AND lease=?',
             [$decision['outcome'], $decision['reason_code'], $decision['live_price'], $decision['live_text'],
                 $decision['route'], $now, $nextAt, $row['product_id'], $lease]);
         if ($updated['changes'] !== 1) return molavi_domain_supplier_link_check_public_row($row);
@@ -556,9 +558,9 @@ function molavi_domain_supplier_link_check_api(string $method, array $query, ?ar
 
 /** One minute-tick step: seed stale items (daily), then run a single due check. */
 function molavi_domain_supplier_link_check_tick(int $now, ?callable $fetch = null): void {
-    if ((int)get_option('molavi_link_check_seed_at', 0) <= $now) {
+    if ((int)get_option('molavi_link_check_seed_v2_at', 0) <= $now) {
         molavi_domain_supplier_link_check_seed($now);
-        update_option('molavi_link_check_seed_at', $now + MOLAVI_LINK_CHECK_SECONDS, false);
+        update_option('molavi_link_check_seed_v2_at', $now + MOLAVI_LINK_CHECK_SECONDS, false);
     }
     molavi_domain_supplier_link_check_run_one($now, $fetch);
 }
