@@ -45,7 +45,7 @@ molavi_domain_tx('pipeline',fn($db)=>$db->exec("CREATE TRIGGER simulate_queue_fa
 try {
     molavi_domain_supplier_prices_api('POST',$verify,'wp:7');
     throw new RuntimeException('expected queue failure');
-} catch (SQLite3Exception $failure) {
+} catch (Exception $failure) {
     check(str_contains($failure->getMessage(),'fixture queue failure'),'unexpected database failure');
 }
 check(!molavi_domain_read('pipeline',fn($db)=>molavi_domain_row($db,"SELECT 1 FROM supplier_price_evidence_history WHERE method='manual'")),
@@ -133,7 +133,7 @@ molavi_domain_supplier_link_check_run_product('timeout',$now-1,$fetch);
 check($fetches===0,'manual check stole an active lease');
 check(molavi_domain_supplier_link_check_run_one($now,$fetch)['reason_code']==='identical' && $fetches===1,'abandoned source check failed to resume');
 
-require $root = __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-market-prices.php';
+require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-market-prices.php';
 require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-market-sources.php';
 require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-domain-market-agreement.php';
 (new SQLite3(molavi_state_root().'/reference.sqlite3'))->close();
