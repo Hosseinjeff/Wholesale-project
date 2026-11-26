@@ -93,6 +93,100 @@ function molavi_domain_step_trace_iso(int $stamp): string {
         :gmdate('Y-m-d\\TH:i:s+00:00',$stamp);
 }
 
+// Effective risk tier for one log row, as the decisions tab renders it
+// (mirrors molavi_domain_autopilot_review_risk_tier): a pending verdict
+// is red; otherwise the stored tier; non-admission gates are 'none'.
+// Fail closed to red for an admission row with no usable tier.
+function molavi_domain_step_trace_effective_tier(array $row): string {
+    if(function_exists('molavi_domain_autopilot_review_risk_tier'))
+        return molavi_domain_autopilot_review_risk_tier($row,null);
+    if((string)($row['gate']??'')!=='admission')return 'none';
+    if((string)($row['verdict']??'')==='pending')return 'red';
+    $stored=(string)($row['risk_tier']??'');
+    return in_array($stored,['green','amber','red'],true)?$stored:'red';
+}
+
+// Compact autopilot summary for the card's first view: the current state,
+// the effective risk tier, the verdict, and the one-line reason — the same
+// values the decisions tab showed, so the card and the tab cannot disagree.
+// $decision is the latest DECISION row (action shadow/live), not the latest
+// log row: audit rows (confirm/revert/hold/release/override) carry the
+// same gate and would otherwise masquerade as the evaluation.
+function molavi_domain_step_trace_autopilot_summary(?array $decision, ?array $hold, array $inputs, array $settings): array {
+    $masterOn=(bool)($settings['master_enabled']??false);
+    $ruleMode=(string)($settings['rule_modes']['gA']??'shadow');
+    $active=$masterOn&&$ruleMode==='live';
+    $result=(string)($decision['result']??'');
+    $state=$hold?'blocked'
+        :($result==='admitted'?'admitted'
+        :($result==='would_admit'?'would_admit'
+        :(in_array($result,['reverted','overridden','reheld'],true)?'reverted'
+        :'not_evaluated')));
+    $stateLabels=['admitted'=>'پذیرفته شد (زنده)','would_admit'=>'آمادهٔ پذیرش (سایه)',
+        'blocked'=>'مسدود','reverted'=>'لغو شد','not_evaluated'=>'ارزیابی نشده'];
+    $verdict=$decision?(string)($decision['verdict']??'pending'):'';
+    $verdictLabels=['ok'=>'تأیید شد','flag'=>'پرچم خورد','pending'=>'در انتظار'];
+    $tier='none';
+    $reason='';
+    if($decision) {
+        $tier=molavi_domain_step_trace_effective_tier($decision);
+        if(function_exists('molavi_domain_autopilot_risk_reason'))
+            $reason=(string)molavi_domain_autopilot_risk_reason($decision,$inputs);
+    }
+    $tierLabels=['red'=>'پرخطر','amber'=>'ریسک متوسط','green'=>'کم‌ریسک','none'=>'بدون درجه‌بندی'];
+    return [
+        'active'=>$active,
+        'master_on'=>$masterOn,
+        'rule_mode'=>$ruleMode,
+        'mode_label'=>$active?'فعال — پذیرش زنده':($masterOn?'سایه — فقط ثبت می‌کند':'خاموش'),
+        'state'=>$state,
+        'state_label'=>$stateLabels[$state]??'ارزیابی نشده',
+        'tier'=>$tier,
+        'tier_label'=>$tierLabels[$tier]??'بدون درجه‌بندی',
+        'verdict'=>$verdict,
+        'verdict_label'=>$verdict===''?'ثبت نشده':($verdictLabels[$verdict]??'در انتظار'),
+        'verdict_reason'=>$decision?(string)($decision['verdict_reason']??''):'',
+        'reason'=>$reason,
+        'hold_reason'=>$hold?(string)($hold['reason']??''):'',
+        'closeness'=>($decision&&isset($decision['closeness'])&&$decision['closeness']!==null)?(float)$decision['closeness']:null,
+        'arm'=>($decision&&!empty($decision['closeness_arm']))?(string)$decision['closeness_arm']:'',
+        'created_at'=>$decision?(int)($decision['created_at']??0):0,
+    ];
+}
+
+// One log row shaped like the decisions tab's API row: decoded inputs,
+// the effective tier, the stored tier, and the risk reason. The tab and
+// the card render the same row shape, so they cannot disagree.
+function molavi_domain_step_trace_history_row(array $row): array {
+    $inputs=[];
+    if(isset($row['inputs_json'])) {
+        try { $inputs=molavi_domain_decode((string)$row['inputs_json'],[]); } catch(Throwable $e) { $inputs=[]; }
+        if(!is_array($inputs))$inputs=[];
+    }
+    $stored=in_array((string)($row['risk_tier']??''),['green','amber','red'],true)?(string)$row['risk_tier']:'';
+    $reason='';
+    if(function_exists('molavi_domain_autopilot_risk_reason'))
+        $reason=(string)molavi_domain_autopilot_risk_reason($row,$inputs);
+    return [
+        'id'=>(int)($row['id']??0),
+        'rule_id'=>(string)($row['rule_id']??''),
+        'gate'=>(string)($row['gate']??''),
+        'product_id'=>(string)($row['product_id']??''),
+        'action'=>(string)($row['action']??''),
+        'result'=>(string)($row['result']??''),
+        'verdict'=>(string)($row['verdict']??''),
+        'verdict_reason'=>(string)($row['verdict_reason']??''),
+        'confidence'=>isset($row['confidence'])&&is_numeric($row['confidence'])?(float)$row['confidence']:null,
+        'created_at'=>(int)($row['created_at']??0),
+        'reviewed_at'=>(float)($row['reviewed_at']??0),
+        'reviewed_by'=>(string)($row['reviewed_by']??''),
+        'inputs'=>$inputs,
+        'risk_tier'=>molavi_domain_step_trace_effective_tier($row),
+        'risk_tier_stored'=>$stored,
+        'risk_reason'=>$reason,
+    ];
+}
+
 // One product's seven-step trace. $maps is the bulk-loaded context from
 // molavi_domain_product_step_traces(); $now is microtime(true).
 function molavi_domain_product_step_trace(array $record,array $offer,array $maps,int $now): array {
@@ -328,8 +422,29 @@ function molavi_domain_product_step_trace(array $record,array $offer,array $maps
     $steps[]=['key'=>'publication','label'=>'انتشار / فروشگاه',
         'status'=>$pubStatus,'status_label'=>$pubLabel,'facts'=>$pubFacts,'note'=>$pubNote];
 
+    // Autopilot summary + decision history (owner request 2026-11-26):
+    // the decisions tab dissolves into the card. The summary uses the
+    // latest DECISION row (action shadow/live) from $maps['ga_decision'],
+    // not $gaLog — audit rows (confirm/revert/hold/release/override)
+    // carry the same gate and would otherwise masquerade as the
+    // evaluation. The history is the product's recent log rows, all
+    // gates, newest first, shaped like the tab's API rows.
+    $gaDecision=$maps['ga_decision'][$id]??null;
+    $decisionInputs=[];
+    if($gaDecision&&isset($gaDecision['inputs_json'])) {
+        try { $decisionInputs=molavi_domain_decode((string)$gaDecision['inputs_json'],[]); }
+        catch(Throwable $e) { $decisionInputs=[]; }
+        if(!is_array($decisionInputs))$decisionInputs=[];
+    }
+    $autopilot=molavi_domain_step_trace_autopilot_summary($gaDecision,$gaHold,$decisionInputs,$maps['settings']??[]);
+    $autopilot['history']=[];
+    foreach(($maps['ga_history'][$id]??[]) as $historyRow) {
+        try { $autopilot['history'][]=molavi_domain_step_trace_history_row($historyRow); }
+        catch(Throwable $e) { continue; }
+    }
+
     return ['product_id'=>$id,'generated_at'=>function_exists('molavi_domain_now')?molavi_domain_now():gmdate('Y-m-d\\TH:i:s+00:00'),
-        'steps'=>$steps];
+        'steps'=>$steps,'autopilot'=>$autopilot];
 }
 
 // Bulk entry point: one trace per product in the Products sheet.
@@ -345,7 +460,7 @@ function molavi_domain_product_step_traces(array $tables): array {
         if($oid!==''&&!isset($offersById[$oid]))$offersById[$oid]=$offer;
     }
     $maps=['evidence'=>[],'link_checks'=>[],'market_agreements'=>[],'market_lookups'=>[],
-        'market_sources'=>[],'ga_log'=>[],'ga_holds'=>[],'published'=>[],'registered'=>[],
+        'market_sources'=>[],'ga_log'=>[],'ga_decision'=>[],'ga_history'=>[],'ga_holds'=>[],'published'=>[],'registered'=>[],
         'settings'=>[]];
     try {
         if(function_exists('molavi_domain_read')) {
@@ -364,7 +479,24 @@ function molavi_domain_product_step_traces(array $tables): array {
                     AND action IN ('live','shadow') AND provenance IN ('live','legacy') GROUP BY product_id)"));
             foreach($gaRows as $row) {
                 $pid=(string)($row['product_id']??'');
-                if($pid!==''&&!isset($maps['ga_log'][$pid]))$maps['ga_log'][$pid]=$row;
+                if($pid==='')continue;
+                if(!isset($maps['ga_log'][$pid]))$maps['ga_log'][$pid]=$row;
+                // Latest DECISION row per product (action shadow/live):
+                // audit rows (confirm/revert/hold/release/override) carry
+                // the same gate and must not masquerade as the evaluation.
+                if(!isset($maps['ga_decision'][$pid])
+                    &&in_array((string)($row['action']??''),['shadow','live'],true))
+                    $maps['ga_decision'][$pid]=$row;
+            }
+            // Decision history per product (all gates, newest first,
+            // capped at 5): the same rows the decisions tab showed.
+            $historyRows=molavi_domain_read('pipeline',static fn(SQLite3 $db)=>molavi_domain_rows($db,
+                'SELECT * FROM autopilot_log ORDER BY created_at DESC, id DESC LIMIT 1000'));
+            foreach($historyRows as $row) {
+                $pid=(string)($row['product_id']??'');
+                if($pid==='')continue;
+                if(!isset($maps['ga_history'][$pid]))$maps['ga_history'][$pid]=[];
+                if(count($maps['ga_history'][$pid])<5)$maps['ga_history'][$pid][]=$row;
             }
             $maps['ga_holds']=molavi_domain_read('pipeline',static fn(SQLite3 $db)=>array_column(
                 molavi_domain_rows($db,"SELECT * FROM autopilot_holds WHERE gate IN ('admission','admission_owner') ORDER BY gate"),null,'product_id'));

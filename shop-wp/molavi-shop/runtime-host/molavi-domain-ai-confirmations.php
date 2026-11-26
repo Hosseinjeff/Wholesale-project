@@ -143,7 +143,11 @@ function molavi_domain_ai_confirmations_case_diff(): array {
     foreach ($wpCases as $case) $byWp[(string) $case['case_id']] = $case;
     $byRw = [];
     foreach ($rwCases as $case) $byRw[(string) $case['case_id']] = $case;
-    $skip = ['publication_held' => true, 'decision_history' => true, 'reference_candidates' => true];
+    // product_id is a WP-side join key for the workbench model (duplicate-
+    // card merge), not extraction content; Railway cases do not carry it.
+    // confirmed_sale_price is likewise a WP-side product-record lookup
+    // (detected-vs-confirmed comparison), not extraction content.
+    $skip = ['publication_held' => true, 'decision_history' => true, 'reference_candidates' => true, 'product_id' => true, 'confirmed_sale_price' => true];
     $fieldDiffs = [];
     $common = 0;
     foreach ($byWp as $caseId => $wpCase) {

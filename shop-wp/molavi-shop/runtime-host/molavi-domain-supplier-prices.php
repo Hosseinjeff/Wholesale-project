@@ -38,6 +38,70 @@ function molavi_domain_verify_price_in_transaction(SQLite3 $db, string $product,
     if ($checkRef!==null) molavi_domain_supplier_link_check_confirm_receipt($db,$product,$checkRef,$now,$actor,(int)$stamp);
     return ['verified_at'=>$now,'idempotent'=>false];
 }
+// G1 — register a supplier price from the message for a legacy row whose
+// source revision is empty (the verify button is disabled and there is no
+// open AI case to edit through). The owner types the price (and, when known,
+// the source post link). The price is written to the Products sheet — the
+// system of record — so the live revision becomes computable; the evidence
+// is then written with method 'manual' and the same publish job is queued
+// as the manual verify. The sheet write is confirmed by re-reading, exactly
+// like the sheet-conflict reconciliation. Retrying is safe: the same price
+// written twice is a no-op (Previous is only set when the price changes),
+// and the evidence write is idempotent on (product, revision).
+function molavi_domain_register_price_from_message(array $body,string $actor): array {
+    $keys=array_keys($body);sort($keys);
+    foreach($keys as $key)if(!in_array($key,['action','note','product_id','sale_price','source_url'],true))molavi_domain_fail('invalid_body',400);
+    if(!in_array('product_id',$keys,true)||!in_array('sale_price',$keys,true))molavi_domain_fail('invalid_body',400);
+    $id=(string)($body['product_id']??'');
+    if($id===''||molavi_domain_strlen($id)>200)molavi_domain_fail('invalid_product_id',400);
+    $raw=$body['sale_price']??null;
+    if(is_bool($raw)||!is_scalar($raw))molavi_domain_fail('invalid_sale_price',400);
+    $digits=str_replace([',','٬','_',' '],'',trim(molavi_domain_digits($raw)));
+    if(!preg_match('/^\+?\d+$/D',$digits))molavi_domain_fail('invalid_sale_price',400);
+    $price=(int)$digits;
+    if($price<1||$price>999999999999)molavi_domain_fail('invalid_sale_price',400);
+    $sourceUrl=trim((string)($body['source_url']??''));
+    if($sourceUrl!==''&&(molavi_domain_strlen($sourceUrl)>500||!str_starts_with($sourceUrl,'https://')))molavi_domain_fail('invalid_source_url',400);
+    $note=trim((string)($body['note']??''));
+    if(molavi_domain_strlen($note)>1000)molavi_domain_fail('invalid_note',400);
+    $now=molavi_domain_now();
+    $tables=molavi_domain_sheets(['Products'],true);$rows=$tables['Products']??[];
+    $headers=array_map('strval',$rows[0]??[]);
+    if(!in_array('Sale Price',$headers,true)||!in_array('Product ID',$headers,true))molavi_domain_fail('sheet_header_missing',409);
+    $records=molavi_domain_records($rows);
+    $index=null;
+    foreach($records as $i=>$record)if((string)molavi_domain_py_value($record['Product ID']??null)===$id){$index=$i;break;}
+    if($index===null)molavi_domain_fail('product_not_found',404);
+    $record=$records[$index];
+    $values=['Sale Price'=>(string)$price];
+    if((string)molavi_domain_py_value($record['Sale Price']??null)!==(string)$price){
+        $values['Previous Sale Price']=(string)molavi_domain_py_value($record['Sale Price']??null);
+        $values['Price Changed At']=$now;
+    }
+    if($sourceUrl!==''&&in_array('Source Post URL',$headers,true))$values['Source Post URL']=$sourceUrl;
+    foreach(array_keys($values) as $field)if(!in_array($field,$headers,true))molavi_domain_fail('sheet_header_missing',409);
+    molavi_domain_sheet_fields('Products',$index+2,$headers,$values);
+    $confirmed=molavi_domain_records(molavi_domain_sheets(['Products'],true)['Products']);
+    $updated=$confirmed[$index]??null;
+    if($updated===null)molavi_domain_fail('sheet_write_unconfirmed',503);
+    foreach($values as $field=>$value){
+        $actual=(string)molavi_domain_py_value($updated[$field]??null);
+        $same=function_exists('molavi_domain_cells_equal')
+            ?molavi_domain_cells_equal($field,$actual,$value):$actual===$value;
+        if(!$same)molavi_domain_fail('sheet_write_unconfirmed',503);
+    }
+    $revision=molavi_domain_source_revision($updated);
+    if($revision==='')molavi_domain_fail('price_source_missing',400);
+    $evidenceNote='مالک قیمت را از پیام ثبت کرد؛ منبع: '.($sourceUrl!==''?$sourceUrl:'بدون پیوند');
+    if($note!==''&&molavi_domain_strlen($evidenceNote)+molavi_domain_strlen($note)+2<=1000)$evidenceNote.='؛ '.$note;
+    return molavi_domain_tx('pipeline',static function(SQLite3 $db)use($id,$revision,$actor,$evidenceNote,$now,$price):array {
+        $verified=molavi_domain_verify_price_in_transaction($db,$id,$revision,$actor,$evidenceNote,$now,null,'manual',null);
+        $receipt=hash('sha256',$revision.'|'.$verified['verified_at']);
+        $job=molavi_domain_queue_in_transaction($db,'publish','supplier-verification:'.$id.':'.$receipt,['product_id'=>$id,'source_revision'=>$revision]);
+        return ['ok'=>true,'product_id'=>$id,'source_revision'=>$revision,'verified_at'=>$verified['verified_at'],
+            'sale_price'=>$price,'publish_job'=>$job,'idempotent'=>$verified['idempotent']];
+    });
+}
 function molavi_domain_supplier_prices_api(string $method,?array $body,string $actor): array {
     if($method==='GET'){$tables=molavi_domain_sheets(['Products'],true);$offers=molavi_domain_freshness(molavi_domain_records($tables['Products']));
         $offers=array_values(array_filter($offers,static fn($row)=>$row['state']!=='current'));
@@ -64,6 +128,11 @@ function molavi_domain_supplier_prices_api(string $method,?array $body,string $a
         }
         return ['ok'=>true,'offers'=>$offers];}
     $checkRef=$body['check_ref']??null;
+    // G1 — register a supplier price from the message for a legacy row whose
+    // source revision is empty (verify is disabled, no AI case to edit
+    // through). Handled before the verify body check: it carries its own
+    // body shape and writes the price to the sheet first.
+    if(($body['action']??'')==='register_price_from_message')return molavi_domain_register_price_from_message($body,$actor);
     if (array_key_exists('check_ref',$body??[]) && (!is_string($checkRef)||$checkRef===''||strlen($checkRef)>300)) molavi_domain_fail('invalid_body',400);
     unset($body['check_ref']);
     $keys=array_keys($body??[]);sort($keys);if($keys!==['expected_revision','note','product_id']&&$keys!==['command_id','expected_revision','note','product_id'])molavi_domain_fail('invalid_body',400);
