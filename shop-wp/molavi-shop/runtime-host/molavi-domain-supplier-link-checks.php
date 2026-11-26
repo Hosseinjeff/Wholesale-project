@@ -411,7 +411,7 @@ function molavi_domain_supplier_link_check_run_one(int $now, ?callable $fetch = 
     $lease = bin2hex(random_bytes(12));
     $row = molavi_domain_tx('pipeline', static function (SQLite3 $db) use ($now, $lease): ?array {
         $due = molavi_domain_row($db, 'SELECT * FROM supplier_link_checks
-            WHERE next_at<=? AND lease IS NULL AND confirmed_at IS NULL ORDER BY next_at,product_id LIMIT 1', [$now]);
+            WHERE next_at<=? AND confirmed_at IS NULL ORDER BY next_at,product_id LIMIT 1', [$now]);
         if ($due) molavi_domain_sql($db, 'UPDATE supplier_link_checks SET lease=?,next_at=? WHERE product_id=?',
             [$lease, $now + MOLAVI_LINK_CHECK_LEASE_SECONDS, $due['product_id']]);
         return $due;
@@ -425,7 +425,7 @@ function molavi_domain_supplier_link_check_run_product(string $productId, int $n
     $lease = bin2hex(random_bytes(12));
     $row = molavi_domain_tx('pipeline', static function (SQLite3 $db) use ($productId, $now, $lease): ?array {
         $due = molavi_domain_row($db, 'SELECT * FROM supplier_link_checks
-            WHERE product_id=? AND lease IS NULL AND confirmed_at IS NULL', [$productId]);
+            WHERE product_id=? AND (lease IS NULL OR next_at<=?) AND confirmed_at IS NULL', [$productId, $now]);
         if ($due) molavi_domain_sql($db, 'UPDATE supplier_link_checks SET lease=?,next_at=? WHERE product_id=?',
             [$lease, $now + MOLAVI_LINK_CHECK_LEASE_SECONDS, $productId]);
         return $due;
@@ -479,7 +479,9 @@ function molavi_domain_supplier_link_check_execute(array $row, string $lease, in
         $updated = molavi_domain_sql($db, 'UPDATE supplier_link_checks SET lease=NULL,confirmed_at=NULL,confirmed_verified_at=NULL,outcome=?,reason_code=?,live_price=?,live_text=?,route=?,checked_at=?,next_at=? WHERE product_id=? AND lease=?',
             [$decision['outcome'], $decision['reason_code'], $decision['live_price'], $decision['live_text'],
                 $decision['route'], $now, $nextAt, $row['product_id'], $lease]);
-        if ($updated['changes'] !== 1) return molavi_domain_supplier_link_check_public_row($row);
+        if ($updated['changes'] !== 1) {
+            return molavi_domain_supplier_link_check_public_row(molavi_domain_supplier_link_check_row($db, $row['product_id']) ?? $row);
+        }
         molavi_domain_supplier_link_check_record_event($db, $row, $decision['outcome'],
             $row['stored_sale_price'], $decision['live_price'], $decision['reason_code'], $now);
         $fresh = molavi_domain_supplier_link_check_row($db, $row['product_id']);
@@ -498,7 +500,7 @@ function molavi_domain_supplier_link_check_confirm(string $productId, string $ch
 function molavi_domain_supplier_link_check_confirm_receipt(SQLite3 $db, string $productId, string $checkRef,
     string $verifiedAt, string $actor, int $now): array {
     $row = molavi_domain_supplier_link_check_row($db, $productId);
-    if (!$row || $row['outcome'] !== 'unchanged') molavi_domain_fail('link_check_not_confirmable', 409);
+    if (!$row || $row['lease'] !== null || $row['outcome'] !== 'unchanged') molavi_domain_fail('link_check_not_confirmable', 409);
     if ($row['checked_at'] === null || molavi_domain_supplier_link_check_ref($productId, (int)$row['checked_at']) !== $checkRef)
         molavi_domain_fail('link_check_mismatch', 409);
     $stamp = molavi_domain_timestamp($verifiedAt);
