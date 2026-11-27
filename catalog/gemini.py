@@ -145,6 +145,10 @@ Return every block with its own prices,
 measurement and count, even when the title appears once. Keep the title and use variant,
 volume, weight and package_count to distinguish the offers.
 
+Brand is the manufacturer name on the product, for example روژین، تحفه or تیمز.
+It is usually a word in the product title. Copy it to brand when the message
+states it. Leave brand null when the message names no brand. Never guess a brand.
+
 Price rules:
 - `قیمت فروش ما` states a supplier amount. Copy it to sale_price if it gives no basis.
   `قیمت واحد`, `دونه ای`, `هر عدد` and `کیلویی` explicitly identify a unit price.
@@ -939,12 +943,27 @@ def _product(item, content, channel, source_titles=()):
             (consumer, consumer_is_labeled), (consumer_package, consumer_package_is_labeled))
         if amount > 0 and not labeled
     }
+    rescued_unlabelled_amount = 0
     if (not (sale_raw or unit or package) and len(unlabelled_consumer_amounts) == 1
             and not _labeled_amounts(consumer_context, _CONSUMER_PRICE_LABEL)
             and not _labeled_amounts(consumer_context, _CONSUMER_PACKAGE_PRICE_LABEL)):
         # A sole unlabeled amount from a wholesale channel is a supplier sale amount,
         # even if Gemini put it in a consumer field. Its unit/package basis is separate.
         sale_raw = next(iter(unlabelled_consumer_amounts))
+        # The rescued amount surfaces as the sale-basis review below, so it
+        # is not also flagged as an unverified consumer amount.
+        rescued_unlabelled_amount = sale_raw
+    # Iteration 2 (a): an unlabeled consumer amount is evidence, not nothing.
+    # Zeroing it here must not drop it silently — that manufactured part of
+    # the 41 missing-regular-price cases. Keep it as an UNVERIFIED amount
+    # for the owner / re-extraction and force review below. It is never
+    # adopted as a price: consumer / actual_price stay None.
+    unverified_consumer = consumer if (
+        not consumer_is_labeled and consumer > 0
+        and consumer != rescued_unlabelled_amount) else 0
+    unverified_consumer_package = consumer_package if (
+        not consumer_package_is_labeled and consumer_package > 0
+        and consumer_package != rescued_unlabelled_amount) else 0
     if not consumer_is_labeled:
         consumer = 0
     if not consumer_package_is_labeled:
@@ -980,6 +999,12 @@ def _product(item, content, channel, source_titles=()):
         reasons.append('product title contains conflicting package-count markers')
     if measurement_review_reasons:
         review = True
+    if unverified_consumer > 0 or unverified_consumer_package > 0:
+        review = True
+        if unverified_consumer > 0:
+            reasons.append(f'unlabeled consumer amount {unverified_consumer}; regular price unverified')
+        if unverified_consumer_package > 0:
+            reasons.append(f'unlabeled consumer package amount {unverified_consumer_package}; regular price unverified')
 
     # A model's unit/package field is not enough by itself: the matched product title
     # and a source line with that same amount and explicit role must agree.
@@ -1071,6 +1096,8 @@ def _product(item, content, channel, source_titles=()):
         'package_price': source_package_price or None,
         'double_pack_price': source_package_price or None,
         'double_pack_consumer_price': consumer_package or None,
+        'unverified_consumer_price': unverified_consumer or None,
+        'unverified_consumer_package_price': unverified_consumer_package or None,
         'price_type': price_type,
         'currency': currency,
         'packaging': packaging,
