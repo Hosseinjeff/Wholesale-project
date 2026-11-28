@@ -3,12 +3,15 @@
  * Run: php tests/native_no_revision_price_entry.php
  *
  * Fixtures mirror the legacy no-revision rows: a supplier price exists in
- * the Products sheet but the source revision is empty (the Sale Price does
- * not parse as a number), so the verify button is disabled and there is no
- * open AI case to edit through.
- *  - p_norev: Sale Price '' (empty) -> revision ''.
- *  - p_norev_text: Sale Price 'توافقی' (text) -> revision ''.
- *  - p_ok (control): Sale Price '1250000' -> revision non-empty.
+ * the Products sheet but the primary source revision is empty (the Sale
+ * Price does not parse as a number), so FIX-2 derives a stable legacy
+ * revision ('legacy:' + content hash) the link check and auto-verify can
+ * key on. The G1 flow still fixes the row the same way: the owner types
+ * the price, the sheet write makes the PRIMARY revision computable, and
+ * the evidence is written for that primary revision.
+ *  - p_norev: Sale Price '' (empty) -> legacy revision, primary ''.
+ *  - p_norev_text: Sale Price 'توافقی' (text) -> legacy revision, primary ''.
+ *  - p_ok (control): Sale Price '1250000' -> primary revision, no legacy tag.
  *
  * The sheet transport is stubbed faithfully: molavi_domain_sheet_fields
  * applies the field updates to the fixture sheet by header name and row,
@@ -89,10 +92,16 @@ $GLOBALS['sheets'] = ['Products' => [$headers,
         'Currency' => '', 'Latest Offer ID' => 'offer-ok', 'Source Post URL' => '', 'Status' => 'imported']),
 ]];
 
-// --- (0) The fixtures reproduce the bug: revision is empty ---
-check(molavi_domain_source_revision(product_record('p_norev')) === '', 'empty sale price -> revision empty');
-check(molavi_domain_source_revision(product_record('p_norev_text')) === '', 'text sale price -> revision empty');
+// --- (0) The fixtures reproduce the legacy case: no primary revision, stable legacy revision ---
+check(molavi_domain_source_revision_primary(product_record('p_norev')) === '', 'empty sale price -> primary revision empty');
+check(molavi_domain_source_revision_primary(product_record('p_norev_text')) === '', 'text sale price -> primary revision empty');
+$legacyNorev = molavi_domain_source_revision(product_record('p_norev'));
+$legacyText = molavi_domain_source_revision(product_record('p_norev_text'));
+check(str_starts_with($legacyNorev, 'legacy:'), 'empty sale price -> legacy revision');
+check(str_starts_with($legacyText, 'legacy:'), 'text sale price -> legacy revision');
+check($legacyNorev !== $legacyText, 'different legacy offers get different revisions');
 check(molavi_domain_source_revision(product_record('p_ok')) !== '', 'valid sale price -> revision non-empty');
+check(!str_starts_with(molavi_domain_source_revision(product_record('p_ok')), 'legacy:'), 'valid sale price -> primary revision, no legacy tag');
 
 // --- (b) Registering the price writes the evidence (method manual) and re-arms verify ---
 $result = molavi_domain_register_price_from_message([
@@ -112,6 +121,8 @@ check((string)($updated['Source Post URL'] ?? '') === 'https://t.me/bonakdarjava
 check((string)molavi_domain_py_value($updated['Previous Sale Price'] ?? null) === '', 'previous sale price stays empty when the old price was empty');
 // The revision from the updated row matches the receipt.
 check(molavi_domain_source_revision($updated) === $result['source_revision'], 'live revision matches the receipt revision');
+// Registering the price switches the revision from legacy to primary.
+check($result['source_revision'] !== $legacyNorev, 'registered price replaces the legacy revision with the primary revision');
 // The evidence row is method manual, by the owner.
 $evidence = evidence_row('p_norev');
 check($evidence !== null, 'evidence row exists');

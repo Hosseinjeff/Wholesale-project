@@ -106,6 +106,12 @@ function molavi_domain_refresh_conflict_product(array $conflict,array $existing,
             'Reference Decision ID'=>'reference_decision_id','Reference Approval State'=>'reference_approval_state','Reference Price Change Percent'=>'reference_price_change_percent',
             'Reference Price Checked At'=>'reference_price_checked_at','Reference Review Reason'=>'reference_review_reason'] as $field=>$key)$product[$key]=$existing[$field]??'';}
     $product=molavi_domain_product_reference_review($product,$latest,$activeId,$clock);$row=molavi_domain_product_row($headers,$product,molavi_domain_message_from_offer($latest),$clock);
+    // Extraction exact-compatible identity: keep the match (decision_id NULL,
+    // so untrusted until a decision links it). Never breaks the projection.
+    // Guarded: harnesses load runtime-host files a la carte; production
+    // loads the whole directory, so the function is always present there.
+    if(function_exists('molavi_domain_reference_match_maybe_record_exact'))
+        molavi_domain_reference_match_maybe_record_exact($conflict['product_id'],$product,$latest,$clock);
     $server=array_combine($headers,$row);$server['Last Updated']=molavi_domain_py_value($latest['Import Timestamp']??null);$base=$existing;
     if(count($matching)>1){$prior=array_slice($matching,0,-1);$base=array_combine($headers,molavi_domain_product_row($headers,molavi_domain_product_from_offers($prior),molavi_domain_message_from_offer(end($prior)),$clock));}
     molavi_domain_reconcile_product($existing,$base,$server,['product_id'=>$conflict['product_id'],'product_name'=>$conflict['product_name'],'channel'=>$conflict['channel'],'source_revision'=>(string)molavi_domain_py_value($latest['Offer ID']??null)]);

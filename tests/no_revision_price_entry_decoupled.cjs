@@ -130,6 +130,10 @@ function buildRoutingSandbox(source) {
     if (source.includes('function workbenchHasUnchangedLinkCheck(')) {
         for (const name of G9_FNS) pieces.push(extractFunction(source, name));
     }
+    // FIX-4: workbenchNextStep now calls workbenchHasChangedLinkCheck; it
+    // exists only in files newer than the 4ac67ae base, so extract it when
+    // present (the base's workbenchNextStep never calls it).
+    if (source.includes('function workbenchHasChangedLinkCheck(')) pieces.push(extractFunction(source, 'workbenchHasChangedLinkCheck'));
     const code = `
 let workbenchData = null;
 let data = null;
@@ -595,7 +599,7 @@ function sourceTests() {
     checkSource('(a) workflows: renderPriceRegister is exported on the model',
         src, 'renderPriceRegister: (product, container) => {');
     checkSource('(a) workflows: the helper is defined',
-        src, 'function workbenchPriceRegisterSection(product, offer, container, verify, reviewStoreAvailable)');
+        src, 'function workbenchPriceRegisterSection(product, offer, container, verify, reviewStoreAvailable, options = {})');
     checkSource('(a) workflows: the supplier tab calls the helper with its section + verify button + store flag',
         src, 'workbenchPriceRegisterSection(product, offer, section, verify, reviewStoreAvailable)');
     checkSource('(a) workflows: the model export passes the store flag to the helper',

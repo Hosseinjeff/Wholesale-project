@@ -25,200 +25,16 @@
             ...product.conflicts.map(row=>row.conflict_id),...product.holds.map(row=>row.hold_id),
             ...product.supplierPrices.flatMap(row=>[row.offer_id,row.product_id])].filter(Boolean).map(String);
     }
-    // Streamline funnel («مسیر انتشار», owner request 2026-11-26): the
-    // aggregate view of the same 7 publication steps the per-card trace
-    // («مراحل انتشار این کالا») shows. Every count below is computed from
-    // product.status.step_trace — the same evaluation the card renders — so
-    // the funnel and the card trace can never disagree. A product is stuck
-    // at the FIRST step (in pipeline order) that blocks it; a product with
-    // no blocking step is flowing (or published, when the publication step
-    // is ok). 'warn'/'info' do not block by themselves — only the states
-    // that actually stop publication do (see streamlineStepBlocks).
-    const STREAMLINE_STEPS=[
-        {key:'supplier_price',label:'قیمت تأمین‌کننده',action:'تأیید قیمت تأمین‌کننده'},
-        {key:'regular_price',label:'قیمت عادی',action:'بررسی قیمت عادی'},
-        {key:'market_agreement',label:'توافق بازار',action:'بررسی نقل‌قول‌های بازار'},
-        {key:'availability',label:'موجودی',action:'پیگیری موجودی'},
-        {key:'admission',label:'پذیرش خودکار (gA)',action:'بررسی توقف پذیرش'},
-        {key:'verdict',label:'داوری',action:'بازبینی داوری'},
-        {key:'publication',label:'انتشار / فروشگاه',action:'بررسی انتشار'},
-    ];
-    const STREAMLINE_REASONS={
-        supplier_price:{missing_price:'قیمت ثبت نشده',no_source_url:'پیام منبع ثبت نشده',
-            awaiting_confirm:'در انتظار تأیید مالک',uncheckable:'لینک منبع خوانده نشد',
-            stale:'قیمت کهنه (بیش از ۱۴ روز)',never_verified:'قیمت هرگز تأیید نشده'},
-        regular_price:{missing:'قیمت عادی ثبت نشده',expired:'قیمت عادی منقضی شده',
-            unverified:'قیمت عادی تأیید نشده',no_spread:'قیمت فروش از قیمت عادی بیشتر است',
-            thin_spread:'اختلاف قیمت برای تخفیف کافی نیست'},
-        market_agreement:{disagree:'نقل‌قول‌های بازار همخوان نیستند'},
-        availability:{out_of_stock:'تأمین‌کننده ناموجود اعلام کرده'},
-        admission:{owner_hold:'توقف به دستور مالک',verdict_hold:'توقف به‌خاطر داوری پرچم‌خورده',other_hold:'توقف پذیرش'},
-        verdict:{flag:'داوری پرچم خورد'},
-        publication:{awaiting_publish:'آمادهٔ انتشار؛ هنوز منتشر نشده',sale_closed:'منتشر شده، فروش بسته',sale_block:'فروش متوقف است'},
-    };
-    function streamlineStep(trace,key) {
-        const steps=trace?.steps;
-        if(!Array.isArray(steps))return null;
-        return steps.find(item=>item.key===key)||null;
-    }
-    function streamlineStepFact(step,label) {
-        if(!step||!Array.isArray(step.facts))return undefined;
-        const fact=step.facts.find(item=>item[0]===label);
-        return fact?fact[1]:undefined;
-    }
-    // Whether this trace step actually stops publication. 'bad' always
-    // blocks. The supplier step is the exception that proves the rule: a
-    // price that was never verified has trace status 'warn' (the trace's
-    // default for state needs_review), but the sale-offer blocker
-    // 'supplier_price' is set for exactly that state — so the blocker is
-    // the discriminator there, and a 7–14 day 'warning' (still usable, no
-    // blocker) does not block. 'warn' blocks only where the warning IS the
-    // block: an unverified regular price (the sale offer needs a current
-    // one), a disagreeing market (the market hold), and a draft /
-    // sale-closed storefront (the publish itself is the remaining work). A
-    // pending verdict does not stop anything — that 'warn' never blocks.
-    // The spread blockers (no_spread/thin_spread) live on the regular-price
-    // step even when the regular price itself is current, so the blocker
-    // counts there. A not-yet-built storefront blocks only once the
-    // admission has been evaluated and passed — before that the product is
-    // still flowing toward its first evaluation, not stuck at publication.
-    function streamlineStepBlocks(product,step) {
-        if(!step)return false;
-        const key=step.key;
-        if(key==='supplier_price')return step.status==='bad'||product.status?.sale_offer_blocker==='supplier_price';
-        if(key==='regular_price')return step.status==='bad'||step.status==='warn'
-            ||['no_spread','thin_spread'].includes(product.status?.sale_offer_blocker);
-        if(key==='market_agreement')return step.status==='warn'&&step.status_label==='ناهمخوان';
-        if(key==='availability')return step.status==='bad';
-        if(key==='admission')return step.status==='bad';
-        if(key==='verdict')return step.status==='bad';
-        if(key==='publication') {
-            if(step.status==='warn'||step.status==='bad')return true;
-            if(step.status!=='info')return false;
-            const admission=streamlineStep(product.status?.step_trace,'admission');
-            return admission&&admission.status==='ok';
-        }
-        return false;
-    }
-    // The step this product is stuck at: the first blocking step in
-    // pipeline order, or '' when nothing blocks it. A product without a
-    // trace cannot be placed — it is not stuck anywhere (see
-    // streamlineFunnel's untraced count) rather than guessed at a step.
-    // A published product has completed the pipeline, so it has no current
-    // blocker step even when it carries a hold (the hold blocks
-    // re-admission, and the card shows that — the funnel counts the
-    // product as published, not stuck). This is what keeps the funnel's
-    // counts and the Products list step filter in exact agreement: the
-    // filter uses this same function, so a step's list can never show a
-    // product the funnel does not count there.
-    function streamlineStuckStep(product) {
-        const trace=product.status?.step_trace;
-        if(!trace||!Array.isArray(trace.steps))return '';
-        const publication=streamlineStep(trace,'publication');
-        if(publication&&publication.status==='ok')return '';
-        for(const item of STREAMLINE_STEPS) {
-            if(streamlineStepBlocks(product,streamlineStep(trace,item.key)))return item.key;
-        }
-        return '';
-    }
-    // Exactly one reason per stuck product, so the reasons for a step always
-    // sum to the step's count (no product counted twice, none missing).
-    // The reason is read from the same trace facts the card shows, plus the
-    // sale-offer blocker and the autopilot hold — never invented.
-    function streamlineStuckReason(product,hold) {
-        const stuck=streamlineStuckStep(product);
-        if(!stuck)return '';
-        const trace=product.status?.step_trace;
-        if(stuck==='supplier_price') {
-            const step=streamlineStep(trace,'supplier_price');
-            const sale=streamlineStepFact(step,'قیمت ثبت‌شده');
-            if(step.status_label==='ثبت نشده'||(typeof sale==='number'&&sale<=0))return 'missing_price';
-            const sourceUrl=product.status?.source_post_url||sourceFor(product)?.source_post_url||'';
-            if(!sourceUrl)return 'no_source_url';
-            const link=streamlineStepFact(step,'بررسی لینک');
-            if(link==='بدون تغییر')return 'awaiting_confirm';
-            if(link==='قابل بررسی نیست')return 'uncheckable';
-            if(step.status_label==='کهنه')return 'stale';
-            return 'never_verified';
-        }
-        if(stuck==='regular_price') {
-            const blocker=product.status?.sale_offer_blocker;
-            if(blocker==='no_spread')return 'no_spread';
-            if(blocker==='thin_spread')return 'thin_spread';
-            const step=streamlineStep(trace,'regular_price');
-            if(step.status_label==='ثبت نشده')return 'missing';
-            if(step.status_label==='منقضی شده')return 'expired';
-            return 'unverified';
-        }
-        if(stuck==='market_agreement')return 'disagree';
-        if(stuck==='availability')return 'out_of_stock';
-        if(stuck==='admission') {
-            if(hold&&hold.gate==='admission_owner')return 'owner_hold';
-            const verdict=streamlineStep(trace,'verdict');
-            if(verdict&&verdict.status==='bad')return 'verdict_hold';
-            return 'other_hold';
-        }
-        if(stuck==='verdict')return 'flag';
-        if(stuck==='publication') {
-            const step=streamlineStep(trace,'publication');
-            if(step.status_label==='منتشر شده، فروش بسته')return 'sale_closed';
-            if(step.status==='bad')return 'sale_block';
-            return 'awaiting_publish';
-        }
-        return '';
-    }
-    // The funnel aggregate for a product list: per-step stuck counts with
-    // their reason breakdowns, plus the totals the summary line needs.
-    // holdFor resolves the autopilot hold for a product (model.autopilotHold
-    // in the dashboard; a stub in tests). Products without a trace are
-    // counted as untraced, never assigned to a step.
-    function streamlineFunnel(products,holdFor) {
-        const steps=STREAMLINE_STEPS.map(item=>({...item,count:0,reasons:[]}));
-        const byKey=new Map(steps.map(item=>[item.key,item]));
-        const reasonCounts=new Map();
-        let published=0,flowing=0,untraced=0;
-        for(const product of products) {
-            const trace=product.status?.step_trace;
-            if(!trace||!Array.isArray(trace.steps)){untraced++;continue;}
-            const publication=streamlineStep(trace,'publication');
-            if(publication&&publication.status==='ok'){published++;continue;}
-            const stuck=streamlineStuckStep(product);
-            if(!stuck){flowing++;continue;}
-            const entry=byKey.get(stuck);
-            entry.count++;
-            const reason=streamlineStuckReason(product,holdFor?holdFor(product):null);
-            const key=stuck+'|'+reason;
-            reasonCounts.set(key,(reasonCounts.get(key)||0)+1);
-        }
-        for(const entry of steps) {
-            const rows=[];
-            for(const [key,count] of reasonCounts) {
-                const [stepKey,reasonKey]=key.split('|');
-                if(stepKey!==entry.key)continue;
-                rows.push({key:reasonKey,label:STREAMLINE_REASONS[entry.key]?.[reasonKey]||reasonKey,count});
-            }
-            rows.sort((a,b)=>b.count-a.count);
-            entry.reasons=rows.slice(0,3);
-        }
-        let bottleneck='';
-        for(const entry of steps) {
-            if(entry.count>0&&(!bottleneck||entry.count>byKey.get(bottleneck).count))bottleneck=entry.key;
-        }
-        const topReason=bottleneck?byKey.get(bottleneck).reasons[0]||null:null;
-        return {total:products.length,published,flowing,untraced,steps,bottleneck,topReason};
-    }
     function create(root, hooks) {
         const params = new URLSearchParams(location.search);
         const focusType=['product_id','offer_id','case_id','conflict_id','hold_id','reference_id'].find(key=>params.get(key)) || 'product_id';
         const state = {
             focusType,
-            view:['products','references','sources','system','pricing','streamline'].includes(params.get('view')) ? params.get('view')
+            view:['products','references','sources','system','pricing'].includes(params.get('view')) ? params.get('view')
                 : params.get('workbench_action') === 'reextract' || location.hash.includes('reextract') ? 'sources' : 'products',
             scope:params.get('scope') || 'ready',action:params.get('workbench_action') || '',
             focus:['product_id','offer_id','case_id','conflict_id','hold_id','reference_id'].map(key=>params.get(key)).find(Boolean) || '',
             search:params.get('q') || '',channel:params.get('channel') || '',limit:24,
-            step:STREAMLINE_STEPS.some(item=>item.key===params.get('step')) ? params.get('step') : '',
-            stepReason:params.get('step_reason') || '',
             risk:['red','amber','green','none'].includes(params.get('risk')) ? params.get('risk') : '',
             held:params.get('held')==='1',
             active:'',section:'',panels:new Map(),pageCache:new Map(),selecting:false,selected:new Set()
@@ -272,7 +88,7 @@
         const nav = el('nav',null,'md-navigation');
         nav.setAttribute('aria-label','مدیریت فروشگاه');
         const navButtons = new Map();
-        [['products','محصولات'],['streamline','مسیر انتشار'],['references','فهرست مرجع'],['sources','پیام‌های منبع'],['system','وضعیت سیستم']].forEach(([key,label])=>{
+        [['products','محصولات'],['references','فهرست مرجع'],['sources','پیام‌های منبع'],['system','وضعیت سیستم']].forEach(([key,label])=>{
             const item=button(label,()=>navigate(key),'md-nav-item');
             navButtons.set(key,item); nav.appendChild(item);
         });
@@ -520,7 +336,7 @@
             if (!activeAction(item)) {
                 row.append(activityButton('بستن اعلان','no-alt',()=>{
                     actions.delete(item.id);
-                    if (item.automaticMarket) {
+                    if (item.automaticMarket||item.automaticMatch) {
                         dismissedMarket.add(item.id);
                         if (activityKey) try {
                             localStorage.setItem(activityKey+'.dismissed-market',JSON.stringify([...dismissedMarket].slice(-100)));
@@ -649,6 +465,24 @@
                     }
                     received=true;
                 }
+                // Catalog-side kept matches: the same list shape as the
+                // market events above (same row columns — new_price is
+                // aliased to regular_price server-side). The origin opens
+                // the reference section of the product card, not the
+                // market tab.
+                for (const event of [...(report.match_events||[])].reverse()) {
+                    const id='match:'+event.id;
+                    if (actions.has(id)||dismissedMarket.has(id)) continue;
+                    const prices=[event.old_price,event.regular_price].filter(price=>price>0).map(price=>fa(price));
+                    const labels={price_changed:'قیمت مرجع تغییر کرد',reference_removed:'مرجع حذف شد',
+                        identity_changed:'مرجع کالا تغییر کرد',replaced:'مرجع جایگزین شد',retired:'مرجع کنار گذاشته شد'};
+                    actions.set(id,{id,automaticMatch:true,state:'completed',
+                        label:labels[event.kind]||'تطبیق مرجع تغییر کرد',
+                        detail:prices.length===2?prices.join(' ← ')+' تومان':'',
+                        origin:{view:'products',key:event.product_id?'product:'+event.product_id:'offer:'+event.offer_id,
+                            offer:event.offer_id,product:event.title,section:'references'}});
+                    received=true;
+                }
                 if (watching.length||received) saveActions();
                 const inboxChanged=report.inbox_revision && report.inbox_revision!==activityReport?.inbox_revision;
                 activityReport=report;
@@ -690,7 +524,7 @@
         }
         function saveURL() {
             const url=new URL(location.href);
-            ['view','scope','q','channel','workbench_action','product_id','offer_id','case_id','conflict_id','hold_id','reference_id','risk','held','step','step_reason'].forEach(key=>url.searchParams.delete(key));
+            ['view','scope','q','channel','workbench_action','product_id','offer_id','case_id','conflict_id','hold_id','reference_id','risk','held'].forEach(key=>url.searchParams.delete(key));
             if(state.view!=='products')url.searchParams.set('view',state.view);
             if(state.scope!=='attention')url.searchParams.set('scope',state.scope);
             if(state.search)url.searchParams.set('q',state.search);
@@ -699,8 +533,6 @@
             if(state.focus)url.searchParams.set(state.focusType,state.focus);
             if(state.risk)url.searchParams.set('risk',state.risk);
             if(state.held)url.searchParams.set('held','1');
-            if(state.step)url.searchParams.set('step',state.step);
-            if(state.step&&state.stepReason)url.searchParams.set('step_reason',state.stepReason);
             url.hash='';
             history.replaceState({},'',url);
         }
@@ -874,13 +706,6 @@
                 if(tier!==state.risk)return false;
             }
             if(state.held&&!(model&&model.autopilotHold&&model.autopilotHold(product)))return false;
-            // Streamline step filter (the funnel's drill-in): the product
-            // must be stuck at this step — the same stuck-step function the
-            // funnel counts with, so the list and the funnel cannot disagree.
-            if(state.step){
-                if(streamlineStuckStep(product)!==state.step)return false;
-                if(state.stepReason&&streamlineStuckReason(product,model&&model.autopilotHold?model.autopilotHold(product):null)!==state.stepReason)return false;
-            }
             if(state.focus){
                 const groups={
                     product_id:[product.product_id],
@@ -970,7 +795,7 @@
                 ['other','سایر',allProducts.filter(p=>!ready(p)&&!waiting(p)&&!priceBlocked(p)&&!published(p)).length],
                 ['all','همهٔ محصولات',allProducts.length]].forEach(([key,label,count])=>{
                 const item=button(`${label}  ${fa(count)}`,()=>{
-                    clearSelection();state.scope=key;state.action='';state.focus='';state.step='';state.stepReason='';state.limit=24;saveURL();paint();
+                    clearSelection();state.scope=key;state.action='';state.focus='';state.limit=24;saveURL();paint();
                 },'md-scope');item.setAttribute('aria-pressed',String(state.scope===key&&(!state.action||key==='published')));scopeBar.append(item);
             });view.append(scopeBar);
             const filters=el('div',null,'md-filters');
@@ -1007,17 +832,8 @@
             // the product list while the supplier-price queue is open.
             if (state.action==='supplier_prices'&&model.renderLinkChecks) view.append(model.renderLinkChecks());
             if (state.action==='supplier_prices'&&model.renderMarketAgreement) view.append(model.renderMarketAgreement());
-            const focus=el('div',null,'md-active-filter');focus.hidden=!state.focus&&!state.step;
+            const focus=el('div',null,'md-active-filter');focus.hidden=!state.focus;
             if(state.focus)focus.append(el('span',`شناسه: ${state.focus}`),button('نمایش همه',()=>{clearSelection();state.focus='';saveURL();paint();},'md-link'));
-            // Streamline step filter chip: the funnel's drill-in, with the
-            // step (and reason, when set) named so the owner knows what the
-            // list is showing — and a way back out.
-            if(state.step){
-                const stepDef=STREAMLINE_STEPS.find(item=>item.key===state.step);
-                const reasonLabel=state.stepReason?STREAMLINE_REASONS[state.step]?.[state.stepReason]:'';
-                focus.append(el('span',`مرحله: ${stepDef?stepDef.label:state.step}${reasonLabel?` — ${reasonLabel}`:''}`),
-                    button('نمایش همه',()=>{clearSelection();state.step='';state.stepReason='';saveURL();paint();},'md-link'));
-            }
             view.append(focus);
             const count=el('p',null,'md-result-count');count.setAttribute('role','status');
             const controls=el('div',null,'md-result-controls');
@@ -1081,9 +897,6 @@
                     if(state.action&&!state.focus) {
                         emptyView.append(button('نمایش همهٔ کارها',()=>{clearSelection();state.action='';state.limit=24;saveURL();paint();},'md-button'));
                     }
-                    if(state.step) {
-                        emptyView.append(button('نمایش همهٔ کالاها',()=>{clearSelection();state.step='';state.stepReason='';state.limit=24;saveURL();paint();},'md-button'));
-                    }
                     list.append(emptyView);
                 }
                 more.hidden=rows.length<=state.limit;
@@ -1095,7 +908,7 @@
                 state.search=search.value;state.limit=24;clearTimeout(searchTimer);
                 searchTimer=setTimeout(()=>{selectAll.disabled=false;saveURL();paintList();},160);
             });
-            action.addEventListener('change',()=>{clearSelection();state.action=action.value;state.step='';state.stepReason='';state.limit=24;saveURL();paintList();});
+            action.addEventListener('change',()=>{clearSelection();state.action=action.value;state.limit=24;saveURL();paintList();});
             channel.addEventListener('change',()=>{clearSelection();state.channel=channel.value;state.limit=24;saveURL();paintList();});
             view.append(controls,selection,list,more);paintList();return view;
         }
@@ -1582,83 +1395,17 @@
                 if(hooks.pageUrls[key]){const link=el('a',label,'md-utility-link');link.href=hooks.pageUrls[key];utilities.append(link);}
             });view.append(utilities);return view;
         }
-        // The funnel's drill-in: show the Products list filtered to one
-        // step (and one reason, when given). Read-only navigation — it only
-        // sets the list filters, never product state.
-        function openStepFilter(key,reason) {
-            clearSelection();
-            state.scope='all';state.action='';state.focus='';state.search='';state.channel='';
-            state.step=key;state.stepReason=reason||'';state.limit=24;
-            navigate('products');
-        }
-        // Streamline funnel («مسیر انتشار», owner request 2026-11-26): one
-        // screen showing, for each of the 7 publication steps, how many
-        // products are stuck there, why, and what to do. The counts come
-        // from streamlineFunnel — the same step-trace evaluation the card
-        // renders — so the funnel and the cards cannot disagree. Every
-        // button only navigates to the filtered Products list; nothing here
-        // changes any product state.
-        function streamlineView() {
-            const view=el('section',null,'md-streamline');
-            const title=el('div',null,'md-page-heading');
-            const copy=el('div');copy.append(el('h1','مسیر انتشار'));
-            title.append(copy);
-            const stamp=model.data.product_status?.generated_at;
-            if(stamp)title.append(el('small',`آخرین دریافت: ${model.formatDate(stamp)}`,'md-last-read'));
-            view.append(title);
-            const funnel=streamlineFunnel(model.products,product=>model.autopilotHold?model.autopilotHold(product):null);
-            const bottleneckEntry=funnel.bottleneck?funnel.steps.find(item=>item.key===funnel.bottleneck):null;
-            const summaryParts=[`${fa(funnel.total)} کالا`,
-                funnel.published>0?`${fa(funnel.published)} منتشر شده`:'',
-                funnel.flowing>0?`${fa(funnel.flowing)} در جریان`:''];
-            let summaryText=summaryParts.filter(Boolean).join(' · ');
-            if(bottleneckEntry){
-                summaryText+=` · بیشترین گلوگاه: ${bottleneckEntry.label} — ${fa(bottleneckEntry.count)} کالا`;
-                if(funnel.topReason)summaryText+=`؛ بیشترشان (${fa(funnel.topReason.count)}) ${funnel.topReason.label}`;
-            } else {
-                summaryText+=' · هیچ گلوگاهی نیست؛ همهٔ کالاها یا منتشر شده‌اند یا در جریان‌اند.';
-            }
-            view.append(el('p',summaryText,'md-streamline-summary'));
-            if(funnel.untraced>0)view.append(el('p',`${fa(funnel.untraced)} کالا ردپای مرحله ندارند؛ در شمارش مرحله‌ها نیستند.`,'md-streamline-note'));
-            const flow=el('div',null,'md-funnel');
-            flow.dir='ltr';
-            funnel.steps.forEach((entry,index)=>{
-                if(index>0)flow.append(el('span','→','md-funnel-arrow'));
-                const block=el('section',null,'md-funnel-step'
-                    +(entry.key===funnel.bottleneck?' md-funnel-step--bottleneck':'')
-                    +(entry.count===0?' md-funnel-step--empty':''));
-                block.dir='rtl';
-                block.append(el('span',fa(index+1),'md-funnel-number'));
-                block.append(el('h2',entry.label));
-                block.append(el('p',fa(entry.count),'md-funnel-count'));
-                if(entry.key===funnel.bottleneck)block.append(el('span','گلوگاه','md-funnel-bottleneck'));
-                if(entry.reasons.length){
-                    const reasons=el('ul',null,'md-funnel-reasons');
-                    entry.reasons.forEach(reason=>{
-                        const item=el('li');
-                        item.append(button(`${reason.label} · ${fa(reason.count)}`,()=>openStepFilter(entry.key,reason.key),'md-link'));
-                        reasons.append(item);
-                    });
-                    block.append(reasons);
-                }
-                if(entry.count>0)block.append(button(entry.action,()=>openStepFilter(entry.key,''),'md-button md-primary'));
-                flow.append(block);
-            });
-            view.append(flow);
-            return view;
-        }
         function paint() {
             navButtons.forEach((button,key)=>button.setAttribute('aria-current',key===state.view?'page':'false'));
             // Keep the active tab visible in the horizontally scrollable nav row:
             // on a narrow screen the active tab can sit off the edge.
             // block:'nearest' so this never scrolls the page vertically.
             navButtons.get(state.view)?.scrollIntoView({block:'nearest',inline:'nearest'});
-            if(!model&&['products','system','streamline'].includes(state.view)) {
+            if(!model&&['products','system'].includes(state.view)) {
                 main.replaceChildren(state.view==='system'?systemActivity:el('p','در حال دریافت محصولات…'));
                 return;
             }
             if(state.view==='products')main.replaceChildren(productsView());
-            else if(state.view==='streamline')main.replaceChildren(streamlineView());
             else {
                 if(!state.pageCache.has(state.view))state.pageCache.set(state.view,
                     state.view==='pricing'?pricingView():state.view==='references'?referencesView()
@@ -1750,7 +1497,7 @@
             event.preventDefault();
             const view=url.searchParams.get('view');
             const focusKey=['offer_id','product_id','case_id','hold_id','conflict_id','reference_id'].find(key=>url.searchParams.has(key));
-            if(['products','sources','references','system','pricing','streamline'].includes(view)) {
+            if(['products','sources','references','system','pricing'].includes(view)) {
                 navigate(view);
             }
             else if(focusKey==='hold_id') reviewHold('molavi-batch-'+encodeURIComponent(url.searchParams.get(focusKey)));
