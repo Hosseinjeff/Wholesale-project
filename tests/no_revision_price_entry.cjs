@@ -97,6 +97,10 @@ function buildSandbox(source, withG1) {
     // present (the base's workbenchNextStep never calls it).
     const hasG9 = source.includes('function workbenchHasUnchangedLinkCheck(');
     if (hasG9) for (const name of G9_FNS) pieces.push(extractFunction(source, name));
+    // FIX-4: workbenchNextStep now calls workbenchHasChangedLinkCheck; it
+    // exists only in files newer than the 4ac67ae base, so extract it when
+    // present (the base's workbenchNextStep never calls it).
+    if (source.includes('function workbenchHasChangedLinkCheck(')) pieces.push(extractFunction(source, 'workbenchHasChangedLinkCheck'));
     const code = `
 let workbenchData = null;
 let data = null;

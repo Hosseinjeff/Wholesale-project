@@ -88,7 +88,10 @@ function molavi_domain_db(string $store='pipeline'):SQLite3 {
             ['supplier_price_evidence_history','note',"TEXT NOT NULL DEFAULT ''"],
             ['published_product_reviews','review_kind',"TEXT NOT NULL DEFAULT 'published'"],
             ['published_product_reviews','woo_product_id','INTEGER NOT NULL DEFAULT 0'],
-        ]:[['reference_refresh_state','change_summary','TEXT'],['market_product_sources','verified_at','INTEGER']];
+        ]:[['reference_refresh_state','change_summary','TEXT'],['market_product_sources','verified_at','INTEGER'],
+            ['reference_product_matches','removed_at','INTEGER'],
+            ['market_product_sources','match_basis','TEXT'],['market_product_sources','matched_by','TEXT'],
+            ['market_product_sources','matched_at','INTEGER'],['market_product_sources','match_status',"TEXT NOT NULL DEFAULT 'active'"]];
         foreach($migrations as [$table,$column,$definition]){
             $columns=array_column(molavi_domain_rows($db,'PRAGMA table_info('.$table.')'),'name');
             if(!in_array($column,$columns,true)){

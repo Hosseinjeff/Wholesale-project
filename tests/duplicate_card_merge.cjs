@@ -118,6 +118,10 @@ function buildRoutingSandbox(source) {
     if (source.includes('function workbenchHasUnchangedLinkCheck(')) {
         pieces.push(extractFunction(source, 'workbenchHasUnchangedLinkCheck'));
     }
+    // FIX-4: workbenchNextStep now calls workbenchHasChangedLinkCheck; it
+    // exists only in files newer than the 4ac67ae base, so extract it when
+    // present (the base's workbenchNextStep never calls it).
+    if (source.includes('function workbenchHasChangedLinkCheck(')) pieces.push(extractFunction(source, 'workbenchHasChangedLinkCheck'));
     const code = `
 let workbenchData = null;
 let data = null;

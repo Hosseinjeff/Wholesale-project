@@ -232,6 +232,14 @@ function molavi_domain_dashboard_activity(?float $clock=null,array $watching=[])
         'market_events'=>molavi_domain_rows($db,
             "SELECT id,product_id,offer_id,title,kind,old_price,regular_price,code,occurred_at FROM market_source_events
              WHERE kind IN ('changed','failed','restored') AND occurred_at>=? ORDER BY occurred_at DESC,rowid DESC LIMIT 30",[(int)$now-1209600]),
+        // Catalog-side kept matches: the same feed shape as market_events.
+        // reference_match_events stores the new price as new_price (not
+        // regular_price), so it is aliased here — the frontend renders
+        // both lists from the same row shape. Within-5% price_updated
+        // events are ledger-only and never appear in the feed.
+        'match_events'=>molavi_domain_rows($db,
+            "SELECT id,product_id,offer_id,title,kind,old_price,new_price AS regular_price,code,occurred_at FROM reference_match_events
+             WHERE kind IN ('price_changed','reference_removed','identity_changed','replaced','retired') AND occurred_at>=? ORDER BY occurred_at DESC,rowid DESC LIMIT 30",[(int)$now-1209600]),
         'pricing'=>molavi_domain_row($db,
             "SELECT 1 FROM market_price_lookups WHERE active=1 AND state='searching' AND attempted_at>? LIMIT 1",[$now-60]),
         ];
@@ -239,14 +247,24 @@ function molavi_domain_dashboard_activity(?float $clock=null,array $watching=[])
     $activity['watched']=(object)($activity['watched']+$reference['watched']);
     $activity['reference_revision']=$reference['refresh']['revision']??null;
     if ($reference['market_events']) $activity['market_events']=$reference['market_events'];
+    if ($reference['match_events']) $activity['match_events']=$reference['match_events'];
     if ($reference['refresh']) {
         $refresh=$reference['refresh'];
         $progress=['kind'=>'reference_refresh','state'=>$refresh['in_progress']?'running':match($refresh['state']){
-            'failed'=>'failed','staged'=>'partial','updated','unchanged'=>'completed',default=>'unknown'},
+            'failed'=>'failed','staged'=>'partial','updated','unchanged'=>'completed','partial'=>'running','running'=>'running',default=>'unknown'},
             'current'=>($refresh['progress']??['phase'=>'connecting'])+['started_at'=>molavi_domain_timestamp($refresh['last_attempt_at'])],
             'total'=>$refresh['progress']['total']??0,'completed'=>$refresh['progress']['completed']??0,'unit'=>'pages'];
+        // A stalled attempt is a failed one: the process is gone, only the
+        // state row still says 'running'. Show it as failed so the feed's
+        // stuck row and its retry button appear.
+        if(!empty($refresh['stalled']))$progress['state']='failed';
+        if(!empty($refresh['error_code']))$progress['error_code']=$refresh['error_code'];
+        if(!empty($refresh['retry_at']))$progress['retry_at']=(float)$refresh['retry_at'];
         $activity['reference_progress']=$progress;
-        if ($refresh['in_progress']) $activity['groups'][]=$progress;
+        // The group used to appear only while the refresh was in progress,
+        // so a failed or stalled refresh vanished from the feed entirely.
+        // Keep it visible until it succeeds.
+        if ($refresh['in_progress']||in_array($refresh['state'],['failed','partial'],true)||!empty($refresh['stalled'])) $activity['groups'][]=$progress;
     }
     if ($reference['pricing']) $activity['groups'][]=['kind'=>'market_prices','state'=>'running'];
     return ['ok'=>true,'observed_at'=>$now]+$activity;

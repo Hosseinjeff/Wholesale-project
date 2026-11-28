@@ -147,6 +147,10 @@ function buildSandbox(source) {
     // present (the base's workbenchNextStep never calls it).
     const hasG9 = source.includes('function workbenchHasUnchangedLinkCheck(');
     if (hasG9) pieces.push(extractFunction(source, 'workbenchHasUnchangedLinkCheck'));
+    // FIX-4: workbenchNextStep now calls workbenchHasChangedLinkCheck; it
+    // exists only in files newer than the 4ac67ae base, so extract it when
+    // present (the base's workbenchNextStep never calls it).
+    if (source.includes('function workbenchHasChangedLinkCheck(')) pieces.push(extractFunction(source, 'workbenchHasChangedLinkCheck'));
     pieces.push(extractMarketPriceOffers(source));
     const code = `
 let workbenchData = null;

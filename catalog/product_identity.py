@@ -11,7 +11,11 @@ from catalog.measurements import measurement_signature
 
 
 def _text(value: Any) -> str:
-    return re.sub(r"\s+", " ", normalize(str(value or ""))).strip()
+    # Identity text normalises ي→ی / ك→ک (catalog-extraction iteration 1):
+    # حميد and حمید must hash to the same Product ID. The legacy key below
+    # deliberately keeps the old behaviour so already-published products
+    # retain their source IDs and SKUs.
+    return re.sub(r"\s+", " ", normalize(str(value or ""))).strip().replace("ي", "ی").replace("ك", "ک")
 
 
 def _name_key(value: Any) -> str:

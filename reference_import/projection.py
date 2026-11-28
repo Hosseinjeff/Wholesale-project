@@ -25,7 +25,7 @@ def project_reference_prices(sheet_store, snapshot):
     row_count=max(len(existing),len(rows)+1)
     table=[list(HEADERS),*[list(row) for row in rows]]
     table.extend([['']*len(HEADERS) for _ in range(row_count-len(table))])
-    # One values.update request replaces the managed 21-column table and clears a
+    # One values.update request replaces the managed table and clears a
     # longer prior snapshot without touching columns outside the recovered schema.
     sheet_store.write_rows(title,1,table)
     verified=read_fresh(title)
@@ -44,7 +44,10 @@ def project_reference_prices(sheet_store, snapshot):
 _NODE_COLUMNS={
     'name':('Product Name','Clean Product Name','Normalized Key','Reference Unit Price',
             'Consumer Unit Price','Package Count','Unit Label','Volume','Weight','Set Count'),
-    'prices':('Reference Package Price','Reference Unit Price'),
+    'prices':('Reference Package Price','Reference Unit Price',
+              'Reference Supply Pack Price','Reference Supply Unit Price',
+              'Reference Regular Pack Price','Reference Regular Unit Price',
+              'Reference Price Anomaly'),
     'sku':('Product Code',),
     'categories':('Category',),
     'attributes':('Variant','Brand'),
