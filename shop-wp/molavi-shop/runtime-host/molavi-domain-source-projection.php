@@ -20,6 +20,11 @@ function molavi_domain_restore_source_product(array $source,?string $clock=null)
     if($index!==null){$existing=$products[$index];molavi_domain_refresh_conflict_product(['product_id'=>(string)molavi_domain_py_value($existing['Product ID']??null),'product_name'=>$name,'channel'=>$channel],$existing,$headers,$matching,$clock);return;}
     $latest=end($matching);$product=molavi_domain_product_reference_review(molavi_domain_product_from_offers($matching),$latest,null,$clock);
     $row=molavi_domain_product_row($headers,$product,molavi_domain_message_from_offer($latest),$clock);$record=array_combine($headers,$row);
+    // Extraction exact-compatible identity on the new-product path (the
+    // existing-product path above records it via refresh_conflict_product).
+    // Guarded: harnesses load runtime-host files a la carte.
+    if(function_exists('molavi_domain_reference_match_maybe_record_exact'))
+        molavi_domain_reference_match_maybe_record_exact((string)molavi_domain_py_value($record['Product ID']??null),$product,$latest,$clock);
     $record['Last Updated']=molavi_domain_py_value($latest['Import Timestamp']??null);$record['Import Timestamp']=molavi_domain_py_value($matching[0]['Import Timestamp']??null);
     molavi_domain_sheet_append('Products',[array_map(static fn($header)=>$record[$header]??'',$headers)]);
     $confirmed=molavi_domain_records(molavi_domain_sheets(['Products'],true)['Products']);$found=false;

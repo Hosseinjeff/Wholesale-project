@@ -98,7 +98,7 @@ function molavi_domain_reference_snapshots(array $query): array {
             $id=$query['snapshot_id']??'';if(!is_string($id)||!preg_match('/^[a-f0-9]{64}$/D',$id))molavi_domain_fail('invalid_fields',400);
             $row=molavi_domain_row($db,'SELECT payload FROM reference_snapshots WHERE snapshot_id=?',[$id]);if(!$row)molavi_domain_fail('snapshot_not_found',404);
             $candidate=molavi_domain_decode($row['payload']);$rows=[];
-            foreach($candidate['rows']??[] as $index=>$values)if(is_array($values)&&count($values)===21)$rows[]=molavi_domain_reference_preview($values,(string)($candidate['source_product_ids'][$index]??''));
+            foreach($candidate['rows']??[] as $index=>$values)if(is_array($values)&&(count($values)===21||count($values)===26))$rows[]=molavi_domain_reference_preview($values,(string)($candidate['source_product_ids'][$index]??''));
             return ['ok'=>true,'snapshot_id'=>$id,'row_count'=>$candidate['row_count']??null,'coverage_verified'=>molavi_domain_reference_coverage($candidate),'rows'=>$rows];
         }
         $refresh=molavi_domain_reference_refresh_view($db,microtime(true));
@@ -106,7 +106,7 @@ function molavi_domain_reference_snapshots(array $query): array {
         $check=molavi_domain_row($db,'SELECT snapshot_id,checked_at FROM reference_source_check WHERE singleton=1');$snapshots=[];$activeCheckedAt=null;
         foreach(molavi_domain_rows($db,'SELECT * FROM reference_snapshots ORDER BY rowid DESC LIMIT 50') as $row){
             $candidate=molavi_domain_decode($row['payload']);$summary=[];foreach(['added_count','updated_count','removed_count','has_changes','metadata_upgrade','order_changed'] as $field)$summary[$field]=$candidate['change_summary'][$field]??0;
-            $preview=[];foreach(array_slice($candidate['rows']??[],0,8) as $index=>$values)if(is_array($values)&&count($values)===21)$preview[]=molavi_domain_reference_preview($values,(string)($candidate['source_product_ids'][$index]??''));
+            $preview=[];foreach(array_slice($candidate['rows']??[],0,8) as $index=>$values)if(is_array($values)&&(count($values)===21||count($values)===26))$preview[]=molavi_domain_reference_preview($values,(string)($candidate['source_product_ids'][$index]??''));
             $item=['snapshot_id'=>$row['snapshot_id']];foreach(['extracted_at','row_count','pdf_sha256','source_type','previous_snapshot_id','source_total','source_currency','model','source_url','source_page_count','processed_page_count','first_source_row_number','last_source_row_number'] as $field)$item[$field]=$candidate[$field]??null;
             if($row['snapshot_id']===$active)$activeCheckedAt=($check['snapshot_id']??null)===$active?$check['checked_at']:$item['extracted_at'];
             $snapshots[]=array_merge($item,['automatic_update'=>(bool)($candidate['automatic_update']??false),'change_summary'=>$summary,

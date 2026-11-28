@@ -259,8 +259,8 @@ function molavi_domain_product_step_trace(array $record,array $offer,array $maps
     $approval=trim((string)($record['Reference Approval State']??''));
     $matchId=trim((string)($record['Reference Match ID']??''));
     $regularSource=$marketProves?'بازار (Basalam)'
-        :($matchId!==''&&in_array($approval,['owner_approved','approved_compatible','approved_within_margin'],true)
-            ?'مرجع (تأیید مالک)':'شیت (قیمت مصرف‌کننده)');
+        :($matchId!==''&&in_array($approval,['owner_approved','approved_compatible','approved_within_margin','approved_auto_adopted'],true)
+            ?($approval==='approved_auto_adopted'?'مرجع (پذیرش خودکار)':'مرجع (تأیید مالک)'):'شیت (قیمت مصرف‌کننده)');
     $regularFacts=[['قیمت عادی',$regularAmount>0?$regularAmount:'ثبت نشده','amount'],
         ['منبع',$regularSource,'text'],
         ['وضعیت',match($regularState){'current'=>'جاری','expired'=>'منقضی شده','unverified'=>'تأیید نشده',default=>'ثبت نشده'},'text']];
