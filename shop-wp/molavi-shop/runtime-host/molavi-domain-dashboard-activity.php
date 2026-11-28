@@ -232,6 +232,14 @@ function molavi_domain_dashboard_activity(?float $clock=null,array $watching=[])
         'market_events'=>molavi_domain_rows($db,
             "SELECT id,product_id,offer_id,title,kind,old_price,regular_price,code,occurred_at FROM market_source_events
              WHERE kind IN ('changed','failed','restored') AND occurred_at>=? ORDER BY occurred_at DESC,rowid DESC LIMIT 30",[(int)$now-1209600]),
+        // Catalog-side kept matches: the same feed shape as market_events.
+        // reference_match_events stores the new price as new_price (not
+        // regular_price), so it is aliased here — the frontend renders
+        // both lists from the same row shape. Within-5% price_updated
+        // events are ledger-only and never appear in the feed.
+        'match_events'=>molavi_domain_rows($db,
+            "SELECT id,product_id,offer_id,title,kind,old_price,new_price AS regular_price,code,occurred_at FROM reference_match_events
+             WHERE kind IN ('price_changed','reference_removed','identity_changed','replaced','retired') AND occurred_at>=? ORDER BY occurred_at DESC,rowid DESC LIMIT 30",[(int)$now-1209600]),
         'pricing'=>molavi_domain_row($db,
             "SELECT 1 FROM market_price_lookups WHERE active=1 AND state='searching' AND attempted_at>? LIMIT 1",[$now-60]),
         ];
@@ -239,6 +247,7 @@ function molavi_domain_dashboard_activity(?float $clock=null,array $watching=[])
     $activity['watched']=(object)($activity['watched']+$reference['watched']);
     $activity['reference_revision']=$reference['refresh']['revision']??null;
     if ($reference['market_events']) $activity['market_events']=$reference['market_events'];
+    if ($reference['match_events']) $activity['match_events']=$reference['match_events'];
     if ($reference['refresh']) {
         $refresh=$reference['refresh'];
         $progress=['kind'=>'reference_refresh','state'=>$refresh['in_progress']?'running':match($refresh['state']){

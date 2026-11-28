@@ -10,6 +10,73 @@ const MOLAVI_MARKET_DAILY_LOOKUPS = 25;
 // re-search from the tab once the product's next turn arrives.
 const MOLAVI_MARKET_NO_MATCH_BACKOFF_SECONDS = 604800;
 
+/**
+ * Sanity of one market quote's regular price against the supplier (sale)
+ * price, pack basis — the "very low regular price" rule. Mirrors the
+ * implied-spread formula of molavi_domain_market_agreement_classify():
+ * regular_pack = regular_unit_price x pack_count (the product's pack
+ * count); sale_pack = the sheet Sale Price (pack basis);
+ * implied = (regular_pack - sale_pack) / regular_pack.
+ *
+ * Returns ['status'=>..., 'reason_code'=>..., 'implied_spread'=>float|null,
+ * 'regular_pack_price'=>int|null]:
+ *  - 'reject' / 'regular_at_or_below_cost': implied <= 0. A retail regular
+ *    price at or below the wholesale supply price cannot be a functioning
+ *    regular price. Never stored as a candidate, never pickable.
+ *  - 'thin' / 'spread_too_thin': 0 < implied < 0.12. The quote stays a
+ *    visible candidate but is excluded from every automatic pick and from
+ *    the suggested price. The owner may still pick it manually.
+ *  - 'ok': implied >= 0.12 — unaffected. The wide side (implied > 0.60)
+ *    is left as-is; market-agreement already disagrees there.
+ *  - 'unknown' / 'invalid_price': the quote carries no regular_unit_price,
+ *    or there is no usable sale price — nothing to judge, so the quote
+ *    passes through unchanged (today's behaviour). One deliberate
+ *    difference from classify(): it falls back to unit_price when
+ *    regular_unit_price is absent; this rule only judges an actual regular
+ *    price, so a quote without one is not rejected on its current price.
+ * The 0.12 floor is MOLAVI_MARKET_AGREEMENT_MIN_SPREAD (= min_margin)
+ * when the agreement file is loaded, else the same value literally.
+ */
+function molavi_domain_market_quote_sanity(array $quote, float $salePrice, int $pack): array {
+    $unit = (int)($quote['regular_unit_price'] ?? 0);
+    $pack = max(1, $pack);
+    if ($unit <= 0 || $salePrice <= 0) {
+        return ['status'=>'unknown', 'reason_code'=>'invalid_price', 'implied_spread'=>null, 'regular_pack_price'=>null];
+    }
+    $regularPack = $unit * $pack;
+    $implied = ($regularPack - $salePrice) / $regularPack;
+    if ($implied <= 0) {
+        return ['status'=>'reject', 'reason_code'=>'regular_at_or_below_cost', 'implied_spread'=>$implied, 'regular_pack_price'=>$regularPack];
+    }
+    $minSpread = defined('MOLAVI_MARKET_AGREEMENT_MIN_SPREAD') ? (float)MOLAVI_MARKET_AGREEMENT_MIN_SPREAD : 0.12;
+    if ($implied < $minSpread) {
+        return ['status'=>'thin', 'reason_code'=>'spread_too_thin', 'implied_spread'=>$implied, 'regular_pack_price'=>$regularPack];
+    }
+    return ['status'=>'ok', 'reason_code'=>null, 'implied_spread'=>$implied, 'regular_pack_price'=>$regularPack];
+}
+
+/** Sheet Sale Price (pack basis) for a market subject, or 0 when the
+ * product/offer row carries none. Mirrors the record G4 reads for the
+ * same subject: the product row first, else the offer row. */
+function molavi_domain_market_sale_price(?array $subject, array $tables): float {
+    if (!$subject) return 0.0;
+    $productId = (string)($subject['product_id'] ?? '');
+    if ($productId !== '') {
+        foreach (molavi_domain_records($tables['Products'] ?? []) as $record) {
+            if ((string)($record['Product ID'] ?? '') === $productId)
+                return (float)molavi_domain_positive_price($record['Sale Price'] ?? null);
+        }
+    }
+    $offerId = (string)($subject['offer_id'] ?? '');
+    if ($offerId !== '') {
+        foreach (molavi_domain_records($tables['Offers'] ?? []) as $record) {
+            if ((string)($record['Offer ID'] ?? '') === $offerId)
+                return (float)molavi_domain_positive_price($record['Sale Price'] ?? null);
+        }
+    }
+    return 0.0;
+}
+
 function molavi_domain_market_key(): string {
     return trim((string)(defined('MOLAVI_TAVILY_API_KEY') ? MOLAVI_TAVILY_API_KEY
         : (getenv('MOLAVI_TAVILY_API_KEY') ?: getenv('TAVILY_API_KEY'))));
@@ -309,9 +376,13 @@ function molavi_domain_market_price_api(string $method,array $input,string $acto
     $cache='molavi_market_subject_v2_'.hash('sha256',$offer);
     $cached=$method==='GET'?get_transient($cache):false;
     if (!is_array($cached)) {
-        $subject=molavi_domain_market_subject($offer,molavi_domain_sheets(['Products','Offers'],$method==='POST'));
-        set_transient($cache,['subject'=>$subject],90);
-    } else $subject=$cached['subject'];
+        $tables=molavi_domain_sheets(['Products','Offers'],$method==='POST');
+        $subject=molavi_domain_market_subject($offer,$tables);
+        // The sale price travels with the cached subject so polling reads
+        // still avoid sheet reads (see the polling-reuse check below).
+        $salePrice=molavi_domain_market_sale_price($subject,$tables);
+        set_transient($cache,['subject'=>$subject,'sale_price'=>$salePrice],90);
+    } else { $subject=$cached['subject']; $salePrice=(float)($cached['sale_price']??0); }
     if (!$subject) return ['ok'=>true,'state'=>'not_needed'];
     $identity=$subject['identity'];
     if ($identity['assortment']) return ['ok'=>true,'state'=>'ambiguous_identity'];
@@ -390,18 +461,75 @@ function molavi_domain_market_price_api(string $method,array $input,string $acto
     $quotes=molavi_domain_decode($row['candidates_json']??null);
     if ($selectedQuote) $quotes=array_values([$selectedQuote['url']=>$selectedQuote]+array_column($quotes,null,'url'));
     $pinned=$tracking['url']??null;
+    // Sanity (very low regular price): reject-tier quotes stay listed,
+    // flagged with the implied spread — an explicit owner (manual) pick
+    // always wins over the reject block (owner-override rule, Basalam
+    // owner-force 2026-11-27), so the owner can force-pick a below-cost
+    // quote with the flag visible. Nothing is dropped from the list any
+    // more, so sanity_dropped stays 0 here; the G4 pick set still drops
+    // reject-tier quotes (see molavi_domain_autopilot_rule_market), and
+    // the suggestion below still never recommends one. Thin quotes stay
+    // listed, flagged, but never become the suggested price.
+    $pack=max(1,(int)($identity['pack_count']??1));
+    $sanityDropped=0;
+    $listed=[];
+    foreach ($quotes as $quote) {
+        $sanity=$salePrice>0?molavi_domain_market_quote_sanity($quote,$salePrice,$pack)
+            :['status'=>'unknown','reason_code'=>null,'implied_spread'=>null];
+        if ($sanity['status']==='thin') {
+            $quote['sanity_flag']='spread_too_thin';
+            $quote['implied_spread']=$sanity['implied_spread'];
+        } elseif ($sanity['status']==='reject') {
+            $quote['sanity_flag']='regular_at_or_below_cost';
+            $quote['implied_spread']=$sanity['implied_spread'];
+        }
+        $listed[]=$quote;
+    }
+    $quotes=$listed;
     usort($quotes,static fn($a,$b)=>($a['regular_unit_price']??$a['unit_price'])<=>($b['regular_unit_price']??$b['unit_price'])
         ?:strcmp($a['url'],$b['url']));
-    $regular=array_values(array_filter($quotes,static fn($quote)=>isset($quote['regular_unit_price'])));
+    // Suggestion set: thin and reject-flagged quotes are excluded. The
+    // pinned (owner-selected) source still overrides the suggestion, unless
+    // it is reject-tier — a regular price at or below cost is never
+    // suggested, even when selected.
+    $suggestable=array_values(array_filter($quotes,static fn($quote)=>!isset($quote['sanity_flag'])));
+    $regular=array_values(array_filter($suggestable,static fn($quote)=>isset($quote['regular_unit_price'])));
     $exact=array_values(array_filter($regular,static fn($quote)=>$quote['pack_count']===($identity['pack_count']??1)));
-    $ranked=$exact?:($regular?:$quotes);
+    $ranked=$exact?:($regular?:$suggestable);
     $recommended=$ranked[intdiv(count($ranked),2)]??null;
-    foreach ($quotes as $quote) if ($quote['url']===$pinned) $recommended=$quote;
+    foreach ($quotes as $quote) if ($quote['url']===$pinned&&($quote['sanity_flag']??null)!=='regular_at_or_below_cost') $recommended=$quote;
+    if (!$recommended&&$quotes) {
+        // No trustworthy suggestion, but the choice form only renders when
+        // a suggested price exists — fall back to the median listed
+        // candidate (flagged when thin, or reject-tier when no trustworthy
+        // quote exists at all) so the owner can still pick manually from
+        // the tab instead of losing the choice form entirely. The flag
+        // stays on the quote; this fallback is a render enabler, not a
+        // recommendation — the trustworthy suggestion above still never
+        // picks a reject-tier quote.
+        $recommended=$quotes[intdiv(count($quotes),2)]??null;
+    }
+    // The latest price change of the selected source, for the one line
+    // under it in the قیمت عادی tab («قیمت این فروشنده از X به Y تومان
+    // تغییر کرد»). Read-only: market changes never write to the sheet.
+    // A needs_review source still reaches this return — the quote picker
+    // and the owner-entry form stay visible while its match is reviewed.
+    $priceChange=null;
+    if(($subject['product_id']??'')!=='') {
+        $priceChange=molavi_domain_read('reference',static function(SQLite3 $db)use($subject): ?array {
+            $row=molavi_domain_row($db,"SELECT old_price,regular_price,occurred_at FROM market_source_events
+                WHERE product_id=? AND kind='changed' ORDER BY occurred_at DESC,rowid DESC LIMIT 1",
+                [$subject['product_id']]);
+            return $row?['old_price'=>(int)($row['old_price']??0),'regular_price'=>(int)($row['regular_price']??0),
+                'occurred_at'=>(int)($row['occurred_at']??0)]:null;
+        });
+    }
     return ['ok'=>true,'state'=>$row['state']??'idle','lookup_key'=>$key,'checked_at'=>$row['checked_at']??null,'next_at'=>$row['next_at']??null,
         'search_configured'=>true,'prioritized'=>!empty($row['priority']),
         'stale'=>isset($row['checked_at'])&&$now-(int)$row['checked_at']>=MOLAVI_REFERENCE_REFRESH_SECONDS,
-        'suggested_price'=>$recommended,'candidates'=>$quotes,'selected_url'=>$pinned,
+        'suggested_price'=>$recommended,'candidates'=>$quotes,'selected_url'=>$pinned,'sanity_dropped'=>$sanityDropped,
         'product'=>molavi_domain_market_photo_meta($subject,$sources['photo']??null),
-        'tracking'=>$tracking?array_intersect_key($tracking,array_flip(['regular_price','next_at','checked_at','verified_at','failure'])):null]
+        'tracking'=>$tracking?array_intersect_key($tracking,array_flip(['regular_price','next_at','checked_at','verified_at','failure'])):null,
+        'price_change'=>$priceChange]
         +($event?['publish_job'=>'publish:market-source:'.$event]:[]);
 }

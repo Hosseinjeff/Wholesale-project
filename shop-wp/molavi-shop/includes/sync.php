@@ -96,6 +96,68 @@ function molavi_catalog_identity_snapshot(bool $publishedOnly = false, bool $inc
     return $products;
 }
 
+// FIX no-picture gate (2026-11-27; owner rule 2026-11-26 ~23:24: a product
+// with no picture cannot be released/published). Pure verdict on a sheet
+// image id, mirroring autopilot admission Arm 8 exactly: an owner waiver
+// excuses a MISSING image only — a dead or suspect file still blocks,
+// waived or not. Pure decision on its inputs, so it is unit-testable
+// without WordPress.
+function molavi_image_gate_verdict(string $imageId, bool $waived, array $dead, array $suspects): string
+{
+    if ($imageId === '') {
+        return $waived ? 'ok' : 'no_image';
+    }
+    if (isset($dead[$imageId])) {
+        return 'dead_image';
+    }
+    if (isset($suspects[$imageId])) {
+        return 'suspect_image';
+    }
+    return 'ok';
+}
+
+// Strict check: a usable picture is actually attached to this product
+// right now (a local attachment the shopper can see).
+function molavi_product_has_featured_image(int $productId): bool
+{
+    if ($productId <= 0) {
+        return false;
+    }
+    $thumb = (int) get_post_thumbnail_id($productId);
+    if ($thumb <= 0) {
+        return false;
+    }
+    return !function_exists('wp_attachment_is_image') || wp_attachment_is_image($thumb);
+}
+
+// Publish-time image gate for one catalog row. Usable means the shopper
+// would see a picture:
+//   * a featured image is already attached — local bytes, so a dead
+//     SOURCE file does not unseat it (cf. ID 53 سانی نس: dead source
+//     file, working store image);
+//   * the row carries a market photo, which upsert attaches as the
+//     featured image in the same pass;
+//   * the sheet image may still attach (present, not dead, not suspect);
+//   * or the owner explicitly waived this product's missing picture
+//     (waiver excuses a missing image only, never a dead/suspect one).
+// Anything else is refused with a reason the card can show.
+function molavi_product_image_gate(int $productId, array $clean, array $dead, array $suspects, array $waivers): array
+{
+    $sourceId = (string) ($clean['source_record_id'] ?? '');
+    $waived = $sourceId !== '' && in_array($sourceId, $waivers, true);
+    if (molavi_product_has_featured_image($productId)) {
+        return ['usable' => true, 'reason' => ''];
+    }
+    if (!empty($clean['market_image_id'])) {
+        return ['usable' => true, 'reason' => ''];
+    }
+    $verdict = molavi_image_gate_verdict((string) ($clean['image'] ?? ''), $waived, $dead, $suspects);
+    if ($verdict !== 'ok') {
+        return ['usable' => false, 'reason' => $verdict];
+    }
+    return ['usable' => true, 'reason' => ''];
+}
+
 function molavi_apply_catalog(array $payload, bool $native = false): array
 {
     $rows = $payload['products'] ?? null;
@@ -146,6 +208,10 @@ function molavi_apply_catalog(array $payload, bool $native = false): array
     $settingsChanged = false;
     $queue = [];
     $deadImages = molavi_dead_image_files();
+    $suspects = molavi_suspect_image_files();
+    $waivers = is_array($w = get_option('molavi_autopilot_image_waivers', [])) ? $w : [];
+    $imageBlocked = [];
+    $publishedIds = [];
     $present = [];
     foreach ($cleanRows as $rowIndex => $clean) {
         if (!empty($clean['keep_registered'])) {
@@ -172,6 +238,42 @@ function molavi_apply_catalog(array $payload, bool $native = false): array
             }
             continue;
         }
+        // FIX no-picture gate (2026-11-27, owner rule 2026-11-26 ~23:24:
+        // no picture = no release). This is the convergence choke point:
+        // every publish path — native jobs, legacy-commerce, publication
+        // recovery, owner publish, the direct ?molavi-sync=1 endpoint —
+        // funnels through here, and the only image rule that existed
+        // (autopilot admission Arm 8) never ran on this path at all.
+        // A row with no usable picture is never upserted as publish:
+        // an existing product is hidden instead, a new product is never
+        // created, and the block (with its reason) is reported so the
+        // card can show the path forward. A suspect image may still
+        // attach, so it stays queued: a 200 on re-fetch clears the
+        // suspect and the next pass publishes; a confirming 404 marks
+        // it dead and the block stands.
+        $gate = molavi_product_image_gate($productId, $clean, $deadImages, $suspects, $waivers);
+        if (!$gate['usable']) {
+            if ($productId > 0) {
+                $present[$productId] = true;
+                $wasHidden = molavi_product_is_hidden($productId);
+                if ($wasHidden || molavi_hide_product($productId)) {
+                    if (!$wasHidden) {
+                        $hidden++;
+                        $catalogChanged = true;
+                    }
+                } else {
+                    molavi_forget_catalog();
+                    molavi_purge_shop_cache();
+                    return ['ok' => false, 'error' => 'product_hide_failed', 'row' => $rowIndex];
+                }
+            }
+            if ($gate['reason'] === 'suspect_image' && $productId > 0 && $clean['image'] !== ''
+                && (string) get_post_meta($productId, '_molavi_image_id', true) !== $clean['image']) {
+                $queue[] = ['product' => $productId, 'file' => $clean['image']];
+            }
+            $imageBlocked[] = ['product' => $productId, 'source_record_id' => $clean['source_record_id'], 'reason' => $gate['reason']];
+            continue;
+        }
         $wasNew = $productId <= 0;
         $rowChanged = true;
         $productId = molavi_upsert_product($productId, $clean, $rowChanged);
@@ -180,6 +282,7 @@ function molavi_apply_catalog(array $payload, bool $native = false): array
             molavi_purge_shop_cache();
             return ['ok' => false, 'error' => 'product_write_failed'];
         }
+        $publishedIds[] = $productId;
         molavi_index_add($index, $clean, $productId);
         $present[$productId] = true;
         if ($wasNew) {
@@ -237,6 +340,8 @@ function molavi_apply_catalog(array $payload, bool $native = false): array
         'attached' => 0,
         'images_left' => count($queue),
         'pending' => molavi_image_pending(1),
+        'image_blocked' => $imageBlocked,
+        'published_ids' => $publishedIds,
     ];
 }
 
@@ -334,7 +439,7 @@ function molavi_clean_product(array $row): ?array
         'reference_price_role' => in_array(($row['reference_price_role'] ?? ''), ['unit','package'], true)
             ? (string) $row['reference_price_role'] : '',
         'reference_approval_state' => in_array(($row['reference_approval_state'] ?? ''),
-            ['owner_approved','approved_compatible','approved_within_margin','outside_margin','reference_missing','price_unavailable','needs_review'], true)
+            ['owner_approved','approved_compatible','approved_within_margin','approved_auto_adopted','outside_margin','reference_missing','price_unavailable','needs_review'], true)
             ? (string) $row['reference_approval_state'] : '',
         'reference_price_change_percent' => max(0, min(100000, (float) ($row['reference_price_change_percent'] ?? 0))),
         'reference_price_checked_at' => is_string($row['reference_price_checked_at'] ?? null)
@@ -582,6 +687,22 @@ function molavi_sale_offer_policy_active(): bool
 function molavi_sale_offer_woo_allowed(WC_Product $product): bool
 {
     if (!molavi_sale_offer_policy_active()) return true;
+    // FIX no-picture gate (read-time backstop): a managed product with no
+    // usable picture attached is never sellable, even if some publish path
+    // left it published — e.g. inside the window between apply_catalog
+    // publishing a row and the image loop attaching its picture, or if its
+    // featured image was deleted after publication. The write-time gate in
+    // molavi_apply_catalog is the primary enforcement; this makes the rule
+    // hold on every storefront read (visibility, purchasability, product
+    // page, Store API single lookup, cart). It is self-healing: attach a
+    // picture and the product is sellable again with no publish run. An
+    // owner-waived product stays sellable without a picture.
+    $sourceId = (string) $product->get_meta('_molavi_supplier_offer_id', true);
+    $managed = $sourceId !== '' || (string) $product->get_meta('_molavi_source_id', true) !== '';
+    if ($managed) {
+        $waivers = is_array($w = get_option('molavi_autopilot_image_waivers', [])) ? $w : [];
+        if (($sourceId === '' || !in_array($sourceId, $waivers, true)) && !molavi_product_has_featured_image((int) $product->get_id())) return false;
+    }
     $cost = (int) $product->get_meta('_molavi_supplier_cost_toman', true);
     return $product->get_meta('_molavi_catalog_state', true) === 'sell'
         && (int) $product->get_meta('_molavi_sale_offer_expires_at', true) > time()
@@ -814,6 +935,69 @@ function molavi_mark_image_dead(string $file): void
     }
     $files[$file] = true;
     update_option('molavi_dead_image_files', array_slice(array_keys($files), -200), false);
+    molavi_clear_image_404_suspect($file);
+}
+
+// First-seen 404s for reference-server images, awaiting a confirming
+// second 404 on a later run (FIX-R3, round 2). The media endpoint returns
+// 404 for EVERY failure — a missing file, a Telegram timeout, a rate
+// limit, a server restart — so a single 404 must not permanently condemn
+// the file: 12 files were marked dead in one night of heavy publish runs
+// (image-broken holds 2 → 14) with no way to tell a transient 404 from a
+// file that is really gone. The suspect map is file id => first-404 unix
+// time; a suspect is re-fetched on the next publish run, and only a 404
+// at least an hour after the first sighting confirms death.
+function molavi_suspect_image_files(): array
+{
+    $files = get_option('molavi_image_404_suspects', []);
+    if (!is_array($files)) {
+        return [];
+    }
+    $clean = [];
+    foreach ($files as $file => $at) {
+        if (is_string($file) && preg_match('/^[A-Za-z0-9_-]{8,300}$/', $file) && is_numeric($at)) {
+            $clean[$file] = (int) $at;
+        }
+    }
+    return $clean;
+}
+
+function molavi_note_image_404_suspect(string $file, int $now): void
+{
+    if (!preg_match('/^[A-Za-z0-9_-]{8,300}$/', $file)) {
+        return;
+    }
+    $files = molavi_suspect_image_files();
+    if (isset($files[$file])) {
+        return;
+    }
+    $files[$file] = $now;
+    update_option('molavi_image_404_suspects', array_slice($files, -200, 200, true), false);
+}
+
+function molavi_clear_image_404_suspect(string $file): void
+{
+    $files = molavi_suspect_image_files();
+    if (!isset($files[$file])) {
+        return;
+    }
+    unset($files[$file]);
+    update_option('molavi_image_404_suspects', $files, false);
+}
+
+// Decide a 404 from the reference server: 'suspect' records a first
+// sighting and defers; 'dead' confirms (a 404 at least an hour after the
+// first sighting). Pure decision on the suspect map, so it is
+// unit-testable without HTTP.
+function molavi_image_404_outcome(string $file, int $now, array $suspects): string
+{
+    if (!preg_match('/^[A-Za-z0-9_-]{8,300}$/', $file)) {
+        return 'suspect';
+    }
+    if (!isset($suspects[$file])) {
+        return 'suspect';
+    }
+    return ($now - (int) $suspects[$file] >= 3600) ? 'dead' : 'suspect';
 }
 
 function molavi_image_queue(): array

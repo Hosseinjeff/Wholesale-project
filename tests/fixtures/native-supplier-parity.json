@@ -148,7 +148,7 @@
         "Sale Price": true,
         "Currency": "TOMAN"
       },
-      "expected": ""
+      "expected": "legacy:13673471f33b8d85a720bc22f60bee0033ab8142eb8701717fbc9df18a740667"
     },
     {
       "record": {
@@ -156,7 +156,7 @@
         "Sale Price": "0",
         "Currency": "TOMAN"
       },
-      "expected": ""
+      "expected": "legacy:13673471f33b8d85a720bc22f60bee0033ab8142eb8701717fbc9df18a740667"
     },
     {
       "record": {
@@ -164,7 +164,7 @@
         "Sale Price": "-1",
         "Currency": "TOMAN"
       },
-      "expected": ""
+      "expected": "legacy:b76f420fb69600bc9dcc05f1d76ba26340f6d14c285f35e497bce06a6a0fa1b4"
     },
     {
       "record": {
