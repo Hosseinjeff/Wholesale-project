@@ -6,7 +6,8 @@ defined('ABSPATH') || exit;
 function molavi_domain_product_headers(): array {
     return ["Channel ID", "Product ID", "Product Name", "Variation Type", "Sale Price", "Actual Price", "Price Type", "Price", "Currency", "Consumer Price", "Double Pack Price", "Double Pack Consumer Price", "Packaging", "Volume", "Category", "Description", "Stock Status", "Location", "Contact Info", "Original Message", "Channel", "Channel Username", "Message Timestamp", "Source Timestamp Basis", "Forwarded By", "Import Timestamp", "Last Updated", "Extraction Confidence Score", "Confidence", "Status", "Batch ID", "Previous Sale Price", "Previous Consumer Price", "Price Changed At", "Latest Offer ID", "Offer Count", "Min Qty", "Image File ID", "Image File Unique ID", "Brand", "Weight", "Package Count", "Reference Snapshot ID", "Reference Match ID", "Reference Price Role", "Reference Decision ID", "Source Post URL", "Reference Approval State", "Reference Price Change Percent", "Reference Price Checked At", "Reference Review Reason", "Source Post Created At", "Source Post Updated At"];
 }
-function molavi_domain_source_revision(array $record): string {
+/** Priced revision: hash of [offer id, canonical sale price, currency, timestamp basis]. Returns '' when there is no usable sale price (empty, zero, negative, text, bool) — the legacy-offer case FIX-2 covers below. Kept verbatim: every pinned parity hash depends on it. */
+function molavi_domain_source_revision_primary(array $record): string {
     $offer=trim((string)($record['Latest Offer ID']??''));
     if($offer===''){$id=trim((string)($record['Product ID']??''));$offer=$id!==''?'sheet:'.$id:'';}
     $raw=$record['Sale Price']??'';if(is_bool($raw)||!is_scalar($raw)||(is_float($raw)&&!is_finite($raw)))return '';
@@ -23,6 +24,42 @@ function molavi_domain_source_revision(array $record): string {
     else $sale=substr($digits,0,$point).'.'.substr($digits,$point);
     $parts=[$offer,$sale,trim((string)($record['Currency']??''))];$basis=trim((string)($record['Source Timestamp Basis']??''));
     if($basis!=='')$parts[]=$basis;return molavi_domain_hash($parts);
+}
+/**
+ * Legacy-offer revision (FIX-2, 2026-11-26): 10 legacy offers carry Sale
+ * Price '0'/'' (or unparseable text), so the primary derivation returns
+ * '' and no link check or auto-verify gate can key on them. The fallback
+ * derives a stable revision from the offer's own content — offer id,
+ * stored message, prices, currency, timestamp basis, source URL — with
+ * the same molavi_domain_hash helper. The 'legacy:' tag keeps the
+ * fallback namespace disjoint from primary revisions, so a later real
+ * price (primary takes over) always changes the revision and re-arms
+ * the checks, and a fallback can never equal a primary revision for
+ * the same offer. Same offer content always derives the same revision,
+ * so checks are not re-armed on every tick. Still '' when the offer
+ * cannot be identified at all (no offer id and no product id): there
+ * is nothing stable to key on. A fallback revision keys a check; it
+ * never observes a price — see molavi_domain_freshness.
+ */
+function molavi_domain_source_revision(array $record): string {
+    $primary=molavi_domain_source_revision_primary($record);
+    if($primary!=='')return $primary;
+    $offer=trim((string)($record['Latest Offer ID']??($record['Offer ID']??'')));
+    if($offer===''){$id=trim((string)($record['Product ID']??''));$offer=$id!==''?'sheet:'.$id:'';}
+    if($offer==='')return '';
+    $text=static fn($value): string => (is_scalar($value)&&!is_bool($value))?trim((string)$value):'';
+    // A price of 0 and an absent price are the same absence: spell it
+    // one way, so the revision does not flip when the sheet writes "0"
+    // where it wrote "" (9 of the 10 live legacy rows store '0', one '').
+    $price=static function($value)use($text): string {$v=$text(molavi_domain_py_value($value));
+        return $v!==''&&is_numeric($v)&&(float)$v==0.0?'':$v;};
+    return 'legacy:'.molavi_domain_hash(['legacy-offer',$offer,
+        $text($record['Original Message']??null),
+        $price($record['Sale Price']??null),
+        $price($record['Consumer Price']??null),
+        $text($record['Currency']??null),
+        $text($record['Source Timestamp Basis']??null),
+        $text($record['Source Post URL']??null)]);
 }
 function molavi_domain_price_age(?string $verified,float $now): string {
     $stamp=molavi_domain_timestamp($verified);
@@ -51,12 +88,19 @@ function molavi_domain_freshness(array $records,?float $clock=null,bool $observe
         $out=[];
         foreach($records as $record){$id=trim((string)($record['Product ID']??''));if($id==='')continue;
             $basis=trim((string)($record['Source Timestamp Basis']??''));$trusted=in_array($basis,['supplier_channel_update','supplier_channel_forward'],true);
-            $revision=molavi_domain_source_revision($record);$stamp=molavi_domain_timestamp($record['Message Timestamp']??null);
+            $revision=molavi_domain_source_revision($record);
+            // A legacy-derived revision never observes a price: there is
+            // no supplier price to verify (Sale Price 0/empty/unparseable),
+            // so a 'source' evidence row here would claim a price is current
+            // when there is none. The revision still flows into the output
+            // so link checks and auto-verify can key on it. When a real
+            // price exists, $revision IS the primary revision.
+            $primary=molavi_domain_source_revision_primary($record);$stamp=molavi_domain_timestamp($record['Message Timestamp']??null);
             $saved=molavi_domain_row($db,'SELECT * FROM supplier_price_evidence WHERE offer_id=?',[$id]);
             $iso=$stamp===null?null:DateTimeImmutable::createFromFormat('U.u',sprintf('%.6F',$stamp))->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d\TH:i:s.uP');
             // Python omits fractional seconds when they are zero.
             if($iso!==null)$iso=str_replace('.000000+00:00','+00:00',$iso);
-            if($observe&&$revision!==''&&$stamp!==null&&$stamp<=$now&&$trusted&&(!$saved
+            if($observe&&$primary!==''&&$stamp!==null&&$stamp<=$now&&$trusted&&(!$saved
                 ||($saved['source_revision']!==$revision&&$stamp>(molavi_domain_timestamp($saved['verified_at'])??INF)))){
                 molavi_domain_sql($db,"INSERT INTO supplier_price_evidence VALUES (?,?,?,'source',NULL) ON CONFLICT(offer_id) DO UPDATE SET source_revision=excluded.source_revision,verified_at=excluded.verified_at,method='source',verified_by=NULL",[$id,$revision,$iso]);
                 molavi_domain_sql($db,"INSERT INTO supplier_price_evidence_history (offer_id,source_revision,verified_at,method,verified_by,note) VALUES (?,?,?,'source',NULL,'')",[$id,$revision,$iso]);
@@ -135,7 +179,7 @@ function molavi_domain_source_issues(array $products,array $offers): array {
 }
 function molavi_domain_product_state(array $record,array $evidence=[],array $issues=[]): array {
     $approval=(string)($record['Reference Approval State']??'');$status=(string)($record['Status']??'');
-    $referenceDue=in_array($approval,['outside_margin','reference_missing','price_unavailable'],true);
+    $referenceDue=in_array($approval,['outside_margin','reference_missing','price_unavailable','reference_identity_changed'],true);
     $result=$approval==='approved_within_margin'?'due_no_update_within_margin':($referenceDue?'update_required':($approval!==''?'checked':'not_checked'));
     $supplierState=(string)($evidence['state']??'');$supplierDue=in_array($supplierState,['blocked','needs_review'],true);
     $state=['status_schema_version'=>2,'product_id'=>(string)($record['Product ID']??''),'product_name'=>(string)($record['Product Name']??''),
