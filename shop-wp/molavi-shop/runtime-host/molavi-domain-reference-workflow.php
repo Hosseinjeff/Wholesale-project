@@ -10,7 +10,7 @@ function molavi_domain_reference_snapshot(string $id): ?array {
     });
 }
 function molavi_domain_reference_price_index(array $snapshot,bool $decimal=false): array {
-    $index=[];foreach($snapshot['rows']??[] as $row){if(!is_array($row)||count($row)!==21)continue;
+    $index=[];foreach($snapshot['rows']??[] as $row){if(!is_array($row)||(count($row)!==21&&count($row)!==26))continue;
         $id=(string)molavi_domain_py_value($row[16],molavi_domain_py_value($row[2]));if(array_key_exists($id,$index))continue;
         $prices=[];foreach(['unit'=>4,'package'=>3] as $role=>$column){$value=$row[$column];
             if($decimal){$raw=is_bool($value)||!is_scalar($value)?'':str_replace([',','٬'],'',molavi_domain_digits($value));
@@ -81,7 +81,11 @@ function molavi_domain_reference_product_changes(array $products,?array $previou
 }
 function molavi_domain_reference_project(array $snapshot,?array $previous,bool $incremental): array {
     $headers=molavi_domain_reference_headers();$rows=$snapshot['rows']??[];$id=(string)($snapshot['snapshot_id']??'');
-    if(($snapshot['status']??null)!=='staged'||($snapshot['headers']??null)!==$headers||!$rows)molavi_domain_fail('active_reference_invalid');
+    // Snapshots staged before the two-price columns keep their 21-column
+    // shape; the projection writes a snapshot's own width either way.
+    $snapshotHeaders=$snapshot['headers']??null;$legacyHeaders=array_slice($headers,0,21);
+    $width=$snapshotHeaders===$headers?count($headers):($snapshotHeaders===$legacyHeaders?count($legacyHeaders):0);
+    if(($snapshot['status']??null)!=='staged'||$width===0||!$rows)molavi_domain_fail('active_reference_invalid');
     $projected=molavi_domain_read('reference',static fn(SQLite3 $db)=>molavi_domain_row($db,'SELECT snapshot_id FROM reference_projection_state WHERE singleton=1')['snapshot_id']??null);
     if($projected===$id)return ['sheet'=>'ReferencePrices','row_count'=>count($rows),'verified'=>true,'snapshot_id'=>$id,'mode'=>'already_projected'];
     $summary=$snapshot['change_summary']??[];
@@ -90,30 +94,31 @@ function molavi_domain_reference_project(array $snapshot,?array $previous,bool $
         &&$projected===($previous['snapshot_id']??null);
     if($delta){
         $byId=[];foreach($snapshot['source_product_ids'] as $index=>$source)$byId[(string)$source]=$index;
-        $groups=['name'=>[0,1,2,4,5,6,7,8,9,10],'prices'=>[3,4],'sku'=>[16],'categories'=>[13],'attributes'=>[11,12]];$updates=[];
+        $groups=['name'=>[0,1,2,4,5,6,7,8,9,10],'prices'=>$width===26?[3,4,21,22,23,24,25]:[3,4],'sku'=>[16],'categories'=>[13],'attributes'=>[11,12]];$updates=[];
         foreach($summary['changed']??[] as $change){$source=(string)$change['source_product_id'];if(!array_key_exists($source,$byId))molavi_domain_fail('changed_reference_missing');
             $index=$byId[$source];$columns=[20=>true];foreach($change['nodes']??[] as $node)foreach($groups[$node]??[] as $column)$columns[$column]=true;
             foreach(array_keys($columns) as $column)$updates[]=['range'=>molavi_domain_sheet_column($column+1).($index+2),'values'=>[[$rows[$index][$column]]]];
         }
         foreach(array_chunk($updates,500) as $chunk)molavi_domain_sheet_cells('ReferencePrices',$chunk);
     }else{
-        if(!isset(molavi_domain_sheet_properties()['ReferencePrices']))molavi_domain_sheet_ensure('ReferencePrices',$headers);
-        $existing=molavi_domain_sheets(['ReferencePrices'],true,true)['ReferencePrices'];$current=array_slice($existing[0]??$headers,0,count($headers));
-        $legacy=$headers;$legacy[15]='PDF Row Number';if($current!==$headers&&$current!==$legacy)molavi_domain_fail('reference_sheet_schema_changed');
-        $table=[$headers,...$rows];$height=max(count($table),count($existing));while(count($table)<$height)$table[]=array_fill(0,count($headers),'');
-        molavi_domain_sheet_cells('ReferencePrices',[['range'=>'A1:U'.$height,'values'=>$table]]);
+        if(!isset(molavi_domain_sheet_properties()['ReferencePrices']))molavi_domain_sheet_ensure('ReferencePrices',$snapshotHeaders);
+        $existing=molavi_domain_sheets(['ReferencePrices'],true,true)['ReferencePrices'];$current=array_slice($existing[0]??$snapshotHeaders,0,$width);
+        $legacy=$snapshotHeaders;$legacy[15]='PDF Row Number';
+        if($current!==$snapshotHeaders&&$current!==$legacy&&$current!==$legacyHeaders)molavi_domain_fail('reference_sheet_schema_changed');
+        $table=[$snapshotHeaders,...$rows];$height=max(count($table),count($existing));while(count($table)<$height)$table[]=array_fill(0,$width,'');
+        molavi_domain_sheet_cells('ReferencePrices',[['range'=>'A1:'.molavi_domain_sheet_column($width).$height,'values'=>$table]]);
     }
     $verified=molavi_domain_sheets(['ReferencePrices'],true,true)['ReferencePrices'];
-    if(array_slice($verified[0]??[],0,21)!==$headers||count($verified)<count($rows)+1)molavi_domain_fail('reference_projection_receipt_mismatch',503);
-    foreach($rows as $index=>$expected){$actual=array_pad($verified[$index+1]??[],21,'');
-        if(molavi_domain_json(array_slice($actual,0,21))!==molavi_domain_json($expected))molavi_domain_fail('reference_projection_receipt_mismatch',503);}
+    if(array_slice($verified[0]??[],0,$width)!==$snapshotHeaders||count($verified)<count($rows)+1)molavi_domain_fail('reference_projection_receipt_mismatch',503);
+    foreach($rows as $index=>$expected){$actual=array_pad($verified[$index+1]??[],$width,'');
+        if(molavi_domain_json(array_slice($actual,0,$width))!==molavi_domain_json($expected))molavi_domain_fail('reference_projection_receipt_mismatch',503);}
     molavi_domain_tx('reference',static fn(SQLite3 $db)=>molavi_domain_sql($db,'INSERT OR REPLACE INTO reference_projection_state VALUES (1,?)',[$id]));
     $result=['sheet'=>'ReferencePrices','row_count'=>count($rows),'verified'=>true,'snapshot_id'=>$id,'mode'=>$delta?'incremental':'full'];
     if($delta)$result['updated_products']=count($summary['changed']??[]);return $result;
 }
 function molavi_domain_reference_complete(array $snapshot,?array $previous,bool $incremental): array {
     $projection=molavi_domain_reference_project($snapshot,$previous,$incremental);$id=$snapshot['snapshot_id'];
-    $counts=['checked'=>0,'retained'=>0,'needs_review'=>0];$captured=null;$state='complete';
+    $counts=['checked'=>0,'retained'=>0,'needs_review'=>0];$captured=null;$state='complete';$matchReconciliation=null;
     $reconciled=molavi_domain_read('reference',static fn(SQLite3 $db)=>molavi_domain_row($db,'SELECT snapshot_id FROM reference_reconciliation_state WHERE singleton=1')['snapshot_id']??null);
     if($reconciled!==$id){
         try{
@@ -123,6 +128,16 @@ function molavi_domain_reference_complete(array $snapshot,?array $previous,bool 
                 foreach($products as $record){$source=(string)($record['Reference Snapshot ID']??'');
                     if($source!==''&&$source!==$id&&$source!==($previous['snapshot_id']??null)&&!array_key_exists($source,$older))$older[$source]=molavi_domain_reference_snapshot($source)??[];}
                 $changes=molavi_domain_lock('publication',static function()use($previous,$snapshot,$older,$affected):array {
+                    // Kept-match reconcile runs first, in the same lock: a
+                    // reconciled product is never re-decided by the sheet
+                    // pass below in the same run (it re-reads the sheet
+                    // after reconcile, so already-handled rows are skipped).
+                    // Guarded like the other matches.php callers: contexts
+                    // that load this file without it keep the sheet pass.
+                    $matchReconciliation=function_exists('molavi_domain_reference_match_reconcile')
+                        ?molavi_domain_reference_match_reconcile($snapshot,$previous)
+                        :['skipped'=>'reference_matches_not_loaded'];
+                    if(isset($matchReconciliation['skipped']))error_log('[molavi-native] reference_match_reconcile_skipped matches file not loaded');
                     $table=molavi_domain_sheets(['Products'],true)['Products'];$headers=$table[0]??[];
                     foreach(molavi_domain_records($table) as $record){$source=(string)($record['Reference Snapshot ID']??'');
                         if($source!==''&&$source!==$snapshot['snapshot_id']&&$source!==($previous['snapshot_id']??null)&&!array_key_exists($source,$older))$older[$source]=molavi_domain_reference_snapshot($source)??[];}
@@ -146,8 +161,8 @@ function molavi_domain_reference_complete(array $snapshot,?array $previous,bool 
                                 if(!$matches)molavi_domain_fail('reference_product_receipt_mismatch',503);
                             }
                         }
-                    }return $changes;
-                });$counts=$changes['counts'];
+                    }return $changes+['match_reconciliation'=>$matchReconciliation];
+                });$counts=$changes['counts'];$matchReconciliation=$changes['match_reconciliation']??null;
                 if($counts['checked']){
                     $fresh=molavi_domain_sheets(['Products','Offers','Shop'],true);$captured=molavi_domain_status_capture($fresh,'reference_snapshot:'.$id);
                     molavi_domain_observe_projection(molavi_domain_projection_digest($fresh));
@@ -157,5 +172,5 @@ function molavi_domain_reference_complete(array $snapshot,?array $previous,bool 
         }catch(Throwable $e){$state='failed';
             error_log('[molavi-native] reference_reconciliation code='.($e instanceof MolaviWorkflowError?$e->getMessage():get_class($e)));}
     }
-    return ['projection'=>$projection,'product_reference_updates'=>$counts,'product_reconciliation_state'=>$state,'product_status_snapshot'=>$captured];
+    return ['projection'=>$projection,'product_reference_updates'=>$counts,'product_reconciliation_state'=>$state,'product_status_snapshot'=>$captured,'reference_match_reconciliation'=>$matchReconciliation];
 }

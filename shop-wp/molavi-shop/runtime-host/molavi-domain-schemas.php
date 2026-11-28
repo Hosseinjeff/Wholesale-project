@@ -216,7 +216,20 @@ CREATE TABLE IF NOT EXISTS supplier_link_checks (
     outcome TEXT, reason_code TEXT, live_price TEXT, live_text TEXT,
     route TEXT, checked_at INTEGER, next_at INTEGER NOT NULL,
     lease TEXT, confirmed_at INTEGER, confirmed_verified_at TEXT,
-    created_at INTEGER NOT NULL
+    created_at INTEGER NOT NULL,
+    -- Recheck state (2026-11-28): retry_count counts consecutive
+    -- failures of the SAME reason; consecutive_failures counts
+    -- consecutive uncheckable outcomes of any reason; last_error
+    -- carries the failure detail (e.g. the ambiguous prices as JSON);
+    -- escalated/escalation_count/escalated_at mark the owner-escalation.
+    -- Live rows gain these via molavi_domain_supplier_link_check_ensure_columns
+    -- (PRAGMA + ALTER TABLE, no rebuild, no data loss).
+    retry_count INTEGER NOT NULL DEFAULT 0,
+    consecutive_failures INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    escalated INTEGER NOT NULL DEFAULT 0,
+    escalation_count INTEGER NOT NULL DEFAULT 0,
+    escalated_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS supplier_link_checks_due ON supplier_link_checks(next_at) WHERE outcome IS NOT NULL OR url IS NOT NULL;
 CREATE TABLE IF NOT EXISTS supplier_link_check_events (
@@ -255,6 +268,31 @@ CREATE TABLE IF NOT EXISTS market_agreement_events (
 );
 CREATE INDEX IF NOT EXISTS market_agreement_events_recent ON market_agreement_events(occurred_at);
 CREATE INDEX IF NOT EXISTS market_agreement_events_product ON market_agreement_events(product_id, occurred_at);
+SQL,
+        // Regular-price catalogue/sheet sync (owner-decided 2026-11-26):
+        // one row per product, the system's ledger of which price the sheet
+        // Consumer Price holds and where it came from. The sheet itself has
+        // no per-cell provenance, so the ledger is what lets the sync tell
+        // a human sheet edit (a price that differs from the latest offer's
+        // price AND from the system's last recorded price) from a system
+        // write, and compare "newer" (the system's last write timestamp
+        // sheet_written_at vs the catalogue row's Last Updated).
+        <<<'SQL'
+CREATE TABLE IF NOT EXISTS regular_price_sync_state (
+    product_id TEXT PRIMARY KEY,
+    sheet_price INTEGER NOT NULL DEFAULT 0,
+    sheet_price_source TEXT NOT NULL DEFAULT '',
+    sheet_written_at REAL NOT NULL DEFAULT 0,
+    catalogue_price INTEGER NOT NULL DEFAULT 0,
+    catalogue_updated_at REAL NOT NULL DEFAULT 0,
+    reference_id TEXT NOT NULL DEFAULT '',
+    snapshot_id TEXT NOT NULL DEFAULT '',
+    regular_price INTEGER NOT NULL DEFAULT 0,
+    regular_price_source TEXT NOT NULL DEFAULT '',
+    regular_price_deadline REAL NOT NULL DEFAULT 0,
+    human_observed_at REAL,
+    updated_at REAL NOT NULL
+)
 SQL,
     ];
     case 'reference': return [
@@ -344,6 +382,14 @@ CREATE TABLE IF NOT EXISTS reference_refresh_state (
                 state TEXT, occurrence_id TEXT, snapshot_id TEXT, error_code TEXT,
                 change_summary TEXT)
 MOLAVI_SCHEMA_REFERENCE_7,
+        // FIX-R1: per-page fetch checkpoints so a refresh resumes instead
+        // of restarting at page 1. PHP fetch only; the Python fetch is a
+        // stateless spec mirror and has no checkpoint counterpart.
+        <<<'MOLAVI_SCHEMA_REFERENCE_8'
+CREATE TABLE IF NOT EXISTS reference_refresh_pages (
+                page_size INTEGER NOT NULL, page INTEGER NOT NULL, total INTEGER NOT NULL, pages INTEGER NOT NULL,
+                payload_json TEXT NOT NULL, fetched_at REAL NOT NULL, PRIMARY KEY(page_size, page))
+MOLAVI_SCHEMA_REFERENCE_8,
         'CREATE TABLE IF NOT EXISTS reference_refresh_progress (singleton INTEGER PRIMARY KEY CHECK(singleton=1), occurrence_id TEXT NOT NULL, detail_json TEXT NOT NULL)',
         <<<'SQL'
 CREATE TABLE IF NOT EXISTS market_price_lookups (
@@ -362,7 +408,9 @@ CREATE TABLE IF NOT EXISTS market_product_sources (
     url TEXT, quote_json TEXT, regular_price INTEGER,
     next_at INTEGER, checked_at INTEGER, verified_at INTEGER, lease TEXT, failure TEXT,
     attachment_id INTEGER, image_identity_json TEXT, image_source_url TEXT,
-    changed_at INTEGER NOT NULL
+    changed_at INTEGER NOT NULL,
+    match_basis TEXT, matched_by TEXT, matched_at INTEGER,
+    match_status TEXT NOT NULL DEFAULT 'active'
 );
 CREATE INDEX IF NOT EXISTS market_product_sources_due ON market_product_sources(next_at) WHERE url IS NOT NULL;
 CREATE TABLE IF NOT EXISTS market_source_events (
@@ -373,6 +421,53 @@ CREATE TABLE IF NOT EXISTS market_source_events (
 );
 CREATE INDEX IF NOT EXISTS market_source_events_recent ON market_source_events(occurred_at);
 CREATE INDEX IF NOT EXISTS market_source_events_pending ON market_source_events(publish_pending,occurred_at);
+SQL,
+        // Kept catalog/market matches (persistent matching, slice 1): one row
+        // per (product, source). The row is the kept match: it survives
+        // snapshot refreshes and is only replaced, flagged or retired by an
+        // explicit later action, never silently by a re-scan. Candidates are
+        // NOT persisted. A row whose decision_id has no matching
+        // reference_item_decisions row is untrusted (auto-verify ignores it).
+        // catalog_supplier_price is RESERVED (NULL until the parser builder
+        // fills it); the catalog currently yields one price per product.
+        <<<'SQL'
+CREATE TABLE IF NOT EXISTS reference_product_matches (
+    product_id TEXT NOT NULL, source TEXT NOT NULL CHECK(source IN ('catalog','market')),
+    offer_id TEXT NOT NULL DEFAULT '', signature TEXT NOT NULL DEFAULT '',
+    reference_id TEXT NOT NULL, source_product_id TEXT NOT NULL DEFAULT '',
+    snapshot_id TEXT NOT NULL DEFAULT '', price_role TEXT NOT NULL DEFAULT '',
+    catalog_package_price INTEGER, catalog_unit_price INTEGER, catalog_consumer_price INTEGER,
+    catalog_supplier_price INTEGER, sheet_consumer_price INTEGER,
+    score REAL, name_similarity REAL,
+    match_basis TEXT NOT NULL, decision_id TEXT,
+    listing_id TEXT, url TEXT, provider TEXT, merchant TEXT, quote_json TEXT,
+    regular_price INTEGER, pack_count INTEGER, identity_json TEXT,
+    actor_id TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','needs_review','retired')),
+    created_at INTEGER NOT NULL, checked_at INTEGER, verified_at INTEGER, next_at INTEGER,
+    removed_at INTEGER,
+    PRIMARY KEY(product_id, source)
+);
+CREATE INDEX IF NOT EXISTS reference_product_matches_due ON reference_product_matches(status, next_at);
+CREATE TABLE IF NOT EXISTS reference_match_events (
+    id TEXT PRIMARY KEY, product_id TEXT NOT NULL, offer_id TEXT NOT NULL DEFAULT '',
+    title TEXT NOT NULL DEFAULT '', kind TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'catalog',
+    old_reference_id TEXT, new_reference_id TEXT,
+    old_price INTEGER, new_price INTEGER, change_ratio REAL, code TEXT,
+    occurred_at INTEGER NOT NULL, publish_pending INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS reference_match_events_recent ON reference_match_events(occurred_at);
+CREATE INDEX IF NOT EXISTS reference_match_events_product ON reference_match_events(product_id, occurred_at);
+CREATE INDEX IF NOT EXISTS reference_match_events_pending ON reference_match_events(publish_pending, occurred_at);
+-- One row per digest that watched the match changes (persistent matching,
+-- slice 3): same columns as autopilot_digest_watches. digest_date is
+-- unique: a re-run of the same digest replaces its row, so nothing is
+-- double-reported. The autopilot-specific counters stay 0 here — the match
+-- digest has no §6 bar to count.
+CREATE TABLE IF NOT EXISTS reference_match_digest_watches (
+    id INTEGER PRIMARY KEY, digest_date TEXT NOT NULL UNIQUE, watched_at REAL NOT NULL,
+    consecutive_correct INTEGER NOT NULL DEFAULT 0, boundary_close INTEGER NOT NULL DEFAULT 0,
+    settings_version TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '');
 SQL,
     ];
     default: throw new InvalidArgumentException('Unknown domain store');

@@ -70,16 +70,46 @@ function molavi_domain_title_count(string $text,bool $set=false): ?int {
     if(!$set&&preg_match('~(*UCP)(?:کارتن|باکس|بسته)\s*(\d{1,4})(?=$|[^\w])~u',$text,$match))return (int)$match[1];
     return null;
 }
-function molavi_domain_reference_price($prices): array {
+function molavi_domain_reference_price_value($raw,int $minor,string $currency): ?int {
+    if($raw===null||$raw===''||is_bool($raw)||!is_scalar($raw)||!is_numeric($raw)||!is_finite((float)$raw)||(float)$raw<=0)return null;
+    $value=(float)$raw/(10**$minor)/($currency==='IRR'?10:1);
+    if($value>PHP_INT_MAX)return null;
+    $price=(int)round($value,0,PHP_ROUND_HALF_UP);
+    return $price<1?null:$price;
+}
+/** Two-price model for the Rezvan Store API `prices` object.
+ *  `price` is the effective price and still hard-fails when missing/invalid.
+ *  `regular_price`/`sale_price` fail soft (null) when absent or malformed.
+ *  On sale (sale < regular and price == sale): supply is the sale price and
+ *  regular is the regular price. Otherwise the supply price is `price` and
+ *  the API regular price is null; a genuine sale the effective price does
+ *  not reflect, or a sale price at/above regular, is flagged for review
+ *  instead of silently picking a value. A sale equal to regular is no sale. */
+function molavi_domain_reference_price_model($prices): array {
     if(!is_array($prices))molavi_domain_fail('woocommerce_prices_missing',400);
     $currency=strtoupper(trim((string)($prices['currency_code']??'')));if(!in_array($currency,['IRR','IRT'],true))molavi_domain_fail('woocommerce_currency_unsupported',400);
     $minor=$prices['currency_minor_unit']??0;if(!is_int($minor)||$minor<0||$minor>4)molavi_domain_fail('woocommerce_currency_precision_invalid',400);
     $raw=$prices['price']??null;if($raw===null||$raw===''||is_bool($raw))molavi_domain_fail('woocommerce_prices_missing',400);
-    if(!is_scalar($raw)||!is_numeric($raw)||!is_finite((float)$raw)||(float)$raw<=0)molavi_domain_fail('woocommerce_price_invalid',400);
-    $value=(float)$raw/(10**$minor)/($currency==='IRR'?10:1);
-    if($value>PHP_INT_MAX)molavi_domain_fail('woocommerce_price_invalid',400);
-    $price=(int)round($value,0,PHP_ROUND_HALF_UP);if($price<1)molavi_domain_fail('woocommerce_price_invalid',400);
-    return [$price,$currency];
+    $price=molavi_domain_reference_price_value($raw,$minor,$currency);
+    if($price===null)molavi_domain_fail('woocommerce_price_invalid',400);
+    $regularRaw=$prices['regular_price']??null;$saleRaw=$prices['sale_price']??null;
+    $regular=molavi_domain_reference_price_value($regularRaw,$minor,$currency);
+    $sale=molavi_domain_reference_price_value($saleRaw,$minor,$currency);
+    $regularMalformed=$regularRaw!==null&&$regularRaw!==''&&$regular===null;
+    $saleMalformed=$saleRaw!==null&&$saleRaw!==''&&$sale===null;
+    $anomaly='';
+    if($regular!==null&&$sale!==null){
+        if($sale<$regular){if($price!==$sale)$anomaly='price_mismatch';}
+        elseif($sale>$regular)$anomaly='sale_not_below_regular';
+    }elseif($sale!==null){if($price!==$sale)$anomaly='price_mismatch';}
+    elseif($regular!==null){if($price!==$regular)$anomaly='price_mismatch';}
+    $onSale=$anomaly===''&&$regular!==null&&$sale!==null&&$sale<$regular;
+    return ['price'=>$price,'currency'=>$currency,'supply_pack'=>$price,'regular_pack'=>$onSale?$regular:null,
+        'anomaly'=>$anomaly,'regular_malformed'=>$regularMalformed,'sale_malformed'=>$saleMalformed];
+}
+function molavi_domain_reference_price($prices): array {
+    $model=molavi_domain_reference_price_model($prices);
+    return [$model['price'],$model['currency']];
 }
 function molavi_domain_reference_code(array $product): string {
     $id=$product['id']??null;if(!is_int($id)||$id<1)molavi_domain_fail('woocommerce_product_id_invalid',400);
@@ -91,7 +121,10 @@ function molavi_domain_reference_row(array $product,int $ordinal,string $timesta
     if(!is_string($name)||trim($name)==='')molavi_domain_fail('woocommerce_product_title_missing',400);
     $name=trim($name);$clean=molavi_domain_clean_title($name);$key=molavi_domain_normalize_name($clean);
     if($key==='')molavi_domain_fail('woocommerce_product_title_missing',400);
-    [$price,$currency]=molavi_domain_reference_price($product['prices']??null);
+    $model=molavi_domain_reference_price_model($product['prices']??null);
+    [$price,$currency]=[$model['price'],$model['currency']];
+    if($model['regular_malformed'])error_log('[molavi-native] reference_price_malformed product='.$code.' field=regular_price');
+    if($model['sale_malformed'])error_log('[molavi-native] reference_price_malformed product='.$code.' field=sale_price');
     $count=molavi_domain_title_count($name)?:0;$sets=molavi_domain_title_count($name,true)?:0;
     $consumer='';if(preg_match_all('~[（(]\s*(\d{1,4})\s*ف\s*[）)]~u',molavi_domain_digits($name),$matches))$consumer=(int)end($matches[1])*1000;
     $categories=[];foreach(is_array($product['categories']??null)?$product['categories']:[] as $category)
@@ -106,8 +139,12 @@ function molavi_domain_reference_row(array $product,int $ordinal,string $timesta
         if(in_array($label,['brand','brands','برند','نام برند'],true)||str_ends_with($label,' brand'))$attributes['brand']=$value;
         elseif(in_array($label,['variant','flavor','taste','نوع','طعم','مدل','رنگ'],true))$attributes['variant']=$value;
     }
+    $regularPack=$model['regular_pack'];
+    $regularUnit=($regularPack!==null&&$count)?intdiv($regularPack+intdiv($count,2),$count):'';
     return [$name,$clean,$key,$price,$count?intdiv($price+intdiv($count,2),$count):'',$consumer,$count?:'',$count?'عدد':'',
         molavi_domain_extract_measurement($name,'volume'),molavi_domain_extract_measurement($name,'weight'),$sets?:'',
         $attributes['variant'],$attributes['brand'],implode(' / ',$categories),'',(string)$ordinal,$code,'TOMAN',
-        'rezvanpakhsh_woocommerce_store_api',molavi_domain_reference_source(),$timestamp];
+        'rezvanpakhsh_woocommerce_store_api',molavi_domain_reference_source(),$timestamp,
+        $model['supply_pack'],$count?intdiv($model['supply_pack']+intdiv($count,2),$count):'',
+        $regularPack??'',$regularUnit,$model['anomaly']];
 }

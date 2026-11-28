@@ -6,7 +6,9 @@ defined('ABSPATH') || exit;
 function molavi_domain_reference_headers(): array {
     return ['Product Name','Clean Product Name','Normalized Key','Reference Package Price','Reference Unit Price','Consumer Unit Price',
         'Package Count','Unit Label','Volume','Weight','Set Count','Variant','Brand','Category','Raw Name Details','Source Row Number',
-        'Product Code','Currency','Source','Source URL','Last Updated'];
+        'Product Code','Currency','Source','Source URL','Last Updated',
+        'Reference Supply Pack Price','Reference Supply Unit Price','Reference Regular Pack Price','Reference Regular Unit Price',
+        'Reference Price Anomaly'];
 }
 function molavi_domain_reference_active(): ?array {
     return molavi_domain_read('reference',static function(SQLite3 $db):?array {
@@ -17,7 +19,7 @@ function molavi_domain_reference_active(): ?array {
     });
 }
 function molavi_domain_reference_candidate(array $products,int $pages,string $currency,string $timestamp): array {
-    return ['schema_version'=>1,'status'=>'staged','requires_review'=>true,'source_type'=>'woocommerce_store_api',
+    return ['schema_version'=>2,'status'=>'staged','requires_review'=>true,'source_type'=>'woocommerce_store_api',
         'source_url'=>molavi_domain_reference_source(),'source_currency'=>$currency,'source_total'=>count($products),
         'source_page_count'=>$pages,'processed_page_count'=>$pages,'first_source_row_number'=>1,'last_source_row_number'=>count($products),
         'model'=>null,'extracted_at'=>$timestamp,'row_count'=>0,'coverage_verified'=>false,'headers'=>molavi_domain_reference_headers(),
@@ -29,18 +31,26 @@ function molavi_domain_reference_incremental(array $candidate): array {
     if(!is_array($activeIds)||count($activeIds)!==count($oldRows)||count(array_unique(array_map('strval',$activeIds)))!==count($activeIds))$activeIds=null;
     $oldById=[];
     if($activeIds){foreach($activeIds as $index=>$id)$oldById[(string)$id]=$oldRows[$index];}
-    else{$oldByCode=[];foreach($oldRows as $row)if(is_array($row)&&count($row)===21)$oldByCode[(string)molavi_domain_py_value($row[16])]=$row;
+    else{$oldByCode=[];foreach($oldRows as $row)if(is_array($row)&&(count($row)===21||count($row)===26))$oldByCode[(string)molavi_domain_py_value($row[16])]=$row;
         foreach($products as $product){$code=molavi_domain_reference_code($product);if(isset($oldByCode[$code]))$oldById[(string)$product['id']]=$oldByCode[$code];}}
     $cached=molavi_domain_read('reference',static fn(SQLite3 $db)=>molavi_domain_rows($db,'SELECT source_product_id,product_code,payload FROM reference_source_products'));
     $oldRaw=[];$oldCodes=[];foreach($cached as $row){$oldRaw[(string)$row['source_product_id']]=molavi_domain_decode($row['payload']);$oldCodes[(string)$row['source_product_id']]=$row['product_code'];}
     $timestamp=$candidate['extracted_at'];$sourceIds=[];$rows=[];$changed=[];$added=[];$seen=[];$cachedRows=$candidate['rows']??[];
-    $groups=['name'=>[0,1,2,4,5,6,7,8,9,10],'prices'=>[3,4],'sku'=>[16],'categories'=>[13],'attributes'=>[11,12]];
+    $groups=['name'=>[0,1,2,4,5,6,7,8,9,10],'prices'=>[3,4,21,22,23,24,25],'sku'=>[16],'categories'=>[13],'attributes'=>[11,12]];
+    $legacyUpgraded=false;
     foreach($products as $offset=>$product){
         if(!is_array($product))molavi_domain_fail('woocommerce_product_invalid',400);
         $code=molavi_domain_reference_code($product);$id=(string)$product['id'];$ordinal=$offset+1;
         if(isset($seen[$id]))molavi_domain_fail('woocommerce_duplicate_product_id',400);$seen[$id]=true;$sourceIds[]=$id;
         $prior=$oldById[$id]??null;$priorRaw=$oldRaw[$id]??null;
-        if($prior!==null&&(!is_array($prior)||count($prior)!==21))$prior=null;
+        if($prior!==null&&(!is_array($prior)||(count($prior)!==21&&count($prior)!==26)))$prior=null;
+        if($prior!==null&&count($prior)===21){
+            // Schema v1 rows predate the two-price columns: fill the new
+            // columns from the current parse so the upgrade is a metadata
+            // change, not a re-add of every product.
+            $freshRow=molavi_domain_reference_row($product,$ordinal,$timestamp);
+            $prior=array_merge($prior,array_slice($freshRow,21,5));$legacyUpgraded=true;
+        }
         if($prior===null){$rows[]=count($cachedRows)===count($products)?$cachedRows[$offset]:molavi_domain_reference_row($product,$ordinal,$timestamp);
             $added[]=['source_product_id'=>$id,'product_code'=>$code];continue;}
         $rawChanged=[];$fresh=null;
@@ -50,8 +60,9 @@ function molavi_domain_reference_incremental(array $candidate): array {
             foreach($groups as $node=>$columns)foreach($columns as $column)if($prior[$column]!=$fresh[$column]){$rawChanged[]=$node;break;}}
         if($rawChanged){$fresh=$fresh??molavi_domain_reference_row($product,$ordinal,$timestamp);$merged=$prior;
             foreach($rawChanged as $node)foreach($groups[$node] as $column)$merged[$column]=$fresh[$column];$merged[20]=$timestamp;
+            $priceChanged=false;foreach($groups['prices'] as $column)if($prior[$column]!=$merged[$column]){$priceChanged=true;break;}
             $changed[]=['source_product_id'=>$id,'old_product_code'=>(string)($prior[16]?:($oldCodes[$id]??'')),
-                'product_code'=>$code,'nodes'=>$rawChanged,'price_changed'=>$prior[3]!=$merged[3]||$prior[4]!=$merged[4]];$rows[]=$merged;
+                'product_code'=>$code,'nodes'=>$rawChanged,'price_changed'=>$priceChanged];$rows[]=$merged;
         }else $rows[]=$prior;
         $rows[count($rows)-1][15]=(string)$ordinal;
     }
@@ -60,13 +71,13 @@ function molavi_domain_reference_incremental(array $candidate): array {
         'product_code'=>(string)molavi_domain_py_value($oldById[(string)$id][16]??'',($oldCodes[(string)$id]??''))];}
     else{$currentCodes=[];foreach($products as $product)$currentCodes[molavi_domain_reference_code($product)]=true;
         foreach($oldCodes as $id=>$code)if(!isset($currentCodes[$code]))$removed[]=['source_product_id'=>(string)$id,'product_code'=>$code];
-        if($oldRows&&!$oldCodes){$previous=[];foreach($oldRows as $row)if(is_array($row)&&count($row)===21)$previous[(string)molavi_domain_py_value($row[16])]=true;
+        if($oldRows&&!$oldCodes){$previous=[];foreach($oldRows as $row)if(is_array($row)&&(count($row)===21||count($row)===26))$previous[(string)molavi_domain_py_value($row[16])]=true;
             foreach($previous as $code=>$_)if(!isset($currentCodes[$code]))$removed[]=['source_product_id'=>'','product_code'=>(string)$code];}}
     $reconcile=[];foreach($changed as $item)if($item['price_changed']||in_array('sku',$item['nodes'],true))
         foreach([$item['old_product_code'],$item['product_code']] as $code)if($code!=='')$reconcile[$code]=true;
     foreach($removed as $item)if($item['product_code']!=='')$reconcile[$item['product_code']]=true;
     $reconcile=array_map('strval',array_keys($reconcile));sort($reconcile,SORT_STRING);
-    $upgrade=(bool)($active&&($active['source_type']??null)==='woocommerce_store_api'&&$activeIds===null);
+    $upgrade=(bool)($active&&($active['source_type']??null)==='woocommerce_store_api'&&($activeIds===null||$legacyUpgraded));
     $reordered=$activeIds!==null&&array_map('strval',$activeIds)!==$sourceIds;
     $summary=['added_count'=>count($added),'removed_count'=>count($removed),'updated_count'=>count($changed),
         'added'=>$added,'removed'=>$removed,'changed'=>$changed,'reconcile_reference_ids'=>$reconcile,
@@ -86,13 +97,14 @@ function molavi_domain_reference_stage(array $candidate): array {
     if(($candidate['status']??null)!=='staged'||($candidate['headers']??null)!==molavi_domain_reference_headers()
         ||!molavi_domain_reference_coverage($candidate))molavi_domain_fail('extraction_coverage_incomplete',400);
     $timestamp=molavi_domain_timestamp($candidate['extracted_at']??null);if($timestamp===null||$timestamp>microtime(true))molavi_domain_fail('invalid_extraction_timestamp',400);
-    foreach($candidate['rows'] as $row){if(!is_array($row)||count($row)!==21)molavi_domain_fail('invalid_row_shape',400);
+    foreach($candidate['rows'] as $row){if(!is_array($row)||count($row)!==26)molavi_domain_fail('invalid_row_shape',400);
         foreach([0,1,2] as $i)if(!is_string($row[$i])||trim($row[$i])==='')molavi_domain_fail('invalid_row_identity',400);
         if(array_slice($row,17,3)!==['TOMAN','rezvanpakhsh_woocommerce_store_api',molavi_domain_reference_source()])molavi_domain_fail('invalid_row_provenance',400);
         $rowTime=molavi_domain_timestamp($row[20]);if($rowTime===null||$rowTime>$timestamp)molavi_domain_fail('invalid_row_timestamp',400);
-        foreach([3,4,5,6,10] as $i){$value=$row[$i];if($value===''&&$i!==3)continue;
+        foreach([3,4,5,6,10,21,22,23,24] as $i){$value=$row[$i];if($value===''&&$i!==3&&$i!==21)continue;
             if((!is_int($value)&&!is_float($value))||!is_finite((float)$value)||$value<0)molavi_domain_fail('invalid_numeric_column',400);}
-        if($row[3]<=0)molavi_domain_fail('invalid_package_price',400);
+        if(!is_string($row[25]))molavi_domain_fail('invalid_anomaly_flag',400);
+        if($row[3]<=0||$row[21]<=0)molavi_domain_fail('invalid_package_price',400);
     }
     $payload=molavi_domain_json($candidate,true);$id=hash('sha256',$payload);
     return molavi_domain_tx('reference',static function(SQLite3 $db)use($candidate,$products,$payload,$id):array {

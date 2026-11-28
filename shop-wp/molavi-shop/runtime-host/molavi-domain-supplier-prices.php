@@ -18,7 +18,7 @@ function molavi_domain_verify_price(string $product,string $revision,string $act
 function molavi_domain_verify_price_in_transaction(SQLite3 $db, string $product, string $revision, string $actor,
     string $note, string $now, ?string $command, string $method, ?string $checkRef = null): array {
     if($product===''||$revision===''||$actor===''||trim($note)===''||molavi_domain_strlen($note)>1000)molavi_domain_fail('verification_rejected');
-    if(!in_array($method,['manual','market'],true))molavi_domain_fail('verification_rejected');
+    if(!in_array($method,['manual','market','auto'],true))molavi_domain_fail('verification_rejected');
     if($command!==null&&!preg_match('/^[a-f0-9]{64}$/D',$command))molavi_domain_fail('verification_rejected');
     $stamp=molavi_domain_timestamp($now);if($stamp===null)molavi_domain_fail('verification_rejected');
     if($command!==null){$prior=molavi_domain_row($db,'SELECT * FROM supplier_price_verification_commands WHERE command_id=?',[$command]);

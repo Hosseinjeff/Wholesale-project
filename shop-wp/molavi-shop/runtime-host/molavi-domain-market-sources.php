@@ -104,9 +104,46 @@ function molavi_domain_market_flush_events(): void {
     }
 }
 
-function molavi_domain_market_choose_source(array $subject,array $quote,?array $current,int $now,int $checked): ?string {
+function molavi_domain_market_match_actor(string $actor): string {
+    if ($actor!=='') return $actor;
+    $id=function_exists('get_current_user_id')?(int)get_current_user_id():0;
+    return $id>0?'wp:'.$id:'system:market';
+}
+
+function molavi_domain_market_match_is_owner(): bool {
+    return function_exists('get_current_user_id')&&(int)get_current_user_id()>0;
+}
+
+/**
+ * Kept-match payload for a market pick. The reference is the Basalam
+ * listing ('basalam-<id>', the convention the kept-matches harness uses)
+ * or the listing URL when there is no Basalam id; regular_price is the
+ * quote's per-unit regular price (null when the pick is unverified).
+ * decision_id stays null: a market pick has no reference_item_decisions
+ * row, so the kept row is untrusted until a decision links it.
+ */
+function molavi_domain_market_match_payload(array $subject,array $quote,?int $price,string $basis): array {
+    $listing=isset($quote['listing_id'])&&is_int($quote['listing_id'])&&$quote['listing_id']>0?$quote['listing_id']:null;
+    if ($listing===null&&function_exists('molavi_domain_basalam_listing_id')) $listing=molavi_domain_basalam_listing_id($quote['url']);
+    $referenceId=$listing!==null?'basalam-'.$listing:$quote['url'];
+    $provider=(string)($quote['provider']??$quote['merchant']??'');
+    return ['product_id'=>$subject['product_id'],'source'=>'market','offer_id'=>$subject['offer_id'],
+        'signature'=>molavi_domain_hash($subject['identity']),'reference_id'=>$referenceId,
+        'price_role'=>'unit','decision_id'=>null,'match_basis'=>$basis,
+        'listing_id'=>$listing!==null?'basalam-'.$listing:null,'url'=>$quote['url'],
+        'provider'=>$provider!==''?$provider:null,
+        'merchant'=>isset($quote['merchant'])&&(string)$quote['merchant']!==''?(string)$quote['merchant']:null,
+        'quote_json'=>molavi_domain_json($quote),'regular_price'=>$price,
+        'pack_count'=>isset($quote['pack_count'])?(int)$quote['pack_count']:null,
+        'identity_json'=>molavi_domain_json($subject['identity']),
+        'target'=>$subject['target'],'title'=>$subject['title']];
+}
+
+function molavi_domain_market_choose_source(array $subject,array $quote,?array $current,int $now,int $checked,string $actor='',string $basis=''): ?string {
     $price=molavi_domain_market_source_price($quote);
-    return molavi_domain_tx('reference',static function(SQLite3 $db)use($subject,$quote,$price,$current,$now,$checked): ?string {
+    $actorId=molavi_domain_market_match_actor($actor);
+    $basisValue=$basis!==''?$basis:(molavi_domain_market_match_is_owner()?'owner_pick':'auto_discovery');
+    $event=molavi_domain_tx('reference',static function(SQLite3 $db)use($subject,$quote,$price,$current,$now,$checked,$actorId,$basisValue): ?string {
         $old=molavi_domain_row($db,'SELECT * FROM market_product_sources WHERE target=?',[$subject['target']]);
         if ($old && $old['url']===$quote['url'] && molavi_domain_market_source_matches($old['identity_json'],$subject['identity'])) return null;
         $sameProduct=$old && molavi_domain_market_source_matches($old['identity_json'],$subject['identity']);
@@ -114,16 +151,33 @@ function molavi_domain_market_choose_source(array $subject,array $quote,?array $
         $failure=$price===null?'regular_price_unverified':null;
         $effective=$price??$prior;
         molavi_domain_sql($db,'INSERT INTO market_product_sources
-            (target,product_id,offer_id,title,identity_json,url,quote_json,regular_price,next_at,checked_at,failure,changed_at,verified_at)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(target) DO UPDATE SET offer_id=excluded.offer_id,title=excluded.title,
+            (target,product_id,offer_id,title,identity_json,url,quote_json,regular_price,next_at,checked_at,failure,changed_at,verified_at,match_basis,matched_by,matched_at,match_status)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(target) DO UPDATE SET offer_id=excluded.offer_id,title=excluded.title,
             identity_json=excluded.identity_json,url=excluded.url,quote_json=excluded.quote_json,regular_price=excluded.regular_price,
-            next_at=excluded.next_at,checked_at=excluded.checked_at,lease=NULL,failure=excluded.failure,changed_at=excluded.changed_at,verified_at=excluded.verified_at',
+            next_at=excluded.next_at,checked_at=excluded.checked_at,lease=NULL,failure=excluded.failure,changed_at=excluded.changed_at,verified_at=excluded.verified_at,
+            match_basis=excluded.match_basis,matched_by=excluded.matched_by,matched_at=excluded.matched_at,match_status=excluded.match_status',
             [$subject['target'],$subject['product_id'],$subject['offer_id'],$subject['title'],molavi_domain_json($subject['identity']),
-                $quote['url'],molavi_domain_json($quote),$effective,$checked+MOLAVI_MARKET_SOURCE_CHECK_SECONDS,$checked,$failure,$now,$price===null?null:$checked]);
+                $quote['url'],molavi_domain_json($quote),$effective,$checked+MOLAVI_MARKET_SOURCE_CHECK_SECONDS,$checked,$failure,$now,$price===null?null:$checked,
+                $basisValue,$actorId,$now,'active']);
         $publish=$subject['product_id']!=='';
         if (!$publish) return null;
         return molavi_domain_market_record_event($db,$subject,'selected',$prior??$subject['regular_price'],$price,$failure,$now,true);
     });
+    // The kept match is a secondary write: the writer runs in its own
+    // transaction (molavi_domain_tx cannot nest), and a failure there
+    // (e.g. a needs_review row blocking a replacement) must never break
+    // the pick itself. Offer-only selections have no product to key a
+    // match on and are skipped. Guarded: harnesses load runtime-host
+    // files a la carte, so the writer may be absent.
+    if ($subject['product_id']!==''&&function_exists('molavi_domain_reference_match_record')) {
+        try {
+            molavi_domain_reference_match_record(
+                molavi_domain_market_match_payload($subject,$quote,$price,$basisValue),$actorId);
+        } catch (Throwable $e) {
+            error_log('[molavi-native] market_match_record_failed product='.$subject['product_id'].' basis='.$basisValue.' error='.$e->getMessage());
+        }
+    }
+    return $event;
 }
 
 function molavi_domain_market_refresh_source(int $now,?callable $check=null): bool {
@@ -157,10 +211,14 @@ function molavi_domain_market_refresh_source(int $now,?callable $check=null): bo
         }
     }
     molavi_domain_tx('reference',static function(SQLite3 $db)use($source,$origin,$lease,$quote,$failure,$price,$now): void {
+        // A failed check flags the kept listing for review; a good check
+        // clears the flag again. Any other status is left alone.
+        $priorStatus=(string)($source['match_status']??'active');
+        $status=$failure!==null?'needs_review':($priorStatus==='needs_review'?'active':$priorStatus);
         $updated=molavi_domain_sql($db,'UPDATE market_product_sources SET lease=NULL,next_at=?,checked_at=?,failure=?,
-            quote_json=COALESCE(?,quote_json),regular_price=COALESCE(?,regular_price),verified_at=COALESCE(?,verified_at) WHERE target=? AND lease=?',
+            quote_json=COALESCE(?,quote_json),regular_price=COALESCE(?,regular_price),verified_at=COALESCE(?,verified_at),match_status=? WHERE target=? AND lease=?',
             [$now+MOLAVI_MARKET_SOURCE_CHECK_SECONDS,$now,$failure,$failure===null?molavi_domain_json($quote):null,$price,
-                $failure===null?$now:null,$source['target'],$lease]);
+                $failure===null?$now:null,$status,$source['target'],$lease]);
         if ($updated['changes']!==1) return;
         $old=$source['regular_price'];
         if ($failure!==null) {
