@@ -355,7 +355,7 @@ function molavi_domain_reference_reviews_api(string $method,?array $body,string 
     if($body['snapshot_id']!==$snapshot['snapshot_id'])molavi_domain_fail('stale_snapshot');$references=[];
     foreach($snapshot['rows']??[] as $row)if(is_array($row)&&count($row)>16)$references[(string)molavi_domain_py_value($row[16],$row[2])]=$row;
     if($assign)return molavi_domain_assign_ai_reference($body,$actor,$references,$clock);
-    $current=null;foreach(molavi_domain_reference_review_cases($tables,$snapshot,true,false,$body['offer_id']) as $case)if($case['case_id']===$body['case_id']){$current=$case;break;}
+    $current=null;$selected=null;foreach(molavi_domain_reference_review_cases($tables,$snapshot,true,false,$body['offer_id']) as $case)if($case['case_id']===$body['case_id']){$current=$case;break;}
     if(!$current||$current['offer_id']!==$body['offer_id']||$current['snapshot_id']!==$body['snapshot_id'])molavi_domain_fail('stale_case');
     if($body['choice']==='match'){$manual=trim($body['reference_id']);$selected=$references[$manual]??null;
         if($manual!==''&&!$selected){$normalized=molavi_domain_normalize_name($manual);$matches=[];
@@ -368,9 +368,26 @@ function molavi_domain_reference_reviews_api(string $method,?array $body,string 
     else molavi_domain_fail('invalid_choice',400);
     $decision=molavi_domain_reference_decide(['case_id'=>$current['case_id'],'offer_id'=>$current['offer_id'],'snapshot_id'=>$current['snapshot_id'],'signature'=>$current['signature'],
         'choice'=>$body['choice'],'reference_id'=>$body['reference_id'],'price_role'=>$body['price_role'],'actor_id'=>$actor,'note'=>$body['note'].(!empty($current['reference_waived'])?' (after choosing no reference)':'')],$expected,$clock);
-    return molavi_domain_lock('publication',static function()use($tables,$current,$decision,$body,$clock):array {
+    return molavi_domain_lock('publication',static function()use($tables,$current,$decision,$body,$clock,$selected,$snapshot,$actor):array {
         $products=molavi_domain_records($tables['Products']);$offers=molavi_domain_records($tables['Offers']);$record=null;
         foreach($products as $product)if((string)molavi_domain_py_value($product['Latest Offer ID']??null)===$current['offer_id']){$record=$product;break;}
+        if($record&&$body['choice']==='match'&&$selected&&function_exists('molavi_domain_reference_match_record')){
+            // Kept match, same publication lock as the decision + projection.
+            // A recording failure must not undo the owner decision: the match
+            // is rebuildable from the decision row by backfill adoption.
+            try{
+                $match=molavi_domain_reference_match_from_snapshot([
+                    'product_id'=>(string)molavi_domain_py_value($record['Product ID']??null),
+                    'source'=>'catalog','offer_id'=>$current['offer_id'],'signature'=>$current['signature'],
+                    'reference_id'=>$body['reference_id'],'price_role'=>$body['price_role'],
+                    'snapshot_id'=>$current['snapshot_id'],'decision_id'=>$decision['decision_id'],
+                    'match_basis'=>'owner_pick','attributes'=>$current['attributes']??[],
+                    'sheet_consumer_price'=>molavi_domain_positive_price($record['Consumer Price']??null)?:null,
+                    'title'=>$current['product_name']],$snapshot);
+                if($match!==null&&(string)($match['product_id']??'')!=='')
+                    molavi_domain_reference_match_record($match,$actor);
+            }catch(Throwable $e){error_log('[molavi-native] reference_match_record_failed product='.(string)molavi_domain_py_value($record['Product ID']??null));}
+        }
         if($record){$matching=molavi_domain_offers_for_product($offers,$current['product_name'],$current['channel'],molavi_domain_offer_identity_fields($current['attributes']));
             if($matching)molavi_domain_refresh_conflict_product(['product_id'=>(string)molavi_domain_py_value($record['Product ID']??null),'product_name'=>$current['product_name'],'channel'=>$current['channel']],$record,array_map('strval',$tables['Products'][0]),$matching,$clock);}
         $fresh=molavi_domain_sheets(['Products','Offers','Shop'],true);$projected=null;foreach(molavi_domain_records($fresh['Products']) as $product)if((string)molavi_domain_py_value($product['Latest Offer ID']??null)===$current['offer_id']){$projected=$product;break;}
@@ -394,6 +411,30 @@ function molavi_domain_assign_ai_reference(array $body,string $actor,array $refe
         if($body['price_role']==='package'&&!molavi_domain_match_package($attrs)&&!(float)molavi_domain_py_value($selected[6],0))molavi_domain_fail('package_count_required',400);
         $decision=molavi_domain_reference_decide(['case_id'=>$case,'offer_id'=>$body['offer_id'],'snapshot_id'=>$body['snapshot_id'],'signature'=>molavi_domain_reference_signature($attrs),
             'choice'=>'match','reference_id'=>$body['reference_id'],'price_role'=>$body['price_role'],'actor_id'=>$actor,'note'=>'Owner assigned a reference from the in-progress extraction card.'.(($waiver=molavi_domain_reference_latest(molavi_domain_reference_waiver_case($body['offer_id'])))?' After waiver '.$waiver['decision_id']:'' )],$body['expected_decision_id'],$clock);
+        // Kept match, same publication/activation lock as the decision. The
+        // sheet projection happens later (awaiting_ai_confirmation); a
+        // recording failure must not undo the owner decision — backfill
+        // adoption rebuilds the match from the decision row. When no product
+        // row exists yet for the AI card, there is nothing to key the match
+        // by and adoption creates it once the product exists.
+        if(function_exists('molavi_domain_reference_match_record'))try{
+            $productId='';$sheetPrice=null;
+            try{foreach(molavi_domain_records(molavi_domain_sheets(['Products'],true)['Products']??[]) as $productRow)
+                if((string)molavi_domain_py_value($productRow['Latest Offer ID']??null)===$body['offer_id']){
+                    $productId=(string)molavi_domain_py_value($productRow['Product ID']??null,'');
+                    $sheetPrice=molavi_domain_positive_price($productRow['Consumer Price']??null)?:null;break;}}catch(Throwable $ignored){}
+            if($productId!==''){
+                $match=molavi_domain_reference_match_from_snapshot([
+                    'product_id'=>$productId,'source'=>'catalog','offer_id'=>$body['offer_id'],
+                    'signature'=>molavi_domain_reference_signature($attrs),
+                    'reference_id'=>$body['reference_id'],'price_role'=>$body['price_role'],
+                    'snapshot_id'=>$body['snapshot_id'],'decision_id'=>$decision['decision_id'],
+                    'match_basis'=>'owner_assign_ai','attributes'=>$attrs,
+                    'sheet_consumer_price'=>$sheetPrice,
+                    'title'=>(string)molavi_domain_py_value($source['Product Name']??null,'')],$snapshot);
+                if($match!==null)molavi_domain_reference_match_record($match,$actor);
+            }
+        }catch(Throwable $e){error_log('[molavi-native] reference_match_record_failed offer='.$body['offer_id']);}
         return ['ok'=>true,'case_id'=>$body['case_id'],'offer_id'=>$body['offer_id'],'snapshot_id'=>$body['snapshot_id'],'choice'=>'match','reference_id'=>$body['reference_id'],
             'reference_name'=>(string)molavi_domain_py_value($selected[0],$body['reference_id']),'decision_id'=>$decision['decision_id'],'price_role'=>$decision['price_role'],'projection_state'=>'awaiting_ai_confirmation','publish_job'=>null];
     },'reference'));

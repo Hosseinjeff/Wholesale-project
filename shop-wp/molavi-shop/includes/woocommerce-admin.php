@@ -126,6 +126,7 @@ add_action('woocommerce_product_data_panels', static function (): void {
         'owner_approved' => 'تأیید مالک',
         'approved_compatible' => 'تطبیق خودکار سازگار',
         'approved_within_margin' => 'تأیید حفظ شد؛ تغییر مرجع حداکثر ۵٪',
+        'approved_auto_adopted' => 'پذیرش خودکار؛ تغییر مرجع بیش از ۵٪',
         'outside_margin' => 'تغییر مرجع بیش از ۵٪؛ نیازمند بررسی',
         'reference_missing' => 'کالا در نسخه مرجع جدید نیست',
         'price_unavailable' => 'قیمت مرجع برای سنجش موجود نیست',

@@ -160,14 +160,28 @@ function molavi_domain_site_products(array $tables,?array $freshness=null,?array
     // check are collected in $GLOBALS for molavi_domain_publish_shop,
     // which carries them in the publish-job result.
     $permissions=molavi_domain_offer_permissions();
+    // FIX no-picture gate: the on-shelf map is built whether or not live
+    // admission is enabled. It used to be built only when permissions
+    // existed (gA live); the image hold below needs it in both modes —
+    // otherwise, with gA off, an on-shelf product whose source file died
+    // (e.g. ID 53 سانی نس) would be held and hidden although its store
+    // picture still loads. The permission check itself still requires
+    // $permissions!==null, so this changes no permission behaviour; the
+    // registered-products read is statically cached per request.
     $onShelf=[];
-    if($permissions!==null && function_exists('molavi_domain_registered_products')) {
+    if(function_exists('molavi_domain_registered_products')) {
         foreach(molavi_domain_registered_products() as $listing)
             if(!empty($listing['published']) && !empty($listing['source_record_id']))
                 $onShelf[$listing['source_record_id']]=$listing;
     }
     $flagHeld=molavi_domain_publisher_flag_held_products(array_column($records,'Product ID'),(float)$now);
     $GLOBALS['molavi_publisher_flag_hold_skipped']=[];
+    // FIX no-picture gate: the image maps the projection consults (same
+    // option reads as autopilot admission Arm 8). Suspects are NOT
+    // consulted here — see the hold block below.
+    $imageWaivers=is_array($w=get_option('molavi_autopilot_image_waivers',[]))?$w:[];
+    $imageDead=function_exists('molavi_dead_image_files')?molavi_dead_image_files():[];
+    $GLOBALS['molavi_publisher_image_hold_skipped']=[];
     foreach($records as $index=>$record){
         $status=strtolower(trim((string)($record['Status']??'')));$held=in_array($status,['skipped','needs_review','not_product'],true);
         $name=preg_replace('/^[ ،,]+|[ ،,]+$/u','',trim((string)($record['Product Name']??'')));
@@ -207,6 +221,32 @@ function molavi_domain_site_products(array $tables,?array $freshness=null,?array
             error_log('[molavi-publisher] publish_flag_hold_skip product='.$id.' reason='.$flagReason);
         }
         $held=$held||$flagReason!=='';
+        // FIX no-picture gate: a product with no usable picture never
+        // projects 'sell' — unless it is already on the shelf, where the
+        // apply-side gate decides from the real attached featured image.
+        // The projection cannot see the attached image, so holding
+        // on-shelf rows here would hide products whose source file died
+        // but whose store picture still loads (e.g. ID 53 سانی نس: dead
+        // source file, working store image). A suspect file is
+        // deliberately NOT held here: the re-fetch that clears (or
+        // confirms) it only runs for rows that reach apply as 'sell'
+        // (FIX-R3 two-strike), and the apply-side gate, the request
+        // check and the g5 arm all refuse a suspect row anyway — so
+        // holding it in the projection would only deadlock the re-check.
+        // waiver excuses a MISSING image only (same as admission Arm 8);
+        // a dead file blocks, waived or not.
+        $imageReason='';
+        $sheetImage=trim((string)($record['Image File ID']??''));
+        if(!preg_match('/^[A-Za-z0-9_-]{8,300}$/D',$sheetImage))$sheetImage='';
+        if($sheetImage===''&&!in_array($id,$imageWaivers,true))$imageReason='no_image';
+        elseif($sheetImage!==''&&isset($imageDead[$sheetImage]))$imageReason='dead_image';
+        if($imageReason!==''&&empty($onShelf[$id])){
+            if(!$held){
+                $GLOBALS['molavi_publisher_image_hold_skipped'][]=['product_id'=>$id,'reason'=>$imageReason];
+                error_log('[molavi-publisher] publish_image_hold_skip product='.$id.' reason='.$imageReason);
+            }
+            $held=true;
+        }
         $packaging=trim((string)($record['Packaging']??''));
         $minimum=molavi_domain_positive_price($record['Min Qty']??null);
         if(!$minimum)$minimum=in_array(molavi_domain_pack_count($packaging,$name),[6,12,24],true)?6:1;
@@ -228,7 +268,10 @@ function molavi_domain_site_products(array $tables,?array $freshness=null,?array
             'image_file_id'=>$image,'status'=>$held?'hold':'sell','supplier_availability'=>$availability,
             'source_integrity_state'=>$issue?'blocked':'verified','source_integrity_issues'=>$issue['codes']??[],
             'source_record_id'=>$id,'supplier_price_state'=>$freshnessState,'supplier_price_verified_at'=>($evidence['verified_at']??'')?:'']
-            + (isset($market[$id]['photo'])?['market_image_id'=>(int)$market[$id]['photo']['attachment_id']]:[])
+            // FIX no-picture gate: the hold reason is added only when one
+            // exists, so healthy rows keep their exact pre-gate shape (the
+            // domain-parity golden fixture has no such key on sell rows).
+            + ($imageReason!==''?['image_hold_reason'=>$imageReason]:[])            + (isset($market[$id]['photo'])?['market_image_id'=>(int)$market[$id]['photo']['attachment_id']]:[])
             + $eligibility
             + ($registered[$id]??[])
             + (function_exists('molavi_domain_product_message_catalog_rules')&&function_exists('wc_get_products')
@@ -265,8 +308,33 @@ function molavi_domain_request_product_publication(array $body,string $actor): a
         if(!$owner&&!in_array($actor,['g5','gA'],true))molavi_domain_fail('owner_required',403);
         $previewId=$owner||$actor==='gA'?$id:null;
         $projected=array_column(molavi_domain_site_products($tables,null,null,$previewId)??[],null,'source_record_id');
-        if (($projected[$id]['status']??'')!=='sell'||!empty($projected[$id]['keep_registered']))
+        if (($projected[$id]['status']??'')!=='sell'||!empty($projected[$id]['keep_registered'])) {
+            // FIX no-picture gate: an image-held projection fails with its
+            // own reason instead of the generic prerequisite, so the owner
+            // (and the g5 hold row) sees that a picture is what is missing.
+            if(($projected[$id]['image_hold_reason']??'')!=='')
+                molavi_domain_fail('product_publication_no_image');
             molavi_domain_fail('product_publication_prerequisite');
+        }
+        // FIX no-picture gate: an already-listed product can project
+        // 'sell' while its picture is gone (the projection cannot see the
+        // attached image); the apply-side gate would hide it again, so
+        // refuse here with the same specific reason instead of queueing
+        // a futile publish job.
+        if(function_exists('molavi_product_image_gate')) {
+            $registeredByRecord=function_exists('molavi_domain_registered_products')
+                ?array_column(molavi_domain_registered_products(),null,'source_record_id'):[];
+            $wooId=(int)($registeredByRecord[$id]['woo_product_id']??0);
+            $gateWaivers=is_array($w=get_option('molavi_autopilot_image_waivers',[]))?$w:[];
+            $gateDead=function_exists('molavi_dead_image_files')?molavi_dead_image_files():[];
+            $gateSuspects=function_exists('molavi_suspect_image_files')?molavi_suspect_image_files():[];
+            $gate=molavi_product_image_gate($wooId,[
+                'source_record_id'=>$id,
+                'image'=>(string)($projected[$id]['image_file_id']??''),
+                'market_image_id'=>(int)($projected[$id]['market_image_id']??0),
+            ],$gateDead,$gateSuspects,$gateWaivers);
+            if(!$gate['usable'])molavi_domain_fail('product_publication_no_image');
+        }
         $published=array_column(molavi_domain_published_review_catalog(),'purchasable','source_record_id');
         $registered=function_exists('molavi_domain_registered_products')
             ?array_column(molavi_domain_registered_products(),null,'source_record_id'):[];
@@ -291,6 +359,7 @@ function molavi_domain_request_product_publication(array $body,string $actor): a
 function molavi_domain_publish_shop(array $tables,bool $imagesOnly=false,int $maxRounds=8): array {
     return molavi_domain_lock('publication',static function()use($tables,$imagesOnly,$maxRounds):array {
         $GLOBALS['molavi_publisher_flag_hold_skipped']=[];
+        $GLOBALS['molavi_publisher_image_hold_skipped']=[];
         $held=molavi_domain_read('pipeline',static fn(SQLite3 $db)=>molavi_domain_row($db,'SELECT 1 FROM publication_holds LIMIT 1'));
         if($held)return ['ok'=>false,'pushed'=>false,'reason'=>'publication_held_for_review'];
         if(!function_exists('molavi_apply_catalog')||!function_exists('molavi_receive_images'))molavi_domain_fail('native_publisher_unavailable',503);
@@ -304,6 +373,8 @@ function molavi_domain_publish_shop(array $tables,bool $imagesOnly=false,int $ma
             // why (the projection already logged each skip).
             $flagSkipped=$GLOBALS['molavi_publisher_flag_hold_skipped']??[];
             if(!empty($flagSkipped))$result['flag_hold_skipped']=$flagSkipped;
+            $imageSkipped=$GLOBALS['molavi_publisher_image_hold_skipped']??[];
+            if(!empty($imageSkipped))$result['image_hold_skipped']=$imageSkipped;
         }
         if(empty($result['ok'])){$result['pushed']=false;return $result;}
         $pending=is_array($result['pending']??null)?$result['pending']:[];$rounds=0;
@@ -315,11 +386,22 @@ function molavi_domain_publish_shop(array $tables,bool $imagesOnly=false,int $ma
                     $body=wp_remote_retrieve_body($response);$type=(string)wp_remote_retrieve_header($response,'content-type');
                     $status=wp_remote_retrieve_response_code($response);
                     if($status===200&&strlen($body)>0&&strlen($body)<=4000000){$photo=$body;
-                        if(str_starts_with($type,'image/png'))$mime='image/png';elseif(str_starts_with($type,'image/webp'))$mime='image/webp';}
-                    // 404/410 means the file is gone from the reference server for
-                    // good: drop it instead of deferring it, or every publish
-                    // retries it forever. Any other failure still defers.
-                    elseif(in_array($status,[404,410],true)){$dead=true;if(function_exists('molavi_mark_image_dead'))molavi_mark_image_dead($file);}
+                        if(str_starts_with($type,'image/png'))$mime='image/png';elseif(str_starts_with($type,'image/webp'))$mime='image/webp';
+                        if(function_exists('molavi_clear_image_404_suspect'))molavi_clear_image_404_suspect($file);}
+                    // 404/410: the file MAY be gone from the reference server
+                    // — but the media endpoint returns 404 for every failure
+                    // (Telegram timeout/rate-limit, restart), so a single 404
+                    // only suspects the file (FIX-R3 two-strike). It is marked
+                    // dead only when a later run 404s again at least an hour
+                    // after the first sighting; until then it defers like any
+                    // other transient failure. A genuinely missing file still
+                    // ends up dead, one run later.
+                    elseif(in_array($status,[404,410],true)){
+                        if(function_exists('molavi_image_404_outcome')&&function_exists('molavi_suspect_image_files')
+                            &&molavi_image_404_outcome($file,time(),molavi_suspect_image_files())==='dead'){
+                            $dead=true;if(function_exists('molavi_mark_image_dead'))molavi_mark_image_dead($file);
+                        }elseif(function_exists('molavi_note_image_404_suspect'))molavi_note_image_404_suspect($file,time());
+                    }
                 }catch(MolaviWorkflowError $e){$photo=null;}
             }
             $payload=$photo!==null?['images'=>[['product'=>$item['product']??null,'file'=>$file,'mime'=>$mime,'data'=>base64_encode($photo)]]]:($dead?['drop'=>[$item]]:['skip'=>[$item]]);
@@ -327,6 +409,70 @@ function molavi_domain_publish_shop(array $tables,bool $imagesOnly=false,int $ma
             $result['attached']=(int)($result['attached']??0)+(int)($next['attached']??0);$result['images_left']=(int)($next['images_left']??0);
             $pending=is_array($next['pending']??null)?$next['pending']:[];$rounds++;
             if($photo!==null&&(int)($next['attached']??0)<=0)break;
+        }
+        // FIX dead-image re-validation (round-3 follow-up, 2026-11-28):
+        // dead files are never fetched again by the attach loop above
+        // (apply excludes them from the image queue), so a file condemned
+        // on one pre-R3 single-strike 404 could never clear even if it
+        // came back. Bounded liveness probe, catalog publishes only:
+        // at most MOLAVI_DEAD_IMAGE_RECHECK_PER_RUN dead files per run,
+        // only files referenced by current projected products, only when
+        // due (never re-checked, or a full interval since the last
+        // re-check). A 200 with bytes un-marks the file — the next
+        // publish run re-queues and attaches it through the normal path;
+        // a 404/410 keeps it dead. Any other failure stamps nothing, so
+        // it is retried on a later run like any transient image failure.
+        // Nothing here resolves a hold or publishes a product.
+        if(!$imagesOnly&&function_exists('molavi_dead_image_files')&&function_exists('molavi_dead_image_recheck_due')){
+            $recheckDead=molavi_dead_image_files();
+            $recheckStamps=function_exists('molavi_dead_image_rechecks')?molavi_dead_image_rechecks():[];
+            $recheckDue=[];
+            foreach($products as $recheckProduct){
+                $recheckFile=trim((string)($recheckProduct['image_file_id']??''));
+                if($recheckFile===''||!isset($recheckDead[$recheckFile])||isset($recheckDue[$recheckFile]))continue;
+                if(molavi_dead_image_recheck_due($recheckFile,time(),$recheckStamps))$recheckDue[$recheckFile]=true;
+            }
+            $recheckDue=array_slice(array_keys($recheckDue),0,defined('MOLAVI_DEAD_IMAGE_RECHECK_PER_RUN')?MOLAVI_DEAD_IMAGE_RECHECK_PER_RUN:2);
+            $recheckResult=['checked'=>0,'cleared'=>[],'still_dead'=>[]];
+            foreach($recheckDue as $recheckFile){
+                try{$response=molavi_domain_http('GET',rtrim(MOLAVI_REFERENCE_SERVER_URL,'/').'/media/file/'.rawurlencode($recheckFile),['timeout'=>30,'limit_response_size'=>4000001]);
+                    $recheckStatus=wp_remote_retrieve_response_code($response);
+                    $recheckBody=wp_remote_retrieve_body($response);
+                }catch(MolaviWorkflowError $e){continue;}
+                if($recheckStatus===200&&strlen($recheckBody)>0&&strlen($recheckBody)<=4000000){
+                    $recheckResult['checked']++;
+                    if(function_exists('molavi_clear_image_dead'))molavi_clear_image_dead($recheckFile);
+                    if(function_exists('molavi_note_dead_image_recheck'))molavi_note_dead_image_recheck($recheckFile,time());
+                    $recheckResult['cleared'][]=$recheckFile;
+                }elseif(in_array($recheckStatus,[404,410],true)){
+                    $recheckResult['checked']++;
+                    if(function_exists('molavi_note_dead_image_recheck'))molavi_note_dead_image_recheck($recheckFile,time());
+                    $recheckResult['still_dead'][]=$recheckFile;
+                }
+            }
+            if($recheckResult['checked']>0)$result['image_rechecks']=$recheckResult;
+        }
+        // FIX no-picture gate: after the attach loop, any product this run
+        // (re-)published that still has no usable picture attached is
+        // hidden again — its attach may have failed, been skipped, or hit
+        // the round cap. It re-publishes on a later pass once its picture
+        // attaches. Waived products stay published (explicit owner
+        // permission). The apply-side gate already refused rows with no
+        // attachable image; this sweep closes the attach-failed window.
+        if(!empty($result['published_ids'])&&function_exists('molavi_product_has_featured_image')&&function_exists('molavi_hide_product')){
+            $sweepWaivers=is_array($w=get_option('molavi_autopilot_image_waivers',[]))?$w:[];
+            $swept=[];
+            foreach((array)$result['published_ids'] as $sweepId){
+                $sweepId=(int)$sweepId;if($sweepId<=0)continue;
+                $sweepProduct=function_exists('wc_get_product')?wc_get_product($sweepId):null;
+                if(!$sweepProduct instanceof WC_Product)continue;
+                $sweepSource=(string)$sweepProduct->get_meta('_molavi_supplier_offer_id',true);
+                if($sweepSource!==''&&in_array($sweepSource,$sweepWaivers,true))continue;
+                if(molavi_product_has_featured_image($sweepId))continue;
+                if(molavi_hide_product($sweepId))$swept[]=['product'=>$sweepId,'source_record_id'=>$sweepSource,'reason'=>'no_image'];
+                else $result['image_hide_failed'][]=$sweepId;
+            }
+            if($swept)$result['image_blocked']=array_merge($result['image_blocked']??[],$swept);
         }
         $result['pushed']=true;$result['count']=count($products);return $result;
     });

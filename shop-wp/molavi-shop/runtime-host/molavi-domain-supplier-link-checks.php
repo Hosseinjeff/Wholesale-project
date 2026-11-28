@@ -11,7 +11,10 @@ defined('ABSPATH') || exit;
  * Three distinct outcomes per item, kept separate everywhere:
  *   (a) unchanged — link checked, no price change. The item goes on the
  *       owner's confirm list; ONLY his confirmation (the existing manual
- *       supplier-price verification endpoint) re-verifies the price.
+ *       supplier-price verification endpoint) or the owner-approved
+ *       auto-verify (both evidences solid: link-check 'unchanged' AND
+ *       the reference catalog holds the same regular price, method
+ *       'auto', molavi-domain-supplier-auto-verify.php) re-verifies it.
  *   (b) changed — link checked, price changed. The new price is recorded
  *       as surfaced evidence ONLY. It is never written to any price field,
  *       never written as verification, and the item stays held.
@@ -28,7 +31,9 @@ defined('ABSPATH') || exit;
  *
  * This runner never sets or adopts a supplier price and never writes
  * supplier_price_evidence. Only the owner's manual verify (method
- * 'manual', molavi_domain_verify_price) resets the 14-day clock.
+ * 'manual', molavi_domain_verify_price) or the owner-approved
+ * auto-verify (method 'auto', molavi-domain-supplier-auto-verify.php)
+ * resets the 14-day clock.
  *
  * Cadence/lease/event pattern reused from the market-source refresh
  * (molavi-domain-market-sources.php): one item per tick, 5-minute lease,
@@ -547,7 +552,7 @@ function molavi_domain_supplier_link_check_confirm_receipt(SQLite3 $db, string $
     $stamp = molavi_domain_timestamp($verifiedAt);
     if ($stamp === null || $stamp < (int)$row['checked_at']) molavi_domain_fail('link_check_mismatch', 409);
     $proof = molavi_domain_row($db, "SELECT 1 FROM supplier_price_evidence_history
-        WHERE offer_id=? AND source_revision=? AND verified_at=? AND verified_by=? AND method='manual'",
+        WHERE offer_id=? AND source_revision=? AND verified_at=? AND verified_by=? AND method IN ('manual','auto')",
         [$productId, $row['source_revision'], $verifiedAt, $actor]);
     if (!$proof) molavi_domain_fail('link_check_mismatch', 409);
     if ($row['confirmed_at'] !== null) {
@@ -615,6 +620,25 @@ function molavi_domain_supplier_link_check_api(string $method, array $query, ?ar
         if (!is_string($product) || $product === '' || molavi_domain_strlen($product) > 200
             || !is_string($ref) || $ref === '' || !is_string($verifiedAt) || $verifiedAt === '') molavi_domain_fail('invalid_body', 400);
         return molavi_domain_supplier_link_check_confirm($product, $ref, $verifiedAt, $actor, time());
+    }
+    if ($action === 'auto_verify') {
+        // Owner-approved auto-verify batch (molavi-domain-supplier-auto-verify.php).
+        // dry_run=true computes and reports the eligible list + count WITHOUT
+        // writing anything; dry_run=false (or omitted) writes, capped at 5/tick.
+        $keys = array_keys($body); sort($keys);
+        if ($keys !== ['action'] && $keys !== ['action', 'dry_run']) molavi_domain_fail('invalid_body', 400);
+        if (array_key_exists('dry_run', $body) && !is_bool($body['dry_run'])) molavi_domain_fail('invalid_body', 400);
+        return molavi_domain_auto_verify_tick(time(), null, (bool)($body['dry_run'] ?? false));
+    }
+    if ($action === 'regular_price_sync') {
+        // Owner-approved regular-price catalogue/sheet sync batch
+        // (molavi-domain-regular-price-sync.php). dry_run=true computes and
+        // reports every decision WITHOUT writing anything; dry_run=false (or
+        // omitted) writes, capped at 50 products/tick.
+        $keys = array_keys($body); sort($keys);
+        if ($keys !== ['action'] && $keys !== ['action', 'dry_run']) molavi_domain_fail('invalid_body', 400);
+        if (array_key_exists('dry_run', $body) && !is_bool($body['dry_run'])) molavi_domain_fail('invalid_body', 400);
+        return molavi_domain_regular_price_sync_tick(time(), null, (bool)($body['dry_run'] ?? false));
     }
     molavi_domain_fail('invalid_body', 400);
 }

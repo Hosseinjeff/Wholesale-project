@@ -10,8 +10,9 @@ defined('ABSPATH') || exit;
  * molavi_domain_price_scale_assess() only describes a price (certain or not);
  * molavi_domain_price_scale_apply() acts on that assessment, and only the
  * four certain actions (category/history unit/package price) mutate prices.
- * Reference rows are 21-column lists in molavi_domain_reference_headers()
- * order; package counts come from molavi_domain_match_package().
+ * Reference rows are 26-column lists in molavi_domain_reference_headers()
+ * order (21 columns before the two-price model); package counts come
+ * from molavi_domain_match_package().
  */
 
 function molavi_domain_price_scale_name($value): string {

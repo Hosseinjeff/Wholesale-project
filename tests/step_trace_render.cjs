@@ -91,6 +91,7 @@ const autoFns = [
     ...['node', 'reviewFacts', 'formatSourceTimestamp'].map(extractFunction),
     ...['autopilotRiskLabels', 'autopilotGateLabels', 'autopilotRuleLabels', 'autopilotActionLabels', 'autopilotVerdictLabels',
         'autopilotRiskTier', 'autopilotRiskIcon', 'autopilotRiskBadge', 'autopilotStateExplanation', 'autopilotWaitLine',
+        'autopilotImageLine', 'autopilotUnderlyingHoldLine',
         'renderAutopilotHistoryRow', 'renderAutopilotCard'].map(extractConst),
 ].join('\n');
 const autoSandbox = new Function('document', 'data', 'request', 'dashboard', 'errorText',

@@ -159,7 +159,7 @@
     "e5c51f71394edfc536ccdfdce455943f7691c797d1b2aad1fa6fe4893f5fb086",
     "2eef4e1c93c82777877a8aaddb0404e2d877e40f7ed6689358d0e523bc9bffb7",
     "b8308daa4fd4b3237da908b48da1ca74a9ead0435d89bad56429f2c8941ce71b",
-    ""
+    "legacy:6c1155ba4db7a7559e5af998a7a91208119612d5298b4e028ecb095c817d938e"
   ],
   "source_issues": [
     {
@@ -329,7 +329,7 @@
       "name": "Synthetic zero price",
       "channel": "",
       "sale_price": "0",
-      "source_revision": "",
+      "source_revision": "legacy:6c1155ba4db7a7559e5af998a7a91208119612d5298b4e028ecb095c817d938e",
       "source_timestamp": null,
       "source_timestamp_basis": "legacy_unknown",
       "source_timestamp_trusted": false,
