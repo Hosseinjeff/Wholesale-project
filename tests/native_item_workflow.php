@@ -25,6 +25,9 @@ molavi_domain_autopilot_ensure_tables();
 $now=time();
 $product=['Product ID'=>'p1','Product Name'=>'Supplier item','Channel Username'=>'@supplier','Latest Offer ID'=>'o1',
     'Sale Price'=>'50000','Consumer Price'=>'100000','Status'=>'imported','Message Timestamp'=>gmdate('c',$now-3600),
+    // FIX no-picture gate: the fixture product needs a usable picture, as
+    // the owner rule now refuses picture-less publication on every path.
+    'Image File ID'=>'SyntheticPhoto_12345',
     'Source Post URL'=>'https://t.me/supplier/7','Original Message'=>'Supplier item 50000','Stock Status'=>'Available'];
 $offer=$product+['Offer ID'=>'o1','Batch ID'=>'','Message ID'=>'7'];
 $GLOBALS['sheets']=['Products'=>[array_keys($product),array_values($product)],'Offers'=>[array_keys($offer),array_values($offer)]];

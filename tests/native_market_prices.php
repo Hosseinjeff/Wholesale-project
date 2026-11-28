@@ -199,7 +199,10 @@ class WC_Product {
     public function get_meta(string $key,bool $single=true){return $this->meta[$key]??'';}
     public function get_regular_price(string $context='view'): string {return (string)$this->regular;}
 }
-$record=['Product ID'=>'rani-1','Sale Price'=>68750,'Latest Offer ID'=>'rani'];
+$record=['Product ID'=>'rani-1','Sale Price'=>68750,'Latest Offer ID'=>'rani',
+    // FIX no-picture gate: the fixture product needs a usable picture, as
+    // the owner rule now refuses picture-less publication on every path.
+    'Image File ID'=>'SyntheticPhoto_12345'];
 $source=molavi_domain_market_source_rows()['product:rani-1'];
 $expiry=$source['verified_at']+MOLAVI_MARKET_SOURCE_CHECK_SECONDS;
 $supplier=['state'=>'current','verified_at'=>gmdate('c',$expiry-300)];

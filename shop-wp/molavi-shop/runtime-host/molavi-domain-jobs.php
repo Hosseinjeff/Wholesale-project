@@ -176,7 +176,7 @@ function molavi_domain_run_jobs(int $limit=2,float $budget=40.0,?string $onlyId=
                 elseif(!empty($result['ok'])&&!empty($result['pushed'])&&($result['images_left']??0)>0&&($result['attached']??0)>0)
                     molavi_domain_finish_job($job,$result,'queued','images_pending',microtime(true)+1,false);
                 elseif(empty($result['ok'])||empty($result['pushed'])||($result['images_left']??0)>0)
-                    molavi_domain_finish_job($job,array_intersect_key($result,array_flip(['ok','status','error','row','reason','images_left'])),$job['attempts']>=8?'failed':'queued',
+                    molavi_domain_finish_job($job,array_intersect_key($result,array_flip(['ok','status','error','row','reason','images_left','image_rechecks'])),$job['attempts']>=8?'failed':'queued',
                         preg_replace('/[^A-Za-z0-9_. -]/','',(string)($result['error']??$result['reason']??'publication_incomplete')));
                 else{molavi_domain_finish_job($job,$result);$summary['completed']++;}
             }catch(MolaviExtractQuotaDeferred $e){
