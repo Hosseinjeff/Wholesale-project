@@ -5,7 +5,7 @@ defined('ABSPATH') || exit;
 
 function molavi_domain_reference_regular_deadline(array $record,int $price,int $now): int {
     $id=(string)($record['Reference Match ID']??'');
-    if ($id===''||empty($record['Reference Snapshot ID'])||!in_array(($record['Reference Approval State']??''),['owner_approved','approved_compatible','approved_within_margin'],true)) return 0;
+    if ($id===''||empty($record['Reference Snapshot ID'])||!in_array(($record['Reference Approval State']??''),['owner_approved','approved_compatible','approved_within_margin','approved_auto_adopted'],true)) return 0;
     static $source=null,$prices=[];
     if ($source===null) {
         $source=molavi_domain_reference_active()??[];
@@ -18,6 +18,34 @@ function molavi_domain_reference_regular_deadline(array $record,int $price,int $
     if (($prices[$id]??0)!==$price) return 0;
     $at=molavi_domain_timestamp($source['last_checked_at']??$source['extracted_at']??null);
     return $at!==null&&$at<=$now?(int)$at+MOLAVI_REFERENCE_REFRESH_SECONDS:0;
+}
+
+function molavi_domain_link_check_regular_deadline(array $record,array $offer,int $now,?array $check=null): int {
+    // Identical-link renewal (FIX-1, 2026-11-26): a link check with outcome
+    // 'unchanged' and reason 'identical' proves the whole live post text —
+    // including any consumer price stated in it — is identical to the stored
+    // message. When that check is fresh (within the same 14-day window as
+    // the direct deadline), the stored sale price still equals the sheet
+    // Sale Price, the offer is the latest and its Consumer Price equals the
+    // sheet Consumer Price, the direct deadline renews to checked_at + 14
+    // days. Returns 0 when any condition fails. Read-only: loads the
+    // product's link-check row (or uses the row passed in) and never writes.
+    $id=trim((string)($record['Product ID']??($offer['Product ID']??'')));
+    if ($id==='') return 0;
+    if ($check===null) {
+        if (!function_exists('molavi_domain_read')||!function_exists('molavi_domain_supplier_link_check_row')) return 0;
+        $check=molavi_domain_read('pipeline',static fn(SQLite3 $db)=>molavi_domain_supplier_link_check_row($db,$id));
+    }
+    if (!$check||($check['outcome']??'')!=='unchanged'||($check['reason_code']??'')!=='identical') return 0;
+    $checkedAt=(int)($check['checked_at']??0);
+    if ($checkedAt<=0||$checkedAt>$now||$checkedAt+14*86400<=$now) return 0;
+    $sheetSale=(string)molavi_domain_py_value($record['Sale Price']??null);
+    if ((string)($check['stored_sale_price']??'')!==$sheetSale) return 0;
+    $raw=molavi_domain_positive_price($record['Consumer Price']??null)?:molavi_domain_positive_price($record['Actual Price']??null);
+    $offerPrice=molavi_domain_positive_price($offer['Consumer Price']??null)?:molavi_domain_positive_price($offer['Actual Price']??null);
+    if ($raw<=0||$offerPrice!==$raw) return 0;
+    if (($offer['Offer ID']??null)!==($record['Latest Offer ID']??'')) return 0;
+    return $checkedAt+14*86400;
 }
 
 function molavi_domain_regular_price_evidence(array $record,array $offer,?array $market,int $now): array {
@@ -44,9 +72,28 @@ function molavi_domain_regular_price_evidence(array $record,array $offer,?array 
             if ($stamp===null && in_array($offer['Source Timestamp Basis']??'',['supplier_channel_update','supplier_channel_forward'],true)) {
                 $stamp=molavi_domain_timestamp(($offer['Source Post Updated At']??'')?:($offer['Message Timestamp']??null));
             }
+            if ($stamp===null && trim((string)($offer['Source Timestamp Basis']??''))==='') {
+                // Empty basis: fall back to the Message Timestamp, but only
+                // to date an already-stale price — an unknown-basis stamp
+                // is not trusted to make a price current.
+                $fallback=molavi_domain_timestamp($offer['Message Timestamp']??null);
+                if ($fallback!==null&&$fallback<=$now&&(int)$fallback+14*86400<=$now) $directDeadline=(int)$fallback+14*86400;
+            }
             if ($stamp!==null&&$stamp<=$now) $directDeadline=(int)$stamp+14*86400;
         }
         if ($directDeadline<=$now) $directDeadline=max($directDeadline,molavi_domain_reference_regular_deadline($record,$raw,$now));
+        // Regular-price sync ledger (owner-decided 2026-11-26): a price the
+        // sync recorded — catalogue-written or human-won — is current while
+        // its deadline holds and the sheet price still equals it. The sync
+        // makes the two places agree, so exact equality holds after a sync;
+        // no tolerance is reintroduced here.
+        if ($directDeadline<=$now&&function_exists('molavi_domain_regular_price_sync_deadline'))
+            $directDeadline=max($directDeadline,molavi_domain_regular_price_sync_deadline($record,$raw,$now));
+        // Identical-link renewal (FIX-1): a fresh 'identical' link check
+        // proves the stored message — including its consumer price — is
+        // unchanged, so the direct deadline renews to checked_at + 14 days.
+        if ($directDeadline<=$now)
+            $directDeadline=max($directDeadline,molavi_domain_link_check_regular_deadline($record,$offer,$now));
         if ($directDeadline>$now) return ['amount'=>$raw,'state'=>'current','expires_at'=>$directDeadline];
         $deadline=max($deadline,$directDeadline);
     }

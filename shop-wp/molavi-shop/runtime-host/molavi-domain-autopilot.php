@@ -886,19 +886,40 @@ function molavi_domain_autopilot_product_names(array $productIds): array {
 }
 
 // Review surface (round six, workstream 3): the effective risk tier for
-// one log row, as the tab renders it. The tier is the STORED risk_tier
-// written by workstream 1 (molavi_domain_autopilot_risk_tier) — on the log
-// row, falling back to the admission receipt — and is NOT re-derived from
-// closeness here: a row with no tier stored (logged before tiering)
-// renders red, fail closed, never green. A pending verdict is red too: a
+// one log row, as the tab / card renders it. A pending verdict is red: a
 // live admission may proceed while the verdict is pending, but it is
-// flagged red until the verdict lands. Tiering is defined only for
-// admission decisions (the only rows with a closeness margin); every other
-// gate returns 'none' — the tab renders those with a neutral "not tiered"
-// badge, never green and never red.
-function molavi_domain_autopilot_review_risk_tier(array $row,?string $receiptTier): string {
+// flagged red until the verdict lands. A flagged verdict is red too. Once
+// the verdict is ok, the admission-time effective tier ('red' while the
+// verdict was pending) is stale — the tier is derived from the closeness
+// margin, exactly as the digest does, so a verdict-ok admission shows its
+// real tier (green for the tuna, closeness 0.816). Closeness lives on the
+// log row (and in inputs_json); when neither carries it, the stored tier
+// on the log row — falling back to the admission receipt — is used, and a
+// row with no tier stored (logged before tiering) renders red, fail
+// closed, never green. Tiering is defined only for admission decisions
+// (the only rows with a closeness margin); every other gate returns
+// 'none' — the tab renders those with a neutral "not tiered" badge, never
+// green and never red.
+function molavi_domain_autopilot_review_risk_tier(array $row,?string $receiptTier,?array $settings=null): string {
     if((string)($row['gate']??'')!=='admission')return 'none';
-    if((string)($row['verdict']??'')==='pending')return 'red';
+    $verdict=(string)($row['verdict']??'');
+    if($verdict==='pending')return 'red';
+    if($verdict==='flag')return 'red';
+    if($verdict==='ok') {
+        // The verdict has landed ok: derive the tier from the closeness
+        // margin (the digest's derivation), not the admission-time stored
+        // effective tier, which was 'red' while the verdict was pending.
+        $closeness=$row['closeness']??null;
+        if($closeness===null&&isset($row['inputs']['closeness']))$closeness=$row['inputs']['closeness'];
+        if($closeness!==null&&is_numeric($closeness)) {
+            $s=is_array($settings)?$settings:[];
+            if(function_exists('molavi_domain_autopilot_decision_risk_tier'))
+                return molavi_domain_autopilot_decision_risk_tier($closeness,$s);
+            if(function_exists('molavi_domain_autopilot_risk_tier'))
+                return molavi_domain_autopilot_risk_tier($closeness,$s);
+        }
+        // No closeness data: fall through to the stored / receipt tier.
+    }
     $stored=(string)($row['risk_tier']??'');
     if(!in_array($stored,['green','amber','red'],true))$stored=(string)($receiptTier??'');
     return in_array($stored,['green','amber','red'],true)?$stored:'red';
@@ -997,6 +1018,188 @@ function molavi_domain_autopilot_digest_watches(SQLite3 $db,int $limit=10): arra
     return molavi_domain_rows($db,'SELECT * FROM autopilot_digest_watches ORDER BY digest_date DESC, id DESC LIMIT ?',[max(1,$limit)]);
 }
 
+// ------------------------------------------- digest: changed matches
+//
+// Persistent matching, slice 3. Mirrors the round-six risk_digest pattern
+// exactly (same $since derivation, same return shape, same watch table):
+// the daily digest gains a "تطابق‌های تغییرکرده" section listing kept
+// matches whose price or identity changed since the last digest. There is
+// no digest-composition code in this repo — the digest is composed by a
+// cron worker in the Main chat session that reads the staging API — so
+// this section is the query + the section format + the exact worker call,
+// not a sender. The worker reads GET /pipeline/autopilot field
+// match_digest and, after composing, POSTs record_match_digest_watch so
+// the next digest's "new" window advances (see the API handler below).
+//
+// What "new" means, precisely. A match event is NEW for a digest iff its
+// kind is one of:
+//   catalog (reference_match_events): price_changed, reference_removed,
+//       identity_changed, and retired with code auto_retired (Q3: a match
+//       auto-retired after 30 days missing) — created / replaced /
+//       reaffirmed and owner-retired (code owner_retired) are
+//       feed-visible but not digest-new, and price_updated (within-5%
+//       drift) is ledger-only, never listed;
+//   market (market_source_events): changed, failed — restored / verified /
+//       selected are not digest-new.
+// and its occurred_at is >= the window start: the $since parameter, else
+// the latest reference_match_digest_watches row's watched_at, else
+// unbounded (first digest ever). One entry per product: the latest
+// qualifying event wins; the digest lists the current change, not the
+// history. Ordering: newest first. Cap: top 10 entries
+// (MOLAVI_MATCH_DIGEST_LIMIT); total_new counts all qualifying products
+// before the cap and omitted reports the remainder, so the digest can say
+// how many it did not list.
+//
+// Each entry carries product_name (the event title here — the API GET
+// overwrites it from the Products sheet when available, as for
+// risk_digest), source ('catalog'|'market'), kind, old_price / new_price
+// (market rows: regular_price), change_ratio (stored for catalog rows,
+// computed for market rows), code, action — what the owner must do:
+// 'accept' (the new price / the new identity), 'replace' (pick another
+// reference), 're-search' (find a fresh market source), 'none' (nothing
+// to do — the system auto-adopted the new price; the entry is
+// informational only) — and why, one Persian line naming the change and
+// the action. An auto-adopted >5% move (code outside_margin_auto_adopted)
+// is digest-new like any price_changed event; its why names the
+// auto-adoption so the owner is told, not asked.
+//
+// Digest section format (Persian, short lines — one line per change):
+//   تطابق‌های تغییرکرده (N مورد):
+//   📎 <نام کالا> — قیمت مرجع از X به Y تومان تغییر کرد؛ قیمت تازه را تأیید کنید.
+//   … و M مورد دیگر — همه در تب «محصولات»: <workbench URL>
+// The section is omitted entirely when N is 0. The workbench URL is
+// https://staging.molavisale.ir/wp-admin/admin.php?page=molavi-operations&view=products
+
+const MOLAVI_MATCH_DIGEST_LIMIT = 10;
+
+function molavi_domain_reference_match_digest_action(string $source,string $kind,?string $code=null): string {
+    if($source==='market') return $kind==='failed'?'re-search':'accept';
+    if($code==='outside_margin_auto_adopted') return 'none';
+    return match($kind){
+        'reference_removed'=>'replace',
+        'retired'=>'replace',
+        default=>'accept',
+    };
+}
+
+// New changed matches since the last digest. $since is a unix timestamp,
+// or null to derive the window from the latest digest watch (watched_at);
+// with neither, the window is unbounded (first digest ever). $limit caps
+// the returned entries (default 10); total_new counts all qualifying
+// products before the cap. Returns ['since'=>?float,
+// 'since_source'=>'param'|'watch'|'none', 'last_digest_date'=>?string,
+// 'count'=>int, 'total_new'=>int, 'omitted'=>int, 'limit'=>int,
+// 'entries'=>[...]]; each entry carries event_id, product_id,
+// product_name (the event title — the API GET resolves the sheet name),
+// source, kind, old_price, new_price, change_ratio, code, action, why,
+// occurred_at. $db is the 'reference' store: both event tables live there.
+function molavi_domain_reference_match_digest_since(SQLite3 $db,?float $since,int $limit=10): array {
+    $limit=max(1,$limit);
+    $lastWatch=molavi_domain_row($db,'SELECT digest_date, watched_at FROM reference_match_digest_watches
+        ORDER BY watched_at DESC, id DESC LIMIT 1');
+    $sinceSource='none';$effectiveSince=$since;
+    if($since!==null) {
+        $sinceSource='param';
+    } elseif(is_array($lastWatch)&&isset($lastWatch['watched_at'])&&is_numeric($lastWatch['watched_at'])) {
+        $effectiveSince=(float)$lastWatch['watched_at'];
+        $sinceSource='watch';
+    }
+    $lastDigestDate=is_array($lastWatch)&&(string)($lastWatch['digest_date']??'')!==''
+        ?(string)$lastWatch['digest_date']:null;
+    $catalog=molavi_domain_rows($db,"SELECT id,product_id,title,source,kind,old_price,new_price,change_ratio,code,occurred_at
+        FROM reference_match_events WHERE (kind IN ('price_changed','reference_removed','identity_changed')
+        OR (kind='retired' AND code='auto_retired'))
+        AND (? IS NULL OR occurred_at>=?) ORDER BY occurred_at DESC, rowid DESC",
+        [$effectiveSince,$effectiveSince]);
+    $market=molavi_domain_rows($db,"SELECT id,product_id,title,'market' AS source,kind,old_price,regular_price AS new_price,code,occurred_at
+        FROM market_source_events WHERE kind IN ('changed','failed')
+        AND (? IS NULL OR occurred_at>=?) ORDER BY occurred_at DESC, rowid DESC",
+        [$effectiveSince,$effectiveSince]);
+    $byProduct=[];
+    foreach([...$catalog,...$market] as $row) {
+        $productId=(string)($row['product_id']??'');
+        if($productId==='')continue;
+        $at=(float)($row['occurred_at']??0);
+        // One entry per product: the latest qualifying event wins. The
+        // rows arrive newest-first per table, so the first row seen for a
+        // product is its latest — keep it.
+        if(isset($byProduct[$productId]))continue;
+        $source=(string)($row['source']??'catalog');
+        $kind=(string)($row['kind']??'');
+        $old=is_numeric($row['old_price']??null)?(int)$row['old_price']:null;
+        $new=is_numeric($row['new_price']??null)?(int)$row['new_price']:null;
+        $ratio=isset($row['change_ratio'])&&is_numeric($row['change_ratio'])?(float)$row['change_ratio']
+            :($old!==null&&$old>0&&$new!==null&&$new!==$old
+                ?round(($new-$old)/$old,4,PHP_ROUND_HALF_EVEN):null);
+        $code=(string)($row['code']??'');
+        $action=molavi_domain_reference_match_digest_action($source,$kind,$code);
+        $name=(string)($row['title']??'');
+        $why=match(true){
+            $source==='market'&&$kind==='failed'=>'بررسی منبع قیمت ناموفق بود؛ منبع تازه‌ای برای قیمت عادی پیدا کنید.',
+            $source==='market'=>'قیمت فروشنده تغییر کرد؛ قیمت تازه را تأیید کنید.',
+            $kind==='reference_removed'=>'مرجع این کالا حذف شد؛ مرجع دیگری انتخاب کنید یا بدون مرجع ادامه دهید.',
+            $kind==='retired'=>'مرجع این کالا پس از ۳۰ روز غیبت به‌صورت خودکار بازنشسته شد؛ مرجع دیگری انتخاب کنید یا بدون مرجع ادامه دهید.',
+            $kind==='identity_changed'=>'مرجع این کالا عوض شد؛ مرجع تازه را بررسی و تأیید کنید یا مرجع دیگری انتخاب کنید.',
+            $code==='outside_margin_auto_adopted'=>'قیمت مرجع تغییر کرد و به‌صورت خودکار پذیرفته شد؛ نیازی به تأیید نیست.',
+            $code==='sale_not_below_regular'=>'قیمت مرجع تغییر کرد اما قیمت فروش آن برابر یا بیشتر از قیمت عادی است؛ قیمت تازه را بررسی کنید یا مرجع دیگری انتخاب کنید.',
+            default=>'قیمت مرجع تغییر کرد؛ قیمت تازه را تأیید کنید یا مرجع دیگری انتخاب کنید.',
+        };
+        if($old!==null&&$new!==null&&$old>0&&$new>0) {
+            $prices=' از '.number_format($old,0,'.','٬').' به '.number_format($new,0,'.','٬').' تومان';
+            $replaced=0;
+            $why=str_replace('تغییر کرد','تغییر کرد'.$prices,$why,$replaced);
+        }
+        $byProduct[$productId]=[
+            'event_id'=>(string)($row['id']??''),
+            'product_id'=>$productId,
+            'product_name'=>$name,
+            'title'=>$name,
+            'source'=>$source,
+            'kind'=>$kind,
+            'old_price'=>$old,
+            'new_price'=>$new,
+            'change_ratio'=>$ratio,
+            'code'=>(string)($row['code']??''),
+            'action'=>$action,
+            'why'=>$why,
+            'occurred_at'=>$at,
+        ];
+    }
+    $entries=array_values($byProduct);
+    usort($entries,static fn(array $a,array $b): int =>
+        ($b['occurred_at']<=>$a['occurred_at'])?:strcmp($a['product_id'],$b['product_id']));
+    $totalNew=count($entries);
+    $entries=array_slice($entries,0,$limit);
+    return [
+        'since'=>$effectiveSince,
+        'since_source'=>$sinceSource,
+        'last_digest_date'=>$lastDigestDate,
+        'count'=>count($entries),
+        'total_new'=>$totalNew,
+        'omitted'=>max(0,$totalNew-count($entries)),
+        'limit'=>$limit,
+        'entries'=>$entries,
+    ];
+}
+
+// One persisted match-digest-watch record: the digest that ran on
+// $digestDate watched the changed matches. digest_date is unique: a
+// re-run of the same digest replaces its row. The autopilot §6 counters
+// do not apply to the match digest, so they are not parameters here —
+// the table keeps the same columns for shape, all defaulted.
+function molavi_domain_reference_match_record_digest_watch(SQLite3 $db,string $digestDate,string $note,float $now): int {
+    $date=DateTimeImmutable::createFromFormat('!Y-m-d',$digestDate);
+    if(!$date||$date->format('Y-m-d')!==$digestDate)
+        molavi_domain_fail('invalid_body',400);
+    return (int)molavi_domain_sql($db,'INSERT OR REPLACE INTO reference_match_digest_watches
+        (digest_date,watched_at,note) VALUES (?,?,?)',
+        [$digestDate,$now,$note])['last_id'];
+}
+
+function molavi_domain_reference_match_digest_watches(SQLite3 $db,int $limit=10): array {
+    return molavi_domain_rows($db,'SELECT * FROM reference_match_digest_watches ORDER BY digest_date DESC, id DESC LIMIT ?',[max(1,$limit)]);
+}
+
 // --------------------------------------------------------------- verdict (AI)
 
 const MOLAVI_AUTOPILOT_VERDICT_MAX_PER_TICK = 10;
@@ -1014,6 +1217,27 @@ const MOLAVI_AUTOPILOT_VERDICT_RAILWAY_MAX_PER_TICK = 3;
 const MOLAVI_ADMISSION_BOUNDARY_CLOSE = 0.10;
 const MOLAVI_ADMISSION_AMBER_CLOSE = 0.25;
 const MOLAVI_ADMISSION_PRICE_CLOCK_DAYS = 14;
+
+// Publish verdict inputs for the supplier/regular spread (FIX-R3, round 2):
+// the publish rule used to log only the two bare prices, so the prompt's
+// "a spread wider than the claimed basis" gave the model no basis to judge
+// against — and there IS no upper spread limit in the deterministic rules
+// (molavi_band only blocks a spread too THIN to discount), so the model
+// invented one and flagged 14 lawful wide spreads as "too wide". The
+// helper states the claimed basis the same way the admission rule's §10.4
+// enrichment does: the spread itself, the min-margin floor, and whether
+// the spread is discountable. (In the deployed tree molavi_band calls any
+// positive spread discountable — the thin_spread blocker only fires when
+// there is no spread at all — so "too thin to discount" means no spread.)
+function molavi_domain_autopilot_publish_spread_inputs(int $cost,int $regular): array {
+    $inputs=[];
+    $inputs['spread']=$regular>$cost&&$cost>0?round(($regular-$cost)/$regular,4):0.0;
+    $inputs['min_margin']=function_exists('molavi_price_settings')
+        ?(float)(molavi_price_settings()['min_margin']??0.12):0.12;
+    if($regular>$cost&&$cost>0&&function_exists('molavi_band'))
+        $inputs['spread_discountable']=molavi_band($cost,$regular)['discountable']?'yes':'no';
+    return $inputs;
+}
 
 function molavi_domain_autopilot_verdict_prompt(array $row): string {
     try { $inputs=molavi_domain_decode($row['inputs_json']??'{}',[]); }
@@ -1033,8 +1257,9 @@ function molavi_domain_autopilot_verdict_prompt(array $row): string {
         ."A deterministic rule made the decision below. Judge ONLY whether the evidence supports it. "
         ."Do not invent prices or facts. Reply with JSON only, in this shape: "
         ."{\"verdict\":\"ok\",\"reason\":\"...\"}. Use verdict \"ok\" when the evidence supports the decision, "
-        ."and \"flag\" when something looks wrong (for example prices that do not agree, a spread wider "
-        ."than the claimed basis, or evidence missing). Write the reason in correct, standard Persian, "
+        ."and \"flag\" when something looks wrong (for example prices that do not agree, a spread too "
+        ."thin to discount, or evidence missing). There is no upper limit on the spread: a wide spread "
+        ."is fine when the sale price is discountable. Write the reason in correct, standard Persian, "
         ."one short sentence, with proper spelling and نیم‌فاصله where Persian words need it.\n\n"
         .implode("\n",$lines);
 }
@@ -1300,6 +1525,11 @@ function molavi_domain_autopilot_rule_publish(array $settings,array $tables,floa
     $market=function_exists('molavi_domain_market_catalog_sources')
         ?molavi_domain_market_catalog_sources($records,$offers):[];
     $published=array_column(molavi_domain_published_review_catalog(),'purchasable','source_record_id');
+    // FIX no-picture gate (image arm): the same image maps admission Arm 8
+    // reads, so g5 and gA can never disagree about what counts.
+    $imageWaivers=is_array($w=get_option('molavi_autopilot_image_waivers',[]))?$w:[];
+    $imageDead=function_exists('molavi_dead_image_files')?molavi_dead_image_files():[];
+    $imageSuspects=function_exists('molavi_suspect_image_files')?molavi_suspect_image_files():[];
     $issuesByProduct=[];
     foreach(molavi_domain_source_issues($records,$offers) as $issue)
         if(($issue['product_id']??'')!=='')$issuesByProduct[$issue['product_id']]=$issue['codes']??[];
@@ -1329,11 +1559,31 @@ function molavi_domain_autopilot_rule_publish(array $settings,array $tables,floa
             });
             $counts['holds']++;continue;
         }
+        // FIX no-picture gate (image arm): g5 must never queue publication
+        // of a product with no usable picture. The projection and the
+        // apply-side gate would refuse it anyway; this arm records the
+        // precise reason on the publish gate instead of a generic
+        // prerequisite failure.
+        $imageId=trim((string)($record['Image File ID']??''));
+        $imageReason='';
+        if($imageId===''&&!in_array($id,$imageWaivers,true))$imageReason='تصویر کالا نیست.';
+        elseif($imageId!==''&&isset($imageDead[$imageId]))$imageReason='تصویر کالا خراب است.';
+        elseif($imageId!==''&&isset($imageSuspects[$imageId]))$imageReason='تصویر کالا در حال بررسی است.';
+        if($imageReason!==''){
+            molavi_domain_tx('pipeline',static function(SQLite3 $db)use($id,$imageReason,$now,$value,$ageDays): void {
+                molavi_domain_autopilot_hold($db,'publish',$id,$imageReason,0.0,$value,$ageDays,$now);
+            });
+            $counts['holds']++;continue;
+        }
         $inputs=['product_id'=>$id,'offer_id'=>$offerId,'settings_version'=>$version];
         // Verdict enrichment: the model verifies against the actual prices
         // the decision rests on (it still never decides).
         $inputs['supplier_price']=(int)molavi_domain_positive_price($record['Sale Price']??null);
         $inputs['regular_price']=(int)($price['regular_price']??0);
+        // Spread basis for the verdict (FIX-R3): without it the model
+        // judged two bare prices against an invented "too wide" limit.
+        $inputs+=molavi_domain_autopilot_publish_spread_inputs(
+            (int)$inputs['supplier_price'],(int)$inputs['regular_price']);
         if(!$live) {
             if(!$shadow)continue;
             $recent=molavi_domain_read('pipeline',static fn(SQLite3 $db)=>
@@ -1363,6 +1613,7 @@ function molavi_domain_autopilot_rule_publish(array $settings,array $tables,floa
         } catch(MolaviWorkflowError $e) {
             $reason=match($e->getMessage()){
                 'offer_changed'=>'پیشنهاد منبع تغییر کرده است.',
+                'product_publication_no_image'=>'تصویر کالا نیست.',
                 'product_publication_prerequisite'=>'شرایط انتشار برقرار نیست.',
                 'publication_held_for_review'=>'انتشار متوقف است.',
                 default=>'درخواست انتشار ناموفق بود.',
@@ -1436,17 +1687,54 @@ function molavi_domain_autopilot_rule_market(array $settings,array $tables,float
         $quotes=molavi_domain_decode($row['candidates_json']??null);
         $priced=array_values(array_filter($quotes,static fn($quote)=>
             (int)($quote['regular_unit_price']??$quote['unit_price']??0)>0));
-        if(!$priced) { $hold('هیچ نقل‌قول قابل‌استفاده‌ای نیست.',0.0); continue; }
+        // Sanity (very low regular price): a retail regular price at or
+        // below the wholesale supply price cannot be a functioning regular
+        // price, so it is dropped from the pick set entirely; a quote whose
+        // implied spread is positive but under the 12% floor stays in the
+        // spread below (disagreement stays visible) but is excluded from
+        // the automatic pick. Pack basis; see
+        // molavi_domain_market_quote_sanity(). Without a sale price there
+        // is no cost context, so the rule is skipped (today's behaviour).
+        $pack=max(1,(int)($identity['pack_count']??1));
+        $sanityDropped=0;$sanityThin=0;
+        if(function_exists('molavi_domain_market_quote_sanity')&&$value>0) {
+            $kept=[];
+            foreach($priced as $quote) {
+                $sanity=molavi_domain_market_quote_sanity($quote,$value,$pack);
+                if($sanity['status']==='reject') { $sanityDropped++; continue; }
+                if($sanity['status']==='thin') $sanityThin++;
+                $kept[]=$quote;
+            }
+            $priced=$kept;
+        }
+        if(!$priced) {
+            $hold($sanityDropped>0
+                ?'نقل‌قول‌های بازار در حد قیمت تأمین‌کننده یا پایین‌ترند؛ قیمت عادی قابل‌اعتماد نیست.'
+                :'هیچ نقل‌قول قابل‌استفاده‌ای نیست.',0.0);
+            continue;
+        }
         usort($priced,static fn($a,$b)=>($a['regular_unit_price']??$a['unit_price'])<=>($b['regular_unit_price']??$b['unit_price'])
             ?:strcmp((string)($a['url']??''),(string)($b['url']??'')));
-        $regular=array_values(array_filter($priced,static fn($quote)=>isset($quote['regular_unit_price'])));
+        // Automatic pick set: thin quotes are excluded. The pinned source
+        // below still overrides the pick — an explicit owner choice wins
+        // over the thin exclusion, never over the reject filter above
+        // (a rejected quote is not in $priced, so the loop cannot find it).
+        $pickable=$priced;
+        if(function_exists('molavi_domain_market_quote_sanity')&&$value>0) {
+            $pickable=array_values(array_filter($priced,static fn($quote)=>
+                molavi_domain_market_quote_sanity($quote,$value,$pack)['status']!=='thin'));
+        }
+        $regular=array_values(array_filter($pickable,static fn($quote)=>isset($quote['regular_unit_price'])));
         $exact=array_values(array_filter($regular,static fn($quote)=>($quote['pack_count']??null)===($identity['pack_count']??1)));
-        $ranked=$exact?:($regular?:$priced);
+        $ranked=$exact?:($regular?:$pickable);
         $recommended=$ranked[intdiv(count($ranked),2)]??null;
         $sources=molavi_domain_market_source_for($subject['keys'],molavi_domain_market_source_rows(),$identity);
         $pinned=$sources['price']['url']??null;
         if($pinned)foreach($priced as $quote)if(($quote['url']??null)===$pinned)$recommended=$quote;
-        if(!$recommended) { $hold('هیچ نقل‌قول قابل‌استفاده‌ای نیست.',0.0); continue; }
+        if(!$recommended) {
+            $hold('نقل‌قول‌های بازار اختلاف ضمنی کمتر از ۱۲٪ دارند؛ قیمت عادی قابل‌اعتماد نیست.',0.0);
+            continue;
+        }
         $units=array_map(static fn($quote)=>(int)($quote['regular_unit_price']??$quote['unit_price']),$priced);
         sort($units);$median=$units[intdiv(count($units),2)];
         $spread=$median>0?(max($units)-min($units))/$median:1.0;
@@ -1491,6 +1779,11 @@ function molavi_domain_autopilot_rule_market(array $settings,array $tables,float
         // values the pick rests on.
         $inputs['quotes']=molavi_domain_autopilot_format_quotes($priced);
         $inputs['quote_count']=count($priced);
+        // Sanity log: how many quotes the very-low-regular-price rule
+        // dropped (reject-tier) and kept in the spread but out of the pick
+        // (thin-tier), so the drop is visible on the decision row.
+        if($sanityDropped>0)$inputs['sanity_dropped']=$sanityDropped;
+        if($sanityThin>0)$inputs['sanity_thin']=$sanityThin;
         $inputs['message_age_days']=round($ageDays,1);
         $inputs['quote_verified_at']=molavi_autopilot_iso((float)$checked);
         $inputs['pack_count']=(int)($identity['pack_count']??1);
@@ -1711,6 +2004,7 @@ function molavi_domain_autopilot_rule_admission(array $settings,array $tables,fl
         array_column(molavi_domain_rows($db,"SELECT DISTINCT product_id FROM sheet_sync_conflicts WHERE state='open'"),'product_id'));
     $waivers=is_array($w=get_option('molavi_autopilot_image_waivers',[]))?$w:[];
     $dead=function_exists('molavi_dead_image_files')?molavi_dead_image_files():[];
+    $suspects=function_exists('molavi_suspect_image_files')?molavi_suspect_image_files():[];
     $registered=function_exists('molavi_domain_registered_products')?molavi_domain_registered_products():[];
     $wooByRecord=[];
     $alreadyForSale=[];
@@ -1831,7 +2125,7 @@ function molavi_domain_autopilot_rule_admission(array $settings,array $tables,fl
         // currently proves the regular price.
         $approval=trim((string)($record['Reference Approval State']??''));
         $matchId=trim((string)($record['Reference Match ID']??''));
-        $approved=in_array($approval,['owner_approved','approved_compatible','approved_within_margin'],true);
+        $approved=in_array($approval,['owner_approved','approved_compatible','approved_within_margin','approved_auto_adopted'],true);
         $marketProves=isset($market[$id]['price']['regular_price'])
             &&(int)($market[$id]['price']['verified_at']??0)>0
             &&(int)($market[$id]['price']['verified_at']??0)+MOLAVI_MARKET_SOURCE_CHECK_SECONDS>(int)$now;
@@ -1845,11 +2139,17 @@ function molavi_domain_autopilot_rule_admission(array $settings,array $tables,fl
             $fail('اختلاف قیمت برای تخفیف کافی نیست.',(float)min(1,max(0,$spread/0.12)));
             continue;
         }
-        // Arm 8: image present or owner-waived, and not dead.
+        // Arm 8: image present or owner-waived, not dead, and not a 404
+        // suspect awaiting re-check.
         $imageId=trim((string)($record['Image File ID']??''));
         $waived=in_array($id,$waivers,true);
         if($imageId===''&&!$waived) { $fail('تصویر کالا نیست.'); continue; }
         if($imageId!==''&&isset($dead[$imageId])) { $fail('تصویر کالا خراب است.'); continue; }
+        // A suspect file 404'd once and is re-checked on the next publish
+        // run: still no release without a picture (the no-picture rule
+        // stands), but the hold says so instead of condemning the image
+        // on one transient 404.
+        if($imageId!==''&&isset($suspects[$imageId])) { $fail('تصویر کالا در حال بررسی است.'); continue; }
         // Arm 9: supplier availability — the owner's rule: a product from a
         // supplier message is always available unless the message explicitly
         // says it is not (see molavi_domain_supplier_available). 'Unknown'
@@ -2141,7 +2441,8 @@ function molavi_domain_autopilot_api(string $method,array $query,?array $body,st
             $row['risk_tier_stored']=$stored;
             $row['risk_tier']=molavi_domain_autopilot_review_risk_tier(
                 ['gate'=>(string)($row['gate']??''),'verdict'=>(string)($row['verdict']??''),
-                    'risk_tier'=>$stored],null);
+                    'risk_tier'=>$stored,'closeness'=>$row['closeness']??null,
+                    'inputs'=>$row['inputs']],null,$settings);
             $row['risk_reason']=molavi_domain_autopilot_risk_reason($row,$row['inputs']);
             $row['reviewed_at']=(float)($row['reviewed_at']??0);
             $row['reviewed_by']=(string)($row['reviewed_by']??'');
@@ -2177,9 +2478,20 @@ function molavi_domain_autopilot_api(string $method,array $query,?array $body,st
         foreach($riskDigest['decisions'] as &$decision)
             $decision['product_name']=$names[$decision['product_id']]??'';
         unset($decision);
+        // The digest's changed-matches section: new catalog/market match
+        // changes since the last match-digest watch (null $since = derive
+        // from the latest watch). Names resolve from the Products sheet,
+        // best effort — same contract as risk_digest above.
+        $matchDigest=molavi_domain_read('reference',static fn(SQLite3 $db)=>
+            molavi_domain_reference_match_digest_since($db,null,MOLAVI_MATCH_DIGEST_LIMIT));
+        $matchNames=molavi_domain_autopilot_product_names(
+            array_column($matchDigest['entries']??[],'product_id'));
+        foreach($matchDigest['entries'] as &$entry)
+            $entry['product_name']=$matchNames[$entry['product_id']]??($entry['product_name']??'');
+        unset($entry);
         return ['ok'=>true,'settings'=>$settings,'rules'=>$rules,'log'=>$log,'holds'=>$holds,
             'admission_evidence'=>$evidence,'ticks'=>$ticks,'digest_watches'=>$watches,
-            'admission_rollout'=>$rollout,'risk_digest'=>$riskDigest,
+            'admission_rollout'=>$rollout,'risk_digest'=>$riskDigest,'match_digest'=>$matchDigest,
             'unreviewed_decisions'=>$unreviewed];
     }
     if($method!=='POST'||!is_array($body))molavi_domain_fail('invalid_body',400);
@@ -2423,6 +2735,23 @@ function molavi_domain_autopilot_api(string $method,array $query,?array $body,st
         $watchId=molavi_domain_tx('pipeline',static function(SQLite3 $db)use($body,$settingsVersion,$note,$now): int {
             return molavi_domain_autopilot_record_digest_watch($db,(string)$body['digest_date'],
                 (int)$body['consecutive_correct'],(int)$body['boundary_close'],$settingsVersion,$note,$now);
+        });
+        return ['ok'=>true,'digest_date'=>(string)$body['digest_date'],'watch_id'=>$watchId];
+    }
+    if($action==='record_match_digest_watch') {
+        // Called by the digest (external cron) after it has composed the
+        // changed-matches section, so the next digest's "new" window
+        // advances. Mirrors record_digest_watch, but the watch lives in
+        // the 'reference' store with the match events it windows. A
+        // re-run of the same digest replaces its row (INSERT OR REPLACE).
+        $unknown=array_diff(array_keys($body),['action','digest_date','note']);
+        if($unknown)molavi_domain_fail('invalid_body',400);
+        if(!array_key_exists('digest_date',$body))molavi_domain_fail('invalid_body',400);
+        if(!is_string($body['digest_date']??null))molavi_domain_fail('invalid_body',400);
+        $note=is_string($body['note']??null)?(string)$body['note']:'';
+        if(molavi_domain_strlen($note)>500)molavi_domain_fail('invalid_body',400);
+        $watchId=molavi_domain_tx('reference',static function(SQLite3 $db)use($body,$note,$now): int {
+            return molavi_domain_reference_match_record_digest_watch($db,(string)$body['digest_date'],$note,$now);
         });
         return ['ok'=>true,'digest_date'=>(string)$body['digest_date'],'watch_id'=>$watchId];
     }

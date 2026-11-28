@@ -123,19 +123,26 @@ function molavi_domain_gemini_generate(string $prompt, array $opts = []): ?array
  * (POST /pipeline/telegram-fetch). The staging host cannot reach Telegram
  * at all, so the fetch runs on Railway, which appends ?embed=1 itself
  * for post URLs — callers pass the CLEAN t.me URL, no suffix.
- * Returns ['status'=>int, 'text'=>string|null] on success (text is null
- * when Railway fetched the page but found no message text), null on ANY
- * failure (unconfigured bridge, transport error, non-200, invalid JSON,
- * ok=false, bad shape). Never throws, never logs the bridge token.
+ * Returns ['ok'=>true, 'status'=>int, 'text'=>string|null] when Railway
+ * SERVED the fetch (text is null when Railway fetched the page but found
+ * no message text), or ['ok'=>false, 'transport'=>true, 'code'=>string]
+ * when the FETCH SERVICE itself failed. The split matters: a per-link
+ * result — including t.me's own 404, or a 200 with no message text —
+ * always arrives inside ok:true, so anything else (bridge unconfigured,
+ * WP_Error, a non-200 from Railway, invalid JSON, ok=false, bad shape)
+ * is the transport, never the link. Callers must treat a transport
+ * failure as a global pause, not as a per-link failure: Railway down
+ * must not read as 144 broken links. Never throws, never logs the
+ * bridge token.
  */
-function molavi_domain_telegram_fetch(string $url): ?array {
+function molavi_domain_telegram_fetch_detailed(string $url): array {
     try {
-        if ($url === '') return null;
+        if ($url === '') return ['ok' => false, 'transport' => true, 'code' => 'empty_url'];
         $bridge = molavi_domain_railway_bridge();
-        if ($bridge === null) return null;
+        if ($bridge === null) return ['ok' => false, 'transport' => true, 'code' => 'bridge_unconfigured'];
         [$base, $token] = $bridge;
         $body = wp_json_encode(['url' => $url]);
-        if (!is_string($body)) return null;
+        if (!is_string($body)) return ['ok' => false, 'transport' => true, 'code' => 'bad_request'];
         $requestUrl = rtrim($base, '/') . '/pipeline/telegram-fetch';
         $exception = molavi_domain_railway_http_exception('/pipeline/telegram-fetch');
         add_filter('pre_http_request', $exception, PHP_INT_MAX, 3);
@@ -153,18 +160,35 @@ function molavi_domain_telegram_fetch(string $url): ?array {
         } finally {
             remove_filter('pre_http_request', $exception, PHP_INT_MAX);
         }
-        if (is_wp_error($response)) return null;
-        if ((int) wp_remote_retrieve_response_code($response) !== 200) return null;
+        if (is_wp_error($response)) return ['ok' => false, 'transport' => true, 'code' => 'http_error'];
+        if ((int) wp_remote_retrieve_response_code($response) !== 200) return ['ok' => false, 'transport' => true, 'code' => 'http_' . (int) wp_remote_retrieve_response_code($response)];
         $data = json_decode((string) wp_remote_retrieve_body($response), true);
-        if (!is_array($data) || ($data['ok'] ?? false) !== true) return null;
+        if (!is_array($data) || ($data['ok'] ?? false) !== true) return ['ok' => false, 'transport' => true, 'code' => 'bad_response'];
         $status = $data['status'] ?? null;
-        if (!is_int($status)) return null;
+        if (!is_int($status)) return ['ok' => false, 'transport' => true, 'code' => 'bad_response'];
         $text = $data['text'] ?? null;
-        if ($text !== null && !is_string($text)) return null;
-        return ['status' => $status, 'text' => $text];
+        if ($text !== null && !is_string($text)) return ['ok' => false, 'transport' => true, 'code' => 'bad_response'];
+        return ['ok' => true, 'transport' => false, 'status' => $status, 'text' => $text];
     } catch (Throwable $e) {
-        return null;
+        return ['ok' => false, 'transport' => true, 'code' => 'exception'];
     }
+}
+
+/**
+ * Ask Railway to fetch a t.me URL and extract the message text
+ * (POST /pipeline/telegram-fetch). Thin wrapper over
+ * molavi_domain_telegram_fetch_detailed: returns
+ * ['status'=>int, 'text'=>string|null] on success (text is null when
+ * Railway fetched the page but found no message text), null on ANY
+ * failure (unconfigured bridge, transport error, non-200, invalid JSON,
+ * ok=false, bad shape). Callers that need to tell a dead fetch service
+ * apart from a dead link must use the detailed call instead. Never
+ * throws, never logs the bridge token.
+ */
+function molavi_domain_telegram_fetch(string $url): ?array {
+    $detailed = molavi_domain_telegram_fetch_detailed($url);
+    if (!($detailed['ok'] ?? false)) return null;
+    return ['status' => $detailed['status'], 'text' => $detailed['text']];
 }
 
 /**

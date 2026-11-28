@@ -281,8 +281,9 @@
             pending:'در انتظار تصمیم', pending_verification:'ثبت در فهرست تأیید نشده',
             awaiting_ai_confirmation:'در انتظار تأیید استخراج', warning:'بررسی تازه لازم است',
             verified:'تأیید شده', sell:'قابل فروش', not_checked:'بررسی نشده', unknown:'نامشخص',
-            approved_within_margin:'تأیید در محدودهٔ قیمت',outside_margin:'اختلاف قیمت نیازمند بررسی',
+            approved_within_margin:'تأیید در محدودهٔ قیمت',approved_auto_adopted:'پذیرش خودکار تغییر قیمت',outside_margin:'اختلاف قیمت نیازمند بررسی',
             reference_missing:'مرجع در دسترس نیست',price_unavailable:'قیمت مرجع موجود نیست',
+            reference_identity_changed:'هویت مرجع تغییر کرده',
             missing:'ثبت نشده',not_required:'لازم نیست'
         };
         const key = String(value || '');
@@ -1118,21 +1119,29 @@
     // The form itself is G1's, unchanged: the owner
     // types the price (and its source); it is written to the sheet and
     // verified, so the verify button re-arms.
-    function workbenchPriceRegisterSection(product, offer, container, verify, reviewStoreAvailable) {
+    // `options` (FIX-4, link-changed adoption) reuses the same form for
+    // a row whose link check found a NEW price: the endpoint writes any
+    // price to the sheet and verifies the new revision — it does not
+    // require an empty revision — so the owner adopts the live price
+    // through the same action. `prefillPrice` (the live price), `title`,
+    // `submitLabel`, `hint` and `note` override the G1 wording; every
+    // default preserves the G1 form exactly.
+    function workbenchPriceRegisterSection(product, offer, container, verify, reviewStoreAvailable, options = {}) {
         const register = document.createElement('details');
         register.className = 'molavi-price-register';
         register.open = true;
-        register.appendChild(node('summary', 'ثبت قیمت از پیام'));
+        register.appendChild(node('summary', options.title || 'ثبت قیمت از پیام'));
         const registerForm = document.createElement('form');
-        const storedPrice = Number(offer.sale_price);
+        const storedPrice = options.prefillPrice !== undefined
+            ? Number(options.prefillPrice) : Number(offer.sale_price);
         registerForm.appendChild(field('قیمت تأییدشده به تومان', 'sale_price',
             Number.isSafeInteger(storedPrice) && storedPrice > 0 ? String(storedPrice) : '',
             'number', {required:true, min:1, step:1}));
         const registerSource = String(product.status?.source_post_url || offer.source_post_url || '');
         registerForm.appendChild(field('منبع قیمت (پیوند پیام تأمین‌کننده — اختیاری)', 'source_url',
             registerSource, 'text', {maxLength:500}));
-        registerForm.appendChild(node('p', 'اگر قیمت را نمی‌دانید، پیام تازه از تأمین‌کننده بخواهید.', 'molavi-price-register-hint'));
-        const registerSubmit = node('button', 'ثبت قیمت و تأیید', 'button button-primary');
+        registerForm.appendChild(node('p', options.hint || 'اگر قیمت را نمی‌دانید، پیام تازه از تأمین‌کننده بخواهید.', 'molavi-price-register-hint'));
+        const registerSubmit = node('button', options.submitLabel || 'ثبت قیمت و تأیید', 'button button-primary');
         registerSubmit.type = 'submit';
         registerSubmit.disabled = !reviewStoreAvailable;
         registerForm.appendChild(registerSubmit);
@@ -1153,7 +1162,8 @@
             const registerContext = {product_id:offer.product_id, name:offer.name, channel:offer.channel,
                 sale_price:price, previous_sale_price:offer.sale_price, source_url:url,
                 source_timestamp:offer.source_timestamp, previous_verified_at:offer.verified_at || ''};
-            const registerNote = url !== '' ? `مالک قیمت را از پیام ثبت کرد؛ منبع: ${url}` : 'مالک قیمت را از پیام ثبت کرد.';
+            const registerNote = (options.note || 'مالک قیمت را از پیام ثبت کرد')
+                + (url !== '' ? `؛ منبع: ${url}` : '.');
             const registerDecision = {action:'register_price_from_message', note:registerNote};
             try {
                 await persistOwnerReviews([reviewRecord(registerEventId,'supplier_price',offer.product_id,'pending',registerContext,registerDecision)]);
@@ -1194,6 +1204,27 @@
         return (product.supplierPrices || []).some(offer => !offer.acknowledged
             && offer.link_check && offer.link_check.outcome === 'unchanged'
             && !offer.link_check.confirmed_at);
+    }
+
+    // FIX-4 — a supplier-price row whose source link was re-read and the
+    // live post shows a NEW price: the owner decision is adopt the new
+    // price or set the check aside — verifying the stored (old) price
+    // would write false evidence. Returns the row, or null. The live
+    // price must be a positive number, or there is nothing to adopt.
+    function workbenchHasChangedLinkCheck(product) {
+        return (product.supplierPrices || []).find(offer => !offer.acknowledged
+            && offer.link_check && offer.link_check.outcome === 'changed'
+            && Number.isFinite(Number(offer.link_check.live_price))
+            && Number(offer.link_check.live_price) > 0) || null;
+    }
+
+    // FIX-4 — a supplier-price row whose source link could not be read
+    // (channel gone, price not found in the post, …): the card must offer
+    // a supplier-follow-up path instead of leaving only the bare notice.
+    // Returns the row, or null.
+    function workbenchHasUncheckableLinkCheck(product) {
+        return (product.supplierPrices || []).find(offer => !offer.acknowledged
+            && offer.link_check && offer.link_check.outcome === 'uncheckable') || null;
     }
 
     // G3 — hold-aware routing. When an autopilot hold stands and the
@@ -1313,6 +1344,32 @@
             if (holdRoute.key === 'market_prices') return 'نقل‌قول‌های بازار همخوان نیستند؛ یک نقل‌قول را انتخاب کنید.';
             if (holdRoute.key === 'supplier_prices') return 'قیمت تأمین‌کننده به بازبینی نیاز دارد؛ منبع فعلی را بررسی و تأیید کنید.';
         }
+        // Slice 3 (persistent matching): the catalog change the reconcile
+        // writes to the sheet (Reference Approval State / Price Change
+        // Percent) is the card's notice channel — the state arrives on
+        // product.status, and the first-view line names the change and the
+        // path forward. outside_margin / reference_missing /
+        // price_unavailable already set update_needed server-side, so the
+        // card routes to 'status'; reference_identity_changed does NOT (it
+        // is not in the server's review-due list), so the same line also
+        // fires for the 'next' key — otherwise that card would show no
+        // action at all. The options are the same in every state:
+        // re-acknowledge the new reference, pick another reference, or
+        // proceed without one. Nested here (not top-level) so the routing
+        // sandboxes that extract workbenchNextStep keep working unchanged.
+        const referenceApprovalStep = () => {
+            const state = String(product.status?.reference_approval_state || '');
+            if (!['outside_margin','reference_missing','price_unavailable','reference_identity_changed'].includes(state)) return '';
+            if (state === 'outside_margin') {
+                const pct = Number(product.status?.reference_price_change_percent);
+                const change = Number.isFinite(pct) && pct !== 0
+                    ? ` (${Math.abs(pct).toLocaleString('fa-IR', {maximumFractionDigits: 2})}٪)` : '';
+                return `قیمت مرجع تغییر کرده است${change}؛ قیمت تازه را تأیید کنید یا مرجع دیگری انتخاب کنید.`;
+            }
+            if (state === 'reference_missing') return 'مرجع این کالا در فهرست نیست؛ مرجع دیگری انتخاب کنید یا بدون مرجع ادامه دهید.';
+            if (state === 'price_unavailable') return 'قیمت مرجع در دسترس نیست؛ مرجع دیگری انتخاب کنید یا بدون مرجع ادامه دهید.';
+            return 'مرجع این کالا عوض شده است؛ مرجع تازه را بررسی و تأیید کنید یا مرجع دیگری انتخاب کنید.';
+        };
         if (key==='product_messages') return 'پیام‌های رسیده برای این کالا را مقایسه کنید و یک پیام را برای بررسی انتخاب کنید.';
         if (key === 'source_integrity') {
             // G1 follow-up — the price row has no valid revision: the
@@ -1336,7 +1393,7 @@
             if (cases.some(item => item.source_current_check_required || item.historical_reextract)) return 'زمان منبع به آستانهٔ ۱۴ روز رسیده یا قابل اتکا نیست؛ قیمت و موجودی را از منبع فعلی بررسی کنید.';
             return 'مشخصات استخراج‌شده را با پیام منبع بررسی کنید.';
         }
-        if (key === 'references') return 'مرجع درست و مبنای قیمت را انتخاب کنید.';
+        if (key === 'references') return referenceApprovalStep() || 'مرجع درست و مبنای قیمت را انتخاب کنید.';
         if (key === 'conflicts') return 'مقدار سرور را نگه دارید؛ فقط اگر خودتان شیت را دستی تغییر داده‌اید، اصلاح شیت را به فروشگاه بفرستید.';
         // G12: the stock path is external-only — the supplier announces
         // stock in a fresh message, so the first view says to send one.
@@ -1348,6 +1405,10 @@
             // so the path is registering the price from the message, not
             // verifying a version that does not exist.
             if (workbenchNeedsPriceRegistration(product)) return 'نسخهٔ معتبر قیمت برای این ردیف ثبت نشده است؛ قیمت را از پیام تأمین‌کننده ثبت کنید.';
+            // FIX-4: the link shows a NEW price — verifying the stored
+            // price would be wrong. The decision is adopting the new
+            // price or setting the check aside; the tab carries the form.
+            if (workbenchHasChangedLinkCheck(product)) return 'قیمت در لینک منبع تغییر کرده است؛ قیمت تازه را بپذیرید یا بررسی را کنار بگذارید.';
             // G9: the source link was already checked and the price is
             // unchanged — the owner confirm is fast, say so. (A hold, via
             // the hold route above, still takes precedence over this text.)
@@ -1358,7 +1419,11 @@
         }
         if (key === 'market_prices') return ({missing:'قیمت عادی را از یک منبع به‌روز پیدا و تأیید کنید.',
             expired:'اعتبار قیمت عادی پایان یافته است. منبع قیمت را به‌روزرسانی کنید.',
-            unverified:'قیمت عادی ثبت‌شده به مدرک به‌روز نیاز دارد.'})[product.status?.regular_price_state]||'قیمت عادی را بررسی کنید.';
+            // FIX-4: 'unverified' means a price is on file but no
+            // verification deadline is — no direct stamp, no reference
+            // deadline, no sync deadline (sale-offers.php). Say so, and
+            // name the options: pick a quote or confirm manually.
+            unverified:'قیمت عادی ثبت‌شده به مدرک به‌روز نیاز دارد؛ مهلت تأییدی برای آن ثبت نشده است. یک نقل‌قول را انتخاب کنید یا قیمت را دستی تأیید کنید.'})[product.status?.regular_price_state]||'قیمت عادی را بررسی کنید.';
         if (key === 'holds') return 'جزئیات پیام‌های همان دسته را باز کنید و یک‌بار اقدام بازیابی را اجرا کنید.';
         if (key === 'deferred') return 'گام فعلی کنار گذاشته شده است؛ برای ادامه آن را در وضعیت سیستم بازگردانید.';
         // G8: thin spread is not diagnostic in one line — name both prices
@@ -1382,11 +1447,15 @@
         if (key === 'status'&&product.status?.sale_offer_blocker==='no_spread') return 'برای عرضه، قیمت عادی باید از قیمت تأمین‌کننده بیشتر باشد.';
         if (key === 'status'&&product.status?.publication_needed) return 'قیمت‌ها و مشخصات تأیید شده‌اند. انتشار را به صف بفرستید.';
         if (key === 'status'&&(!product.product_id||!product.status?.latest_offer_id)) return 'برای ادامه، پیام اصلی یا پیام تازهٔ همین کالا را پیدا کنید.';
-        if (key === 'status') return product.status?.review_reason
-            ? aiReviewReason(product.status.review_reason)
-            : 'مشخصات و قیمت‌های فعلی را بازبینی کنید تا درخواست انتشار بررسی شود.';
+        if (key === 'status') {
+            const referenceStep = referenceApprovalStep();
+            if (referenceStep) return referenceStep;
+            return product.status?.review_reason
+                ? aiReviewReason(product.status.review_reason)
+                : 'مشخصات و قیمت‌های فعلی را بازبینی کنید تا درخواست انتشار بررسی شود.';
+        }
         if (key === 'storefront') return 'رسید انتشار را با کاتالوگ عمومی ووکامرس تطبیق کنید؛ تا گزارش کامل نباشد وضعیت فروشگاه قطعی نیست.';
-        return 'برای این کالا اقدام بازی ثبت نشده است.';
+        return referenceApprovalStep() || 'برای این کالا اقدام بازی ثبت نشده است.';
     }
 
     function workbenchTaskMeta(product, key) {
@@ -2153,16 +2222,35 @@
                     section.appendChild(findSource);
                 }
                 // Supplier link check (round eight): what the last live
-                // re-read of the original link found, if any.
+                // re-read of the original link found, if any. Recheck
+                // system: every line also says when the next re-read is
+                // due (linkCheck.next_read_at), so a row never looks
+                // silently stale.
                 const linkCheck = offer.link_check || null;
+                const linkCheckNextRead = linkCheck && linkCheck.next_read_at
+                    ? formatSourceTimestamp(new Date(linkCheck.next_read_at * 1000).toISOString()) : '';
                 if (linkCheck && linkCheck.outcome) {
                     if (linkCheck.outcome === 'unchanged') {
-                        section.appendChild(notice(`لینک منبع بررسی شد؛ قیمت بدون تغییر است (${linkCheck.reason_label || ''} · ${linkCheck.checked_at ? formatSourceTimestamp(new Date(linkCheck.checked_at * 1000).toISOString()) : 'زمان ثبت نشده'} · مرجع: ${linkCheck.check_ref || '—'}). تأیید شما با تأمین‌کننده است که قیمت را تازه می‌کند.`, 'info'));
+                        section.appendChild(notice(`لینک منبع بررسی شد؛ قیمت بدون تغییر است (${linkCheck.reason_label || ''} · ${linkCheck.checked_at ? formatSourceTimestamp(new Date(linkCheck.checked_at * 1000).toISOString()) : 'زمان ثبت نشده'} · مرجع: ${linkCheck.check_ref || '—'}). تأیید شما با تأمین‌کننده است که قیمت را تازه می‌کند.${linkCheckNextRead ? ` بازخوانی بعدی: ${linkCheckNextRead}.` : ''}`, 'info'));
                     } else if (linkCheck.outcome === 'changed') {
-                        section.appendChild(notice(`قیمت در لینک منبع تغییر کرده است: ثبت‌شده ${amount(offer.sale_price)}، تازه ${amount(linkCheck.live_price)} — قیمت تازه جایگزین نشده است و کالا همچنان متوقف است.`, 'warning'));
+                        section.appendChild(notice(`قیمت در لینک منبع تغییر کرده است: ثبت‌شده ${amount(offer.sale_price)}، تازه ${amount(linkCheck.live_price)} — قیمت تازه جایگزین نشده است و کالا همچنان متوقف است.${linkCheckNextRead ? ` بازخوانی بعدی: ${linkCheckNextRead}.` : ''}`, 'warning'));
                     } else if (linkCheck.outcome === 'uncheckable') {
-                        section.appendChild(notice(`لینک منبع قابل بررسی نیست: ${linkCheck.reason_label || linkCheck.reason_code || 'نامشخص'}.`, 'warning'));
+                        section.appendChild(notice(`لینک منبع قابل بررسی نیست: ${linkCheck.reason_label || linkCheck.reason_code || 'نامشخص'}.${linkCheckNextRead ? ` بازخوانی بعدی: ${linkCheckNextRead}.` : ''}`, 'warning'));
                     }
+                }
+                // FIX-4 — uncheckable: the notice alone leaves the owner
+                // with nothing to do. Offer the supplier-follow-up path
+                // (the source review tool, already used by the «یافتن پیام
+                // تأمین‌کننده» button above) and say the manual verify
+                // below still works once the post has been read.
+                if (linkCheck && linkCheck.outcome === 'uncheckable' && !offer.acknowledged) {
+                    const followUp = node('div', null, 'molavi-card-source-tools');
+                    const followUpButton = node('button', 'پیگیری پیام تأمین‌کننده', 'button button-secondary');
+                    followUpButton.type = 'button';
+                    followUpButton.addEventListener('click', () => openSourceReviewTool(product));
+                    followUp.appendChild(followUpButton);
+                    section.appendChild(followUp);
+                    section.appendChild(node('p', 'پیام منبع را بخوانید؛ اگر قیمت در پیام درست است، آن را با دکمهٔ تأیید زیر بررسی کنید. اگر پیام تازه لازم است، از تأمین‌کننده بخواهید.'));
                 }
                 const marketAgreement = offer.market_agreement || null;
                 if (marketAgreement && marketAgreement.outcome) {
@@ -2180,7 +2268,12 @@
                 const sourceRevision = String(offer.source_revision || '').trim();
                 const verify = node('button', offer.acknowledged ? 'قیمت تأیید شد' : 'منبع فعلی را دیدم؛ قیمت تأیید است', 'button button-primary');
                 verify.type = 'button';
-                verify.disabled = offer.acknowledged || !sourceRevision || !contextStored.supplier_prices;
+                // FIX-4 — a changed link check disables the old-price
+                // verify: confirming the stored price while the live post
+                // shows a new one would write false evidence. The adopt
+                // form below is the path instead.
+                const linkChanged = linkCheck && linkCheck.outcome === 'changed';
+                verify.disabled = offer.acknowledged || !sourceRevision || !contextStored.supplier_prices || linkChanged;
                 if (!offer.acknowledged && !sourceRevision) {
                     section.appendChild(notice('برای این ردیف قیمت فروش معتبر در منبع فعلی ثبت نشده است؛ ابتدا داده قیمت را اصلاح کنید. این مورد قابل تأیید نیست.', 'warning'));
                     // G1 — register the price from the message. The owner
@@ -2192,7 +2285,25 @@
                 } else if (!offer.acknowledged && !contextStored.supplier_prices) {
                     section.appendChild(notice('ثبت زمینه این بررسی در پایگاه داده وردپرس ناموفق بود؛ اقدام غیرفعال است.', 'error'));
                 }
-                if (!offer.acknowledged && sourceRevision) verify.addEventListener('click', async () => {
+                // FIX-4 — link-changed adoption (groups 5+6): the live
+                // price is prefilled; submitting writes it to the sheet
+                // and verifies the new revision through the same
+                // register_price_from_message action the G1 form uses.
+                // No new endpoint, no silent adoption — the owner clicks.
+                // If the live price is wrong, the owner sets the check
+                // aside with «کنارگذاشتن این کار» at the bottom of the tab.
+                if (!offer.acknowledged && linkChanged
+                        && Number.isFinite(Number(linkCheck.live_price)) && Number(linkCheck.live_price) > 0) {
+                    section.appendChild(node('p', 'قیمت ثبت‌شده دیگر جاری نیست؛ برای تأیید، قیمت تازهٔ لینک را بپذیرید. اگر قیمت تازه اشتباه است، این بررسی را از پایین برگه کنار بگذارید.'));
+                    section.appendChild(workbenchPriceRegisterSection(product, offer, section, verify, reviewStoreAvailable, {
+                        title: 'استفاده از قیمت تازهٔ لینک',
+                        prefillPrice: Number(linkCheck.live_price),
+                        submitLabel: 'پذیرفتن قیمت تازه و تأیید',
+                        hint: 'قیمت تازه از لینک اصلی خوانده شده است؛ پیش از پذیرفتن، پیام منبع را باز کنید و بررسی کنید.',
+                        note: 'مالک قیمت تازهٔ لینک را پذیرفت'
+                    }));
+                }
+                if (!offer.acknowledged && sourceRevision && !linkChanged) verify.addEventListener('click', async () => {
                     verify.disabled = true;
                     const originalLabel = verify.textContent;
                     verify.textContent = 'در حال ثبت…';
@@ -2471,6 +2582,31 @@
             }
             return '';
         };
+        // FIX-4 — where a picture comes from (group 9): the hold reason
+        // says the picture is missing or broken, but never where one
+        // comes from. A market quote's photo can become the main image
+        // (the market tab's «استفاده به‌عنوان تصویر اصلی»), or a fresh
+        // supplier message can carry one. Copy only; the picture itself
+        // still has to come from the supplier or the market. Returns the
+        // line, or ''.
+        const autopilotImageLine = summary => {
+            if (!summary) return '';
+            if (!/تصویر/.test(`${summary.hold_reason || ''} ${summary.reason || ''}`)) return '';
+            return 'بدون تصویر منتشر نمی‌شود. تصویر را می‌توانید از نقل‌قول بازار بگیرید («استفاده به‌عنوان تصویر اصلی» در برگهٔ قیمت عادی) یا پیام تازهٔ تأمین‌کننده با عکس بخواهید.';
+        };
+        // FIX-4 — the generic admission hold (group 7b): «کالا در توقف
+        // است.» is arm 10 — another gate's hold (or a verdict flag) is
+        // the real block. Name it from the holds already on the card, so
+        // the owner sees the cause instead of a bare "in hold". Returns
+        // the line, or '' when there is no other hold for the product.
+        const autopilotUnderlyingHoldLine = (summary, holds, productId) => {
+            if (!summary || summary.hold_reason !== 'کالا در توقف است.') return '';
+            const underlying = (holds || []).filter(hold =>
+                String(hold.product_id) === String(productId) && hold.gate !== 'admission');
+            if (!underlying.length) return '';
+            return `توقف زیرین: ${underlying.map(hold =>
+                `${autopilotGateLabels[hold.gate] || hold.gate} — ${hold.reason || 'توقف ثبت شده است.'}`).join(' · ')}`;
+        };
         // One decision row on the card, rendered exactly as the tab rendered
         // it (same badge, detail line, verdict line, reviewed line). The
         // four per-decision actions call the SAME autopilot API endpoints
@@ -2604,6 +2740,14 @@
                 releaseWrap.appendChild(releaseStatus);
                 section.appendChild(releaseWrap);
             }
+            // FIX-4: the picture where-from line (group 9) and the
+            // underlying-hold line for the generic «کالا در توقف است.»
+            // hold (group 7b). Both are copy from data already on the
+            // card; neither adds an action or a decision.
+            const imageLine = autopilotImageLine(summary);
+            if (imageLine) section.appendChild(node('p', imageLine, 'molavi-autopilot-state-reason'));
+            const underlyingLine = autopilotUnderlyingHoldLine(summary, holds, product.product_id);
+            if (underlyingLine) section.appendChild(node('p', underlyingLine, 'molavi-autopilot-state-reason'));
             const history = Array.isArray(summary.history) ? summary.history : [];
             const unreviewed = history.filter(row => ['shadow','live'].includes(row.action)
                 && !['overridden','reverted'].includes(row.result) && !Number(row.reviewed_at)).length;
@@ -2675,8 +2819,11 @@
             const counts = checks.counts || {};
             const faNum = value => new Intl.NumberFormat('fa-IR').format(Number(value || 0));
             wrap.appendChild(node('h2', 'بررسی لینک تأمین‌کننده'));
-            wrap.appendChild(node('p', `بدون تغییر: ${faNum(counts.unchanged)} · قیمت تغییر کرده: ${faNum(counts.changed)} · قابل بررسی نیست: ${faNum(counts.uncheckable)} · تأییدشده: ${faNum(counts.confirmed)} · در انتظار بررسی: ${faNum(counts.pending)}`));
-            wrap.appendChild(node('p', 'هر کالا حداکثر روزی یک‌بار از لینک اصلی‌اش خوانده می‌شود. «بدون تغییر» یعنی متن یا قیمت پیام منبع با ثبت ما یکی است؛ تأیید شما با تأمین‌کننده است که ساعت ۱۴ روزه را تازه می‌کند، نه خود بررسی. قیمت تغییرکرده هیچ‌وقت خودبه‌خود جایگزین نمی‌شود.'));
+            wrap.appendChild(node('p', `بدون تغییر: ${faNum(counts.unchanged)} · قیمت تغییر کرده: ${faNum(counts.changed)} · قابل بررسی نیست: ${faNum(counts.uncheckable)} · تأییدشده: ${faNum(counts.confirmed)} · در انتظار بررسی: ${faNum(counts.pending)} · نیازمند تصمیم: ${faNum(counts.escalated)}`));
+            if (checks.transport && checks.transport.paused) {
+                wrap.appendChild(notice(`خواندن لینک‌ها موقتاً متوقف است؛ سرویس خواندن پیام در دسترس نیست.${checks.transport.next_retry_at ? ` تلاش بعدی: ${formatSourceTimestamp(new Date(checks.transport.next_retry_at * 1000).toISOString())}.` : ''} بررسی‌های انجام‌شده دست نخورده‌اند و بازخوانی‌ها پس از بازگشت سرویس از سر گرفته می‌شوند.`, 'warning'));
+            }
+            wrap.appendChild(node('p', 'هر کالا بر پایهٔ نتیجهٔ آخرین بررسی‌اش بازخوانی می‌شود: «بدون تغییر» هفتگی، «تغییرکرده» هر سه روز، خطاها با فاصلهٔ بیشتر، و پس از چند ناکامی پی‌درپی، نیازمند تصمیم شماست. «بدون تغییر» یعنی متن یا قیمت پیام منبع با ثبت ما یکی است؛ تأیید شما با تأمین‌کننده است که ساعت ۱۴ روزه را تازه می‌کند، نه خود بررسی. قیمت تغییرکرده هیچ‌وقت خودبه‌خود جایگزین نمی‌شود.'));
             const runButton = node('button', 'اجرای یک بررسی تازه', 'button button-secondary');
             runButton.type = 'button';
             runButton.addEventListener('click', async () => {
@@ -2706,6 +2853,7 @@
                     ['قیمت ثبت‌شده', amount(item.stored_sale_price)],
                     ['قیمت در لینک', amount(item.live_price)],
                     ['بررسی‌شده', item.checked_at ? formatSourceTimestamp(new Date(item.checked_at * 1000).toISOString()) : 'ثبت نشده'],
+                    ['بازخوانی بعدی', item.next_read_at ? formatSourceTimestamp(new Date(item.next_read_at * 1000).toISOString()) : '—'],
                     ['مرجع بررسی', item.check_ref || '—']
                 ]));
                 const sourceLink = linkFor(item.url);
@@ -2728,7 +2876,8 @@
                     ['کالا', item.title || item.product_id],
                     ['قیمت ثبت‌شده', amount(item.stored_sale_price)],
                     ['قیمت تازه در لینک', amount(item.live_price)],
-                    ['بررسی‌شده', item.checked_at ? formatSourceTimestamp(new Date(item.checked_at * 1000).toISOString()) : 'ثبت نشده']
+                    ['بررسی‌شده', item.checked_at ? formatSourceTimestamp(new Date(item.checked_at * 1000).toISOString()) : 'ثبت نشده'],
+                    ['بازخوانی بعدی', item.next_read_at ? formatSourceTimestamp(new Date(item.next_read_at * 1000).toISOString()) : '—']
                 ]));
                 const sourceLink = linkFor(item.url);
                 if (sourceLink) row.appendChild(sourceLink);
@@ -2748,7 +2897,7 @@
                 const list = document.createElement('ul');
                 items.forEach(item => {
                     const line = document.createElement('li');
-                    line.appendChild(document.createTextNode(`${item.title || item.product_id} · قیمت ثبت‌شده: ${item.stored_sale_price || 'ثبت نشده'}`));
+                    line.appendChild(document.createTextNode(`${item.title || item.product_id} · قیمت ثبت‌شده: ${item.stored_sale_price || 'ثبت نشده'}${item.next_read_at ? ` · بازخوانی بعدی: ${formatSourceTimestamp(new Date(item.next_read_at * 1000).toISOString())}` : ''}${item.escalated ? ' · نیازمند تصمیم' : ''}`));
                     const sourceLink = linkFor(item.url);
                     if (sourceLink) { line.appendChild(document.createTextNode(' · ')); line.appendChild(sourceLink); }
                     list.appendChild(line);
@@ -4006,6 +4155,36 @@
         return tools;
     }
 
+    // Slice 3 (persistent matching): one line under the selected market
+    // source, from the latest market_source_events 'changed' row the API
+    // returns as result.price_change. '' when there is no change to show
+    // (no row, missing prices, or an unchanged price) — the tab renders
+    // nothing instead of a stale line. No sheet write for market changes.
+    function marketPriceChangeLine(change) {
+        const oldPrice = Number(change?.old_price);
+        const newPrice = Number(change?.regular_price);
+        if (!change || !Number.isFinite(oldPrice) || !Number.isFinite(newPrice)
+            || oldPrice <= 0 || newPrice <= 0 || oldPrice === newPrice) return '';
+        const date = formatSourceTimestamp(change.occurred_at);
+        return `قیمت این فروشنده از ${amount(oldPrice)} به ${amount(newPrice)} تغییر کرد${date ? ` · ${date}` : ''}`;
+    }
+
+    // Guess decisions (Q8 / Basalam owner-force): a visible flag line on
+    // each market quote carrying a sanity flag from the price API. The
+    // flag is informational only — an explicit owner pick still wins
+    // (owner-override rule); the line only says why the quote is not
+    // trusted, so the owner picks with eyes open. '' when unflagged.
+    function marketQuoteSanityLine(quote) {
+        const flag = quote?.sanity_flag;
+        const spread = Number(quote?.implied_spread);
+        const spreadText = Number.isFinite(spread) ? ` (حاشیهٔ ضمنی ${(spread * 100).toFixed(1)}٪)` : '';
+        if (flag === 'regular_at_or_below_cost')
+            return `هشدار: قیمت عادی این نقل‌قول برابر یا کمتر از قیمت فروش است${spreadText}؛ برای قیمت عادی قابل اعتماد نیست.`;
+        if (flag === 'spread_too_thin')
+            return `حاشیهٔ این نقل‌قول کمتر از ۱۲٪ است${spreadText}.`;
+        return '';
+    }
+
     function marketPriceReview(offerId, productName) {
         const section = node('details', null, 'molavi-market-price-review');
         section.dataset.offerId=offerId;
@@ -4103,9 +4282,15 @@
                     notes.push(`فروش بسته ${amount(quote.current_price)}`);
             }
             if (notes.length) row.append(node('small',notes.join(' · ')));
+            const sanityLine = marketQuoteSanityLine(quote);
+            if (sanityLine) row.append(node('small', sanityLine, 'molavi-market-sanity-flag'));
             const source = node('div',null,'molavi-market-source-line');
             row.append(source);
             if (selected) source.append(node('span','مرجع انتخاب‌شده'));
+            if (selected) {
+                const changeLine = marketPriceChangeLine(result.price_change);
+                if (changeLine) row.append(node('small', changeLine, 'molavi-market-price-change'));
+            }
             const compare=node('button','مقایسه','button');compare.type='button';
             compare.addEventListener('click',()=>showPhotos(quote,result.product||{title:productName}));
             source.append(compare);
@@ -4584,14 +4769,39 @@
             if (linkCheckForSource && linkCheckForSource.outcome) {
                 const checkedAt = linkCheckForSource.checked_at
                     ? formatSourceTimestamp(new Date(linkCheckForSource.checked_at * 1000).toISOString()) : '';
+                // Recheck system: every outcome says what happens next
+                // and when (next_read_at comes from the server policy),
+                // escalated rows name the owner decision, and a paused
+                // fetch service says so instead of looking like broken
+                // links. The four outcome lines keep the ba89812 wording.
+                const nextRead = linkCheckForSource.next_read_at
+                    ? formatSourceTimestamp(new Date(linkCheckForSource.next_read_at * 1000).toISOString()) : '';
+                const nextReadSuffix = nextRead ? ` بازخوانی بعدی: ${nextRead}.` : '';
+                const ambiguousPrices = linkCheckForSource.reason_code === 'price_ambiguous'
+                    && linkCheckForSource.last_detail && Array.isArray(linkCheckForSource.last_detail.prices)
+                    && linkCheckForSource.last_detail.prices.length
+                    ? ` قیمت‌های خوانده‌شده: ${linkCheckForSource.last_detail.prices.map(value => amount(Number(value))).join('، ')} — کدام قیمتِ این کالاست؟` : '';
+                const dataFix = linkCheckForSource.reason_code === 'no_url' ? ' پیوند منبع را در شیت وارد کنید.'
+                    : linkCheckForSource.reason_code === 'legacy_no_reference' ? ' مرجع پیام را در شیت ثبت کنید.'
+                    : linkCheckForSource.reason_code === 'bale_source' ? ' منبع بله است؛ خوانندهٔ بله نداریم.'
+                    : linkCheckForSource.reason_code === 'source_stock_changed' ? ' اگر بازخوانی بعدی هم ناموجودی را نشان داد، موجودی را با تأمین‌کننده بررسی کنید.'
+                    : '';
                 if (linkCheckForSource.outcome === 'uncheckable' && linkCheckForSource.reason_code === 'post_not_found') {
-                    card.appendChild(notice(`پست منبع حذف شده است${checkedAt ? ` (بررسی لینک: ${checkedAt})` : ''}. پیام تازه را به ربات بفرستید؛ وقتی استخراج آماده شد، همین کارت به‌روز می‌شود.`, 'warning'));
+                    card.appendChild(notice(`پست منبع حذف شده است${checkedAt ? ` (بررسی لینک: ${checkedAt})` : ''}. پیام تازه را به ربات بفرستید؛ وقتی استخراج آماده شد، همین کارت به‌روز می‌شود.${nextReadSuffix}`, 'warning'));
                 } else if (linkCheckForSource.outcome === 'uncheckable') {
-                    card.appendChild(notice(`لینک منبع قابل بررسی نیست: ${linkCheckForSource.reason_label || linkCheckForSource.reason_code || 'نامشخص'}.`, 'warning'));
+                    card.appendChild(notice(`لینک منبع قابل بررسی نیست: ${linkCheckForSource.reason_label || linkCheckForSource.reason_code || 'نامشخص'}.${dataFix}${ambiguousPrices}${nextReadSuffix}`, 'warning'));
                 } else if (linkCheckForSource.outcome === 'unchanged') {
-                    card.appendChild(notice(`لینک منبع بررسی شد؛ قیمت بدون تغییر است (${linkCheckForSource.reason_label || ''} · ${checkedAt || 'زمان ثبت نشده'} · مرجع: ${linkCheckForSource.check_ref || '—'}). تأیید شما با تأمین‌کننده است که قیمت را تازه می‌کند.`, 'info'));
+                    card.appendChild(notice(`لینک منبع بررسی شد؛ قیمت بدون تغییر است (${linkCheckForSource.reason_label || ''} · ${checkedAt || 'زمان ثبت نشده'} · مرجع: ${linkCheckForSource.check_ref || '—'}). تأیید شما با تأمین‌کننده است که قیمت را تازه می‌کند.${nextReadSuffix}`, 'info'));
                 } else if (linkCheckForSource.outcome === 'changed') {
-                    card.appendChild(notice(`قیمت در لینک منبع تغییر کرده است: ثبت‌شده ${amount(visibleSupplierPrice)}، تازه ${amount(linkCheckForSource.live_price)} — قیمت تازه جایگزین نشده است و کالا همچنان متوقف است.`, 'warning'));
+                    card.appendChild(notice(`قیمت در لینک منبع تغییر کرده است: ثبت‌شده ${amount(visibleSupplierPrice)}، تازه ${amount(linkCheckForSource.live_price)} — قیمت تازه جایگزین نشده است و کالا همچنان متوقف است.${nextRead ? ` بازخوانی بعدی: ${nextRead}؛ تا آن زمان قیمت تازه فقط نمایش داده می‌شود.` : ''}`, 'warning'));
+                }
+                if (linkCheckForSource.escalated) {
+                    card.appendChild(notice(`این لینک پس از ${new Intl.NumberFormat('fa-IR').format(Number(linkCheckForSource.retry_count || 0))} بررسی ناموفق پی‌درپی نیازمند تصمیم شماست: ${linkCheckForSource.reason_label || linkCheckForSource.reason_code || 'نامشخص'}.${dataFix}${ambiguousPrices}${nextReadSuffix}`, 'warning'));
+                }
+                if (linkCheckForSource.transport_paused) {
+                    const transportNext = linkCheckForSource.transport_next_retry_at
+                        ? formatSourceTimestamp(new Date(linkCheckForSource.transport_next_retry_at * 1000).toISOString()) : '';
+                    card.appendChild(notice(`خواندن لینک‌ها موقتاً متوقف است؛ سرویس خواندن پیام در دسترس نیست.${transportNext ? ` تلاش بعدی: ${transportNext}.` : ''} بررسی‌های انجام‌شده دست نخورده‌اند.`, 'warning'));
                 }
             } else {
                 card.appendChild(notice('پیام منبع هنوز از لینک اصلی‌اش خوانده نشده است.', 'info'));

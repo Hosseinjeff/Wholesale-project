@@ -154,6 +154,10 @@ function buildWorkflowsSandbox(source) {
     for (const name of G1_FNS) {
         if (source.includes(`function ${name}(`)) pieces.push(extractFunction(source, name));
     }
+    // FIX-4: workbenchNextStep now calls workbenchHasChangedLinkCheck; it
+    // exists only in files newer than the 4ac67ae base, so extract it when
+    // present (the base's workbenchNextStep never calls it).
+    if (source.includes('function workbenchHasChangedLinkCheck(')) pieces.push(extractFunction(source, 'workbenchHasChangedLinkCheck'));
     for (const name of DISMISSAL_FNS) pieces.push(extractFunction(source, name));
     const code = `
 let workbenchData = null;
@@ -531,7 +535,13 @@ if (baseWorkflowsSrc) {
     // renderCase call site passes product.link_check through
     // options.parentLinkCheck, and aiCaseCard renders the link-check
     // status for the source post in its source section, before the
-    // reference-selection early return so it shows in BOTH ai paths).
+    // reference-selection early return so it shows in BOTH ai paths) plus
+    // the FIX-4 every-card fix (2026-11-26: 9 removed, 106 added — the
+    // link-changed adopt form reusing the G1 register helper with an
+    // optional options parameter, the uncheckable follow-up button, the
+    // old-price verify guard, the unverified first-view line with the
+    // deadline fact, and the no-picture / underlying-hold copy on the
+    // autopilot card).
     // The G12 copy from G10+G12 is already in db80c25, so it is not part of this diff.
     let rebaseBaseWorkflowsSrc = null;
     try {
@@ -544,12 +554,87 @@ if (baseWorkflowsSrc) {
         const wfNewLines = src.split('\n');
         const wfRemoved = wfBaseLines.filter(l => !wfNewLines.includes(l));
         const wfAdded = wfNewLines.filter(l => !wfBaseLines.includes(l));
-        check('workflows.js diff vs db80c25: exactly the render-merged-cases + ai-confirm-section-visible + verification-section + source-post-status removals',
-            wfRemoved, [
+        // Slice 3 (persistent matching) rewrote the three workbenchNextStep
+        // one-liners, added the referenceApprovalStep block, the
+        // marketPriceChangeLine helper + its quoteRow call, and the
+        // reference_identity_changed label — all covered by
+        // tests/match_feed_digest_card.cjs. Filter those lines out here
+        // (order-free set difference) so the frozen expectations below
+        // still guard every other line exactly.
+        const SLICE3_WF_REMOVED = [
+            "        if (key === 'references') return 'مرجع درست و مبنای قیمت را انتخاب کنید.';",
+            "        if (key === 'status') return product.status?.review_reason",
+            '            ? aiReviewReason(product.status.review_reason)',
+            "            : 'مشخصات و قیمت‌های فعلی را بازبینی کنید تا درخواست انتشار بررسی شود.';",
+            "        return 'برای این کالا اقدام بازی ثبت نشده است.';",
+        ];
+        const SLICE3_WF_ADDED = [
+            "            reference_identity_changed:'هویت مرجع تغییر کرده',",
+            '        // Slice 3 (persistent matching): the catalog change the reconcile',
+            '        // writes to the sheet (Reference Approval State / Price Change',
+            "        // Percent) is the card's notice channel — the state arrives on",
+            '        // product.status, and the first-view line names the change and the',
+            '        // path forward. outside_margin / reference_missing /',
+            "        // price_unavailable already set update_needed server-side, so the",
+            "        // card routes to 'status'; reference_identity_changed does NOT (it",
+            "        // is not in the server's review-due list), so the same line also",
+            "        // fires for the 'next' key — otherwise that card would show no",
+            '        // action at all. The options are the same in every state:',
+            '        // re-acknowledge the new reference, pick another reference, or',
+            '        // proceed without one. Nested here (not top-level) so the routing',
+            '        // sandboxes that extract workbenchNextStep keep working unchanged.',
+            '        const referenceApprovalStep = () => {',
+            "            const state = String(product.status?.reference_approval_state || '');",
+            "            if (!['outside_margin','reference_missing','price_unavailable','reference_identity_changed'].includes(state)) return '';",
+            "            if (state === 'outside_margin') {",
+            '                const pct = Number(product.status?.reference_price_change_percent);',
+            '                const change = Number.isFinite(pct) && pct !== 0',
+            "                    ? ` (${Math.abs(pct).toLocaleString('fa-IR', {maximumFractionDigits: 2})}٪)` : '';",
+            "                return `قیمت مرجع تغییر کرده است${change}؛ قیمت تازه را تأیید کنید یا مرجع دیگری انتخاب کنید.`;",
+            "            if (state === 'reference_missing') return 'مرجع این کالا در فهرست نیست؛ مرجع دیگری انتخاب کنید یا بدون مرجع ادامه دهید.';",
+            "            if (state === 'price_unavailable') return 'قیمت مرجع در دسترس نیست؛ مرجع دیگری انتخاب کنید یا بدون مرجع ادامه دهید.';",
+            "            return 'مرجع این کالا عوض شده است؛ مرجع تازه را بررسی و تأیید کنید یا مرجع دیگری انتخاب کنید.';",
+            "        if (key === 'references') return referenceApprovalStep() || 'مرجع درست و مبنای قیمت را انتخاب کنید.';",
+            "        if (key === 'status') {",
+            '            const referenceStep = referenceApprovalStep();',
+            '            if (referenceStep) return referenceStep;',
+            '            return product.status?.review_reason',
+            '                ? aiReviewReason(product.status.review_reason)',
+            "                : 'مشخصات و قیمت‌های فعلی را بازبینی کنید تا درخواست انتشار بررسی شود.';",
+            "        return referenceApprovalStep() || 'برای این کالا اقدام بازی ثبت نشده است.';",
+            '    // Slice 3 (persistent matching): one line under the selected market',
+            "    // source, from the latest market_source_events 'changed' row the API",
+            "    // returns as result.price_change. '' when there is no change to show",
+            "    // (no row, missing prices, or an unchanged price) — the tab renders",
+            '    // nothing instead of a stale line. No sheet write for market changes.',
+            '    function marketPriceChangeLine(change) {',
+            '        const oldPrice = Number(change?.old_price);',
+            '        const newPrice = Number(change?.regular_price);',
+            '        if (!change || !Number.isFinite(oldPrice) || !Number.isFinite(newPrice)',
+            '            || oldPrice <= 0 || newPrice <= 0 || oldPrice === newPrice) return \'\';',
+            '        const date = formatSourceTimestamp(change.occurred_at);',
+            "        return `قیمت این فروشنده از ${amount(oldPrice)} به ${amount(newPrice)} تغییر کرد${date ? ` · ${date}` : ''}`;",
+            '            if (selected) {',
+            '                const changeLine = marketPriceChangeLine(result.price_change);',
+            "                if (changeLine) row.append(node('small', changeLine, 'molavi-market-price-change'));",
+        ];
+        const wfRemovedChecked = wfRemoved.filter(l => !SLICE3_WF_REMOVED.includes(l));
+        const wfAddedChecked = wfAdded.filter(l => !SLICE3_WF_ADDED.includes(l));
+        check('workflows.js diff vs db80c25: exactly the render-merged-cases + ai-confirm-section-visible + verification-section + source-post-status + FIX-4 removals',
+            wfRemovedChecked, [
+                "    function workbenchPriceRegisterSection(product, offer, container, verify, reviewStoreAvailable) {",
+                "        register.appendChild(node('summary', 'ثبت قیمت از پیام'));",
+                "        const storedPrice = Number(offer.sale_price);",
+                "        registerForm.appendChild(node('p', 'اگر قیمت را نمی‌دانید، پیام تازه از تأمین‌کننده بخواهید.', 'molavi-price-register-hint'));",
+                "        const registerSubmit = node('button', 'ثبت قیمت و تأیید', 'button button-primary');",
+                "            const registerNote = url !== '' ? `مالک قیمت را از پیام ثبت کرد؛ منبع: ${url}` : 'مالک قیمت را از پیام ثبت کرد.';",
+                "            unverified:'قیمت عادی ثبت‌شده به مدرک به‌روز نیاز دارد.'})[product.status?.regular_price_state]||'قیمت عادی را بررسی کنید.';",
                 "                    parentName:product.name, parentChannel:product.channel, parentImageId:product.ai[0]?.image_file_id",
                 "                    content.replaceChildren(node('p','در حال بررسی مرجع این پیشنهاد…'));",
                 "                        content.replaceChildren(renderCase());",
                 "                        content.replaceChildren(notice('پیشنهادهای خودکار دریافت نشد. می‌توانید فهرست را جست‌وجو کنید یا بدون مرجع ادامه دهید.','warning'),retry,renderCase());",
+                "                verify.disabled = offer.acknowledged || !sourceRevision || !contextStored.supplier_prices;",
+                "                if (!offer.acknowledged && sourceRevision) verify.addEventListener('click', async () => {",
                 "        if (sourceVerificationRequired) {",
                 "            currentPriceVerified = document.createElement('input');",
                 "            currentPriceVerified.type = 'checkbox';",
@@ -562,10 +647,49 @@ if (baseWorkflowsSrc) {
                 "                const key = currentPriceVerificationKey(row);",
                 "                if (currentPriceVerified.checked) verifiedCurrentPriceCases.add(key);",
                 "                else verifiedCurrentPriceCases.delete(key);",
-                "            refreshConfirmationGates();",
+                "            refreshConfirmationGates();"
             ]);
-        check('workflows.js diff vs db80c25: exactly the render-merged-cases + ai-confirm-section-visible + verification-section + detected-vs-confirmed-comparison + source-post-status additions',
-            wfAdded, [
+        check('workflows.js diff vs db80c25: exactly the render-merged-cases + ai-confirm-section-visible + verification-section + detected-vs-confirmed-comparison + source-post-status + FIX-4 additions',
+            wfAddedChecked, [
+                "    // `options` (FIX-4, link-changed adoption) reuses the same form for",
+                "    // a row whose link check found a NEW price: the endpoint writes any",
+                "    // price to the sheet and verifies the new revision — it does not",
+                "    // require an empty revision — so the owner adopts the live price",
+                "    // through the same action. `prefillPrice` (the live price), `title`,",
+                "    // `submitLabel`, `hint` and `note` override the G1 wording; every",
+                "    // default preserves the G1 form exactly.",
+                "    function workbenchPriceRegisterSection(product, offer, container, verify, reviewStoreAvailable, options = {}) {",
+                "        register.appendChild(node('summary', options.title || 'ثبت قیمت از پیام'));",
+                "        const storedPrice = options.prefillPrice !== undefined",
+                "            ? Number(options.prefillPrice) : Number(offer.sale_price);",
+                "        registerForm.appendChild(node('p', options.hint || 'اگر قیمت را نمی‌دانید، پیام تازه از تأمین‌کننده بخواهید.', 'molavi-price-register-hint'));",
+                "        const registerSubmit = node('button', options.submitLabel || 'ثبت قیمت و تأیید', 'button button-primary');",
+                "            const registerNote = (options.note || 'مالک قیمت را از پیام ثبت کرد')",
+                "                + (url !== '' ? `؛ منبع: ${url}` : '.');",
+                "    // FIX-4 — a supplier-price row whose source link was re-read and the",
+                "    // live post shows a NEW price: the owner decision is adopt the new",
+                "    // price or set the check aside — verifying the stored (old) price",
+                "    // would write false evidence. Returns the row, or null. The live",
+                "    // price must be a positive number, or there is nothing to adopt.",
+                "    function workbenchHasChangedLinkCheck(product) {",
+                "            && offer.link_check && offer.link_check.outcome === 'changed'",
+                "            && Number.isFinite(Number(offer.link_check.live_price))",
+                "            && Number(offer.link_check.live_price) > 0) || null;",
+                "    // FIX-4 — a supplier-price row whose source link could not be read",
+                "    // (channel gone, price not found in the post, …): the card must offer",
+                "    // a supplier-follow-up path instead of leaving only the bare notice.",
+                "    // Returns the row, or null.",
+                "    function workbenchHasUncheckableLinkCheck(product) {",
+                "            && offer.link_check && offer.link_check.outcome === 'uncheckable') || null;",
+                "            // FIX-4: the link shows a NEW price — verifying the stored",
+                "            // price would be wrong. The decision is adopting the new",
+                "            // price or setting the check aside; the tab carries the form.",
+                "            if (workbenchHasChangedLinkCheck(product)) return 'قیمت در لینک منبع تغییر کرده است؛ قیمت تازه را بپذیرید یا بررسی را کنار بگذارید.';",
+                "            // FIX-4: 'unverified' means a price is on file but no",
+                "            // verification deadline is — no direct stamp, no reference",
+                "            // deadline, no sync deadline (sale-offers.php). Say so, and",
+                "            // name the options: pick a quote or confirm manually.",
+                "            unverified:'قیمت عادی ثبت‌شده به مدرک به‌روز نیاز دارد؛ مهلت تأییدی برای آن ثبت نشده است. یک نقل‌قول را انتخاب کنید یا قیمت را دستی تأیید کنید.'})[product.status?.regular_price_state]||'قیمت عادی را بررسی کنید.';",
                 "                    parentName:product.name, parentChannel:product.channel, parentImageId:product.ai[0]?.image_file_id,",
                 "                    parentLinkCheck:product.link_check || null",
                 "                // Render the case immediately: the owner's confirm/dismiss",
@@ -583,6 +707,73 @@ if (baseWorkflowsSrc) {
                 "                        candidateNotice=node('div',null,'molavi-ai-candidate-error');",
                 "                        candidateNotice.append(notice('پیشنهادهای خودکار دریافت نشد. می‌توانید فهرست را جست‌وجو کنید یا بدون مرجع ادامه دهید.','warning'),retry);",
                 "                        content.prepend(candidateNotice);",
+                "                // FIX-4 — uncheckable: the notice alone leaves the owner",
+                "                // with nothing to do. Offer the supplier-follow-up path",
+                "                // (the source review tool, already used by the «یافتن پیام",
+                "                // تأمین‌کننده» button above) and say the manual verify",
+                "                // below still works once the post has been read.",
+                "                if (linkCheck && linkCheck.outcome === 'uncheckable' && !offer.acknowledged) {",
+                "                    const followUp = node('div', null, 'molavi-card-source-tools');",
+                "                    const followUpButton = node('button', 'پیگیری پیام تأمین‌کننده', 'button button-secondary');",
+                "                    followUpButton.type = 'button';",
+                "                    followUpButton.addEventListener('click', () => openSourceReviewTool(product));",
+                "                    followUp.appendChild(followUpButton);",
+                "                    section.appendChild(followUp);",
+                "                    section.appendChild(node('p', 'پیام منبع را بخوانید؛ اگر قیمت در پیام درست است، آن را با دکمهٔ تأیید زیر بررسی کنید. اگر پیام تازه لازم است، از تأمین‌کننده بخواهید.'));",
+                "                // FIX-4 — a changed link check disables the old-price",
+                "                // verify: confirming the stored price while the live post",
+                "                // shows a new one would write false evidence. The adopt",
+                "                // form below is the path instead.",
+                "                const linkChanged = linkCheck && linkCheck.outcome === 'changed';",
+                "                verify.disabled = offer.acknowledged || !sourceRevision || !contextStored.supplier_prices || linkChanged;",
+                "                // FIX-4 — link-changed adoption (groups 5+6): the live",
+                "                // price is prefilled; submitting writes it to the sheet",
+                "                // and verifies the new revision through the same",
+                "                // register_price_from_message action the G1 form uses.",
+                "                // No new endpoint, no silent adoption — the owner clicks.",
+                "                // If the live price is wrong, the owner sets the check",
+                "                // aside with «کنارگذاشتن این کار» at the bottom of the tab.",
+                "                if (!offer.acknowledged && linkChanged",
+                "                        && Number.isFinite(Number(linkCheck.live_price)) && Number(linkCheck.live_price) > 0) {",
+                "                    section.appendChild(node('p', 'قیمت ثبت‌شده دیگر جاری نیست؛ برای تأیید، قیمت تازهٔ لینک را بپذیرید. اگر قیمت تازه اشتباه است، این بررسی را از پایین برگه کنار بگذارید.'));",
+                "                    section.appendChild(workbenchPriceRegisterSection(product, offer, section, verify, reviewStoreAvailable, {",
+                "                        title: 'استفاده از قیمت تازهٔ لینک',",
+                "                        prefillPrice: Number(linkCheck.live_price),",
+                "                        submitLabel: 'پذیرفتن قیمت تازه و تأیید',",
+                "                        hint: 'قیمت تازه از لینک اصلی خوانده شده است؛ پیش از پذیرفتن، پیام منبع را باز کنید و بررسی کنید.',",
+                "                        note: 'مالک قیمت تازهٔ لینک را پذیرفت'",
+                "                    }));",
+                "                if (!offer.acknowledged && sourceRevision && !linkChanged) verify.addEventListener('click', async () => {",
+                "        // FIX-4 — where a picture comes from (group 9): the hold reason",
+                "        // says the picture is missing or broken, but never where one",
+                "        // comes from. A market quote's photo can become the main image",
+                "        // (the market tab's «استفاده به‌عنوان تصویر اصلی»), or a fresh",
+                "        // supplier message can carry one. Copy only; the picture itself",
+                "        // still has to come from the supplier or the market. Returns the",
+                "        // line, or ''.",
+                "        const autopilotImageLine = summary => {",
+                "            if (!/تصویر/.test(`${summary.hold_reason || ''} ${summary.reason || ''}`)) return '';",
+                "            return 'بدون تصویر منتشر نمی‌شود. تصویر را می‌توانید از نقل‌قول بازار بگیرید («استفاده به‌عنوان تصویر اصلی» در برگهٔ قیمت عادی) یا پیام تازهٔ تأمین‌کننده با عکس بخواهید.';",
+                "        // FIX-4 — the generic admission hold (group 7b): «کالا در توقف",
+                "        // است.» is arm 10 — another gate's hold (or a verdict flag) is",
+                "        // the real block. Name it from the holds already on the card, so",
+                "        // the owner sees the cause instead of a bare \"in hold\". Returns",
+                "        // the line, or '' when there is no other hold for the product.",
+                "        const autopilotUnderlyingHoldLine = (summary, holds, productId) => {",
+                "            if (!summary || summary.hold_reason !== 'کالا در توقف است.') return '';",
+                "            const underlying = (holds || []).filter(hold =>",
+                "                String(hold.product_id) === String(productId) && hold.gate !== 'admission');",
+                "            if (!underlying.length) return '';",
+                "            return `توقف زیرین: ${underlying.map(hold =>",
+                "                `${autopilotGateLabels[hold.gate] || hold.gate} — ${hold.reason || 'توقف ثبت شده است.'}`).join(' · ')}`;",
+                "            // FIX-4: the picture where-from line (group 9) and the",
+                "            // underlying-hold line for the generic «کالا در توقف است.»",
+                "            // hold (group 7b). Both are copy from data already on the",
+                "            // card; neither adds an action or a decision.",
+                "            const imageLine = autopilotImageLine(summary);",
+                "            if (imageLine) section.appendChild(node('p', imageLine, 'molavi-autopilot-state-reason'));",
+                "            const underlyingLine = autopilotUnderlyingHoldLine(summary, holds, product.product_id);",
+                "            if (underlyingLine) section.appendChild(node('p', underlyingLine, 'molavi-autopilot-state-reason'));",
                 "        // Detected-vs-confirmed comparison (beer message 7218): the",
                 "        // re-extract detects a new supplier price; the owner needs the",
                 "        // currently confirmed Sale Price next to it. The confirmed price",
@@ -672,7 +863,7 @@ if (baseWorkflowsSrc) {
                 "            // invisibility. (Beer message 7218: the case rendered, but",
                 "            // the whole «گام فعلی · تأیید مشخصات» section was hidden",
                 "            // until the checkbox was ticked, so the card looked like it",
-                "            // had no confirm/dismiss to offer.)",
+                "            // had no confirm/dismiss to offer.)"
             ]);
     }
 }

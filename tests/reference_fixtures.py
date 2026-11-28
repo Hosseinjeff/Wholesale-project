@@ -1,4 +1,10 @@
-"""Small WooCommerce source fixtures shared by reference workflow tests."""
+"""Small WooCommerce source fixtures shared by reference workflow tests.
+
+The default product is on sale in the two-price model (price 480000,
+regular 500000, sale 480000), so its staged row carries supply 480000
+and regular 500000 in the trailing two-price columns; see
+reference_import.importer._woocommerce_price_model.
+"""
 from datetime import datetime, timezone
 
 from reference_import.importer import _build_woocommerce_candidate
