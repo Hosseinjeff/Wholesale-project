@@ -41,7 +41,12 @@
         "TOMAN",
         "rezvanpakhsh_woocommerce_store_api",
         "https://rezvanpakhsh.com/wp-json/wc/store/v1/products",
-        "2026-11-17T00:00:00+00:00"
+        "2026-11-17T00:00:00+00:00",
+        480000,
+        40000,
+        500000,
+        41667,
+        ""
       ]
     },
     {
@@ -98,7 +103,12 @@
         "TOMAN",
         "rezvanpakhsh_woocommerce_store_api",
         "https://rezvanpakhsh.com/wp-json/wc/store/v1/products",
-        "2026-11-17T00:00:00+00:00"
+        "2026-11-17T00:00:00+00:00",
+        480000,
+        80000,
+        500000,
+        83333,
+        ""
       ]
     },
     {
@@ -142,7 +152,12 @@
         "TOMAN",
         "rezvanpakhsh_woocommerce_store_api",
         "https://rezvanpakhsh.com/wp-json/wc/store/v1/products",
-        "2026-11-17T00:00:00+00:00"
+        "2026-11-17T00:00:00+00:00",
+        480000,
+        40000,
+        500000,
+        41667,
+        ""
       ]
     },
     {
@@ -199,7 +214,12 @@
         "TOMAN",
         "rezvanpakhsh_woocommerce_store_api",
         "https://rezvanpakhsh.com/wp-json/wc/store/v1/products",
-        "2026-11-17T00:00:00+00:00"
+        "2026-11-17T00:00:00+00:00",
+        480000,
+        120000,
+        500000,
+        125000,
+        ""
       ]
     },
     {
@@ -243,7 +263,12 @@
         "TOMAN",
         "rezvanpakhsh_woocommerce_store_api",
         "https://rezvanpakhsh.com/wp-json/wc/store/v1/products",
-        "2026-11-17T00:00:00+00:00"
+        "2026-11-17T00:00:00+00:00",
+        480000,
+        "",
+        500000,
+        "",
+        ""
       ]
     },
     {
@@ -300,7 +325,12 @@
         "TOMAN",
         "rezvanpakhsh_woocommerce_store_api",
         "https://rezvanpakhsh.com/wp-json/wc/store/v1/products",
-        "2026-11-17T00:00:00+00:00"
+        "2026-11-17T00:00:00+00:00",
+        480000,
+        "",
+        500000,
+        "",
+        ""
       ]
     },
     {
@@ -344,7 +374,12 @@
         "TOMAN",
         "rezvanpakhsh_woocommerce_store_api",
         "https://rezvanpakhsh.com/wp-json/wc/store/v1/products",
-        "2026-11-17T00:00:00+00:00"
+        "2026-11-17T00:00:00+00:00",
+        480000,
+        40000,
+        500000,
+        41667,
+        ""
       ]
     },
     {
@@ -401,7 +436,12 @@
         "TOMAN",
         "rezvanpakhsh_woocommerce_store_api",
         "https://rezvanpakhsh.com/wp-json/wc/store/v1/products",
-        "2026-11-17T00:00:00+00:00"
+        "2026-11-17T00:00:00+00:00",
+        480000,
+        "",
+        500000,
+        "",
+        ""
       ]
     },
     {
@@ -445,7 +485,12 @@
         "TOMAN",
         "rezvanpakhsh_woocommerce_store_api",
         "https://rezvanpakhsh.com/wp-json/wc/store/v1/products",
-        "2026-11-17T00:00:00+00:00"
+        "2026-11-17T00:00:00+00:00",
+        480000,
+        24000,
+        500000,
+        25000,
+        ""
       ]
     },
     {
@@ -502,7 +547,12 @@
         "TOMAN",
         "rezvanpakhsh_woocommerce_store_api",
         "https://rezvanpakhsh.com/wp-json/wc/store/v1/products",
-        "2026-11-17T00:00:00+00:00"
+        "2026-11-17T00:00:00+00:00",
+        480000,
+        80000,
+        500000,
+        83333,
+        ""
       ]
     },
     {
@@ -546,7 +596,12 @@
         "TOMAN",
         "rezvanpakhsh_woocommerce_store_api",
         "https://rezvanpakhsh.com/wp-json/wc/store/v1/products",
-        "2026-11-17T00:00:00+00:00"
+        "2026-11-17T00:00:00+00:00",
+        480000,
+        40000,
+        500000,
+        41667,
+        ""
       ]
     },
     {
@@ -590,7 +645,12 @@
         "TOMAN",
         "rezvanpakhsh_woocommerce_store_api",
         "https://rezvanpakhsh.com/wp-json/wc/store/v1/products",
-        "2026-11-17T00:00:00+00:00"
+        "2026-11-17T00:00:00+00:00",
+        480000,
+        "",
+        500000,
+        "",
+        ""
       ]
     }
   ],

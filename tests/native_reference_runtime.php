@@ -85,10 +85,10 @@ same(molavi_domain_reference_refresh_state()['state'],'updated','interrupted act
 function wp_remote_retrieve_headers($response){return $response['headers'];}
 function wp_remote_retrieve_response_code($response){return $response['status'];}
 function wp_remote_retrieve_body($response){return $response['body'];}
-function molavi_domain_http($method,$url,$args){parse_str((string)parse_url($url,PHP_URL_QUERY),$query);$page=(int)$query['page'];$GLOBALS['source_calls']++;
- $generation=(int)ceil($GLOBALS['source_calls']/2);$total=$page===2&&($generation===1||!empty($GLOBALS['source_unstable']))?102:101;
- $all=$GLOBALS['source_products'];$rows=array_slice($all,($page-1)*100,100);
- return ['status'=>200,'headers'=>['x-wp-total'=>(string)$total,'x-wp-totalpages'=>'2'],'body'=>json_encode($rows)];}
+function molavi_domain_http($method,$url,$args){parse_str((string)parse_url($url,PHP_URL_QUERY),$query);$page=(int)$query['page'];$size=(int)($query['per_page']??100);$GLOBALS['source_calls']++;
+ $generation=(int)ceil($GLOBALS['source_calls']/2);$total=!empty($GLOBALS['source_stable'])?101:($page===2&&($generation===1||!empty($GLOBALS['source_unstable']))?102:101);
+ $all=$GLOBALS['source_products'];$rows=array_slice($all,($page-1)*$size,$size);
+ return ['status'=>200,'headers'=>['x-wp-total'=>(string)$total,'x-wp-totalpages'=>(string)(int)ceil($total/$size)],'body'=>json_encode($rows)];}
 $GLOBALS['source_products']=[];for($i=0;$i<101;$i++){$raw=$base['_source_products'][0];$raw['id']=60000+$i;$raw['sku']='SYNTH-GENERATION-'.$i;$GLOBALS['source_products'][]=$raw;}
 $GLOBALS['source_calls']=0;$candidate=molavi_domain_reference_fetch_products();
 same(count($candidate['_source_products']),101,'source change retries a complete generation');same($GLOBALS['source_calls'],4,'source retry starts at page one exactly once');
@@ -125,4 +125,54 @@ $decision['choice']='pause_review';
 same(molavi_domain_reference_api($decision,'wp:7')['applied_count'],1,'a pause applies to the outstanding failure');
 $paused=molavi_domain_reference_snapshots([])['reference_review'];
 same([$paused['state'],$paused['decision_token']],['paused',null],'the paused panel leads the owner to refresh');
+// FIX-R1: a failed attempt's error survives the next attempt's start.
+reset_reference();$GLOBALS['sheet']=[];$GLOBALS['writes']=[];
+$failedFirst=molavi_domain_reference_refresh(true,static function(){molavi_domain_fail('woocommerce_http_503',503);},$clock+20000);
+same($failedFirst['state'],'failed','refresh failure recorded for preservation check');
+same($failedFirst['error_code'],'woocommerce_http_503','refresh failure keeps its code');
+$seenError=null;
+$stagedRetry=molavi_domain_reference_refresh(true,static function()use($base,&$seenError){$seenError=molavi_domain_reference_refresh_state()['error_code']??null;return $base;},$clock+20100);
+same($seenError,'woocommerce_http_503','a running retry still shows the last failure');
+same($stagedRetry['state'],'staged','the retry stages after a failure');
+same(molavi_domain_reference_refresh_state()['error_code'],null,'a staged retry clears the last failure');
+// FIX-R1: a crashed attempt is recorded as a stall, with where it stopped.
+reset_reference();
+molavi_domain_tx('reference',static function(SQLite3 $db)use($clock):void {
+    molavi_domain_sql($db,'INSERT OR IGNORE INTO reference_refresh_state(singleton) VALUES (1)');
+    molavi_domain_sql($db,"UPDATE reference_refresh_state SET last_attempt_at=?,state='running',occurrence_id='synthetic-stall',snapshot_id=NULL,error_code=NULL,change_summary=NULL",['2026-11-16T00:00:00+00:00']);
+    molavi_domain_sql($db,'INSERT OR REPLACE INTO reference_refresh_progress VALUES (1,?,?)',['synthetic-stall',molavi_domain_json(['phase'=>'fetching','updated_at'=>$clock+20200-3600,'completed'=>17,'total'=>35,'records'=>1700,'total_records'=>3416])]);
+    molavi_domain_sql($db,'INSERT OR REPLACE INTO molavi_state_locks VALUES (?,?,?)',['refresh',str_repeat('c',32),(int)($clock+20200)-60]);
+});
+$stallView=molavi_domain_read('reference',static fn(SQLite3 $db)=>molavi_domain_reference_refresh_view($db,$clock+20200));
+same($stallView['stalled'],true,'an expired lease with old progress is a stall, not a run');
+same($stallView['retry_at'],(int)($clock+20200),'the stall names now as the next retry once the lease has expired');
+$seenStall=null;$seenDetail=null;
+molavi_domain_reference_refresh(false,static function()use($base,&$seenStall,&$seenDetail){
+    $state=molavi_domain_reference_refresh_state();$seenStall=$state['error_code']??null;
+    $seenDetail=molavi_domain_read('reference',static function(SQLite3 $db)use($state){$row=molavi_domain_row($db,'SELECT detail_json FROM reference_refresh_progress WHERE occurrence_id=?',[$state['occurrence_id']]);return $row?molavi_domain_decode($row['detail_json']):null;});
+    return $base;
+},$clock+20200);
+same($seenStall,'refresh_stalled','a crashed attempt carries its stall as the last error');
+same($seenDetail['previous_stall']['completed']??null,17,'the stalled page is kept with the new attempt');
+same($seenDetail['previous_stall']['total']??null,35,'the stalled total is kept with the new attempt');
+same($seenDetail['previous_stall']['phase']??null,'fetching','the stalled phase is kept with the new attempt');
+// FIX-R1: a fetch that runs out of its time budget pauses (partial) and
+// the next attempt resumes from the checkpointed pages.
+reset_reference();
+$GLOBALS['source_stable']=true;$GLOBALS['source_calls']=0;
+$GLOBALS['source_products']=[];for($i=0;$i<101;$i++){$raw=$base['_source_products'][0];$raw['id']=60000+$i;$raw['sku']='SYNTH-RESUME-'.$i;$GLOBALS['source_products'][]=$raw;}
+$GLOBALS['fake_clock_calls']=0;
+$fakeClock=static function():float{$GLOBALS['fake_clock_calls']++;return 1000000.0+($GLOBALS['fake_clock_calls']>3?999.0:0.0);};
+$partial=molavi_domain_reference_refresh(true,static function()use($fakeClock){return molavi_domain_reference_fetch_products(50,null,90.0,$fakeClock,true);},$clock+20300);
+same($partial['state'],'partial','a timed-out fetch pauses instead of failing');
+same($partial['error_code'],'woocommerce_fetch_timeout','the pause carries its reason');
+same(molavi_domain_reference_refresh_state()['state'],'partial','the pause is the stored refresh state');
+same($GLOBALS['source_calls'],2,'the paused fetch stopped after the first batch page');
+same(molavi_domain_read('reference',static fn(SQLite3 $db)=>(int)molavi_domain_row($db,'SELECT COUNT(*) AS n FROM reference_refresh_pages')['n']),1,'the fetched page is checkpointed');
+same(molavi_domain_reference_finish_refresh($partial)['product_reconciliation_state'],'partial','a paused refresh stays due for its next tick');
+$resume=molavi_domain_reference_refresh(false,static function(){return molavi_domain_reference_fetch_products(50,null,90.0,null,true);},$clock+20400);
+same($resume['state'],'staged','the next tick resumes and stages the full fetch');
+same($GLOBALS['source_calls'],4,'the resumed fetch re-reads only the missing pages');
+same(molavi_domain_read('reference',static fn(SQLite3 $db)=>(int)molavi_domain_row($db,'SELECT COUNT(*) AS n FROM reference_refresh_pages')['n']),0,'staging clears the checkpoint');
+unset($GLOBALS['source_stable']);
 foreach(glob($root.'/*') as $file)unlink($file);rmdir($root);echo 'PASS native reference runtime '.$count." cases\n";

@@ -109,6 +109,10 @@ function buildWorkflowsSandbox(source) {
     for (const name of G9_FNS) {
         if (source.includes(`function ${name}(`)) pieces.push(extractFunction(source, name));
     }
+    // FIX-4: workbenchNextStep now calls workbenchHasChangedLinkCheck; it
+    // exists only in files newer than the 4ac67ae base, so extract it when
+    // present (the base's workbenchNextStep never calls it).
+    if (source.includes('function workbenchHasChangedLinkCheck(')) pieces.push(extractFunction(source, 'workbenchHasChangedLinkCheck'));
     const code = `
 let workbenchData = null;
 let data = null;
@@ -568,13 +572,22 @@ function renderStorefront(wooState, preferred = 'storefront') {
         // helper and renders it in both paths: the old inline block
         // lines appear as deletions and the helper + two call sites as
         // additions (its comment lines are filtered out with the others).
-        check('(g) workflows.js deletions vs the base are exactly the two old G12 lines + the three render-merged-cases removals + the verification-section move + the source-post-status removal', wfDeleted, [
+        check('(g) workflows.js deletions vs the base are exactly the two old G12 lines + the three render-merged-cases removals + the verification-section move + the source-post-status removal + the FIX-4 rewrites', wfDeleted, [
+            "function workbenchPriceRegisterSection(product, offer, container, verify, reviewStoreAvailable) {",
+            "register.appendChild(node('summary', 'ثبت قیمت از پیام'));",
+            "const storedPrice = Number(offer.sale_price);",
+            "registerForm.appendChild(node('p', 'اگر قیمت را نمی‌دانید، پیام تازه از تأمین‌کننده بخواهید.', 'molavi-price-register-hint'));",
+            "const registerSubmit = node('button', 'ثبت قیمت و تأیید', 'button button-primary');",
+            "const registerNote = url !== '' ? `مالک قیمت را از پیام ثبت کرد؛ منبع: ${url}` : 'مالک قیمت را از پیام ثبت کرد.';",
             "return 'انتشار متوقف است؛ پیام اصلی یا پیشنهاد تازهٔ همین کالا را به ربات بفرستید.';",
             "if (key === 'stock') return 'پس از اعلام موجودی، پیام تازهٔ تأمین‌کننده را به ربات بفرستید.';",
+            "unverified:'قیمت عادی ثبت‌شده به مدرک به‌روز نیاز دارد.'})[product.status?.regular_price_state]||'قیمت عادی را بررسی کنید.';",
             "parentName:product.name, parentChannel:product.channel, parentImageId:product.ai[0]?.image_file_id",
             "content.replaceChildren(node('p','در حال بررسی مرجع این پیشنهاد…'));",
             "content.replaceChildren(renderCase());",
             "content.replaceChildren(notice('پیشنهادهای خودکار دریافت نشد. می‌توانید فهرست را جست‌وجو کنید یا بدون مرجع ادامه دهید.','warning'),retry,renderCase());",
+            "verify.disabled = offer.acknowledged || !sourceRevision || !contextStored.supplier_prices;",
+            "if (!offer.acknowledged && sourceRevision) verify.addEventListener('click', async () => {",
             "let currentPriceVerified = null;",
             "const sourceVerificationItems = relatedItems.filter(row => row",
             "&& (row.historical_reextract || row.source_current_check_required || sourceStockNeedsReview || sourcePriceUnclear));",
@@ -611,7 +624,7 @@ function renderStorefront(wooState, preferred = 'storefront') {
             "else verifiedCurrentPriceCases.delete(key);",
             "});",
             "refreshConfirmationGates();",
-            "});",
+            "});"
         ]);
         // Copy only: ignoring comment lines, the added lines in the
         // workflows diff are exactly the two new return lines plus the
@@ -622,12 +635,39 @@ function renderStorefront(wooState, preferred = 'storefront') {
         // parentLinkCheck pass-through and the link-check status block
         // in aiCaseCard; its comment lines are filtered out with the
         // others) — no new button, handler, endpoint call or function.
+        // The FIX-4 every-card fix (2026-11-26) rewrites nine more lines
+        // (the G1 register form's optional options parameter, the
+        // supplier-tab verify guard, the unverified first-view line) and
+        // adds 54 non-comment code lines (the link-changed adopt form,
+        // the uncheckable follow-up button, the two new helpers, the
+        // changed next-step text, the no-picture / underlying-hold copy;
+        // its comment lines are filtered out with the others).
         const wfAdded = wfDiff.split('\n').filter((line) => line.startsWith('+') && !line.startsWith('+++'))
             .map((line) => line.slice(1).trim()).filter(Boolean)
             .filter((line) => !line.startsWith('//'));
-        check('(g) workflows.js additions vs the base are exactly the two new G12 returns + the seven render-merged-cases code lines + the verification-section helper + the detected-vs-confirmed comparison lines + the source-post-status lines', wfAdded, [
+        check('(g) workflows.js additions vs the base are exactly the two new G12 returns + the seven render-merged-cases code lines + the verification-section helper + the detected-vs-confirmed comparison lines + the source-post-status lines + the FIX-4 lines', wfAdded, [
+            "function workbenchPriceRegisterSection(product, offer, container, verify, reviewStoreAvailable, options = {}) {",
+            "register.appendChild(node('summary', options.title || 'ثبت قیمت از پیام'));",
+            "const storedPrice = options.prefillPrice !== undefined",
+            "? Number(options.prefillPrice) : Number(offer.sale_price);",
+            "registerForm.appendChild(node('p', options.hint || 'اگر قیمت را نمی‌دانید، پیام تازه از تأمین‌کننده بخواهید.', 'molavi-price-register-hint'));",
+            "const registerSubmit = node('button', options.submitLabel || 'ثبت قیمت و تأیید', 'button button-primary');",
+            "const registerNote = (options.note || 'مالک قیمت را از پیام ثبت کرد')",
+            "+ (url !== '' ? `؛ منبع: ${url}` : '.');",
+            "function workbenchHasChangedLinkCheck(product) {",
+            "return (product.supplierPrices || []).find(offer => !offer.acknowledged",
+            "&& offer.link_check && offer.link_check.outcome === 'changed'",
+            "&& Number.isFinite(Number(offer.link_check.live_price))",
+            "&& Number(offer.link_check.live_price) > 0) || null;",
+            "}",
+            "function workbenchHasUncheckableLinkCheck(product) {",
+            "return (product.supplierPrices || []).find(offer => !offer.acknowledged",
+            "&& offer.link_check && offer.link_check.outcome === 'uncheckable') || null;",
+            "}",
             "return 'پیام تازه را به ربات بفرستید؛ وقتی استخراج آماده شد، همین کارت به‌روز می‌شود.';",
             "if (key === 'stock') return 'وقتی تأمین‌کننده موجودی را اعلام کرد، پیام تازه را به ربات بفرستید.';",
+            "if (workbenchHasChangedLinkCheck(product)) return 'قیمت در لینک منبع تغییر کرده است؛ قیمت تازه را بپذیرید یا بررسی را کنار بگذارید.';",
+            "unverified:'قیمت عادی ثبت‌شده به مدرک به‌روز نیاز دارد؛ مهلت تأییدی برای آن ثبت نشده است. یک نقل‌قول را انتخاب کنید یا قیمت را دستی تأیید کنید.'})[product.status?.regular_price_state]||'قیمت عادی را بررسی کنید.';",
             "parentName:product.name, parentChannel:product.channel, parentImageId:product.ai[0]?.image_file_id,",
             "parentLinkCheck:product.link_check || null",
             "content.replaceChildren(renderCase());",
@@ -637,6 +677,46 @@ function renderStorefront(wooState, preferred = 'storefront') {
             "candidateNotice=node('div',null,'molavi-ai-candidate-error');",
             "candidateNotice.append(notice('پیشنهادهای خودکار دریافت نشد. می‌توانید فهرست را جست‌وجو کنید یا بدون مرجع ادامه دهید.','warning'),retry);",
             "content.prepend(candidateNotice);",
+            "if (linkCheck && linkCheck.outcome === 'uncheckable' && !offer.acknowledged) {",
+            "const followUp = node('div', null, 'molavi-card-source-tools');",
+            "const followUpButton = node('button', 'پیگیری پیام تأمین‌کننده', 'button button-secondary');",
+            "followUpButton.type = 'button';",
+            "followUpButton.addEventListener('click', () => openSourceReviewTool(product));",
+            "followUp.appendChild(followUpButton);",
+            "section.appendChild(followUp);",
+            "section.appendChild(node('p', 'پیام منبع را بخوانید؛ اگر قیمت در پیام درست است، آن را با دکمهٔ تأیید زیر بررسی کنید. اگر پیام تازه لازم است، از تأمین‌کننده بخواهید.'));",
+            "}",
+            "const linkChanged = linkCheck && linkCheck.outcome === 'changed';",
+            "verify.disabled = offer.acknowledged || !sourceRevision || !contextStored.supplier_prices || linkChanged;",
+            "if (!offer.acknowledged && linkChanged",
+            "&& Number.isFinite(Number(linkCheck.live_price)) && Number(linkCheck.live_price) > 0) {",
+            "section.appendChild(node('p', 'قیمت ثبت‌شده دیگر جاری نیست؛ برای تأیید، قیمت تازهٔ لینک را بپذیرید. اگر قیمت تازه اشتباه است، این بررسی را از پایین برگه کنار بگذارید.'));",
+            "section.appendChild(workbenchPriceRegisterSection(product, offer, section, verify, reviewStoreAvailable, {",
+            "title: 'استفاده از قیمت تازهٔ لینک',",
+            "prefillPrice: Number(linkCheck.live_price),",
+            "submitLabel: 'پذیرفتن قیمت تازه و تأیید',",
+            "hint: 'قیمت تازه از لینک اصلی خوانده شده است؛ پیش از پذیرفتن، پیام منبع را باز کنید و بررسی کنید.',",
+            "note: 'مالک قیمت تازهٔ لینک را پذیرفت'",
+            "}));",
+            "}",
+            "if (!offer.acknowledged && sourceRevision && !linkChanged) verify.addEventListener('click', async () => {",
+            "const autopilotImageLine = summary => {",
+            "if (!summary) return '';",
+            "if (!/تصویر/.test(`${summary.hold_reason || ''} ${summary.reason || ''}`)) return '';",
+            "return 'بدون تصویر منتشر نمی‌شود. تصویر را می‌توانید از نقل‌قول بازار بگیرید («استفاده به‌عنوان تصویر اصلی» در برگهٔ قیمت عادی) یا پیام تازهٔ تأمین‌کننده با عکس بخواهید.';",
+            "};",
+            "const autopilotUnderlyingHoldLine = (summary, holds, productId) => {",
+            "if (!summary || summary.hold_reason !== 'کالا در توقف است.') return '';",
+            "const underlying = (holds || []).filter(hold =>",
+            "String(hold.product_id) === String(productId) && hold.gate !== 'admission');",
+            "if (!underlying.length) return '';",
+            "return `توقف زیرین: ${underlying.map(hold =>",
+            "`${autopilotGateLabels[hold.gate] || hold.gate} — ${hold.reason || 'توقف ثبت شده است.'}`).join(' · ')}`;",
+            "};",
+            "const imageLine = autopilotImageLine(summary);",
+            "if (imageLine) section.appendChild(node('p', imageLine, 'molavi-autopilot-state-reason'));",
+            "const underlyingLine = autopilotUnderlyingHoldLine(summary, holds, product.product_id);",
+            "if (underlyingLine) section.appendChild(node('p', underlyingLine, 'molavi-autopilot-state-reason'));",
             "const confirmedSalePrice = normalizedAiInteger(item.confirmed_sale_price);",
             "if (confirmedSalePrice && visibleSupplierPrice && confirmedSalePrice !== visibleSupplierPrice) {",
             "priceFacts.push(['قیمت شناسایی‌شده در برابر تأییدشده', `${amount(visibleSupplierPrice)} در برابر ${amount(confirmedSalePrice)}`]);",
@@ -705,7 +785,7 @@ function renderStorefront(wooState, preferred = 'storefront') {
             "const verified = buildSourceVerificationSection();",
             "if (verified) { currentPriceVerified = verified.checkbox; card.appendChild(verified.section); }",
             "const verified = buildSourceVerificationSection(() => refreshConfirmationGates());",
-            "if (verified) { currentPriceVerified = verified.checkbox; card.appendChild(verified.section); }",
+            "if (verified) { currentPriceVerified = verified.checkbox; card.appendChild(verified.section); }"
         ]);
         const dashDiff = execSync(`git diff ${BASE} -- shop-wp/molavi-shop/includes/owner-dashboard.js`, { cwd: repoRoot, encoding: 'utf8' });
         const dashDeleted = dashDiff.split('\n').filter((line) => line.startsWith('-') && !line.startsWith('---'))

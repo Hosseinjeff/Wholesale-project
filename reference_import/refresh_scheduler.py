@@ -87,9 +87,12 @@ class ReferenceRefreshScheduler:
             previous=self.state() or {}
             last=previous.get('last_attempt_at')
             running_crash=previous.get('state')=='running'
+            # A budgeted pause ('partial') is still in progress across
+            # ticks: the next tick resumes it instead of waiting a day.
+            resumable=running_crash or previous.get('state')=='partial'
             due=True
             elapsed=self.interval_seconds
-            if last and not running_crash:
+            if last and not resumable:
                 try:
                     elapsed=(now-datetime.fromisoformat(last)).total_seconds()
                     due=elapsed>=self.interval_seconds
@@ -97,11 +100,11 @@ class ReferenceRefreshScheduler:
                     elapsed=self.interval_seconds
                     due=True
             if force:
-                if previous.get('state') not in (None, 'failed', 'running', 'staged', 'updated', 'unchanged'):
+                if previous.get('state') not in (None, 'failed', 'running', 'staged', 'updated', 'unchanged', 'partial'):
                     due = False
                 else:
                     due = True
-                    if last and not running_crash:
+                    if last and not resumable:
                         retry_wait = max(0, 60 - int(elapsed))
                         if retry_wait:
                             return {'state':'cooldown','retry_after_seconds':retry_wait}
@@ -110,10 +113,15 @@ class ReferenceRefreshScheduler:
             if running_crash and previous.get('occurrence_id'):
                 self.store.record_refresh_failure(previous['occurrence_id'])
             occurrence=now.strftime('%Y%m%dT%H%M%S')+'Z-'+uuid.uuid4().hex
+            # Never wipe the last known failure when a new attempt starts:
+            # a running attempt shows the previous attempt's error until it
+            # succeeds (cleared) or fails (replaced). A crashed attempt
+            # carries 'refresh_stalled' instead.
+            carried_error='refresh_stalled' if running_crash else previous.get('error_code')
             with self._connect() as db:
                 db.execute('''UPDATE reference_refresh_state SET last_attempt_at=?,state='running',
-                    occurrence_id=?,snapshot_id=NULL,error_code=NULL,change_summary=NULL WHERE singleton=1''',
-                    (now.isoformat(),occurrence))
+                    occurrence_id=?,snapshot_id=NULL,error_code=?,change_summary=NULL WHERE singleton=1''',
+                    (now.isoformat(),occurrence,carried_error))
             try:
                 candidate=(refresh or self._refresh_woocommerce)()
                 staged=self.store.stage_incremental(candidate)

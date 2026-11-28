@@ -139,6 +139,23 @@ function molavi_runtime_tick():void {
             &&molavi_domain_route_enabled('GET','/pipeline/market-agreement')){
             try{molavi_domain_market_agreement_tick($now);}catch(Throwable $e){error_log('[molavi-native] market_agreement_pending');}
         }
+        // Owner-approved regular-price catalogue/sheet sync: same
+        // native-route gate as the link-check tick (GET
+        // /pipeline/supplier-link-checks) — no new native route is needed.
+        // Runs right before the auto-verify tick so a synced regular
+        // price is current when the auto-verify gate checks it. Cap 50
+        // products written per tick.
+        if(function_exists('molavi_domain_regular_price_sync_tick')&&get_option('molavi_state_active',false)
+            &&molavi_domain_route_enabled('GET','/pipeline/supplier-link-checks')){
+            try{molavi_domain_regular_price_sync_tick($now);}catch(Throwable $e){error_log('[molavi-native] regular_price_sync_pending');}
+        }
+        // Owner-approved supplier auto-verify: same native-route gate as the
+        // link-check tick (GET /pipeline/supplier-link-checks) — no new
+        // native route is needed. Cap 5 verified per tick.
+        if(function_exists('molavi_domain_auto_verify_tick')&&get_option('molavi_state_active',false)
+            &&molavi_domain_route_enabled('GET','/pipeline/supplier-link-checks')){
+            try{molavi_domain_auto_verify_tick($now);}catch(Throwable $e){error_log('[molavi-native] supplier_auto_verify_pending');}
+        }
         if(function_exists('molavi_domain_autopilot_tick')&&get_option('molavi_state_active',false)){
             try{molavi_domain_autopilot_tick($now);}catch(Throwable $e){error_log('[molavi-native] autopilot_pending');}
         }

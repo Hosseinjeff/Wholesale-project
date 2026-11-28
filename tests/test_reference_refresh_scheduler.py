@@ -65,6 +65,40 @@ class ReferenceRefreshSchedulerTests(unittest.TestCase):
         self.assertEqual(snapshots[1]['snapshot_id'],first['snapshot_id'])
         self.assertIsNone(self.scheduler.store.active_snapshot())
 
+    def test_failed_attempt_error_survives_next_attempt_start(self):
+        self.scheduler.run_if_due(lambda:(_ for _ in ()).throw(
+            ImportFailure('private detail',code='gemini_http_403')),
+            now=self.now)
+        seen={}
+        def fetch():
+            seen['error_code']=self.scheduler.state()['error_code']
+            return candidate(self.now+timedelta(seconds=120))
+        result=self.scheduler.run_if_due(fetch,now=self.now+timedelta(seconds=120),force=True)
+        self.assertEqual(seen['error_code'],'gemini_http_403')
+        self.assertEqual(result['state'],'staged')
+        self.assertIsNone(self.scheduler.state()['error_code'])
+
+    def test_crashed_attempt_carries_refresh_stalled(self):
+        with self.scheduler._connect() as db:
+            db.execute('''UPDATE reference_refresh_state SET last_attempt_at=?,state='running',
+                occurrence_id='crashed-attempt' WHERE singleton=1''',(self.now.isoformat(),))
+        seen={}
+        def fetch():
+            seen['error_code']=self.scheduler.state()['error_code']
+            return candidate(self.now+timedelta(minutes=3))
+        result=self.scheduler.run_if_due(fetch,now=self.now+timedelta(minutes=3))
+        self.assertEqual(result['state'],'staged')
+        self.assertEqual(seen['error_code'],'refresh_stalled')
+        self.assertEqual(self.scheduler.store.pending()[0]['event_id'],'refresh:crashed-attempt')
+
+    def test_partial_refresh_is_due_before_daily_interval(self):
+        with self.scheduler._connect() as db:
+            db.execute('''UPDATE reference_refresh_state SET last_attempt_at=?,state='partial',
+                occurrence_id='paused-attempt' WHERE singleton=1''',(self.now.isoformat(),))
+        result=self.scheduler.run_if_due(lambda:candidate(self.now+timedelta(minutes=2)),
+            now=self.now+timedelta(minutes=2))
+        self.assertEqual(result['state'],'staged')
+
     def test_worker_crash_is_recorded_before_recovery_attempt(self):
         with self.scheduler._connect() as db:
             db.execute('''UPDATE reference_refresh_state SET last_attempt_at=?,state='running',

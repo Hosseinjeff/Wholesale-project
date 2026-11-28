@@ -16,7 +16,7 @@ function molavi_domain_http($method,$url,$options){
         ? [['name'=>'بیسکویت شکلاتی بنیس','permalink'=>'https://rezvanpakhsh.com/product/sample']] : [])];
 }
 foreach(['state-host','domain-core','domain-schemas','domain-orders','domain-gateway','domain-reference-parser','domain-reference-store','domain-reference-workflow','domain-products','domain-publisher',
-    'domain-product-derivation','domain-sheet-conflicts','domain-jobs','domain-bot-capabilities','domain-reference-matching','domain-ai-review-model','domain-reference-reviews'] as $file)require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-'.$file.'.php';
+    'domain-product-derivation','domain-sheet-conflicts','domain-jobs','domain-bot-capabilities','domain-reference-matching','domain-ai-review-model','domain-reference-reviews','domain-reference-matches'] as $file)require __DIR__.'/../shop-wp/molavi-shop/runtime-host/molavi-'.$file.'.php';
 $GLOBALS['review_options']=['molavi_bot_capabilities_v1'=>['schema_version'=>1,'ai_configured'=>true,'extraction_policy_version'=>'gemini-'.str_repeat('a',16),'suggestion_policy_version'=>str_repeat('b',64),'image_extraction_enabled'=>false]];
 function molavi_domain_reference_use(){return $GLOBALS['review_eligibility'];}
 function molavi_domain_sheets($names,$fresh=false){return $GLOBALS['review_tables'];}

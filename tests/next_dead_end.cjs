@@ -97,6 +97,10 @@ function buildWorkflowsSandbox(source) {
     for (const name of HOLD_FNS) pieces.push(extractFunction(source, name));
     const hasG1 = source.includes('function workbenchNeedsPriceRegistration(');
     if (hasG1) pieces.push(extractFunction(source, 'workbenchNeedsPriceRegistration'));
+    // FIX-4: workbenchNextStep now calls workbenchHasChangedLinkCheck; it
+    // exists only in files newer than the 4ac67ae base, so extract it when
+    // present (the base's workbenchNextStep never calls it).
+    if (source.includes('function workbenchHasChangedLinkCheck(')) pieces.push(extractFunction(source, 'workbenchHasChangedLinkCheck'));
     const code = `
 let workbenchData = null;
 let data = null;
@@ -350,6 +354,30 @@ try {
         'verification.append(checkLabel);card.appendChild(verification);',
         "if (currentPriceVerified) currentPriceVerified.addEventListener('change', () => {",
         'if (currentPriceVerified.checked) verifiedCurrentPriceCases.add(key);',
+        // FIX-4 rewrote the G1 register form (optional `options` parameter:
+        // title/prefill/submit/hint/note) and the supplier-tab verify guard,
+        // and rewrote the unverified first-view line with the deadline fact
+        // — the old one-liners survive only in their new wording, so they
+        // are named rewrites, not lost lines. Covered by
+        // tests/every_card_paths.cjs.
+        "unverified:'قیمت عادی ثبت‌شده به مدرک به‌روز نیاز دارد.'})[product.status?.regular_price_state]||'قیمت عادی را بررسی کنید.';",
+        'verify.disabled = offer.acknowledged || !sourceRevision || !contextStored.supplier_prices;',
+        "register.appendChild(node('summary', 'ثبت قیمت از پیام'));",
+        'const storedPrice = Number(offer.sale_price);',
+        "registerForm.appendChild(node('p', 'اگر قیمت را نمی‌دانید، پیام تازه از تأمین‌کننده بخواهید.', 'molavi-price-register-hint'));",
+        "const registerSubmit = node('button', 'ثبت قیمت و تأیید', 'button button-primary');",
+        "const registerNote = url !== '' ? `مالک قیمت را از پیام ثبت کرد؛ منبع: ${url}` : 'مالک قیمت را از پیام ثبت کرد.';",
+        "if (!offer.acknowledged && sourceRevision) verify.addEventListener('click', async () => {",
+        // Slice 3 (persistent matching) rewrote the three workbenchNextStep
+        // one-liners so a reconcile-written Reference Approval State names
+        // its path forward: the old texts survive as the fallbacks inside
+        // the state-aware returns. Covered by
+        // tests/match_feed_digest_card.cjs.
+        "if (key === 'references') return 'مرجع درست و مبنای قیمت را انتخاب کنید.';",
+        "if (key === 'status') return product.status?.review_reason",
+        '? aiReviewReason(product.status.review_reason)',
+        ": 'مشخصات و قیمت‌های فعلی را بازبینی کنید تا درخواست انتشار بررسی شود.';",
+        "return 'برای این کالا اقدام بازی ثبت نشده است.';",
     ];
     // The render-merged-cases fix (2026-11-26) deliberately REMOVES two
     // lines in the ai candidate-deferred panel (they are not moved): the
