@@ -133,6 +133,10 @@ function buildSandbox(source) {
     for (const name of G9_FNS) {
         if (source.includes(`function ${name}(`)) pieces.push(extractFunction(source, name));
     }
+    // FIX-4: workbenchNextStep now calls workbenchHasChangedLinkCheck; it
+    // exists only in files newer than the 4ac67ae base, so extract it when
+    // present (the base's workbenchNextStep never calls it).
+    if (source.includes('function workbenchHasChangedLinkCheck(')) pieces.push(extractFunction(source, 'workbenchHasChangedLinkCheck'));
     for (const name of G5_CONSTS) {
         if (source.includes(`const ${name} = `)) pieces.push(extractConst(source, name));
     }
@@ -271,8 +275,11 @@ check('(a) helper detects the unchanged check', current.workbenchHasUnchangedLin
 check('(b) no link check → generic supplier text', current.workbenchNextStep(noCheck, 'next'),
     'قیمت تأمین‌کننده را با پیشنهاد فعلی بررسی و تأیید کنید.');
 check('(b) helper is false without a check', current.workbenchHasUnchangedLinkCheck(noCheck), false);
-check('(b) changed check → generic supplier text (G2, not G9)', current.workbenchNextStep(changedCheck, 'next'),
-    'قیمت تأمین‌کننده را با پیشنهاد فعلی بررسی و تأیید کنید.');
+// FIX-4: a changed check now shows the adopt-or-dismiss text instead of
+// the G2 generic supplier text — verifying the stored price would write
+// false evidence, so the path is adopting the live price.
+check('(b) changed check → FIX-4 adopt/dismiss text (not G2 generic, not G9)', current.workbenchNextStep(changedCheck, 'next'),
+    'قیمت در لینک منبع تغییر کرده است؛ قیمت تازه را بپذیرید یا بررسی را کنار بگذارید.');
 check('(b) helper is false for a changed check', current.workbenchHasUnchangedLinkCheck(changedCheck), false);
 check('(b) confirmed check → generic supplier text', current.workbenchNextStep(confirmedCheck, 'next'),
     'قیمت تأمین‌کننده را با پیشنهاد فعلی بررسی و تأیید کنید.');
@@ -399,11 +406,22 @@ try {
 } catch (error) {
     console.warn('WARNING: could not run git diff for the (h) removed-lines check:', error.message);
 }
-if (dashRemoved) check('(h) dashboard.js removals vs the 08202e8 base are exactly the old register gate + the restore-button class line + the eight streamline-view lines',
-    dashRemoved, [STREAMLINE_REMOVED[0], STREAMLINE_REMOVED[1], STREAMLINE_REMOVED[2], STREAMLINE_REMOVED[3], STREAMLINE_REMOVED[4], STREAMLINE_REMOVED[5],
+if (dashRemoved) {
+    // Either the pre-slice-3 list, or that list plus the slice-3 dismiss
+    // widening (see the comment above) — nothing else may remove lines.
+    const expectedBefore = [STREAMLINE_REMOVED[0], STREAMLINE_REMOVED[1], STREAMLINE_REMOVED[2], STREAMLINE_REMOVED[3], STREAMLINE_REMOVED[4], STREAMLINE_REMOVED[5],
         "},'md-button md-primary'));",
         "const needsPriceRegistration = preferred==='supplier_prices' && model.needsPriceRegistration",
-        STREAMLINE_REMOVED[6], STREAMLINE_REMOVED[7]]);
+        STREAMLINE_REMOVED[6], STREAMLINE_REMOVED[7]];
+    const expectedAfter = [STREAMLINE_REMOVED[0], STREAMLINE_REMOVED[1], "if (item.automaticMarket) {",
+        STREAMLINE_REMOVED[2], STREAMLINE_REMOVED[3], STREAMLINE_REMOVED[4], STREAMLINE_REMOVED[5],
+        "},'md-button md-primary'));",
+        "const needsPriceRegistration = preferred==='supplier_prices' && model.needsPriceRegistration",
+        STREAMLINE_REMOVED[6], STREAMLINE_REMOVED[7]];
+    const removedJson = JSON.stringify(dashRemoved);
+    check('(h) dashboard.js removals vs the 08202e8 base are exactly the old register gate + the restore-button class line + the eight streamline-view lines',
+        removedJson === JSON.stringify(expectedBefore) || removedJson === JSON.stringify(expectedAfter), true);
+}
 checkSource('(h) the deferred restore button class is conditional on the register button',
     dashboardSrc, "},needsPriceRegistration?'md-button':'md-button md-primary'));");
 checkSource('(h) the G4 dead-end line is still in the dashboard', dashboardSrc, 'وضعیت این کالا روشن نیست — دلیل را بررسی کنید.');
@@ -413,7 +431,9 @@ if (base) {
     const fixtures = [
         ['confirm-queue (G9)', confirmQueue, 'لینک منبع بررسی شد؛ قیمت بدون تغییر است. با تأمین‌کننده تأیید کنید.'],
         ['no link check', noCheck, 'قیمت تأمین‌کننده را با پیشنهاد فعلی بررسی و تأیید کنید.'],
-        ['changed check', changedCheck, 'قیمت تأمین‌کننده را با پیشنهاد فعلی بررسی و تأیید کنید.'],
+        // FIX-4: a changed check now shows the adopt/dismiss text; the base
+        // had the G2 generic text (checked below, like the G9 case).
+        ['changed check', changedCheck, 'قیمت در لینک منبع تغییر کرده است؛ قیمت تازه را بپذیرید یا بررسی را کنار بگذارید.'],
         ['confirmed check', confirmedCheck, 'قیمت تأمین‌کننده را با پیشنهاد فعلی بررسی و تأیید کنید.'],
     ];
     base.setData(emptyData);
@@ -421,8 +441,8 @@ if (base) {
         const baseText = base.workbenchNextStep(fixture, 'next');
         const newText = current.workbenchNextStep(fixture, 'next');
         check(`(i) differential ${label} — new text is the expected text`, newText, expected);
-        if (label === 'confirm-queue (G9)') {
-            check('(i) differential confirm-queue — base had the generic text', baseText,
+        if (label === 'confirm-queue (G9)' || label === 'changed check') {
+            check(`(i) differential ${label} — base had the generic text`, baseText,
                 'قیمت تأمین‌کننده را با پیشنهاد فعلی بررسی و تأیید کنید.');
         } else {
             check(`(i) differential ${label} — unchanged from base`, newText, baseText);

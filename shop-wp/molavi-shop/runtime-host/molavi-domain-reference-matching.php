@@ -53,10 +53,13 @@ function molavi_domain_match_values(array $product): array {
 }
 function molavi_domain_matching_index(array $rows): array {
     // One request-scoped snapshot, shared by every card in this response.
+    // Catalog rows are 21 columns (schema v1) or 26 (schema v2, two-price
+    // model). Columns [0]-[20] keep their meanings; [21]-[25] (supply /
+    // regular prices, anomaly flag) are ignored by matching.
     static $lastRows=null,$prepared=[];if($lastRows!==null&&$rows===$lastRows)return $prepared;
     $lastRows=$rows;$prepared=[];
     foreach($rows as $row){
-        if(!is_array($row)||count($row)!==21)continue;
+        if(!is_array($row)||(count($row)!==21&&count($row)!==26))continue;
         $reference=molavi_domain_matching_reference($row);
         if($reference['reference_id']==='')continue;
         $values=molavi_domain_match_values($reference);
@@ -148,7 +151,7 @@ function molavi_domain_reference_candidate_match(array $product,array $rows,arra
     if($name==='')return ['state'=>'needs_review','reason'=>'missing_name','candidates'=>[]];
     $candidates=[];
     foreach($rows as $row){
-        if(!is_array($row)||count($row)!==21)return ['state'=>'needs_review','reason'=>'invalid_reference_rows','candidates'=>[]];
+        if(!is_array($row)||(count($row)!==21&&count($row)!==26))return ['state'=>'needs_review','reason'=>'invalid_reference_rows','candidates'=>[]];
         if(molavi_domain_match_name(molavi_domain_py_value($row[1]??null,$row[0]??''))!==$name)continue;
         $compatible=true;
         foreach([['brand',12],['variant',11],['volume',8],['weight',9]] as [$key,$index]){
@@ -186,7 +189,7 @@ function molavi_domain_reference_candidate_match(array $product,array $rows,arra
     if(is_array($pinned)){
         $wanted=(string)molavi_domain_py_value($pinned['reference_id']??null);$selected=null;
         foreach($rows as $row){
-            if(!is_array($row)||count($row)!==21)continue;
+            if(!is_array($row)||(count($row)!==21&&count($row)!==26))continue;
             $candidate=molavi_domain_matching_reference($row);
             if($candidate['reference_id']===$wanted){$selected=$candidate;break;}
         }
