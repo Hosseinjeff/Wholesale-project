@@ -163,6 +163,8 @@ function molavi_domain_reference_finish_refresh(array $outcome): array {
 function molavi_domain_reference_api(array $body,string $actor): array {
     $action=$body['action']??null;
     if($action==='decide_reference_use')return molavi_domain_reference_group_decision($body,$actor);
+    if($action==='backfill_reference_matches')return molavi_domain_reference_backfill_api($body,$actor);
+    if($action==='retire_reference_match')return molavi_domain_reference_match_retire_api($body,$actor);
     if(!in_array($action,['refresh','review','activate'],true))molavi_domain_fail('invalid_body',400);
     if($action==='refresh'){
         molavi_domain_body_keys($body,['action','expected_last_attempt_at']);$expected=$body['expected_last_attempt_at'];

@@ -26,7 +26,10 @@ HEADERS = ('Product Name', 'Clean Product Name', 'Normalized Key',
            'Reference Package Price', 'Reference Unit Price', 'Consumer Unit Price',
            'Package Count', 'Unit Label', 'Volume', 'Weight', 'Set Count', 'Variant',
            'Brand', 'Category', 'Raw Name Details', 'Source Row Number', 'Product Code',
-           'Currency', 'Source', 'Source URL', 'Last Updated')
+           'Currency', 'Source', 'Source URL', 'Last Updated',
+           'Reference Supply Pack Price', 'Reference Supply Unit Price',
+           'Reference Regular Pack Price', 'Reference Regular Unit Price',
+           'Reference Price Anomaly')
 LEGACY_PDF_HEADERS = tuple('PDF Row Number' if header == 'Source Row Number' else header
                            for header in HEADERS)
 DIGITS = str.maketrans('۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩', '01234567890123456789')
@@ -124,7 +127,35 @@ def _woocommerce_attribute_values(product):
     return result
 
 
-def _woocommerce_toman_price(prices):
+def _woocommerce_price_value(raw, minor, currency):
+    """Soft price conversion: None for a missing, empty or malformed value."""
+    if isinstance(raw, bool) or raw in (None, ''):
+        return None
+    try:
+        value = Decimal(str(raw))
+    except (InvalidOperation, ValueError):
+        return None
+    if not value.is_finite() or value <= 0:
+        return None
+    value /= Decimal(10) ** minor
+    if currency == 'IRR':
+        value /= Decimal(10)
+    toman = int(value.quantize(Decimal('1'), rounding=ROUND_HALF_UP))
+    return toman if toman >= 1 else None
+
+
+def _woocommerce_price_model(prices):
+    """Two-price model for the Rezvan Store API ``prices`` object.
+
+    ``price`` is the effective price and still fails hard when missing or
+    invalid. ``regular_price``/``sale_price`` fail soft (None) when absent
+    or malformed. On sale (sale < regular and price == sale) the supply
+    price is the sale price and the regular price is the regular price;
+    otherwise the supply price is ``price`` and the API regular price is
+    None. A genuine sale the effective price does not reflect, or a sale
+    price at/above regular, is flagged for review instead of silently
+    picking a value. A sale equal to regular is no sale.
+    """
     if not isinstance(prices, dict):
         raise ImportFailure('WooCommerce price is missing', code='woocommerce_prices_missing')
     currency = str(prices.get('currency_code') or '').strip().upper()
@@ -136,19 +167,37 @@ def _woocommerce_toman_price(prices):
     raw = prices.get('price')
     if isinstance(raw, bool) or raw in (None, ''):
         raise ImportFailure('WooCommerce price is missing', code='woocommerce_prices_missing')
-    try:
-        value = Decimal(str(raw))
-    except (InvalidOperation, ValueError):
-        raise ImportFailure('WooCommerce price is invalid', code='woocommerce_price_invalid') from None
-    if not value.is_finite() or value <= 0:
+    price = _woocommerce_price_value(raw, minor, currency)
+    if price is None:
         raise ImportFailure('WooCommerce price is invalid', code='woocommerce_price_invalid')
-    value /= Decimal(10) ** minor
-    if currency == 'IRR':
-        value /= Decimal(10)
-    toman = int(value.quantize(Decimal('1'), rounding=ROUND_HALF_UP))
-    if toman <= 0:
-        raise ImportFailure('WooCommerce price is below one toman', code='woocommerce_price_invalid')
-    return toman, currency
+    regular_raw = prices.get('regular_price')
+    sale_raw = prices.get('sale_price')
+    regular = _woocommerce_price_value(regular_raw, minor, currency)
+    sale = _woocommerce_price_value(sale_raw, minor, currency)
+    regular_malformed = regular_raw not in (None, '') and regular is None
+    sale_malformed = sale_raw not in (None, '') and sale is None
+    anomaly = ''
+    if regular is not None and sale is not None:
+        if sale < regular:
+            if price != sale:
+                anomaly = 'price_mismatch'
+        elif sale > regular:
+            anomaly = 'sale_not_below_regular'
+    elif sale is not None:
+        if price != sale:
+            anomaly = 'price_mismatch'
+    elif regular is not None:
+        if price != regular:
+            anomaly = 'price_mismatch'
+    on_sale = not anomaly and regular is not None and sale is not None and sale < regular
+    return {'price': price, 'currency': currency, 'supply_pack': price,
+            'regular_pack': regular if on_sale else None, 'anomaly': anomaly,
+            'regular_malformed': regular_malformed, 'sale_malformed': sale_malformed}
+
+
+def _woocommerce_toman_price(prices):
+    model = _woocommerce_price_model(prices)
+    return model['price'], model['currency']
 
 
 def _woocommerce_row(product, row_number, timestamp):
@@ -169,10 +218,13 @@ def _woocommerce_row(product, row_number, timestamp):
     if sku is None or isinstance(sku, (dict, list, bool)):
         raise ImportFailure('WooCommerce SKU is invalid', code='woocommerce_sku_invalid')
     code = str(sku).strip() or f'woo-{product_id}'
-    package_price, currency = _woocommerce_toman_price(product.get('prices'))
+    model = _woocommerce_price_model(product.get('prices'))
+    package_price, currency = model['price'], model['currency']
     package_count = title_package_count(raw_name) or 0
     set_count = title_set_count(raw_name) or 0
     unit_price = ((package_price + package_count // 2) // package_count) if package_count else ''
+    regular_pack = model['regular_pack']
+    regular_unit = ((regular_pack + package_count // 2) // package_count) if regular_pack is not None and package_count else ''
     retail = re.findall(r'[（(]\s*(\d{1,4})\s*ف\s*[）)]', raw_name.translate(DIGITS))
     consumer_price = int(retail[-1]) * 1000 if retail else ''
     categories = product.get('categories') or []
@@ -189,13 +241,15 @@ def _woocommerce_row(product, row_number, timestamp):
             _title_measurements(raw_name, volume=True),
             _title_measurements(raw_name, volume=False), set_count or '',
             attributes['variant'], attributes['brand'], ' / '.join(category_names),
-            '', str(row_number), code, 'TOMAN', SOURCE_NAME, SOURCE_URL, timestamp]
+            '', str(row_number), code, 'TOMAN', SOURCE_NAME, SOURCE_URL, timestamp,
+            model['supply_pack'], unit_price, regular_pack if regular_pack is not None else '',
+            regular_unit, model['anomaly']]
 
 
 def _build_woocommerce_candidate(products, page_count, source_currency, timestamp, *, include_rows=True):
     rows = ([_woocommerce_row(product, index, timestamp)
              for index, product in enumerate(products, 1)] if include_rows else [])
-    return {'schema_version': 1, 'status': 'staged', 'requires_review': True,
+    return {'schema_version': 2, 'status': 'staged', 'requires_review': True,
             'source_type': SOURCE_TYPE, 'source_url': SOURCE_URL,
             'source_currency': source_currency, 'source_total': len(products),
             'source_page_count': page_count, 'processed_page_count': page_count,
@@ -458,7 +512,10 @@ def parse_rows(ai_text, timestamp, *, allow_empty=False):
                   unit_label, *(text_value(k) for k in ('volume', 'weight')),
                   set_count or '', *(text_value(k) for k in ('variant', 'brand', 'category',
                   )), raw_details, row_number, code, 'TOMAN',
-                  LEGACY_PDF_SOURCE_NAME, PDF_SOURCE_URL, timestamp]
+                  LEGACY_PDF_SOURCE_NAME, PDF_SOURCE_URL, timestamp,
+                  # The PDF carries one price only: it is the supply price,
+                  # and there is no API regular price or anomaly to record.
+                  package, unit or '', '', '', '']
         if any(isinstance(v, (dict, list, bool)) for v in values):
             raise ImportFailure('Invalid structured column value', code='extraction_field_invalid')
         rows.append(values)

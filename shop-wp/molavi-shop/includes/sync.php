@@ -334,7 +334,7 @@ function molavi_clean_product(array $row): ?array
         'reference_price_role' => in_array(($row['reference_price_role'] ?? ''), ['unit','package'], true)
             ? (string) $row['reference_price_role'] : '',
         'reference_approval_state' => in_array(($row['reference_approval_state'] ?? ''),
-            ['owner_approved','approved_compatible','approved_within_margin','outside_margin','reference_missing','price_unavailable','needs_review'], true)
+            ['owner_approved','approved_compatible','approved_within_margin','approved_auto_adopted','outside_margin','reference_missing','price_unavailable','needs_review'], true)
             ? (string) $row['reference_approval_state'] : '',
         'reference_price_change_percent' => max(0, min(100000, (float) ($row['reference_price_change_percent'] ?? 0))),
         'reference_price_checked_at' => is_string($row['reference_price_checked_at'] ?? null)

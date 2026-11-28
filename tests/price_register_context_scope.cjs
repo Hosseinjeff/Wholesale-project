@@ -236,7 +236,7 @@ async function run() {
     check('(a) helper body has no contextStored reference',
         (helperSrc.match(/contextStored/g) || []).length, 0);
     check('(a) helper signature takes the store flag as 5th parameter',
-        helperSrc.startsWith('    function workbenchPriceRegisterSection(product, offer, container, verify, reviewStoreAvailable)'), true);
+        helperSrc.startsWith('    function workbenchPriceRegisterSection(product, offer, container, verify, reviewStoreAvailable, options = {})'), true);
     checkSource('(a) supplier-tab call site passes the store flag',
         src, 'workbenchPriceRegisterSection(product, offer, section, verify, reviewStoreAvailable)');
     checkSource('(a) model export passes the store flag',
