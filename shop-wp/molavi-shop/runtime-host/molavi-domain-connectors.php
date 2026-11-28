@@ -18,13 +18,14 @@ function molavi_domain_config():array {
 /** The staging exception applies only while this exact native request is running. */
 function molavi_domain_http(string $method,string $url,array $args=[]):array {
     $host=strtolower((string)wp_parse_url($url,PHP_URL_HOST));$path=(string)wp_parse_url($url,PHP_URL_PATH);
+    $bridgeHost=strtolower((string)wp_parse_url(defined('MOLAVI_REFERENCE_SERVER_URL')?(string)MOLAVI_REFERENCE_SERVER_URL:'',PHP_URL_HOST));
     $allowed=wp_parse_url($url,PHP_URL_SCHEME)==='https'&&(
         ($host==='oauth2.googleapis.com'&&$path==='/token'&&$method==='POST')
         ||($host==='sheets.googleapis.com'&&str_starts_with($path,'/v4/spreadsheets/'))
         ||($url==='https://api.tavily.com/search'&&$method==='POST')
         ||($url==='https://openapi.basalam.com/v1/products/search'&&$method==='POST')
         ||($host==='openapi.basalam.com'&&$method==='GET'&&preg_match('~^/v1/products/[1-9][0-9]{0,11}$~D',$path))
-        ||($host==='wholesale-project-staging-staging.up.railway.app'&&$method==='GET'&&str_starts_with($path,'/media/file/'))
+        ||($bridgeHost!==''&&$host===$bridgeHost&&$method==='GET'&&str_starts_with($path,'/media/file/'))
         ||($host==='wholesale-project-production.up.railway.app'&&$method==='GET'&&str_starts_with($path,'/media/file/'))
         // Supplier link checks (round eight): re-read a supplier's public
         // Telegram post live. Channel page or single post only; no other

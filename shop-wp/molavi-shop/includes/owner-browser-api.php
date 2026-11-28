@@ -81,18 +81,19 @@ function molavi_owner_workflow_proxy_call(string $method, string $path, array $q
         $args['body'] = $body;
     }
     // The staging safety MU-plugin blocks cross-host requests. Temporarily allow
-    // only this owner proxy's HTTPS calls to the staging Railway host and route allowlist.
+    // only this owner proxy's HTTPS calls to the configured bridge host and route allowlist.
     $stagingWorkflowHttpException = static function ($pre, $parsedArgs, $requestUrl) use ($method) {
         if (!is_wp_error($pre) || $pre->get_error_code() !== 'molavi_staging_external_blocked') {
             return $pre;
         }
         $homeHost = strtolower((string) wp_parse_url(home_url('/'), PHP_URL_HOST));
         $requestHost = strtolower((string) wp_parse_url((string) $requestUrl, PHP_URL_HOST));
+        $bridgeHost = strtolower((string) wp_parse_url(defined('MOLAVI_REFERENCE_SERVER_URL') ? (string) MOLAVI_REFERENCE_SERVER_URL : '', PHP_URL_HOST));
         $requestScheme = strtolower((string) wp_parse_url((string) $requestUrl, PHP_URL_SCHEME));
         $requestPath = (string) wp_parse_url((string) $requestUrl, PHP_URL_PATH);
         $requestMethod = strtoupper((string) (($parsedArgs['method'] ?? '')));
         if ($homeHost === 'staging.molavisale.ir'
-            && $requestHost === 'wholesale-project-staging-staging.up.railway.app'
+            && $bridgeHost !== '' && $requestHost === $bridgeHost
             && $requestScheme === 'https'
             && $requestMethod === $method
             && in_array($requestPath, molavi_owner_workflow_proxy_paths(), true)) {
